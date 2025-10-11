@@ -1,11 +1,17 @@
 use crate::error::FeedError;
 use crate::events::AnswerPublished;
-use crate::state::{
-    Answer, Feed, NodeRegistry, MAX_HISTORY
-};
+use crate::state::{Answer, Feed, Node, MAX_HISTORY};
 use crate::utils::{parse_ed25519_instruction, pricing::*};
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{ed25519_program, sysvar};
+
+/// Maximum number of Node PDAs that can be passed as remaining accounts
+/// Constrained by:
+/// - Solana tx account limit (64 total)
+/// - Compute unit budget (200k-1.4M CU)
+/// - Transaction size limit (~1232 bytes)
+/// Practical safe limit considering all constraints
+const MAX_NODES_PER_PUBLISH: usize = 25;
 
 pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()> {
     let feed = &mut ctx.accounts.feed;
@@ -26,22 +32,49 @@ pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()>
         FeedError::FutureTimestamp
     );
 
-    // Calculate actual priority fee paid
-    let estimated_compute_units = estimate_compute_units(
-        ctx.accounts.node_registry.nodes.len() as u32,
-        feed.answer_history.len() as u32,
+    // Build a set of registered node pubkeys from remaining accounts
+    let mut registered_nodes = Vec::new();
+    let remaining = ctx.remaining_accounts;
+    
+    // Enforce maximum nodes limit to prevent exceeding transaction constraints
+    require!(
+        remaining.len() <= MAX_NODES_PER_PUBLISH,
+        FeedError::TooManyNodes
     );
     
+    for i in 0..remaining.len() {
+        let account_info = &remaining[i];
+        // Try to deserialize as Node account
+        if account_info.owner == ctx.program_id {
+            if let Ok(data) = account_info.try_borrow_data() {
+                // Skip the 8-byte discriminator
+                if data.len() > 8 {
+                    if let Ok(node) = Node::try_deserialize(&mut &data[..]) {
+                        // Verify the PDA derivation
+                        let (expected_pda, _bump) = Pubkey::find_program_address(
+                            &[Node::SEED_PREFIX, node.node_pubkey.as_ref()],
+                            ctx.program_id,
+                        );
+                        
+                        if account_info.key == &expected_pda {
+                            registered_nodes.push(node.node_pubkey);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Calculate actual priority fee paid (use provided nodes count)
+    let estimated_compute_units = estimate_compute_units(
+        registered_nodes.len() as u32,
+        feed.answer_history.len() as u32,
+    );
+
     let priority_fee = calculate_priority_fee_from_instructions(
         &ctx.accounts.instructions,
         estimated_compute_units,
     )?;
-
-    // Check priority fee budgetAS
-    require!(
-        feed.has_priority_fee_budget(priority_fee),
-        FeedError::InsufficientPriorityFeeBudget
-    );
 
     // Validate signatures from registered nodes
     let instructions_sysvar = &ctx.accounts.instructions;
@@ -58,7 +91,7 @@ pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()>
         if instruction.program_id == ed25519_program::ID {
             if let Ok((signer_pubkey, signed_message)) = parse_ed25519_instruction(&instruction) {
                 if signed_message == message
-                    && ctx.accounts.node_registry.nodes.contains(&signer_pubkey)
+                    && registered_nodes.contains(&signer_pubkey)
                     && !unique_valid_signers.contains(&signer_pubkey)
                 {
                     unique_valid_signers.push(signer_pubkey);
@@ -71,15 +104,6 @@ pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()>
         unique_valid_signers.len() >= feed.min_signatures_threshold as usize,
         FeedError::NotEnoughSignatures
     );
-
-    // Deduct from feed balance
-    require!(
-        feed.balance >= priority_fee,
-        FeedError::InsufficientBalance
-    );
-    
-    feed.balance -= priority_fee;
-    feed.consumed_priority_fees += priority_fee;
 
     feed.latest_answer = answer;
 
@@ -116,26 +140,22 @@ pub struct PublishAnswer<'info> {
         mut,
         constraint = feed.is_subscription_active(Clock::get()?.unix_timestamp) @ FeedError::SubscriptionExpired,
         seeds = [
-            Feed::SEED_PREFIX, 
-            feed.authority.as_ref(), 
-            feed.name.as_bytes().as_ref(), 
-            feed.feed_type.to_seed().as_ref(), 
-            feed.min_signatures_threshold.to_le_bytes().as_ref(), 
-            feed.frequency.to_le_bytes().as_ref(), 
+            Feed::SEED_PREFIX,
+            feed.authority.as_ref(),
+            feed.name.as_bytes().as_ref(),
+            feed.feed_type.to_seed().as_ref(),
+            feed.min_signatures_threshold.to_le_bytes().as_ref(),
+            feed.frequency.to_le_bytes().as_ref(),
             feed.job_id.as_ref()
         ],
         bump = feed.bump
     )]
     pub feed: Account<'info, Feed>,
 
-    #[account(
-        mut,
-        seeds = [NodeRegistry::SEED_PREFIX],
-        bump
-    )]
-    pub node_registry: Account<'info, NodeRegistry>,
-
     /// CHECK: This is safe. We only read the instructions sysvar for validation.
     #[account(address = sysvar::instructions::ID)]
     pub instructions: UncheckedAccount<'info>,
+
+    // Note: Node PDAs should be passed as remaining_accounts
+    // Each node PDA should have seeds = [Node::SEED_PREFIX, node_pubkey]
 }

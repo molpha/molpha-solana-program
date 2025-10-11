@@ -1,21 +1,18 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token_interface::{Mint, TokenAccount, TokenInterface, TransferChecked, transfer_checked},
+    token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked},
 };
 
 use crate::error::FeedError;
-use crate::events::{FeedCreated};
-use crate::state::{
-    DataSource, DataSourceType, Feed, FeedType, ProtocolConfig, MAX_HISTORY,
-};
+use crate::events::FeedCreated;
+use crate::state::{DataSource, DataSourceType, Feed, FeedType, ProtocolConfig, MAX_HISTORY};
 use crate::utils::pricing::*;
 
 pub fn create_feed(
     ctx: Context<CreateFeed>,
     params: CreateFeedParams,
     subscription_duration_seconds: u64,
-    priority_fee_budget: u64,
 ) -> Result<()> {
     require!(
         params.min_signatures_threshold > 0,
@@ -30,7 +27,7 @@ pub fn create_feed(
     let data_source = &ctx.accounts.data_source;
     if data_source.data_source_type == DataSourceType::Private {
         require!(
-            data_source.owner == ctx.accounts.authority.key(),
+            data_source.authority == ctx.accounts.authority.key(),
             FeedError::InvalidDataSource
         );
     }
@@ -56,15 +53,12 @@ pub fn create_feed(
     let price_per_second_scaled = calculate_price_per_second_scaled(feed, config)?;
 
     // Calculate total subscription cost
-    let base_subscription_cost =
+    let subscription_cost =
         (price_per_second_scaled * subscription_duration_seconds) / ProtocolConfig::SCALAR;
-    let total_cost = base_subscription_cost + priority_fee_budget;
 
     // Initialize subscription data
     feed.subscription_due_time = now + subscription_duration_seconds as i64;
     feed.price_per_second_scaled = price_per_second_scaled;
-    feed.priority_fee_allowance = priority_fee_budget;
-    feed.consumed_priority_fees = 0;
 
     // Transfer tokens from user to program token account
     let decimals = ctx.accounts.underlying_token.decimals;
@@ -76,12 +70,10 @@ pub fn create_feed(
     };
     let cpi_program = ctx.accounts.token_program.to_account_info();
     let cpi_context = CpiContext::new(cpi_program, cpi_accounts);
-    transfer_checked(cpi_context, total_cost, decimals)?;
-
-    feed.balance = total_cost;
+    transfer_checked(cpi_context, subscription_cost, decimals)?;
 
     emit!(FeedCreated {
-        id: feed.job_id,
+        key: feed.key(),
         authority: feed.authority,
         feed_type: feed.feed_type,
         min_signatures_threshold: feed.min_signatures_threshold,
@@ -90,24 +82,14 @@ pub fn create_feed(
         data_source: feed.data_source,
         created_at: now,
         subscription_due_time: feed.subscription_due_time,
-        base_cost: base_subscription_cost,
-        priority_budget: priority_fee_budget,
-        total_cost,
+        total_cost: subscription_cost,
     });
-
-    msg!(
-        "Feed created with subscription. Duration: {}s, Base cost: {}, Priority budget: {}, Total: {}",
-        subscription_duration_seconds,
-        base_subscription_cost,
-        priority_fee_budget,
-        total_cost
-    );
 
     Ok(())
 }
 
 #[derive(Accounts)]
-#[instruction(params: CreateFeedParams, subscription_duration_seconds: u64, priority_fee_budget: u64)]
+#[instruction(params: CreateFeedParams, subscription_duration_seconds: u64)]
 pub struct CreateFeed<'info> {
     #[account(
         init,
@@ -130,7 +112,7 @@ pub struct CreateFeed<'info> {
     #[account(
         seeds = [
             DataSource::SEED_PREFIX,
-            &data_source.owner.as_ref(),
+            &data_source.authority.as_ref(),
             &data_source.name.as_bytes(),
             data_source.data_source_type.to_seed(),
             ],
@@ -146,7 +128,7 @@ pub struct CreateFeed<'info> {
         bump,
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
-    
+
     /// User's associated token account to transfer tokens from
     #[account(
         mut,
@@ -154,7 +136,7 @@ pub struct CreateFeed<'info> {
         associated_token::authority = authority,
     )]
     pub user_token_account: InterfaceAccount<'info, TokenAccount>,
-    
+
     /// Program's associated token account to receive tokens
     #[account(
         mut,
@@ -162,10 +144,10 @@ pub struct CreateFeed<'info> {
         associated_token::authority = protocol_config,
     )]
     pub program_token_account: InterfaceAccount<'info, TokenAccount>,
-    
+
     /// The underlying token mint
     pub underlying_token: InterfaceAccount<'info, Mint>,
-    
+
     pub system_program: Program<'info, System>,
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,

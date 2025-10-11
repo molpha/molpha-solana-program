@@ -14,6 +14,8 @@ pub enum NodeRegistryError {
     NotEnoughSignatures,
     #[msg("Failed to parse Ed25519 instruction.")]
     InvalidEd25519Instruction,
+    #[msg("Insufficient security deposit.")]
+    InsufficientSecurityDeposit,
 }
 
 #[error_code]
@@ -44,6 +46,8 @@ pub enum FeedError {
     MinimumExtensionTime,
     #[msg("Insufficient priority fee budget.")]
     InsufficientPriorityFeeBudget,
+    #[msg("Too many nodes provided. Maximum is 25 nodes per transaction.")]
+    TooManyNodes,
 }
 
 #[error_code]

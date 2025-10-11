@@ -13,7 +13,6 @@ pub struct Feed {
     pub feed_type: FeedType,
     pub job_id: [u8; 32],
     pub data_source: Pubkey,
-    pub balance: u64,
     pub min_signatures_threshold: u8,
     pub frequency: u64,
     #[max_len(60)]
@@ -22,12 +21,10 @@ pub struct Feed {
     #[max_len(MAX_HISTORY)]
     pub answer_history: Vec<Answer>,
     pub history_idx: u64,
-    
+
     // Integrated subscription data (like SubscriptionRegistry)
     pub subscription_due_time: i64,
     pub price_per_second_scaled: u64,
-    pub priority_fee_allowance: u64,
-    pub consumed_priority_fees: u64,
     pub created_at: i64,
     pub bump: u8,
 }
@@ -35,15 +32,11 @@ pub struct Feed {
 impl Feed {
     pub const SEED_PREFIX: &'static [u8] = b"feed";
     pub const SPACE: usize = 8 + Feed::INIT_SPACE;
-    
+
     pub fn is_subscription_active(&self, current_time: i64) -> bool {
         self.subscription_due_time > current_time
     }
-    
-    pub fn has_priority_fee_budget(&self, required_fee: u64) -> bool {
-        self.consumed_priority_fees + required_fee <= self.priority_fee_allowance
-    }
-    
+
     pub fn remaining_subscription_time(&self, current_time: i64) -> i64 {
         if self.subscription_due_time > current_time {
             self.subscription_due_time - current_time

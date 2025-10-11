@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use anchor_lang::prelude::*;
 
 pub mod error;
@@ -9,23 +11,20 @@ pub mod utils;
 use instructions::*;
 use state::*;
 
-declare_id!("2byMSUvpsSHp3xw7M4QNm2y4PLbfmUELNJrj2qwWPyLM");
+declare_id!("72vzGSKhPohoatawLW2W8mugeWbZRCdPZ3M4dVNDvkRz");
 
 #[program]
 pub mod molpha {
     use super::*;
 
-    // Node registry and protocol initialization
+    // Protocol initialization
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         instructions::initialize(ctx)
     }
 
-    pub fn add_node(ctx: Context<AddNode>, node_pubkey: Pubkey) -> Result<()> {
-        instructions::add_node(ctx, node_pubkey)
-    }
-
-    pub fn remove_node(ctx: Context<RemoveNode>, node_pubkey: Pubkey) -> Result<()> {
-        instructions::remove_node(ctx, node_pubkey)
+    // Node management
+    pub fn register_node(ctx: Context<RegisterNode>, node_pubkey: Pubkey, evm_pubkey: Vec<u8>) -> Result<()> {
+        instructions::register_node(ctx, node_pubkey, evm_pubkey)
     }
 
     // Feed management functions (from molpha-feed)
@@ -33,17 +32,15 @@ pub mod molpha {
         ctx: Context<CreateFeed>,
         params: CreateFeedParams,
         subscription_duration_seconds: u64,
-        priority_fee_budget: u64,
     ) -> Result<()> {
-        instructions::create_feed(ctx, params, subscription_duration_seconds, priority_fee_budget)
+        instructions::create_feed(ctx, params, subscription_duration_seconds)
     }
 
     pub fn extend_subscription(
         ctx: Context<ExtendSubscription>,
         additional_duration_seconds: u64,
-        additional_priority_fee_budget: u64,
     ) -> Result<()> {
-        instructions::extend_subscription(ctx, additional_duration_seconds, additional_priority_fee_budget)
+        instructions::extend_subscription(ctx, additional_duration_seconds)
     }
 
     pub fn update_feed_config(
@@ -57,15 +54,23 @@ pub mod molpha {
         instructions::publish_answer(ctx, answer)
     }
 
-    pub fn top_up(ctx: Context<TopUp>, amount: u64) -> Result<()> {
-        instructions::top_up(ctx, amount)
+    // Data source management functions
+    pub fn create_data_source(ctx: Context<CreateDataSource>, data: DataSourceInfo) -> Result<()> {
+        instructions::create_data_source(ctx, data)
     }
 
-    // Data source management functions
-    pub fn create_data_source(
-        ctx: Context<CreateDataSource>,
-        data: DataSourceInfo,
+    pub fn update_data_source(
+        ctx: Context<UpdateDataSource>,
+        metadata_hash: [u8; 32],
     ) -> Result<()> {
-        instructions::create_data_source(ctx, data)
+        instructions::update_data_source(ctx, metadata_hash)
+    }
+
+    // Protocol configuration management
+    pub fn update_protocol_config(
+        ctx: Context<UpdateProtocolConfig>,
+        params: UpdateProtocolConfigParams,
+    ) -> Result<()> {
+        instructions::update_protocol_config(ctx, params)
     }
 }

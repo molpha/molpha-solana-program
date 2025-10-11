@@ -31,9 +31,9 @@ This directory contains scripts to deploy, initialize, and configure the Molpha 
 - Starts a local Solana validator
 - Configures Solana CLI for localhost
 - Builds and deploys the oracle programs
-- Initializes NodeRegistry and ProtocolConfig
+- Initializes ProtocolConfig with security deposit requirements
 - Generates 3 test oracle node keypairs
-- Registers test nodes in the NodeRegistry
+- Registers test oracle nodes with security deposits
 - Creates test feeds (public and personal)
 - Sets up subscriptions for personal feeds
 - Builds the Go oracle client
@@ -50,19 +50,21 @@ This directory contains scripts to deploy, initialize, and configure the Molpha 
 ### Node Management Scripts
 
 #### `add-node.js`
-**Single node management script:**
-- Adds a single node to the node registry
-- Includes validation and error handling
+**Single node registration script:**
+- Registers a single oracle node with security deposit
+- Validates token account balances
+- Supports custom EVM public keys
+- Includes comprehensive validation and error handling
 - Provides detailed feedback and verification
 
 #### `manage-nodes.js`
 **Comprehensive node management script:**
-- Add single or multiple nodes
-- Remove nodes from registry
-- List all registered nodes with details
+- Register single or multiple nodes
+- Check protocol status and configuration
 - Get status of specific nodes
 - Generate test keypairs
-- Batch operations from JSON files
+- Batch registration operations from JSON files
+- Handles security deposits and token account creation
 
 #### `nodes` (Shell wrapper)
 **Convenient shell wrapper for node management:**
@@ -74,52 +76,70 @@ This directory contains scripts to deploy, initialize, and configure the Molpha 
 
 #### Quick Start
 ```bash
-# 1. Initialize the protocol (required first step)
-./scripts/nodes init 1000
-
-# 2. Check protocol status
+# 1. Check protocol status (protocol should be initialized by setup-local-env.sh)
 ./scripts/nodes check
 
-# 3. Add nodes to the registry
-./scripts/nodes add 11111111111111111111111111111112
+# 2. Register a node (requires security deposit in underlying token)
+node scripts/add-node.js 11111111111111111111111111111112
 
-# 4. List all registered nodes
-./scripts/nodes list
+# 3. Register with custom EVM pubkey
+node scripts/add-node.js 11111111111111111111111111111112 0x020202...
+
+# 4. Get node status
+node scripts/manage-nodes.js status 11111111111111111111111111111112
 ```
 
-#### Initialization Commands
+#### Protocol Status Commands
 
 ```bash
-# Initialize protocol with default fee (1000 lamports)
-./scripts/nodes init
+# Check protocol configuration and status
+node scripts/manage-nodes.js check
+node scripts/read-protocol-config.js
 
-# Initialize protocol with custom fee
-./scripts/nodes init 2000
-
-# Check if protocol is initialized and view status
-./scripts/nodes check
+# View all registered nodes
+node scripts/read-nodes.js
 ```
 
-#### Node Management Commands
+#### Node Registration Commands
 
 ```bash
-# Add a single node
-./scripts/nodes   11111111111111111111111111111112
+# Register a single node (with default EVM pubkey)
+node scripts/add-node.js 11111111111111111111111111111112
 
-# List all nodes
-./scripts/nodes list
+# Register with custom EVM pubkey (33-byte compressed secp256k1)
+node scripts/add-node.js 11111111111111111111111111111112 0x020202020202020202020202020202020202020202020202020202020202020202
+
+# Using manage-nodes.js
+node scripts/manage-nodes.js register 11111111111111111111111111111112
+node scripts/manage-nodes.js register 11111111111111111111111111111112 0x020202...
 
 # Get node status
-./scripts/nodes status 11111111111111111111111111111112
+node scripts/manage-nodes.js status 11111111111111111111111111111112
 
-# Generate test keypairs
-./scripts/nodes generate-keypairs 5
+# Generate test keypairs for batch registration
+node scripts/manage-nodes.js generate-keypairs 5
 
-# Batch add nodes from file
-./scripts/nodes batch-add sample-nodes.json
+# Batch register nodes from file
+node scripts/manage-nodes.js batch-register sample-nodes.json
+```
 
-# Remove a node
-./scripts/nodes remove 11111111111111111111111111111112
+#### Security Deposit Requirements
+
+```bash
+# Before registering a node, ensure the operator has sufficient tokens
+# The security deposit amount is configured in the protocol config
+
+# 1. Check protocol config for security deposit requirement
+node scripts/read-protocol-config.js
+
+# 2. Check operator's token balance
+node scripts/faucet-cli.js balance -m <TOKEN_MINT> -u <OPERATOR_PUBKEY>
+
+# 3. Request tokens from faucet if needed (on testnet/devnet)
+node scripts/faucet-cli.js request -m <TOKEN_MINT> -u ./operator-keypair.json
+
+# 4. Register node
+node scripts/add-node.js <NODE_PUBKEY>
 ```
 
 #### Environment Setup
@@ -181,10 +201,10 @@ The setup script creates:
    - Personal feed: `BTC-USD-PERSONAL` (min signatures: 2)
 
 4. **Oracle System**
-   - NodeRegistry initialized with authority
-   - ProtocolConfig set to 1000 lamports per update
-   - 3 oracle nodes registered
-   - Personal feed subscription funded with 100,000 lamports
+   - ProtocolConfig initialized with authority and security deposit requirements
+   - Token faucet for test tokens
+   - 3 oracle nodes registered with security deposits
+   - Personal feed subscription funded with tokens
 
 ## Usage Examples
 
@@ -267,6 +287,252 @@ The scripts follow a modular approach:
 7. **Monitoring Tools**: Generate scripts for ongoing monitoring and cleanup
 
 This ensures a complete, reproducible testing environment for the Molpha Oracle system.
+
+---
+
+# Account Reading Scripts
+
+This directory contains comprehensive scripts for reading and monitoring Molpha Oracle program accounts and data.
+
+## Read Scripts Overview
+
+### `read-feeds.js`
+**Comprehensive feed reader with subscription monitoring:**
+- Read all feeds or specific feed by address
+- Display subscription status and remaining time
+- Show answer history and latest data
+- Format pricing and timing information
+
+```bash
+# Read all feeds
+node scripts/read-feeds.js
+
+# Read specific feed
+node scripts/read-feeds.js 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F
+
+# Show help
+node scripts/read-feeds.js --help
+```
+
+### `read-data-sources.js`
+**Data source management and filtering:**
+- Read all data sources or filter by authority/type
+- Display metadata and configuration
+- Support for both public and private data sources
+
+```bash
+# Read all data sources
+node scripts/read-data-sources.js
+
+# Read by authority
+node scripts/read-data-sources.js authority 9K9FknHzW7j8a88yKTrzxKfDrxnV2QLqSR58ETAVdc8P
+
+# Read by type
+node scripts/read-data-sources.js type public
+node scripts/read-data-sources.js type private
+
+# Read specific data source
+node scripts/read-data-sources.js address 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F
+```
+
+### `read-protocol-config.js`
+**Protocol configuration and pricing analysis:**
+- Display all protocol parameters
+- Show pricing coefficients and calculations
+- Example pricing scenarios for different feed types
+- Program token account balance
+
+```bash
+# Read protocol configuration
+node scripts/read-protocol-config.js
+
+# Show help
+node scripts/read-protocol-config.js --help
+```
+
+### `update-protocol-config.js`
+**Protocol configuration management:**
+- Update underlying token mint
+- Modify pricing parameters (base price, coefficients)
+- Update reward percentages
+- Comprehensive parameter validation and formatting
+
+```bash
+# Update base price to 0.001 tokens per second
+node scripts/update-protocol-config.js --base-price 0.001
+
+# Update frequency coefficient to 5%
+node scripts/update-protocol-config.js --frequency-coefficient 5%
+
+# Update multiple parameters
+node scripts/update-protocol-config.js --base-price 0.002 --frequency-coefficient 10% --signers-coefficient 15%
+
+# Update underlying token
+node scripts/update-protocol-config.js --underlying-token EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+
+# Show help
+node scripts/update-protocol-config.js --help
+```
+
+### `read-nodes.js`
+**Node registry and status monitoring:**
+- List all registered oracle nodes
+- Check node balances and status
+- Verify specific node registration
+
+```bash
+# Read all nodes
+node scripts/read-nodes.js
+
+# Check specific node
+node scripts/read-nodes.js 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F
+
+# Show help
+node scripts/read-nodes.js --help
+```
+
+### `read-subscriptions.js`
+**Subscription monitoring and management:**
+- View all active and expired subscriptions
+- Filter by authority or expiring time
+- Revenue statistics and analytics
+- Renewal alerts for expiring subscriptions
+
+```bash
+# Read all subscriptions
+node scripts/read-subscriptions.js
+
+# Read by authority
+node scripts/read-subscriptions.js authority 9K9FknHzW7j8a88yKTrzxKfDrxnV2QLqSR58ETAVdc8P
+
+# Read expiring subscriptions
+node scripts/read-subscriptions.js expiring 24  # Within 24 hours
+node scripts/read-subscriptions.js expiring 48  # Within 48 hours
+
+# Show help
+node scripts/read-subscriptions.js --help
+```
+
+### `read-accounts.js`
+**Universal account reader:**
+- Read any account type (feed, dataSource, protocolConfig, nodeRegistry)
+- JSON-formatted output for programmatic use
+- Summary view of all program accounts
+
+```bash
+# Read all accounts summary
+node scripts/read-accounts.js
+
+# Read specific account
+node scripts/read-accounts.js feed 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F
+node scripts/read-accounts.js dataSource 9K9FknHzW7j8a88yKTrzxKfDrxnV2QLqSR58ETAVdc8P
+node scripts/read-accounts.js protocolConfig <CONFIG_ADDRESS>
+node scripts/read-accounts.js nodeRegistry <REGISTRY_ADDRESS>
+
+# Show help
+node scripts/read-accounts.js --help
+```
+
+## Read Scripts Features
+
+### 🔍 **Comprehensive Data Display**
+- Formatted output with emojis and colors
+- Human-readable timestamps and amounts
+- Subscription status indicators
+- Balance and status monitoring
+
+### 📊 **Analytics and Statistics**
+- Revenue calculations
+- Subscription analytics
+- Pricing scenario examples
+- Node status monitoring
+
+### 🎯 **Flexible Filtering**
+- Filter by authority, type, or status
+- Time-based filtering (expiring subscriptions)
+- Specific account reading
+- Batch operations
+
+### 🔧 **Developer-Friendly**
+- JSON output for programmatic use
+- Detailed error messages
+- Help documentation for each script
+- Consistent command-line interface
+
+## Usage Examples
+
+### Monitor System Health
+```bash
+# Check overall system status
+node scripts/read-accounts.js
+
+# Check node health
+node scripts/read-nodes.js
+
+# Check protocol configuration
+node scripts/read-protocol-config.js
+```
+
+### Monitor Subscriptions
+```bash
+# Check all subscriptions
+node scripts/read-subscriptions.js
+
+# Check for expiring subscriptions
+node scripts/read-subscriptions.js expiring 24
+
+# Check specific user's subscriptions
+node scripts/read-subscriptions.js authority <USER_ADDRESS>
+```
+
+### Debug and Development
+```bash
+# Read specific feed details
+node scripts/read-feeds.js <FEED_ADDRESS>
+
+# Check data source configuration
+node scripts/read-data-sources.js address <DATA_SOURCE_ADDRESS>
+
+# Get raw account data
+node scripts/read-accounts.js feed <FEED_ADDRESS>
+```
+
+## Integration with Other Scripts
+
+The read scripts work seamlessly with other Molpha scripts:
+
+1. **After Setup**: Use read scripts to verify initialization
+2. **During Development**: Monitor account states during testing
+3. **Production Monitoring**: Regular health checks and analytics
+4. **Debugging**: Detailed account inspection for troubleshooting
+
+### Example Workflow
+```bash
+# 1. Initialize protocol (typically done by setup-local-env.sh)
+node scripts/initialize.js <TOKEN_MINT>
+
+# 2. Verify initialization
+node scripts/read-protocol-config.js
+
+# 3. Ensure operator has tokens for security deposit
+node scripts/faucet-cli.js request -m <TOKEN_MINT> -u ./operator-keypair.json
+
+# 4. Register nodes with security deposits
+node scripts/add-node.js <NODE_PUBKEY>
+# Or with custom EVM pubkey:
+node scripts/add-node.js <NODE_PUBKEY> 0x020202...
+
+# 5. Verify node registration
+node scripts/read-nodes.js
+node scripts/manage-nodes.js status <NODE_PUBKEY>
+
+# 6. Create feeds (using other scripts)
+node scripts/create-feed.js --name "BTC-USD" --min-signatures 1
+
+# 7. Monitor feeds and subscriptions
+node scripts/read-feeds.js
+node scripts/read-subscriptions.js
+```
 
 ---
 

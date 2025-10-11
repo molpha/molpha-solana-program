@@ -1,9 +1,8 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program, BN, AnchorError, Wallet } from "@coral-xyz/anchor";
 import { Molpha } from "../target/types/molpha";
-import { ethers } from "ethers";
 import { Keypair, SystemProgram, PublicKey } from "@solana/web3.js";
-import { 
+import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -88,13 +87,13 @@ export async function getProvider() {
 
   // Create mock token accounts with fixed addresses for testing
   const mockTokenMint = new PublicKey("11111111111111111111111111111112");
-  
+
   // Calculate the protocol config PDA to derive the correct ATA addresses
   const [protocolConfigPDA] = PublicKey.findProgramAddressSync(
     [Buffer.from("config")],
     new PublicKey("EwkRYuQXEAfiZ3aKs6Dfoi1r6FKch4voNQEKQkRvniW1") // Program ID
   );
-  
+
   const userTokenAccount = getAssociatedTokenAddressSync(
     mockTokenMint,
     wallet.publicKey
@@ -257,11 +256,10 @@ export async function setupTestContext(): Promise<TestContext> {
 
 export async function initializeProtocol(ctx: TestContext): Promise<void> {
   try {
-    // Initialize both node registry and protocol config in a single call
+    // Initialize protocol config
     await ctx.molphaProgram.methods
       .initialize()
       .accountsPartial({
-        nodeRegistry: ctx.nodeRegistryPDA,
         protocolConfig: ctx.protocolConfigPDA,
         underlyingToken: ctx.underlyingTokenMint,
         programTokenAccount: ctx.programTokenAccount,
@@ -271,20 +269,82 @@ export async function initializeProtocol(ctx: TestContext): Promise<void> {
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       })
       .rpc();
+
+    // Set a default security deposit of 1000 tokens (1000 * 10^6 = 1000000000 with 6 decimals)
+    await ctx.molphaProgram.methods
+      .updateProtocolConfig({
+        underlyingToken: null,
+        basePricePerSecondScaled: null,
+        frequencyCoefficient: null,
+        signersCoefficient: null,
+        rewardPercentage: null,
+        nodeSecurityDeposit: new BN(1000000000), // 1000 tokens
+      })
+      .accountsPartial({
+        protocolConfig: ctx.protocolConfigPDA,
+        authority: ctx.authority.publicKey,
+      })
+      .rpc();
   } catch (e) {
     // Ignore if already initialized
-    console.log("Protocol initialization error (may be already initialized):", e);
+    console.log(
+      "Protocol initialization error (may be already initialized):",
+      e
+    );
   }
+}
+
+// Helper function to register a node with security deposit
+export async function registerNodeWithDeposit(
+  ctx: TestContext,
+  nodePubkey: PublicKey,
+  evmPubkey: Buffer
+): Promise<PublicKey> {
+  const [nodePDA] = PublicKey.findProgramAddressSync(
+    [Buffer.from("node"), nodePubkey.toBuffer()],
+    ctx.molphaProgram.programId
+  );
+
+  // Get the ATA for the node's security deposit
+  const nodeSecurityDepositAccount = getAssociatedTokenAddressSync(
+    ctx.underlyingTokenMint,
+    nodePDA,
+    true // allowOwnerOffCurve - since nodePDA is a PDA
+  );
+
+  await ctx.molphaProgram.methods
+    .registerNode(nodePubkey, evmPubkey)
+    .accountsPartial({
+      node: nodePDA,
+      protocolConfig: ctx.protocolConfigPDA,
+      underlyingToken: ctx.underlyingTokenMint,
+      nodeOperatorTokenAccount: ctx.userTokenAccount,
+      nodeSecurityDepositAccount: nodeSecurityDepositAccount,
+      authority: ctx.authority.publicKey,
+      systemProgram: SystemProgram.programId,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+    })
+    .rpc();
+
+  return nodePDA;
 }
 
 // Helper function to create feed parameters
 export function createFeedParams(
   jobId: string,
-  feedType: { public: {} } | { personal: {} },
+  feedType: { public: {} } | { personal: {} }
 ) {
+  // Convert hex string to byte array properly and pad to 32 bytes
+  const hexString = jobId.startsWith("0x") ? jobId.slice(2) : jobId;
+
+  // Pad to 32 bytes (64 hex characters) if needed
+  const paddedHexString = hexString.padStart(64, "0");
+  const paddedJobIdBytes = Array.from(Buffer.from(paddedHexString, "hex"));
+
   return {
-    name: jobId,
-    jobId: Array.from(Buffer.from(jobId.padEnd(32, "\0"))),
+    name: jobId.slice(0, 32), // Truncate name to 32 characters for PDA generation
+    jobId: paddedJobIdBytes,
     feedType: feedType,
     minSignaturesThreshold: 2,
     frequency: new anchor.BN(300), // 5 minutes as BN
@@ -292,30 +352,32 @@ export function createFeedParams(
   };
 }
 
-export function createTestDataSourceInfo(
-  dataSourceType: number,
-  source: string,
-  name: string,
-) {
-
+export function createTestDataSourceInfo(dataSourceType: number, name: string) {
+  const metadataHash = new Uint8Array(32);
+  metadataHash.fill(1);
   // Use proper discriminated union format for the enum
   const dataSourceTypeEnum =
     dataSourceType === 1 ? { private: {} } : { public: {} };
 
   return {
     dataSourceType: dataSourceTypeEnum,
-    source: source,
+    metadataHash: Array.from(metadataHash),
     name: name,
   };
 }
 
-export function getDataSourcePda(programId: PublicKey, authority: PublicKey, name: string, dataSourceType: number) {
+export function getDataSourcePda(
+  programId: PublicKey,
+  authority: PublicKey,
+  name: string,
+  dataSourceType: number
+) {
   return PublicKey.findProgramAddressSync(
     [
-      Buffer.from("data_source"), 
-      authority.toBuffer(), 
-      Buffer.from(name), 
-      Buffer.from([dataSourceType]), 
+      Buffer.from("data_source"),
+      authority.toBuffer(),
+      Buffer.from(name),
+      Buffer.from([dataSourceType]),
     ],
     programId
   );

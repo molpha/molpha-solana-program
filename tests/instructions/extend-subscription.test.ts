@@ -1,7 +1,10 @@
 import * as anchor from "@coral-xyz/anchor";
 import { assert } from "chai";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import {
   setupTestContext,
   initializeProtocol,
@@ -40,8 +43,7 @@ describe("Extend Subscription Instruction", () => {
     // Create test data source for feed creation
     const dataSourceInfo = createTestDataSourceInfo(
       testDataSource.dataSourceType,
-      testDataSource.source,
-      testDataSource.name,
+      testDataSource.name
     );
 
     [dataSourcePDA] = getDataSourcePda(
@@ -65,7 +67,7 @@ describe("Extend Subscription Instruction", () => {
     }
 
     // Create a feed with initial subscription
-    const jobId = "btc-feed-subscription-test";
+    const jobId = "0x7865";
     const feedParams = createFeedParams(jobId, { public: {} });
 
     [feedPDA] = PublicKey.findProgramAddressSync(
@@ -83,14 +85,9 @@ describe("Extend Subscription Instruction", () => {
 
     // Create feed with 1 day subscription and 1000 lamports priority fee budget
     const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
-    const priorityFeeBudget = new anchor.BN(1000); // 1000 lamports
 
     await ctx.molphaProgram.methods
-      .createFeed(
-        feedParams,
-        subscriptionDurationSeconds,
-        priorityFeeBudget
-      )
+      .createFeed(feedParams, subscriptionDurationSeconds)
       .accountsPartial({
         feed: feedPDA,
         dataSource: dataSourcePDA,
@@ -106,22 +103,16 @@ describe("Extend Subscription Instruction", () => {
       .rpc();
   });
 
-  it("Successfully extends subscription with additional time and priority fee budget", async () => {
+  it("Successfully extends subscription with additional time", async () => {
     const additionalDurationSeconds = new anchor.BN(86400); // 1 day
-    const additionalPriorityFeeBudget = new anchor.BN(500); // 500 lamports
 
     // Get initial feed state
     const initialFeed = await ctx.molphaProgram.account.feed.fetch(feedPDA);
     const initialDueTime = initialFeed.subscriptionDueTime;
-    const initialPriorityAllowance = initialFeed.priorityFeeAllowance;
-    const initialBalance = initialFeed.balance;
 
     // Extend subscription
     await ctx.molphaProgram.methods
-      .extendSubscription(
-        additionalDurationSeconds,
-        additionalPriorityFeeBudget
-      )
+      .extendSubscription(additionalDurationSeconds)
       .accountsPartial({
         feed: feedPDA,
         authority: ctx.authority.publicKey,
@@ -144,37 +135,14 @@ describe("Extend Subscription Instruction", () => {
       initialDueTime.add(additionalDurationSeconds).toNumber(),
       "Subscription due time should be extended"
     );
-
-    assert.equal(
-      updatedFeed.priorityFeeAllowance.toNumber(),
-      initialPriorityAllowance.add(additionalPriorityFeeBudget).toNumber(),
-      "Priority fee allowance should be increased"
-    );
-
-    assert.equal(
-      updatedFeed.balance.toNumber(),
-      initialBalance
-        .add(
-          additionalDurationSeconds
-            .mul(updatedFeed.pricePerSecondScaled)
-            .div(new anchor.BN(1000000))
-        )
-        .add(additionalPriorityFeeBudget)
-        .toNumber(),
-      "Feed balance should be increased by extension cost"
-    );
   });
 
   it("Fails to extend subscription with duration less than 1 hour", async () => {
     const additionalDurationSeconds = new anchor.BN(1800); // 30 minutes (less than 1 hour)
-    const additionalPriorityFeeBudget = new anchor.BN(100); // 100 lamports
 
     try {
       await ctx.molphaProgram.methods
-        .extendSubscription(
-          additionalDurationSeconds,
-          additionalPriorityFeeBudget
-        )
+        .extendSubscription(additionalDurationSeconds)
         .accountsPartial({
           feed: feedPDA,
           authority: ctx.authority.publicKey,
@@ -195,18 +163,14 @@ describe("Extend Subscription Instruction", () => {
   });
 
   it("Fails to extend subscription when caller is not the feed authority", async () => {
-    const additionalDurationSeconds = new anchor.BN(3600); // 1 hour
-    const additionalPriorityFeeBudget = new anchor.BN(100); // 100 lamports
+    const additionalDurationSeconds = new anchor.BN(360000); // 100 hours
 
     // Create a different authority
     const differentAuthority = anchor.web3.Keypair.generate();
 
     try {
       await ctx.molphaProgram.methods
-        .extendSubscription(
-          additionalDurationSeconds,
-          additionalPriorityFeeBudget
-        )
+        .extendSubscription(additionalDurationSeconds)
         .accountsPartial({
           feed: feedPDA,
           authority: differentAuthority.publicKey,
