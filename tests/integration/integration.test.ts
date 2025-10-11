@@ -44,7 +44,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
 
       for (const node of nodesToAdd) {
         const evmPubkey = Buffer.alloc(33, 1);
-        
+
         try {
           await registerNodeWithDeposit(ctx, node.publicKey, evmPubkey);
         } catch (e) {
@@ -340,7 +340,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
           instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         })
         .remainingAccounts([
-          { pubkey: nodePDA, isSigner: false, isWritable: false }
+          { pubkey: nodePDA, isSigner: false, isWritable: false },
         ])
         .preInstructions(preIxs)
         .rpc();
@@ -612,7 +612,11 @@ describe("Integration Tests: Complete Oracle Flow", () => {
             [Buffer.from("node"), ctx.nodes[i].publicKey.toBuffer()],
             ctx.molphaProgram.programId
           );
-          nodePDAs.push({ pubkey: nodePDA, isSigner: false, isWritable: false });
+          nodePDAs.push({
+            pubkey: nodePDA,
+            isSigner: false,
+            isWritable: false,
+          });
         }
 
         // Use the same pattern as working tests

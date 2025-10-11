@@ -50,7 +50,6 @@ pub struct NodeAdded {
     pub added_at: i64,
 }
 
-
 #[event]
 pub struct ProtocolInitialized {
     pub protocol_config: Pubkey,
@@ -74,7 +73,6 @@ pub struct FeedToppedUp {
     pub new_balance: u64,
     pub topped_up_at: i64,
 }
-
 
 #[event]
 pub struct ProtocolConfigUpdated {

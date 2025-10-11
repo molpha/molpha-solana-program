@@ -3,8 +3,8 @@ use crate::events::NodeAdded;
 use crate::state::{Node, ProtocolConfig};
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    token,
     associated_token::AssociatedToken,
+    token,
     token_interface::{Mint, TokenAccount, TokenInterface},
 };
 
@@ -27,36 +27,36 @@ pub fn register_node(
 
     // Check if deposit is required and sufficient
     // if security_deposit_amount > 0 {
-        require!(
-            ctx.accounts.node_operator_token_account.amount >= security_deposit_amount,
-            NodeRegistryError::InsufficientSecurityDeposit
-        );
+    require!(
+        ctx.accounts.node_operator_token_account.amount >= security_deposit_amount,
+        NodeRegistryError::InsufficientSecurityDeposit
+    );
 
-        let deposit_cpi_ctx = CpiContext::new(
-            token_program.to_account_info(),
-            token::Transfer {
-                from: user_token_account.to_account_info(),
-                to: node_security_deposit_account.to_account_info(),
-                authority: authority.to_account_info(),
-            },
-        );
-        token::transfer(deposit_cpi_ctx, security_deposit_amount)?;
+    let deposit_cpi_ctx = CpiContext::new(
+        token_program.to_account_info(),
+        token::Transfer {
+            from: user_token_account.to_account_info(),
+            to: node_security_deposit_account.to_account_info(),
+            authority: authority.to_account_info(),
+        },
+    );
+    token::transfer(deposit_cpi_ctx, security_deposit_amount)?;
 
-        // // Transfer security deposit from node operator to node security deposit account
-        // let cpi_accounts = TransferChecked {
-        //     from: ctx.accounts.node_operator_token_account.to_account_info(),
-        //     mint: ctx.accounts.underlying_token.to_account_info(),
-        //     to: ctx.accounts.node_security_deposit_account.to_account_info(),
-        //     authority: ctx.accounts.authority.to_account_info(),
-        // };
-        // let cpi_program = ctx.accounts.token_program.to_account_info();
-        // let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+    // // Transfer security deposit from node operator to node security deposit account
+    // let cpi_accounts = TransferChecked {
+    //     from: ctx.accounts.node_operator_token_account.to_account_info(),
+    //     mint: ctx.accounts.underlying_token.to_account_info(),
+    //     to: ctx.accounts.node_security_deposit_account.to_account_info(),
+    //     authority: ctx.accounts.authority.to_account_info(),
+    // };
+    // let cpi_program = ctx.accounts.token_program.to_account_info();
+    // let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
 
-        // transfer_checked(
-        //     cpi_ctx,
-        //     security_deposit_amount,
-        //     ctx.accounts.underlying_token.decimals,
-        // )?;
+    // transfer_checked(
+    //     cpi_ctx,
+    //     security_deposit_amount,
+    //     ctx.accounts.underlying_token.decimals,
+    // )?;
     // }
 
     // Create the node PDA account

@@ -35,13 +35,13 @@ pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()>
     // Build a set of registered node pubkeys from remaining accounts
     let mut registered_nodes = Vec::new();
     let remaining = ctx.remaining_accounts;
-    
+
     // Enforce maximum nodes limit to prevent exceeding transaction constraints
     require!(
         remaining.len() <= MAX_NODES_PER_PUBLISH,
         FeedError::TooManyNodes
     );
-    
+
     for i in 0..remaining.len() {
         let account_info = &remaining[i];
         // Try to deserialize as Node account
@@ -55,7 +55,7 @@ pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()>
                             &[Node::SEED_PREFIX, node.node_pubkey.as_ref()],
                             ctx.program_id,
                         );
-                        
+
                         if account_info.key == &expected_pda {
                             registered_nodes.push(node.node_pubkey);
                         }
@@ -155,7 +155,6 @@ pub struct PublishAnswer<'info> {
     /// CHECK: This is safe. We only read the instructions sysvar for validation.
     #[account(address = sysvar::instructions::ID)]
     pub instructions: UncheckedAccount<'info>,
-
     // Note: Node PDAs should be passed as remaining_accounts
     // Each node PDA should have seeds = [Node::SEED_PREFIX, node_pubkey]
 }

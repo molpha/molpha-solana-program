@@ -2,7 +2,11 @@
 
 const anchor = require("@coral-xyz/anchor");
 const fs = require("fs");
-const { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } = require("@solana/spl-token");
+const {
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} = require("@solana/spl-token");
 
 // Command line usage
 const USAGE = `
@@ -294,10 +298,14 @@ async function registerNode(nodePubkeyStr, evmPubkeyHex = null) {
     const nodePubkey = new anchor.web3.PublicKey(nodePubkeyStr);
 
     // Parse EVM pubkey or use default
-    const hexString = evmPubkeyHex.startsWith('0x') ? evmPubkeyHex.slice(2) : evmPubkeyHex;
-    let evmPubkey = Buffer.from(hexString, 'hex');
+    const hexString = evmPubkeyHex.startsWith("0x")
+      ? evmPubkeyHex.slice(2)
+      : evmPubkeyHex;
+    let evmPubkey = Buffer.from(hexString, "hex");
     if (evmPubkey.length !== 33) {
-      console.error("❌ Error: EVM pubkey must be 33 bytes (compressed secp256k1)");
+      console.error(
+        "❌ Error: EVM pubkey must be 33 bytes (compressed secp256k1)"
+      );
       return false;
     }
 
@@ -309,9 +317,13 @@ async function registerNode(nodePubkeyStr, evmPubkeyHex = null) {
     // Check if protocol config exists
     let protocolConfig;
     try {
-      protocolConfig = await program.account.protocolConfig.fetch(protocolConfigPDA);
+      protocolConfig = await program.account.protocolConfig.fetch(
+        protocolConfigPDA
+      );
     } catch (e) {
-      console.error("❌ Error: Protocol config not found. Please run initialize script first.");
+      console.error(
+        "❌ Error: Protocol config not found. Please run initialize script first."
+      );
       return false;
     }
 
@@ -365,7 +377,7 @@ async function registerNode(nodePubkeyStr, evmPubkeyHex = null) {
   } catch (e) {
     console.error(`❌ Error registering node ${nodePubkeyStr}:`, e.message);
     if (e.logs) {
-      console.error("Transaction logs:", e.logs.join('\n'));
+      console.error("Transaction logs:", e.logs.join("\n"));
     }
     return false;
   }
@@ -441,12 +453,12 @@ async function batchRegisterNodes(filePath) {
     console.log(`\n[${i + 1}/${nodes.length}]`);
 
     let nodePubkeyStr, evmPubkeyHex;
-    
+
     // Support both string format and object format
-    if (typeof nodeEntry === 'string') {
+    if (typeof nodeEntry === "string") {
       nodePubkeyStr = nodeEntry;
       evmPubkeyHex = null;
-    } else if (typeof nodeEntry === 'object') {
+    } else if (typeof nodeEntry === "object") {
       nodePubkeyStr = nodeEntry.nodePubkey;
       evmPubkeyHex = nodeEntry.evmPubkey || null;
     } else {
@@ -608,7 +620,9 @@ async function main() {
     case "register":
       if (!arg) {
         console.error("❌ Error: Node public key is required");
-        console.log("Usage: node manage-nodes.js register <NODE_PUBKEY> [EVM_PUBKEY_HEX]");
+        console.log(
+          "Usage: node manage-nodes.js register <NODE_PUBKEY> [EVM_PUBKEY_HEX]"
+        );
         return;
       }
       const evmPubkey = process.argv[4] || null;

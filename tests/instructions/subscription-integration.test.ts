@@ -290,8 +290,16 @@ describe("Subscription Integration Tests", () => {
 
       const evmPubkey = Buffer.alloc(33, 1);
 
-      const node1PDA = await registerNodeWithDeposit(ctx, testNode1.publicKey, evmPubkey);
-      const node2PDA = await registerNodeWithDeposit(ctx, testNode2.publicKey, evmPubkey);
+      const node1PDA = await registerNodeWithDeposit(
+        ctx,
+        testNode1.publicKey,
+        evmPubkey
+      );
+      const node2PDA = await registerNodeWithDeposit(
+        ctx,
+        testNode2.publicKey,
+        evmPubkey
+      );
 
       // Create a test answer with a timestamp further in the past
       const answer = {

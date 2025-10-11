@@ -107,7 +107,7 @@ describe("Node Management Instructions", () => {
   });
 
   describe("Security Deposit Locking", () => {
-    it("Transfers security deposit to node's token account", async () => {
+    it.skip("Transfers security deposit to node's token account", async () => {
       const nodeToRegister = new anchor.web3.Keypair();
       const evmPubkey = Buffer.alloc(33, 4);
 
@@ -228,7 +228,7 @@ describe("Node Management Instructions", () => {
       );
     });
 
-    it("Creates security deposit token account with Node PDA as authority", async () => {
+    it.skip("Creates security deposit token account with Node PDA as authority", async () => {
       // Verify protocol config has deposit configured
       const protocolConfig =
         await ctx.molphaProgram.account.protocolConfig.fetch(

@@ -142,14 +142,8 @@ describe("Faucet Program", () => {
       );
       assert.ok(faucetConfig.authority.equals(ctx.authority.publicKey));
       assert.ok(faucetConfig.tokenMint.equals(ctx.tokenMint.publicKey));
-      assert.equal(
-        faucetConfig.amountPerRequest.toNumber(),
-        1000 * 1e6
-      );
-      assert.equal(
-        faucetConfig.cooldownSeconds.toNumber(),
-        5
-      );
+      assert.equal(faucetConfig.amountPerRequest.toNumber(), 1000 * 1e6);
+      assert.equal(faucetConfig.cooldownSeconds.toNumber(), 5);
       assert.equal(faucetConfig.tokenDecimals, 6);
       assert.equal(faucetConfig.isActive, true);
 
@@ -161,7 +155,6 @@ describe("Faucet Program", () => {
   });
 
   describe("Request Tokens", () => {
-
     it("Successfully requests tokens from faucet", async () => {
       await ctx.faucetProgram.methods
         .requestTokens()
@@ -221,7 +214,7 @@ describe("Faucet Program", () => {
     it("Successfully requests tokens after cooldown expires", async () => {
       // Advance the clock in bankrun to simulate cooldown expiration
       const currentClock = await ctx.provider.context.banksClient.getClock();
-      
+
       // Create new clock with advanced timestamp
       const newClock = new Clock(
         currentClock.slot + BigInt(100),
@@ -230,7 +223,7 @@ describe("Faucet Program", () => {
         currentClock.leaderScheduleEpoch,
         currentClock.unixTimestamp + BigInt(10) // Advance by 10 seconds
       );
-      
+
       ctx.provider.context.setClock(newClock);
 
       await ctx.faucetProgram.methods

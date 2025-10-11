@@ -23,7 +23,11 @@ pub mod molpha {
     }
 
     // Node management
-    pub fn register_node(ctx: Context<RegisterNode>, node_pubkey: Pubkey, evm_pubkey: Vec<u8>) -> Result<()> {
+    pub fn register_node(
+        ctx: Context<RegisterNode>,
+        node_pubkey: Pubkey,
+        evm_pubkey: Vec<u8>,
+    ) -> Result<()> {
         instructions::register_node(ctx, node_pubkey, evm_pubkey)
     }
 

@@ -61,4 +61,3 @@ pub struct UpdateProtocolConfig<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 }
-

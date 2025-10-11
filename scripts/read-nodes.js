@@ -20,7 +20,7 @@ function setupEnvironment() {
 
 async function readNodeRegistry(program) {
   console.log("🔍 Reading node registry...");
-  
+
   try {
     // Derive node registry PDA
     const [nodeRegistryPDA] = anchor.web3.PublicKey.findProgramAddressSync(
@@ -31,8 +31,10 @@ async function readNodeRegistry(program) {
     console.log(`Node Registry PDA: ${nodeRegistryPDA.toString()}`);
     console.log("");
 
-    const nodeRegistry = await program.account.nodeRegistry.fetch(nodeRegistryPDA);
-    
+    const nodeRegistry = await program.account.nodeRegistry.fetch(
+      nodeRegistryPDA
+    );
+
     console.log("✅ Node Registry:");
     console.log(`   Authority: ${nodeRegistry.authority.toString()}`);
     console.log(`   Total Nodes: ${nodeRegistry.nodes.length}`);
@@ -55,12 +57,14 @@ async function readNodeRegistry(program) {
     for (let i = 0; i < nodeRegistry.nodes.length; i++) {
       const nodePubkey = nodeRegistry.nodes[i];
       try {
-        const balance = await program.provider.connection.getBalance(nodePubkey);
+        const balance = await program.provider.connection.getBalance(
+          nodePubkey
+        );
         const solBalance = balance / 1e9;
-        
+
         console.log(`   Node ${i + 1}: ${nodePubkey.toString()}`);
         console.log(`     Balance: ${solBalance.toFixed(4)} SOL`);
-        
+
         if (solBalance < 0.01) {
           console.log(`     ⚠️  Low balance - may need funding`);
         } else if (solBalance < 0.1) {
@@ -73,11 +77,14 @@ async function readNodeRegistry(program) {
         console.log(`     ❌ Error checking balance: ${error.message}`);
       }
     }
-
   } catch (error) {
     if (error.message.includes("Account does not exist")) {
-      console.error("❌ Node registry not found. The protocol may not be initialized.");
-      console.log("💡 Initialize the protocol with: node scripts/initialize.js <TOKEN_MINT>");
+      console.error(
+        "❌ Node registry not found. The protocol may not be initialized."
+      );
+      console.log(
+        "💡 Initialize the protocol with: node scripts/initialize.js <TOKEN_MINT>"
+      );
     } else {
       console.error("❌ Error reading node registry:", error.message);
     }
@@ -87,35 +94,43 @@ async function readNodeRegistry(program) {
 
 async function checkSpecificNode(program, nodeAddress) {
   console.log(`🔍 Checking node: ${nodeAddress}`);
-  
+
   try {
     const nodePublicKey = new PublicKey(nodeAddress);
-    
+
     // Check if node is registered
     const [nodeRegistryPDA] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("node-registry")],
       program.programId
     );
-    
-    const nodeRegistry = await program.account.nodeRegistry.fetch(nodeRegistryPDA);
-    const isRegistered = nodeRegistry.nodes.some(node => node.equals(nodePublicKey));
-    
+
+    const nodeRegistry = await program.account.nodeRegistry.fetch(
+      nodeRegistryPDA
+    );
+    const isRegistered = nodeRegistry.nodes.some((node) =>
+      node.equals(nodePublicKey)
+    );
+
     console.log("✅ Node Status:");
     console.log(`   Address: ${nodePublicKey.toString()}`);
-    console.log(`   Registered: ${isRegistered ? '✅ Yes' : '❌ No'}`);
-    
+    console.log(`   Registered: ${isRegistered ? "✅ Yes" : "❌ No"}`);
+
     if (isRegistered) {
-      const index = nodeRegistry.nodes.findIndex(node => node.equals(nodePublicKey));
+      const index = nodeRegistry.nodes.findIndex((node) =>
+        node.equals(nodePublicKey)
+      );
       console.log(`   Index: ${index + 1} of ${nodeRegistry.nodes.length}`);
     }
-    
+
     // Check balance
     try {
-      const balance = await program.provider.connection.getBalance(nodePublicKey);
+      const balance = await program.provider.connection.getBalance(
+        nodePublicKey
+      );
       const solBalance = balance / 1e9;
-      
+
       console.log(`   Balance: ${solBalance.toFixed(4)} SOL`);
-      
+
       if (solBalance < 0.01) {
         console.log(`   Status: ⚠️  Low balance - may need funding`);
       } else if (solBalance < 0.1) {
@@ -126,10 +141,11 @@ async function checkSpecificNode(program, nodeAddress) {
     } catch (error) {
       console.log(`   Balance: ❌ Error checking balance: ${error.message}`);
     }
-    
   } catch (error) {
     if (error.message.includes("Account does not exist")) {
-      console.error(`❌ Node registry not found. The protocol may not be initialized.`);
+      console.error(
+        `❌ Node registry not found. The protocol may not be initialized.`
+      );
     } else {
       console.error("❌ Error checking node:", error.message);
     }
@@ -156,7 +172,6 @@ async function main() {
     } else {
       await readNodeRegistry(program);
     }
-
   } catch (error) {
     console.error("❌ Error:", error.message);
     if (error.logs) {
@@ -167,11 +182,13 @@ async function main() {
 }
 
 // Show usage if help requested
-if (process.argv.includes('--help') || process.argv.includes('-h')) {
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log("📖 Molpha Node Registry Reader");
   console.log("");
   console.log("Usage:");
-  console.log("  node read-nodes.js                    # Read all registered nodes");
+  console.log(
+    "  node read-nodes.js                    # Read all registered nodes"
+  );
   console.log("  node read-nodes.js <NODE_ADDRESS>     # Check specific node");
   console.log("  node read-nodes.js --help             # Show this help");
   console.log("");
@@ -182,7 +199,9 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
   console.log("");
   console.log("Examples:");
   console.log("  node read-nodes.js");
-  console.log("  node read-nodes.js 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F");
+  console.log(
+    "  node read-nodes.js 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F"
+  );
   process.exit(0);
 }
 

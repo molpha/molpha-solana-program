@@ -19,13 +19,13 @@ function setupEnvironment() {
 }
 
 function formatAnswer(answer) {
-  if (!answer || answer.value.every(byte => byte === 0)) {
+  if (!answer || answer.value.every((byte) => byte === 0)) {
     return "No data";
   }
-  
+
   // Convert bytes to hex string
-  const hexValue = Buffer.from(answer.value).toString('hex');
-  
+  const hexValue = Buffer.from(answer.value).toString("hex");
+
   // Handle timestamp safely
   let timestamp;
   if (answer.timestamp && answer.timestamp > 0) {
@@ -37,11 +37,11 @@ function formatAnswer(answer) {
   } else {
     timestamp = "No timestamp";
   }
-  
+
   return {
     value: `0x${hexValue}`,
     timestamp: timestamp,
-    rawValue: answer.value
+    rawValue: answer.value,
   };
 }
 
@@ -55,7 +55,7 @@ function formatFeedType(feedType) {
 function formatSubscriptionStatus(feed, currentTime) {
   const isActive = feed.subscription_due_time > currentTime;
   const remainingTime = feed.subscription_due_time - currentTime;
-  
+
   // Handle subscription due time safely
   let dueTime;
   if (feed.subscription_due_time && feed.subscription_due_time > 0) {
@@ -67,22 +67,22 @@ function formatSubscriptionStatus(feed, currentTime) {
   } else {
     dueTime = "No due time set";
   }
-  
+
   return {
     isActive,
     dueTime: dueTime,
     remainingSeconds: Math.max(0, remainingTime),
-    remainingDays: Math.max(0, Math.floor(remainingTime / 86400))
+    remainingDays: Math.max(0, Math.floor(remainingTime / 86400)),
   };
 }
 
 async function readAllFeeds(program) {
   console.log("🔍 Searching for all feeds...");
-  
+
   try {
     // Get all feed accounts
     const feeds = await program.account.feed.all();
-    
+
     if (feeds.length === 0) {
       console.log("❌ No feeds found");
       return;
@@ -97,19 +97,35 @@ async function readAllFeeds(program) {
       const feed = feedAccount.account;
       const subscription = formatSubscriptionStatus(feed, currentTime);
       const latestAnswer = formatAnswer(feed.latest_answer);
-      
+
       console.log(`📊 Feed #${index + 1}`);
       console.log(`   Address: ${feedAccount.publicKey.toString()}`);
       console.log(`   Name: ${feed.name}`);
       console.log(`   Authority: ${feed.authority.toString()}`);
       console.log(`   Type: ${formatFeedType(feed.feedType)}`);
-      console.log(`   Job ID: ${feed.jobId ? Buffer.from(feed.jobId).toString('hex') : 'No job ID'}`);
-      console.log(`   Data Source: ${feed.dataSource ? feed.dataSource.toString() : 'No data source'}`);
-      console.log(`   Min Signatures: ${feed.minSignaturesThreshold || 'Not set'}`);
-      console.log(`   Frequency: ${feed.frequency || 'Not set'} seconds`);
-      console.log(`   IPFS CID: ${feed.ipfsCid || 'No IPFS CID'}`);
-      console.log(`   Price per Second: ${feed.pricePerSecondScaled || 'Not set'} (scaled)`);
-      console.log(`   Subscription Due Time: ${feed.subscriptionDueTime || 'Not set'}`);
+      console.log(
+        `   Job ID: ${
+          feed.jobId ? Buffer.from(feed.jobId).toString("hex") : "No job ID"
+        }`
+      );
+      console.log(
+        `   Data Source: ${
+          feed.dataSource ? feed.dataSource.toString() : "No data source"
+        }`
+      );
+      console.log(
+        `   Min Signatures: ${feed.minSignaturesThreshold || "Not set"}`
+      );
+      console.log(`   Frequency: ${feed.frequency || "Not set"} seconds`);
+      console.log(`   IPFS CID: ${feed.ipfsCid || "No IPFS CID"}`);
+      console.log(
+        `   Price per Second: ${
+          feed.pricePerSecondScaled || "Not set"
+        } (scaled)`
+      );
+      console.log(
+        `   Subscription Due Time: ${feed.subscriptionDueTime || "Not set"}`
+      );
       // Handle created_at safely
       let createdAt;
       if (feed.created_at && feed.created_at > 0) {
@@ -121,10 +137,10 @@ async function readAllFeeds(program) {
       } else {
         createdAt = "No creation time";
       }
-      
+
       console.log(`   Created: ${createdAt}`);
       console.log(`   Bump: ${feed.bump}`);
-      
+
       console.log(`   📈 Latest Answer:`);
       if (latestAnswer === "No data") {
         console.log(`      ${latestAnswer}`);
@@ -132,27 +148,44 @@ async function readAllFeeds(program) {
         console.log(`      Value: ${latestAnswer.value}`);
         console.log(`      Timestamp: ${latestAnswer.timestamp}`);
       }
-      
+
       console.log(`   💰 Subscription:`);
-      console.log(`      Active: ${subscription.isActive ? '✅ Yes' : '❌ No'}`);
+      console.log(
+        `      Active: ${subscription.isActive ? "✅ Yes" : "❌ No"}`
+      );
       console.log(`      Due Time: ${subscription.dueTime}`);
-      const remainingHours = isNaN(subscription.remainingSeconds) ? 0 : Math.floor(subscription.remainingSeconds % 86400 / 3600);
-      console.log(`      Remaining: ${subscription.remainingDays || 0} days, ${remainingHours} hours`);
-      console.log(`      Price per Second: ${feed.pricePerSecondScaled || 'Not set'} (scaled)`);
-      
-      console.log(`   📚 History: ${feed.answer_history ? feed.answer_history.length : 0}/${feed.historyIdx || 0} entries`);
-      
+      const remainingHours = isNaN(subscription.remainingSeconds)
+        ? 0
+        : Math.floor((subscription.remainingSeconds % 86400) / 3600);
+      console.log(
+        `      Remaining: ${
+          subscription.remainingDays || 0
+        } days, ${remainingHours} hours`
+      );
+      console.log(
+        `      Price per Second: ${
+          feed.pricePerSecondScaled || "Not set"
+        } (scaled)`
+      );
+
+      console.log(
+        `   📚 History: ${
+          feed.answer_history ? feed.answer_history.length : 0
+        }/${feed.historyIdx || 0} entries`
+      );
+
       if (feed.answer_history && feed.answer_history.length > 0) {
         console.log(`   📋 Recent Answers:`);
         feed.answer_history.slice(-3).forEach((answer, i) => {
           const formatted = formatAnswer(answer);
-          console.log(`      ${i + 1}. ${formatted.value} @ ${formatted.timestamp}`);
+          console.log(
+            `      ${i + 1}. ${formatted.value} @ ${formatted.timestamp}`
+          );
         });
       }
-      
+
       console.log("");
     });
-
   } catch (error) {
     console.error("❌ Error reading feeds:", error.message);
     throw error;
@@ -161,25 +194,35 @@ async function readAllFeeds(program) {
 
 async function readSpecificFeed(program, feedAddress) {
   console.log(`🔍 Reading feed: ${feedAddress}`);
-  
+
   try {
     const feedPublicKey = new PublicKey(feedAddress);
     const feed = await program.account.feed.fetch(feedPublicKey);
-    
+
     const currentTime = Math.floor(Date.now() / 1000);
     const subscription = formatSubscriptionStatus(feed, currentTime);
     const latestAnswer = formatAnswer(feed.latestAnswer);
-    
+
     console.log("✅ Feed Details:");
     console.log(`   Address: ${feedPublicKey.toString()}`);
     console.log(`   Name: ${feed.name}`);
     console.log(`   Authority: ${feed.authority.toString()}`);
     console.log(`   Type: ${formatFeedType(feed.feedType)}`);
-    console.log(`   Job ID: ${feed.jobId ? Buffer.from(feed.jobId).toString('hex') : 'No job ID'}`);
-    console.log(`   Data Source: ${feed.dataSource ? feed.dataSource.toString() : 'No data source'}`);
-    console.log(`   Min Signatures: ${feed.minSignaturesThreshold || 'Not set'}`);
-    console.log(`   Frequency: ${feed.frequency || 'Not set'} seconds`);
-    console.log(`   IPFS CID: ${feed.ipfsCid || 'No IPFS CID'}`);
+    console.log(
+      `   Job ID: ${
+        feed.jobId ? Buffer.from(feed.jobId).toString("hex") : "No job ID"
+      }`
+    );
+    console.log(
+      `   Data Source: ${
+        feed.dataSource ? feed.dataSource.toString() : "No data source"
+      }`
+    );
+    console.log(
+      `   Min Signatures: ${feed.minSignaturesThreshold || "Not set"}`
+    );
+    console.log(`   Frequency: ${feed.frequency || "Not set"} seconds`);
+    console.log(`   IPFS CID: ${feed.ipfsCid || "No IPFS CID"}`);
     // Handle created_at safely
     let createdAt;
     if (feed.createdAt && feed.createdAt > 0) {
@@ -191,10 +234,10 @@ async function readSpecificFeed(program, feedAddress) {
     } else {
       createdAt = "No creation time";
     }
-    
+
     console.log(`   Created: ${createdAt}`);
     console.log(`   Bump: ${feed.bump}`);
-    
+
     console.log(`   📈 Latest Answer:`);
     if (latestAnswer === "No data") {
       console.log(`      ${latestAnswer}`);
@@ -202,24 +245,39 @@ async function readSpecificFeed(program, feedAddress) {
       console.log(`      Value: ${latestAnswer.value}`);
       console.log(`      Timestamp: ${latestAnswer.timestamp}`);
     }
-    
+
     console.log(`   💰 Subscription:`);
-    console.log(`      Active: ${subscription.isActive ? '✅ Yes' : '❌ No'}`);
+    console.log(`      Active: ${subscription.isActive ? "✅ Yes" : "❌ No"}`);
     console.log(`      Due Time: ${subscription.dueTime}`);
-    const remainingHours = isNaN(subscription.remainingSeconds) ? 0 : Math.floor(subscription.remainingSeconds % 86400 / 3600);
-    console.log(`      Remaining: ${subscription.remainingDays || 0} days, ${remainingHours} hours`);
-    console.log(`      Price per Second: ${feed.pricePerSecondScaled || 'Not set'} (scaled)`);
-    
-    console.log(`   📚 History: ${feed.answerHistory ? feed.answerHistory.length : 0}/${feed.historyIdx || 0} entries`);
-    
+    const remainingHours = isNaN(subscription.remainingSeconds)
+      ? 0
+      : Math.floor((subscription.remainingSeconds % 86400) / 3600);
+    console.log(
+      `      Remaining: ${
+        subscription.remainingDays || 0
+      } days, ${remainingHours} hours`
+    );
+    console.log(
+      `      Price per Second: ${
+        feed.pricePerSecondScaled || "Not set"
+      } (scaled)`
+    );
+
+    console.log(
+      `   📚 History: ${feed.answerHistory ? feed.answerHistory.length : 0}/${
+        feed.historyIdx || 0
+      } entries`
+    );
+
     if (feed.answerHistory && feed.answerHistory.length > 0) {
       console.log(`   📋 All Answers:`);
       feed.answer_history.forEach((answer, i) => {
         const formatted = formatAnswer(answer);
-        console.log(`      ${i + 1}. ${formatted.value} @ ${formatted.timestamp}`);
+        console.log(
+          `      ${i + 1}. ${formatted.value} @ ${formatted.timestamp}`
+        );
       });
     }
-    
   } catch (error) {
     if (error.message.includes("Account does not exist")) {
       console.error(`❌ Feed not found: ${feedAddress}`);
@@ -249,7 +307,6 @@ async function main() {
     } else {
       await readAllFeeds(program);
     }
-
   } catch (error) {
     console.error("❌ Error:", error.message);
     if (error.logs) {
@@ -260,7 +317,7 @@ async function main() {
 }
 
 // Show usage if help requested
-if (process.argv.includes('--help') || process.argv.includes('-h')) {
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log("📖 Molpha Feed Reader");
   console.log("");
   console.log("Usage:");
@@ -270,7 +327,9 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
   console.log("");
   console.log("Examples:");
   console.log("  node read-feeds.js");
-  console.log("  node read-feeds.js 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F");
+  console.log(
+    "  node read-feeds.js 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F"
+  );
   process.exit(0);
 }
 

@@ -310,7 +310,7 @@ describe("Publish Answer Instruction", () => {
         });
       });
 
-      // Get Node PDAs for the signer  
+      // Get Node PDAs for the signer
       const nodePDAs = [ctx.nodes[0]].map((signer) => {
         const [nodePDA] = PublicKey.findProgramAddressSync(
           [Buffer.from("node"), signer.publicKey.toBuffer()],

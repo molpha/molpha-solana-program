@@ -20,84 +20,95 @@ function setupEnvironment() {
 
 function formatAccountData(accountData, accountType) {
   const data = {};
-  
+
   // Common fields
   if (accountData.authority) data.authority = accountData.authority.toString();
   if (accountData.bump) data.bump = accountData.bump;
-  if (accountData.created_at) data.created_at = new Date(accountData.created_at * 1000).toISOString();
-  
+  if (accountData.created_at)
+    data.created_at = new Date(accountData.created_at * 1000).toISOString();
+
   // Account-specific fields
   switch (accountType) {
-    case 'feed':
+    case "feed":
       data.name = accountData.name;
       data.feed_type = accountData.feed_type;
-      data.job_id = Buffer.from(accountData.job_id).toString('hex');
+      data.job_id = Buffer.from(accountData.job_id).toString("hex");
       data.data_source = accountData.data_source.toString();
       data.min_signatures_threshold = accountData.min_signatures_threshold;
       data.frequency = accountData.frequency;
       data.ipfs_cid = accountData.ipfs_cid;
-      data.subscription_due_time = new Date(accountData.subscription_due_time * 1000).toISOString();
+      data.subscription_due_time = new Date(
+        accountData.subscription_due_time * 1000
+      ).toISOString();
       data.price_per_second_scaled = accountData.price_per_second_scaled;
       data.history_idx = accountData.history_idx;
       data.answer_history_count = accountData.answer_history.length;
       break;
-      
-    case 'dataSource':
+
+    case "dataSource":
       data.name = accountData.name;
       data.data_source_type = accountData.data_source_type;
-      data.metadata_hash = `0x${Buffer.from(accountData.metadata_hash).toString('hex')}`;
+      data.metadata_hash = `0x${Buffer.from(accountData.metadata_hash).toString(
+        "hex"
+      )}`;
       break;
-      
-    case 'protocolConfig':
+
+    case "protocolConfig":
       data.underlying_token = accountData.underlying_token.toString();
-      data.base_price_per_second_scaled = accountData.base_price_per_second_scaled;
+      data.base_price_per_second_scaled =
+        accountData.base_price_per_second_scaled;
       data.frequency_coefficient = accountData.frequency_coefficient;
       data.signers_coefficient = accountData.signers_coefficient;
       data.reward_percentage = accountData.reward_percentage;
-      data.priority_fee_buffer_percentage = accountData.priority_fee_buffer_percentage;
+      data.priority_fee_buffer_percentage =
+        accountData.priority_fee_buffer_percentage;
       data.max_priority_fee_coverage = accountData.max_priority_fee_coverage;
-      data.priority_fee_smoothing_window = accountData.priority_fee_smoothing_window;
+      data.priority_fee_smoothing_window =
+        accountData.priority_fee_smoothing_window;
       break;
-      
-    case 'nodeRegistry':
+
+    case "nodeRegistry":
       data.nodes_count = accountData.nodes.length;
-      data.nodes = accountData.nodes.map(node => node.toString());
+      data.nodes = accountData.nodes.map((node) => node.toString());
       break;
   }
-  
+
   return data;
 }
 
 async function readAccount(program, accountAddress, accountType) {
   console.log(`🔍 Reading ${accountType} account: ${accountAddress}`);
-  
+
   try {
     const accountPublicKey = new PublicKey(accountAddress);
     let accountData;
-    
+
     // Fetch account based on type
     switch (accountType) {
-      case 'feed':
+      case "feed":
         accountData = await program.account.feed.fetch(accountPublicKey);
         break;
-      case 'dataSource':
+      case "dataSource":
         accountData = await program.account.dataSource.fetch(accountPublicKey);
         break;
-      case 'protocolConfig':
-        accountData = await program.account.protocolConfig.fetch(accountPublicKey);
+      case "protocolConfig":
+        accountData = await program.account.protocolConfig.fetch(
+          accountPublicKey
+        );
         break;
-      case 'nodeRegistry':
-        accountData = await program.account.nodeRegistry.fetch(accountPublicKey);
+      case "nodeRegistry":
+        accountData = await program.account.nodeRegistry.fetch(
+          accountPublicKey
+        );
         break;
       default:
         throw new Error(`Unknown account type: ${accountType}`);
     }
-    
+
     const formattedData = formatAccountData(accountData, accountType);
-    
+
     console.log("✅ Account Data:");
     console.log(JSON.stringify(formattedData, null, 2));
-    
   } catch (error) {
     if (error.message.includes("Account does not exist")) {
       console.error(`❌ ${accountType} account not found: ${accountAddress}`);
@@ -110,81 +121,86 @@ async function readAccount(program, accountAddress, accountType) {
 
 async function readAllAccounts(program) {
   console.log("🔍 Reading all program accounts...");
-  
+
   try {
     const accounts = {
       feeds: [],
       dataSources: [],
       protocolConfig: null,
-      nodeRegistry: null
+      nodeRegistry: null,
     };
-    
+
     // Read feeds
     try {
       const feeds = await program.account.feed.all();
-      accounts.feeds = feeds.map(feed => ({
+      accounts.feeds = feeds.map((feed) => ({
         address: feed.publicKey.toString(),
         name: feed.account.name,
         authority: feed.account.authority.toString(),
-        feed_type: feed.account.feed_type
+        feed_type: feed.account.feed_type,
       }));
       console.log(`✅ Found ${feeds.length} feed(s)`);
     } catch (error) {
       console.log(`⚠️  Error reading feeds: ${error.message}`);
     }
-    
+
     // Read data sources
     try {
       const dataSources = await program.account.dataSource.all();
-      accounts.dataSources = dataSources.map(ds => ({
+      accounts.dataSources = dataSources.map((ds) => ({
         address: ds.publicKey.toString(),
         name: ds.account.name,
         authority: ds.account.authority.toString(),
-        data_source_type: ds.account.data_source_type
+        data_source_type: ds.account.data_source_type,
       }));
       console.log(`✅ Found ${dataSources.length} data source(s)`);
     } catch (error) {
       console.log(`⚠️  Error reading data sources: ${error.message}`);
     }
-    
+
     // Read protocol config
     try {
       const [protocolConfigPDA] = anchor.web3.PublicKey.findProgramAddressSync(
         [Buffer.from("config")],
         program.programId
       );
-      const protocolConfig = await program.account.protocolConfig.fetch(protocolConfigPDA);
+      const protocolConfig = await program.account.protocolConfig.fetch(
+        protocolConfigPDA
+      );
       accounts.protocolConfig = {
         address: protocolConfigPDA.toString(),
         authority: protocolConfig.authority.toString(),
-        underlying_token: protocolConfig.underlying_token.toString()
+        underlying_token: protocolConfig.underlying_token.toString(),
       };
       console.log(`✅ Found protocol config`);
     } catch (error) {
       console.log(`⚠️  Error reading protocol config: ${error.message}`);
     }
-    
+
     // Read node registry
     try {
       const [nodeRegistryPDA] = anchor.web3.PublicKey.findProgramAddressSync(
         [Buffer.from("node-registry")],
         program.programId
       );
-      const nodeRegistry = await program.account.nodeRegistry.fetch(nodeRegistryPDA);
+      const nodeRegistry = await program.account.nodeRegistry.fetch(
+        nodeRegistryPDA
+      );
       accounts.nodeRegistry = {
         address: nodeRegistryPDA.toString(),
         authority: nodeRegistry.authority.toString(),
-        nodes_count: nodeRegistry.nodes.length
+        nodes_count: nodeRegistry.nodes.length,
       };
-      console.log(`✅ Found node registry with ${nodeRegistry.nodes.length} nodes`);
+      console.log(
+        `✅ Found node registry with ${nodeRegistry.nodes.length} nodes`
+      );
     } catch (error) {
       console.log(`⚠️  Error reading node registry: ${error.message}`);
     }
-    
+
     console.log("");
     console.log("📊 Program Summary:");
     console.log(JSON.stringify(accounts, null, 2));
-    
   } catch (error) {
     console.error("❌ Error reading accounts:", error.message);
     throw error;
@@ -213,13 +229,18 @@ async function main() {
     } else {
       console.error("❌ Invalid usage");
       console.log("Usage:");
-      console.log("  node read-accounts.js                                    # Read all accounts");
-      console.log("  node read-accounts.js <TYPE> <ADDRESS>                   # Read specific account");
+      console.log(
+        "  node read-accounts.js                                    # Read all accounts"
+      );
+      console.log(
+        "  node read-accounts.js <TYPE> <ADDRESS>                   # Read specific account"
+      );
       console.log("");
-      console.log("Account types: feed, dataSource, protocolConfig, nodeRegistry");
+      console.log(
+        "Account types: feed, dataSource, protocolConfig, nodeRegistry"
+      );
       process.exit(1);
     }
-
   } catch (error) {
     console.error("❌ Error:", error.message);
     if (error.logs) {
@@ -230,13 +251,19 @@ async function main() {
 }
 
 // Show usage if help requested
-if (process.argv.includes('--help') || process.argv.includes('-h')) {
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log("📖 Molpha Account Reader");
   console.log("");
   console.log("Usage:");
-  console.log("  node read-accounts.js                                    # Read all accounts");
-  console.log("  node read-accounts.js <TYPE> <ADDRESS>                   # Read specific account");
-  console.log("  node read-accounts.js --help                             # Show this help");
+  console.log(
+    "  node read-accounts.js                                    # Read all accounts"
+  );
+  console.log(
+    "  node read-accounts.js <TYPE> <ADDRESS>                   # Read specific account"
+  );
+  console.log(
+    "  node read-accounts.js --help                             # Show this help"
+  );
   console.log("");
   console.log("Account Types:");
   console.log("  feed          - Feed account with subscription data");
@@ -246,8 +273,12 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
   console.log("");
   console.log("Examples:");
   console.log("  node read-accounts.js");
-  console.log("  node read-accounts.js feed 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F");
-  console.log("  node read-accounts.js dataSource 9K9FknHzW7j8a88yKTrzxKfDrxnV2QLqSR58ETAVdc8P");
+  console.log(
+    "  node read-accounts.js feed 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F"
+  );
+  console.log(
+    "  node read-accounts.js dataSource 9K9FknHzW7j8a88yKTrzxKfDrxnV2QLqSR58ETAVdc8P"
+  );
   process.exit(0);
 }
 

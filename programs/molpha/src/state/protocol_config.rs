@@ -13,7 +13,7 @@ pub struct ProtocolConfig {
     pub reward_percentage: u64,            // Reward percentage in basis points
 
     // Node security deposit
-    pub node_security_deposit: u64,        // Required security deposit amount for registering a node
+    pub node_security_deposit: u64, // Required security deposit amount for registering a node
 
     pub bump: u8,
 }

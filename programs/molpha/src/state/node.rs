@@ -19,7 +19,12 @@ impl Node {
     pub const SEED_PREFIX: &'static [u8] = b"node";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
-    pub fn init(&mut self, authority: Pubkey, node_pubkey: Pubkey, evm_pubkey: Vec<u8>) -> Result<()> {
+    pub fn init(
+        &mut self,
+        authority: Pubkey,
+        node_pubkey: Pubkey,
+        evm_pubkey: Vec<u8>,
+    ) -> Result<()> {
         self.authority = authority;
         self.node_pubkey = node_pubkey;
         self.node_pub_evm = evm_pubkey;
