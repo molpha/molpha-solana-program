@@ -1,7 +1,10 @@
 import * as anchor from "@coral-xyz/anchor";
 import { assert } from "chai";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import nacl from "tweetnacl";
 import {
   setupTestContext,
@@ -9,7 +12,7 @@ import {
   TestContext,
   createTestDataSourceInfo,
   getDataSourcePda,
-  createFeedParams,
+  registerNodeWithDeposit,
 } from "../setup";
 import { BankrunProvider } from "anchor-bankrun";
 
@@ -35,33 +38,29 @@ describe("Integration Tests: Complete Oracle Flow", () => {
 
   describe("Complete Flow: Add Nodes → Create Data Source → Create Feed → Publish Data", () => {
     it("Executes complete public feed workflow successfully", async () => {
-      // Step 1: Add nodes to the registry
-      console.log("Step 1: Adding nodes to registry...");
+      // Step 1: Register nodes
+      console.log("Step 1: Registering nodes...");
       const nodesToAdd = [ctx.nodes[0], ctx.nodes[1], ctx.nodes[2]]; // Add 3 nodes
 
       for (const node of nodesToAdd) {
-        await ctx.molphaProgram.methods
-          .addNode(node.publicKey)
-          .accountsPartial({
-            nodeRegistry: ctx.nodeRegistryPDA,
-            authority: ctx.authority.publicKey,
-          })
-          .rpc();
+        const evmPubkey = Buffer.alloc(33, 1);
+
+        try {
+          await registerNodeWithDeposit(ctx, node.publicKey, evmPubkey);
+        } catch (e) {
+          // Ignore if already registered
+        }
       }
 
-      // Verify nodes were added
-      const nodeRegistry = await ctx.molphaProgram.account.nodeRegistry.fetch(
-        ctx.nodeRegistryPDA
-      );
-      assert.ok(
-        nodeRegistry.nodes.some((n) => n.equals(nodesToAdd[0].publicKey))
-      );
-      assert.ok(
-        nodeRegistry.nodes.some((n) => n.equals(nodesToAdd[1].publicKey))
-      );
-      assert.ok(
-        nodeRegistry.nodes.some((n) => n.equals(nodesToAdd[2].publicKey))
-      );
+      // Verify nodes were registered
+      for (const node of nodesToAdd) {
+        const [nodePDA] = PublicKey.findProgramAddressSync(
+          [Buffer.from("node"), node.publicKey.toBuffer()],
+          ctx.molphaProgram.programId
+        );
+        const nodeAccount = await ctx.molphaProgram.account.node.fetch(nodePDA);
+        assert.ok(nodeAccount.nodePubkey.equals(node.publicKey));
+      }
 
       const testData = {
         dataSourceType: 0, // Public
@@ -71,8 +70,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
 
       const dataSourceInfo = createTestDataSourceInfo(
         testData.dataSourceType,
-        testData.source,
-        testData.name,
+        testData.name
       );
 
       const [dataSourcePDA] = getDataSourcePda(
@@ -93,7 +91,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       // Verify data source was created
       const dataSourceAccount =
         await ctx.molphaProgram.account.dataSource.fetch(dataSourcePDA);
-      assert.deepEqual(dataSourceAccount.owner, ctx.authority.publicKey);
+      assert.deepEqual(dataSourceAccount.authority, ctx.authority.publicKey);
       assert.deepEqual(dataSourceAccount.dataSourceType, { public: {} });
 
       // Step 3: Create feed using the data source
@@ -122,14 +120,9 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       );
 
       const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
-      const priorityFeeBudget = new anchor.BN(1000); // 1000 lamports
 
       await ctx.molphaProgram.methods
-        .createFeed(
-          feedParams as any,
-          subscriptionDurationSeconds,
-          priorityFeeBudget
-        )
+        .createFeed(feedParams as any, subscriptionDurationSeconds)
         .accountsPartial({
           feed: feedPDA,
           dataSource: dataSourcePDA,
@@ -164,7 +157,10 @@ describe("Integration Tests: Complete Oracle Flow", () => {
             "hex"
           )
         ), // 32 bytes representing price data
-        timestamp: await safePastOnchainTimestamp(ctx.molphaProgram.provider, 10), // 10 seconds ago
+        timestamp: await safePastOnchainTimestamp(
+          ctx.molphaProgram.provider,
+          10
+        ), // 10 seconds ago
       };
 
       // Create message for signature verification (must match answer.value)
@@ -184,14 +180,23 @@ describe("Integration Tests: Complete Oracle Flow", () => {
         });
       });
 
+      // Get Node PDAs for the signers
+      const nodePDAs = signers.map((signer) => {
+        const [nodePDA] = PublicKey.findProgramAddressSync(
+          [Buffer.from("node"), signer.publicKey.toBuffer()],
+          ctx.molphaProgram.programId
+        );
+        return { pubkey: nodePDA, isSigner: false, isWritable: false };
+      });
+
       // Build + send via Anchor (ensures correct accounts/ordering/provider)
       await ctx.molphaProgram.methods
         .publishAnswer(answer)
         .accountsPartial({
           feed: feedPDA,
-          nodeRegistry: ctx.nodeRegistryPDA,
           instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         })
+        .remainingAccounts(nodePDAs)
         .preInstructions(preIxs)
         .rpc();
 
@@ -208,22 +213,16 @@ describe("Integration Tests: Complete Oracle Flow", () => {
     });
 
     it("Executes complete personal feed workflow with subscription", async () => {
-      // Step 1: Add nodes (reuse from previous test)
-      console.log("Step 1: Adding nodes to registry...");
+      // Step 1: Register nodes (reuse from previous test)
+      console.log("Step 1: Registering nodes...");
       const nodesToAdd = [ctx.nodes[0], ctx.nodes[1], ctx.nodes[2]];
 
       for (const node of nodesToAdd) {
         try {
-          await ctx.molphaProgram.methods
-            .addNode(node.publicKey)
-            .accountsPartial({
-              nodeRegistry: ctx.nodeRegistryPDA,
-              authority: ctx.authority.publicKey,
-              systemProgram: SystemProgram.programId,
-            })
-            .rpc();
+          const evmPubkey = Buffer.alloc(33, 1);
+          await registerNodeWithDeposit(ctx, node.publicKey, evmPubkey);
         } catch (e) {
-          // Ignore if already added
+          // Ignore if already registered
         }
       }
 
@@ -235,8 +234,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
 
       const dataSourceInfo = createTestDataSourceInfo(
         testData.dataSourceType,
-        testData.source,
-        testData.name,
+        testData.name
       );
 
       const [dataSourcePDA] = getDataSourcePda(
@@ -283,11 +281,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       const priorityFeeBudget = new anchor.BN(2000); // 2000 lamports
 
       await ctx.molphaProgram.methods
-        .createFeed(
-          feedParams as any,
-          subscriptionDurationSeconds,
-          priorityFeeBudget
-        )
+        .createFeed(feedParams as any, subscriptionDurationSeconds)
         .accountsPartial({
           feed: feedPDA,
           dataSource: dataSourcePDA,
@@ -302,25 +296,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
         })
         .rpc();
 
-      // Step 4: Top up the feed with balance for operations
-      console.log("Step 4: Topping up feed balance...");
-      const topUpAmount = new anchor.BN(1000000); // 1 SOL equivalent in lamports
-
-      await ctx.molphaProgram.methods
-        .topUp(topUpAmount)
-        .accountsPartial({
-          feed: feedPDA,
-          authority: ctx.authority.publicKey,
-        })
-        .rpc();
-
-      // Verify feed balance was topped up
-      const feedAfterTopUp = await ctx.molphaProgram.account.feed.fetch(
-        feedPDA
-      );
-      assert.ok(feedAfterTopUp.balance.gte(topUpAmount));
-
-      // Step 5: Publish data to the personal feed
+      // Step 4: Publish data to the personal feed
       console.log("Step 5: Publishing data to personal feed...");
       const answer = {
         value: Array.from(
@@ -329,7 +305,10 @@ describe("Integration Tests: Complete Oracle Flow", () => {
             "hex"
           )
         ), // 32 bytes representing different price data
-        timestamp: await safePastOnchainTimestamp(ctx.molphaProgram.provider, 5), // 5 seconds ago
+        timestamp: await safePastOnchainTimestamp(
+          ctx.molphaProgram.provider,
+          5
+        ), // 5 seconds ago
       };
 
       const message = Buffer.from(answer.value);
@@ -347,15 +326,22 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       });
       preIxs.push(ix);
 
+      // Get Node PDA for the signer
+      const nodePDA = PublicKey.findProgramAddressSync(
+        [Buffer.from("node"), signer.publicKey.toBuffer()],
+        ctx.molphaProgram.programId
+      )[0];
+
       // Use the same pattern as working tests
       await ctx.molphaProgram.methods
         .publishAnswer(answer)
         .accountsPartial({
           feed: feedPDA,
-          nodeRegistry: ctx.nodeRegistryPDA,
-          protocolConfig: ctx.protocolConfigPDA,
           instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         })
+        .remainingAccounts([
+          { pubkey: nodePDA, isSigner: false, isWritable: false },
+        ])
         .preInstructions(preIxs)
         .rpc();
 
@@ -371,11 +357,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       // Create a feed with high signature threshold
       const feedId = "high-threshold-feed";
 
-      const dataSourceInfo = createTestDataSourceInfo(
-        0,
-        "https://api.example.com/high-threshold",
-        "High Threshold Test",
-      );
+      const dataSourceInfo = createTestDataSourceInfo(0, "High Threshold Test");
 
       const [dataSourcePDA] = getDataSourcePda(
         ctx.molphaProgram.programId,
@@ -416,14 +398,9 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       );
 
       const subscriptionDurationSeconds = new anchor.BN(86400);
-      const priorityFeeBudget = new anchor.BN(1000);
 
       await ctx.molphaProgram.methods
-        .createFeed(
-          feedParams as any,
-          subscriptionDurationSeconds,
-          priorityFeeBudget
-        )
+        .createFeed(feedParams as any, subscriptionDurationSeconds)
         .accountsPartial({
           feed: feedPDA,
           dataSource: dataSourcePDA,
@@ -446,7 +423,10 @@ describe("Integration Tests: Complete Oracle Flow", () => {
             "hex"
           )
         ),
-        timestamp: await safePastOnchainTimestamp(ctx.molphaProgram.provider, 10),
+        timestamp: await safePastOnchainTimestamp(
+          ctx.molphaProgram.provider,
+          10
+        ),
       };
 
       const message = Buffer.from(answer.value);
@@ -464,14 +444,23 @@ describe("Integration Tests: Complete Oracle Flow", () => {
         transaction.add(ix);
       }
 
+      // Get Node PDAs for the signers
+      const nodePDAs = signers.map((signer) => {
+        const [nodePDA] = PublicKey.findProgramAddressSync(
+          [Buffer.from("node"), signer.publicKey.toBuffer()],
+          ctx.molphaProgram.programId
+        );
+        return { pubkey: nodePDA, isSigner: false, isWritable: false };
+      });
+
       transaction.add(
         await ctx.molphaProgram.methods
           .publishAnswer(answer)
           .accountsPartial({
             feed: feedPDA,
-            nodeRegistry: ctx.nodeRegistryPDA,
             instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           })
+          .remainingAccounts(nodePDAs)
           .instruction()
       );
 
@@ -502,8 +491,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
 
       const dataSourceInfo = createTestDataSourceInfo(
         sharedDataSource.dataSourceType,
-        sharedDataSource.source,
-        sharedDataSource.name,
+        sharedDataSource.name
       );
 
       const [dataSourcePDA] = getDataSourcePda(
@@ -568,11 +556,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
         const priorityFeeBudget = new anchor.BN(1000);
 
         await ctx.molphaProgram.methods
-          .createFeed(
-            feedParams as any,
-            subscriptionDurationSeconds,
-            priorityFeeBudget
-          )
+          .createFeed(feedParams as any, subscriptionDurationSeconds)
           .accountsPartial({
             feed: feedPDA,
             dataSource: dataSourcePDA,
@@ -599,7 +583,10 @@ describe("Integration Tests: Complete Oracle Flow", () => {
               "hex"
             )
           ),
-          timestamp: await safePastOnchainTimestamp(ctx.molphaProgram.provider, 15),
+          timestamp: await safePastOnchainTimestamp(
+            ctx.molphaProgram.provider,
+            15
+          ),
         };
 
         const message = Buffer.from(answer.value);
@@ -618,15 +605,28 @@ describe("Integration Tests: Complete Oracle Flow", () => {
           preIxs.push(ix);
         }
 
+        // Get Node PDAs for the signers
+        const nodePDAs = [];
+        for (let i = 0; i < numSignatures; i++) {
+          const [nodePDA] = PublicKey.findProgramAddressSync(
+            [Buffer.from("node"), ctx.nodes[i].publicKey.toBuffer()],
+            ctx.molphaProgram.programId
+          );
+          nodePDAs.push({
+            pubkey: nodePDA,
+            isSigner: false,
+            isWritable: false,
+          });
+        }
+
         // Use the same pattern as working tests
         await ctx.molphaProgram.methods
           .publishAnswer(answer)
           .accountsPartial({
             feed: pda,
-            nodeRegistry: ctx.nodeRegistryPDA,
-            protocolConfig: ctx.protocolConfigPDA,
             instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           })
+          .remainingAccounts(nodePDAs)
           .preInstructions(preIxs)
           .rpc();
 

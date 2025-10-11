@@ -21,16 +21,19 @@ pub fn update_feed_config(
     );
 
     let old_price_per_second_scaled = feed.price_per_second_scaled;
-    let price_per_second_scaled = calculate_price_per_second_scaled(feed, &ctx.accounts.protocol_config)?;
-    let time_left = feed.subscription_due_time as u64 - Clock::get()?.unix_timestamp as u64;
-    let new_due_time = Clock::get()?.unix_timestamp as u64 + ((time_left * old_price_per_second_scaled) / price_per_second_scaled);
 
-    feed.subscription_due_time = new_due_time as i64;
-    feed.price_per_second_scaled = price_per_second_scaled;
     feed.min_signatures_threshold = params.min_signatures_threshold;
     feed.frequency = params.frequency;
     feed.ipfs_cid = params.ipfs_cid.clone();
     feed.job_id = params.job_id;
+
+    let price_per_second_scaled =
+        calculate_price_per_second_scaled(feed, &ctx.accounts.protocol_config)?;
+    let time_left = feed.subscription_due_time as u64 - Clock::get()?.unix_timestamp as u64;
+    let new_due_time = Clock::get()?.unix_timestamp as u64
+        + ((time_left * old_price_per_second_scaled) / price_per_second_scaled);
+    feed.subscription_due_time = new_due_time as i64;
+    feed.price_per_second_scaled = price_per_second_scaled;
 
     // Emit event
     emit!(FeedConfigUpdated {

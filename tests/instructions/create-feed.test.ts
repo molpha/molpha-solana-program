@@ -2,7 +2,10 @@ import * as anchor from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
 import { assert } from "chai";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import {
   setupTestContext,
   initializeProtocol,
@@ -56,16 +59,13 @@ describe("Create Feed Instruction", () => {
     // Create test data sources for feed creation
     const publicDataSourceInfo = createTestDataSourceInfo(
       testDataSources.public.dataSourceType,
-      testDataSources.public.source,
-      testDataSources.public.name,
+      testDataSources.public.name
     );
 
     const privateDataSourceInfo = createTestDataSourceInfo(
       testDataSources.private.dataSourceType,
-      testDataSources.private.source,
-      testDataSources.private.name,
+      testDataSources.private.name
     );
-
 
     [publicDataSourcePDA] = getDataSourcePda(
       ctx.molphaProgram.programId,
@@ -112,11 +112,10 @@ describe("Create Feed Instruction", () => {
   });
 
   it("Successfully creates a public feed with existing data source", async () => {
-    const jobId = "public-btc-feed";
-    const feedParams = createFeedParams(
-      jobId,
-      { public: {} },
-    );
+    const jobId =
+      "0xb6c3781295af4f459a731177b25fa4c1a0b4c757152fbbaba977a70f7d635474";
+    const feedParams = createFeedParams(jobId, { public: {} });
+    const frequencySeed = feedParams.frequency.toBuffer("le", 8);
 
     const [feedPDA] = PublicKey.findProgramAddressSync(
       [
@@ -132,15 +131,10 @@ describe("Create Feed Instruction", () => {
     );
 
     // Create feed with 1 day subscription and 1000 lamports priority fee budget
-    const subscriptionDurationSeconds = new BN(86400); // 1 day
-    const priorityFeeBudget = new BN(1000); // 1000 lamports
+    const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
 
     await ctx.molphaProgram.methods
-      .createFeed(
-        feedParams,
-        subscriptionDurationSeconds,
-        priorityFeeBudget
-      )
+      .createFeed(feedParams, subscriptionDurationSeconds)
       .accountsPartial({
         feed: feedPDA,
         dataSource: publicDataSourcePDA,
@@ -172,17 +166,8 @@ describe("Create Feed Instruction", () => {
   });
 
   it("Successfully creates a personal feed with existing data source", async () => {
-    const jobId = "personal-btc-feed";
-    const feedParams = createFeedParams(
-      jobId,
-      { personal: {} },
-    );
-
-    const dataSourceInfo = createTestDataSourceInfo(
-      testDataSources.public.dataSourceType,
-      testDataSources.public.source,
-      testDataSources.public.name,
-    );
+    const jobId = "0x234234";
+    const feedParams = createFeedParams(jobId, { personal: {} });
 
     const [feedPDA] = PublicKey.findProgramAddressSync(
       [
@@ -198,15 +183,10 @@ describe("Create Feed Instruction", () => {
     );
 
     // Create feed with 1 day subscription and 1000 lamports priority fee budget
-    const subscriptionDurationSeconds = new BN(86400); // 1 day
-    const priorityFeeBudget = new BN(1000); // 1000 lamports
+    const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
 
     await ctx.molphaProgram.methods
-      .createFeed(
-        feedParams,
-        subscriptionDurationSeconds,
-        priorityFeeBudget
-      )
+      .createFeed(feedParams, subscriptionDurationSeconds)
       .accountsPartial({
         feed: feedPDA,
         dataSource: publicDataSourcePDA,
@@ -230,17 +210,8 @@ describe("Create Feed Instruction", () => {
   });
 
   it("Successfully creates a private feed with EthLink", async () => {
-    const jobId = "private-feed-with-link";
-    const feedParams = createFeedParams(
-      jobId,
-      { personal: {} },
-    );
-
-    const dataSourceInfo = createTestDataSourceInfo(
-      testDataSources.private.dataSourceType,
-      testDataSources.private.source,
-      testDataSources.private.name,
-    );
+    const jobId = "0x22";
+    const feedParams = createFeedParams(jobId, { personal: {} });
 
     const [feedPDA] = PublicKey.findProgramAddressSync(
       [
@@ -256,7 +227,7 @@ describe("Create Feed Instruction", () => {
     );
 
     await ctx.molphaProgram.methods
-      .createFeed(feedParams, new BN(86400), new BN(1000))
+      .createFeed(feedParams, new anchor.BN(86400))
       .accountsPartial({
         feed: feedPDA,
         dataSource: privateDataSourcePDA,
@@ -277,15 +248,11 @@ describe("Create Feed Instruction", () => {
   });
 
   it("Fails to create feed with zero min_signatures_threshold", async () => {
-    const jobId = "invalid-threshold-feed";
-    const invalidParams = {
-      name: jobId,
-      jobId: Array.from(Buffer.from(jobId.padEnd(32, "\0"))),
-      feedType: { public: {} },
-      minSignaturesThreshold: 0, // Invalid: should be > 0
-      frequency: new anchor.BN(300),
-      ipfsCid: "QmTestCID123456789",
-    };
+    const jobId = "0x1231";
+
+    const invalidParams = createFeedParams(jobId, { public: {} });
+    // Override with invalid threshold
+    invalidParams.minSignaturesThreshold = 0;
 
     const [feedPDA] = PublicKey.findProgramAddressSync(
       [
@@ -302,7 +269,7 @@ describe("Create Feed Instruction", () => {
 
     try {
       await ctx.molphaProgram.methods
-        .createFeed(invalidParams, new BN(86400), new BN(1000))
+        .createFeed(invalidParams, new BN(86400))
         .accountsPartial({
           feed: feedPDA,
           dataSource: publicDataSourcePDA,
@@ -321,21 +288,17 @@ describe("Create Feed Instruction", () => {
     } catch (error: any) {
       assert.ok(
         error.message.includes("InvalidFeedConfig") ||
-          error.message.includes("custom program error")
+          error.message.includes("Invalid feed configuration")
       );
     }
   });
 
   it("Fails to create feed with empty IPFS CID", async () => {
-    const jobId = "invalid-cid-feed";
-    const invalidParams = {
-      name: jobId,
-      jobId: Array.from(Buffer.from(jobId.padEnd(32, "\0"))),
-      feedType: { public: {} },
-      minSignaturesThreshold: 2,
-      frequency: new anchor.BN(300),
-      ipfsCid: "", // Invalid: should not be empty
-    };
+    const jobId = "0x12312434";
+
+    const invalidParams = createFeedParams(jobId, { public: {} });
+    // Override with invalid IPFS CID
+    invalidParams.ipfsCid = "";
 
     const [feedPDA] = PublicKey.findProgramAddressSync(
       [
@@ -352,7 +315,7 @@ describe("Create Feed Instruction", () => {
 
     try {
       await ctx.molphaProgram.methods
-        .createFeed(invalidParams, new BN(86400), new BN(1000))
+        .createFeed(invalidParams, new BN(86400))
         .accountsPartial({
           feed: feedPDA,
           dataSource: publicDataSourcePDA,
@@ -369,22 +332,17 @@ describe("Create Feed Instruction", () => {
         .rpc();
       assert.fail("Should have failed with empty IPFS CID");
     } catch (error: any) {
-      assert.ok(error.message.includes("InvalidFeedConfig"));
+      assert.ok(
+        error.message.includes("InvalidFeedConfig") ||
+          error.message.includes("Invalid feed configuration")
+      );
     }
   });
 
   it("Fails to create duplicate feed", async () => {
-    const jobId = "public-btc-feed"; // Same as first test
-    const feedParams = createFeedParams(
-      jobId,
-      { public: {} },
-    );
-
-    const dataSourceInfo = createTestDataSourceInfo(
-      testDataSources.public.dataSourceType,
-      testDataSources.public.source,
-      testDataSources.public.name,
-    );
+    const jobId =
+      "0xb6c3781295af4f459a731177b25fa4c1a0b4c757152fbbaba977a70f7d635474"; // Same as first test
+    const feedParams = createFeedParams(jobId, { public: {} });
 
     const [feedPDA] = PublicKey.findProgramAddressSync(
       [
@@ -401,7 +359,7 @@ describe("Create Feed Instruction", () => {
 
     try {
       await ctx.molphaProgram.methods
-        .createFeed(feedParams, new BN(86400), new BN(1000))
+        .createFeed(feedParams, new BN(86400))
         .accountsPartial({
           feed: feedPDA,
           dataSource: publicDataSourcePDA,
@@ -420,7 +378,8 @@ describe("Create Feed Instruction", () => {
     } catch (error: any) {
       assert.ok(
         error.message.includes("already in use") ||
-          error.message.includes("custom program error")
+          error.message.includes("custom program error") ||
+          error.message.includes("Allocate: account")
       );
     }
   });

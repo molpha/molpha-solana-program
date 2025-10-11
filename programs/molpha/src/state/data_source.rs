@@ -3,13 +3,11 @@ use anchor_lang::prelude::*;
 #[account]
 #[derive(Default, InitSpace)]
 pub struct DataSource {
-    pub owner: Pubkey,                    // Solana address of the owner
+    pub authority: Pubkey,                // Solana address of the owner
     pub data_source_type: DataSourceType, // Type of data source
-    pub metadata_hash: [u8; 32],           // Hash of the metadata
+    pub metadata_hash: [u8; 32],          // Hash of the metadata
     #[max_len(32)]
-    pub name: String,                     // Name of the data source
-    #[max_len(256)]
-    pub source: String,                   // Source of the data source
+    pub name: String,   // Name of the data source
     pub created_at: i64,                  // Creation timestamp
     pub bump: u8,                         // PDA bump
 }
@@ -45,6 +43,5 @@ impl DataSourceType {
 pub struct DataSourceInfo {
     pub data_source_type: DataSourceType,
     pub metadata_hash: [u8; 32],
-    pub source: String,
     pub name: String,
 }

@@ -1,5 +1,5 @@
 // Jest setup file
-import { expect } from '@jest/globals';
+import { expect } from "@jest/globals";
 
 // Make Jest's expect available globally
 global.expect = expect;

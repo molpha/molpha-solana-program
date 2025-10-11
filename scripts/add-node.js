@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 
 const anchor = require("@coral-xyz/anchor");
+const {
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} = require("@solana/spl-token");
 
 async function main() {
   if (!process.argv[2]) {
     console.error("❌ Error: Node public key is required");
-    console.log("Usage: node add-node.js <NODE_PUBKEY>");
-    console.log("Example: node add-node.js 11111111111111111111111111111112");
+    console.log("Usage: node add-node.js <NODE_PUBKEY> [EVM_PUBKEY_HEX]");
+    console.log(
+      "Example: node add-node.js 11111111111111111111111111111112 0x0404..."
+    );
     process.exit(1);
   }
 
@@ -14,37 +21,63 @@ async function main() {
   anchor.setProvider(provider);
 
   const program = anchor.workspace.Molpha;
-  
-  // Derive the node registry PDA
-  const [nodeRegistryPDA] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("node-registry")],
+
+  // Derive the protocol config PDA
+  const [protocolConfigPDA] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("config")],
     program.programId
   );
 
   try {
     const nodePubkey = new anchor.web3.PublicKey(process.argv[2]);
-    
+
+    // Parse EVM pubkey (compressed secp256k1 - 33 bytes) or use default
+    const hexString = process.argv[3].startsWith("0x")
+      ? process.argv[3].slice(2)
+      : process.argv[3];
+    let evmPubkey = Buffer.from(hexString, "hex");
+    if (evmPubkey.length !== 33) {
+      console.error(
+        "❌ Error: EVM pubkey must be 33 bytes (compressed secp256k1)"
+      );
+      process.exit(1);
+    }
+
     // Derive the node PDA
     const [nodePDA] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("node"), nodePubkey.toBuffer()],
       program.programId
     );
 
-    console.log("🔍 Adding node with the following details:");
+    // Get protocol config to check security deposit and underlying token
+    const protocolConfig = await program.account.protocolConfig.fetch(
+      protocolConfigPDA
+    );
+    const underlyingToken = protocolConfig.underlyingToken;
+    const securityDeposit = protocolConfig.nodeSecurityDeposit;
+
+    // Get operator's token account
+    const nodeOperatorTokenAccount = getAssociatedTokenAddressSync(
+      underlyingToken,
+      provider.wallet.publicKey
+    );
+
+    // Get node's security deposit account
+    const nodeSecurityDepositAccount = getAssociatedTokenAddressSync(
+      underlyingToken,
+      nodePDA,
+      true // allowOwnerOffCurve
+    );
+
+    console.log("🔍 Registering node with the following details:");
     console.log("Node pubkey:", nodePubkey.toString());
     console.log("Node PDA:", nodePDA.toString());
-    console.log("Node Registry PDA:", nodeRegistryPDA.toString());
+    console.log("Protocol Config PDA:", protocolConfigPDA.toString());
     console.log("Authority:", provider.wallet.publicKey.toString());
+    console.log("Underlying Token:", underlyingToken.toString());
+    console.log("Security Deposit:", securityDeposit.toString(), "tokens");
+    console.log("EVM Pubkey:", evmPubkey.toString("hex"));
     console.log("");
-
-    // Check if node registry exists
-    try {
-      const nodeRegistryAccount = await program.account.nodeRegistry.fetch(nodeRegistryPDA);
-      console.log(`📋 Current nodes in registry: ${nodeRegistryAccount.nodes.length}`);
-    } catch (e) {
-      console.error("❌ Error: Node registry not found. Please run initialize script first.");
-      process.exit(1);
-    }
 
     // Check if node already exists
     try {
@@ -52,45 +85,73 @@ async function main() {
       console.error("❌ Error: Node already exists");
       process.exit(1);
     } catch (e) {
-      // Node doesn't exist, which is good for adding
+      // Node doesn't exist, which is good for registering
+    }
+
+    // Check operator token account balance
+    try {
+      const tokenAccountInfo = await provider.connection.getAccountInfo(
+        nodeOperatorTokenAccount
+      );
+      if (!tokenAccountInfo) {
+        console.error(
+          "❌ Error: Operator token account not found. Please fund your account with tokens first."
+        );
+        process.exit(1);
+      }
+    } catch (e) {
+      console.error(
+        "❌ Error: Could not check operator token account:",
+        e.message
+      );
+      process.exit(1);
     }
 
     const txSignature = await program.methods
-      .addNode(nodePubkey)
+      .registerNode(nodePubkey, evmPubkey)
       .accounts({
-        nodeRegistry: nodeRegistryPDA,
         node: nodePDA,
+        protocolConfig: protocolConfigPDA,
+        underlyingToken: underlyingToken,
+        nodeOperatorTokenAccount: nodeOperatorTokenAccount,
+        nodeSecurityDepositAccount: nodeSecurityDepositAccount,
         authority: provider.wallet.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       })
       .rpc();
 
-    console.log("✅ Node added successfully!");
+    console.log("✅ Node registered successfully!");
     console.log("Node pubkey:", nodePubkey.toString());
     console.log("Node PDA:", nodePDA.toString());
     console.log("Transaction signature:", txSignature);
-    
+
     // Verify the node was added
     try {
       const nodeAccount = await program.account.node.fetch(nodePDA);
-      const nodeRegistryAccount = await program.account.nodeRegistry.fetch(nodeRegistryPDA);
-      
+
       console.log("");
       console.log("📊 Node Details:");
       console.log("- Authority:", nodeAccount.authority.toString());
       console.log("- Node Pubkey:", nodeAccount.nodePubkey.toString());
-      console.log("- Is Active:", nodeAccount.isActive);
-      console.log("- Created At:", new Date(nodeAccount.createdAt.toNumber() * 1000).toISOString());
-      console.log("- Last Active:", new Date(nodeAccount.lastActive.toNumber() * 1000).toISOString());
-      console.log("");
-      console.log(`📋 Total nodes in registry: ${nodeRegistryAccount.nodes.length}`);
-      
+      console.log(
+        "- EVM Pubkey:",
+        Buffer.from(nodeAccount.nodePubEvm).toString("hex")
+      );
+      console.log("- Status:", JSON.stringify(nodeAccount.status));
+      console.log(
+        "- Security Deposit:",
+        nodeAccount.securityDeposit.toString()
+      );
     } catch (e) {
-      console.warn("⚠️  Warning: Could not fetch node details for verification:", e.message);
+      console.warn(
+        "⚠️  Warning: Could not fetch node details for verification:",
+        e.message
+      );
     }
-    
   } catch (e) {
-    console.error("❌ Error adding node:", e.message);
+    console.error("❌ Error registering node:", e.message);
     if (e.logs) {
       console.error("Transaction logs:", e.logs);
     }

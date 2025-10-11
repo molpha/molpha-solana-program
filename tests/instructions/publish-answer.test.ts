@@ -1,7 +1,10 @@
 import * as anchor from "@coral-xyz/anchor";
 import { assert } from "chai";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import nacl from "tweetnacl";
 import { BankrunProvider } from "anchor-bankrun";
 import {
@@ -10,7 +13,7 @@ import {
   TestContext,
   getDataSourcePda,
   createTestDataSourceInfo,
-  createFeedParams,
+  registerNodeWithDeposit,
 } from "../setup";
 
 async function safePastOnchainTimestamp(
@@ -38,18 +41,13 @@ describe("Publish Answer Instruction", () => {
     ctx = await setupTestContext();
     await initializeProtocol(ctx);
 
-    // Add nodes for signature verification
+    // Register nodes for signature verification
     for (let i = 0; i < 3; i++) {
       try {
-        await ctx.molphaProgram.methods
-          .addNode(ctx.nodes[i].publicKey)
-          .accountsPartial({
-            nodeRegistry: ctx.nodeRegistryPDA,
-            authority: ctx.authority.publicKey,
-          })
-          .rpc();
+        const evmPubkey = Buffer.alloc(33, i + 1);
+        await registerNodeWithDeposit(ctx, ctx.nodes[i].publicKey, evmPubkey);
       } catch (e) {
-        // Ignore error if node already added
+        // Ignore error if node already registered
       }
     }
 
@@ -60,18 +58,17 @@ describe("Publish Answer Instruction", () => {
       name: "Test Price Feed",
     };
 
-
     [dataSourcePDA] = getDataSourcePda(
       ctx.molphaProgram.programId,
       ctx.authority.publicKey,
       dataSourceInfo.name,
-      dataSourceInfo.dataSourceType
+      0
     );
 
     // Create data source
     try {
       await ctx.molphaProgram.methods
-        .createDataSource(dataSourceInfo)
+        .createDataSource(dataSourceInfo as any)
         .accountsPartial({
           dataSource: dataSourcePDA,
           authority: ctx.authority.publicKey,
@@ -106,11 +103,7 @@ describe("Publish Answer Instruction", () => {
 
     try {
       await ctx.molphaProgram.methods
-        .createFeed(
-          publicFeedParams,
-          new anchor.BN(86400),
-          new anchor.BN(1000)
-        )
+        .createFeed(publicFeedParams, new anchor.BN(86400))
         .accountsPartial({
           feed: publicFeedPDA,
           dataSource: dataSourcePDA,
@@ -151,50 +144,21 @@ describe("Publish Answer Instruction", () => {
       ctx.molphaProgram.programId
     );
 
-    try {
-      await ctx.molphaProgram.methods
-        .createFeed(
-          personalFeedParams,
-          new anchor.BN(86400),
-          new anchor.BN(1000)
-        )
-        .accountsPartial({
-          feed: personalFeedPDA,
-          dataSource: dataSourcePDA,
-          authority: ctx.authority.publicKey,
-          protocolConfig: ctx.protocolConfigPDA,
-          userTokenAccount: ctx.userTokenAccount,
-          programTokenAccount: ctx.programTokenAccount,
-          underlyingToken: ctx.underlyingTokenMint,
-          systemProgram: SystemProgram.programId,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        })
-        .rpc();
-    } catch (e) {
-      // Ignore if already exists
-    }
-
-    // Top up feeds with sufficient balance
-    try {
-      await ctx.molphaProgram.methods
-        .topUp(new anchor.BN(100000)) // 100,000 lamports
-        .accountsPartial({
-          feed: publicFeedPDA,
-          authority: ctx.authority.publicKey,
-        })
-        .rpc();
-
-      await ctx.molphaProgram.methods
-        .topUp(new anchor.BN(100000)) // 100,000 lamports
-        .accountsPartial({
-          feed: personalFeedPDA,
-          authority: ctx.authority.publicKey,
-        })
-        .rpc();
-    } catch (e) {
-      // Ignore if already topped up
-    }
+    await ctx.molphaProgram.methods
+      .createFeed(personalFeedParams, new anchor.BN(86400))
+      .accountsPartial({
+        feed: personalFeedPDA,
+        dataSource: dataSourcePDA,
+        authority: ctx.authority.publicKey,
+        protocolConfig: ctx.protocolConfigPDA,
+        userTokenAccount: ctx.userTokenAccount,
+        programTokenAccount: ctx.programTokenAccount,
+        underlyingToken: ctx.underlyingTokenMint,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      })
+      .rpc();
   });
 
   describe("Basic Publishing", () => {
@@ -227,14 +191,23 @@ describe("Publish Answer Instruction", () => {
         });
       });
 
+      // Get Node PDAs for the signers
+      const nodePDAs = signers.map((signer) => {
+        const [nodePDA] = PublicKey.findProgramAddressSync(
+          [Buffer.from("node"), signer.publicKey.toBuffer()],
+          ctx.molphaProgram.programId
+        );
+        return { pubkey: nodePDA, isSigner: false, isWritable: false };
+      });
+
       // Build + send via Anchor (ensures correct accounts/ordering/provider)
       await ctx.molphaProgram.methods
         .publishAnswer(answer)
         .accountsPartial({
           feed: publicFeedPDA,
-          nodeRegistry: ctx.nodeRegistryPDA,
           instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         })
+        .remainingAccounts(nodePDAs)
         .preInstructions(preIxs)
         .rpc();
 
@@ -269,7 +242,6 @@ describe("Publish Answer Instruction", () => {
       const initialFeed = await ctx.molphaProgram.account.feed.fetch(
         personalFeedPDA
       );
-      const initialBalance = initialFeed.balance;
 
       const signers = [ctx.nodes[0], ctx.nodes[1]];
 
@@ -283,14 +255,23 @@ describe("Publish Answer Instruction", () => {
         });
       });
 
+      // Get Node PDAs for the signers
+      const nodePDAs = signers.map((signer) => {
+        const [nodePDA] = PublicKey.findProgramAddressSync(
+          [Buffer.from("node"), signer.publicKey.toBuffer()],
+          ctx.molphaProgram.programId
+        );
+        return { pubkey: nodePDA, isSigner: false, isWritable: false };
+      });
+
       // Build + send via Anchor (ensures correct accounts/ordering/provider)
       await ctx.molphaProgram.methods
         .publishAnswer(answer)
         .accountsPartial({
           feed: personalFeedPDA,
-          nodeRegistry: ctx.nodeRegistryPDA,
           instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         })
+        .remainingAccounts(nodePDAs)
         .preInstructions(preIxs)
         .rpc();
 
@@ -329,14 +310,23 @@ describe("Publish Answer Instruction", () => {
         });
       });
 
+      // Get Node PDAs for the signer
+      const nodePDAs = [ctx.nodes[0]].map((signer) => {
+        const [nodePDA] = PublicKey.findProgramAddressSync(
+          [Buffer.from("node"), signer.publicKey.toBuffer()],
+          ctx.molphaProgram.programId
+        );
+        return { pubkey: nodePDA, isSigner: false, isWritable: false };
+      });
+
       try {
         await ctx.molphaProgram.methods
           .publishAnswer(answer)
           .accountsPartial({
             feed: personalFeedPDA,
-            nodeRegistry: ctx.nodeRegistryPDA,
             instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           })
+          .remainingAccounts(nodePDAs)
           .preInstructions(preIxs)
           .rpc();
         assert.fail("Should have failed with insufficient signatures");
@@ -392,15 +382,24 @@ describe("Publish Answer Instruction", () => {
         });
       });
 
+      // Get Node PDAs for the signers
+      const nodePDAs = signers.map((signer) => {
+        const [nodePDA] = PublicKey.findProgramAddressSync(
+          [Buffer.from("node"), signer.publicKey.toBuffer()],
+          ctx.molphaProgram.programId
+        );
+        return { pubkey: nodePDA, isSigner: false, isWritable: false };
+      });
+
       try {
         // Build + send via Anchor (ensures correct accounts/ordering/provider)
         await ctx.molphaProgram.methods
           .publishAnswer(answer)
           .accountsPartial({
             feed: personalFeedPDA,
-            nodeRegistry: ctx.nodeRegistryPDA,
             instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           })
+          .remainingAccounts(nodePDAs)
           .preInstructions(preIxs)
           .rpc();
 
@@ -442,14 +441,23 @@ describe("Publish Answer Instruction", () => {
         });
       });
 
+      // Get Node PDAs for the signers
+      const nodePDAs = signers.map((signer) => {
+        const [nodePDA] = PublicKey.findProgramAddressSync(
+          [Buffer.from("node"), signer.publicKey.toBuffer()],
+          ctx.molphaProgram.programId
+        );
+        return { pubkey: nodePDA, isSigner: false, isWritable: false };
+      });
+
       try {
         await ctx.molphaProgram.methods
           .publishAnswer(answer)
           .accountsPartial({
             feed: publicFeedPDA,
-            nodeRegistry: ctx.nodeRegistryPDA,
             instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           })
+          .remainingAccounts(nodePDAs)
           .preInstructions(preIxs)
           .rpc();
         assert.fail("Should have failed with wrong message signature");
@@ -497,15 +505,23 @@ describe("Publish Answer Instruction", () => {
         transaction.add(ix);
       }
 
+      // Get Node PDAs for the signers
+      const nodePDAs = signers.map((signer) => {
+        const [nodePDA] = PublicKey.findProgramAddressSync(
+          [Buffer.from("node"), signer.publicKey.toBuffer()],
+          ctx.molphaProgram.programId
+        );
+        return { pubkey: nodePDA, isSigner: false, isWritable: false };
+      });
+
       transaction.add(
         await ctx.molphaProgram.methods
           .publishAnswer(answer)
           .accountsPartial({
             feed: publicFeedPDA,
-            nodeRegistry: ctx.nodeRegistryPDA,
-            protocolConfig: ctx.protocolConfigPDA,
             instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           })
+          .remainingAccounts(nodePDAs)
           .instruction()
       );
 
@@ -549,15 +565,23 @@ describe("Publish Answer Instruction", () => {
         transaction.add(ix);
       }
 
+      // Get Node PDAs for the signers
+      const nodePDAs = signers.map((signer) => {
+        const [nodePDA] = PublicKey.findProgramAddressSync(
+          [Buffer.from("node"), signer.publicKey.toBuffer()],
+          ctx.molphaProgram.programId
+        );
+        return { pubkey: nodePDA, isSigner: false, isWritable: false };
+      });
+
       transaction.add(
         await ctx.molphaProgram.methods
           .publishAnswer(answer)
           .accountsPartial({
             feed: publicFeedPDA,
-            nodeRegistry: ctx.nodeRegistryPDA,
-            protocolConfig: ctx.protocolConfigPDA,
             instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           })
+          .remainingAccounts(nodePDAs)
           .instruction()
       );
 
@@ -600,17 +624,13 @@ describe("Publish Answer Instruction", () => {
         ctx.molphaProgram.programId
       );
 
-      const dataSourceInfo = createTestDataSourceInfo(
-        0,
-        "https://api.history.com/price",
-        "History Test Feed"
-      );
+      const dataSourceInfo = createTestDataSourceInfo(0, "History Test Feed");
 
       const [historyDataSourcePDA] = getDataSourcePda(
         ctx.molphaProgram.programId,
         ctx.authority.publicKey,
         dataSourceInfo.name,
-        dataSourceInfo.dataSourceType
+        0
       );
 
       await ctx.molphaProgram.methods
@@ -622,11 +642,7 @@ describe("Publish Answer Instruction", () => {
         .rpc();
 
       await ctx.molphaProgram.methods
-        .createFeed(
-          historyFeedParams,
-          new anchor.BN(86400),
-          new anchor.BN(1000)
-        )
+        .createFeed(historyFeedParams, new anchor.BN(86400))
         .accountsPartial({
           feed: historyFeedPDA,
           dataSource: historyDataSourcePDA,
@@ -638,15 +654,6 @@ describe("Publish Answer Instruction", () => {
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        })
-        .rpc();
-
-      // Top up the history feed with sufficient balance
-      await ctx.molphaProgram.methods
-        .topUp(new anchor.BN(100000)) // 100,000 lamports
-        .accountsPartial({
-          feed: historyFeedPDA,
-          authority: ctx.authority.publicKey,
         })
         .rpc();
 
@@ -677,14 +684,23 @@ describe("Publish Answer Instruction", () => {
           preIxs.push(ix);
         });
 
+        // Get Node PDAs for the signers
+        const nodePDAs = signers.map((signer) => {
+          const [nodePDA] = PublicKey.findProgramAddressSync(
+            [Buffer.from("node"), signer.publicKey.toBuffer()],
+            ctx.molphaProgram.programId
+          );
+          return { pubkey: nodePDA, isSigner: false, isWritable: false };
+        });
+
         // Use the same pattern as working tests
         await ctx.molphaProgram.methods
           .publishAnswer(answer)
           .accountsPartial({
             feed: historyFeedPDA,
-            nodeRegistry: ctx.nodeRegistryPDA,
             instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           })
+          .remainingAccounts(nodePDAs)
           .preInstructions(preIxs)
           .rpc();
 

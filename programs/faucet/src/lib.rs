@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 pub mod constants;
 pub mod error;
 pub mod instructions;
@@ -24,7 +26,14 @@ pub mod faucet {
         token_name: String,
         token_symbol: String,
     ) -> Result<()> {
-        initialize::handler(ctx, amount_per_request, cooldown_seconds, token_decimals, token_name, token_symbol)
+        initialize::handler(
+            ctx,
+            amount_per_request,
+            cooldown_seconds,
+            token_decimals,
+            token_name,
+            token_symbol,
+        )
     }
 
     /// Request tokens from the faucet

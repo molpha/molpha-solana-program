@@ -1,7 +1,10 @@
 import * as anchor from "@coral-xyz/anchor";
 import { assert } from "chai";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import { BankrunProvider } from "anchor-bankrun";
 import * as nacl from "tweetnacl";
 import {
@@ -11,6 +14,7 @@ import {
   createTestDataSourceInfo,
   getDataSourcePda,
   createFeedParams,
+  registerNodeWithDeposit,
 } from "../setup";
 
 async function safePastOnchainTimestamp(
@@ -49,7 +53,6 @@ describe("Subscription Integration Tests", () => {
   let feedPDA: PublicKey;
 
   before(async () => {
-
     testDataSource = {
       dataSourceType: 0,
       source: "https://api.coinbase.com/v2/prices/BTC-USD/spot",
@@ -59,8 +62,7 @@ describe("Subscription Integration Tests", () => {
     // Create test data source for feed creation
     const dataSourceInfo = createTestDataSourceInfo(
       testDataSource.dataSourceType,
-      testDataSource.source,
-      testDataSource.name,
+      testDataSource.name
     );
 
     [dataSourcePDA] = getDataSourcePda(
@@ -87,7 +89,7 @@ describe("Subscription Integration Tests", () => {
 
   describe("Create Feed with Subscription", () => {
     it("Successfully creates a feed with subscription", async () => {
-      const jobId = "feed-with-subscription-test";
+      const jobId = "0x02";
       const feedParams = createFeedParams(jobId, { public: {} });
 
       [feedPDA] = PublicKey.findProgramAddressSync(
@@ -103,22 +105,11 @@ describe("Subscription Integration Tests", () => {
         ctx.molphaProgram.programId
       );
 
-      const dataSourceInfo = createTestDataSourceInfo(
-        testDataSource.dataSourceType,
-        testDataSource.source,
-        testDataSource.name,
-      );
-
       // Create feed with 1 day subscription and 1000 lamports priority fee budget
       const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
-      const priorityFeeBudget = new anchor.BN(1001); // 1001 lamports
 
       await ctx.molphaProgram.methods
-        .createFeed(
-          feedParams as any,
-          subscriptionDurationSeconds,
-          priorityFeeBudget
-        )
+        .createFeed(feedParams as any, subscriptionDurationSeconds)
         .accountsPartial({
           feed: feedPDA,
           dataSource: dataSourcePDA,
@@ -142,10 +133,7 @@ describe("Subscription Integration Tests", () => {
       assert.equal(feed.frequency.toNumber(), 300);
       assert.equal(feed.ipfsCid, "QmTestCID123456789");
       assert.deepEqual(feed.dataSource, dataSourcePDA);
-      assert.deepEqual(
-        feed.jobId,
-        Array.from(Buffer.from(jobId.padEnd(32, "\0")))
-      );
+      assert.deepEqual(feed.jobId, feedParams.jobId);
 
       // Verify subscription data was initialized
       assert.equal(
@@ -153,13 +141,10 @@ describe("Subscription Integration Tests", () => {
         feed.createdAt.toNumber() + subscriptionDurationSeconds.toNumber()
       );
       assert.equal(feed.pricePerSecondScaled.toNumber(), 0); // Will be calculated by the program
-      assert.equal(feed.priorityFeeAllowance.toNumber(), priorityFeeBudget.toNumber());
-      assert.equal(feed.consumedPriorityFees.toNumber(), 0);
-      assert.equal(feed.balance.toNumber(), priorityFeeBudget.toNumber()); // Will be set by the program after payment
     });
 
     it("Fails to create feed with subscription duration less than 1 day", async () => {
-      const jobId = "short-subscription-feed";
+      const jobId = "0x03";
       const feedParams = createFeedParams(jobId, { public: {} });
 
       const [shortFeedPDA] = PublicKey.findProgramAddressSync(
@@ -175,23 +160,13 @@ describe("Subscription Integration Tests", () => {
         ctx.molphaProgram.programId
       );
 
-      const dataSourceInfo = createTestDataSourceInfo(
-        testDataSource.dataSourceType,
-        testDataSource.source,
-        testDataSource.name,
-      );
-
       // Try to create feed with 12 hours subscription (less than 1 day)
       const subscriptionDurationSeconds = new anchor.BN(43200); // 12 hours
       const priorityFeeBudget = new anchor.BN(500); // 500 lamports
 
       try {
         await ctx.molphaProgram.methods
-          .createFeed(
-            feedParams as any,
-            subscriptionDurationSeconds,
-            priorityFeeBudget
-          )
+          .createFeed(feedParams as any, subscriptionDurationSeconds)
           .accountsPartial({
             feed: shortFeedPDA,
             dataSource: dataSourcePDA,
@@ -221,15 +196,10 @@ describe("Subscription Integration Tests", () => {
       // Get initial feed state
       const initialFeed = await ctx.molphaProgram.account.feed.fetch(feedPDA);
       const initialDueTime = initialFeed.subscriptionDueTime;
-      const initialPriorityAllowance = initialFeed.priorityFeeAllowance;
-      const initialBalance = initialFeed.balance;
 
       // Extend subscription
       await ctx.molphaProgram.methods
-        .extendSubscription(
-          additionalDurationSeconds,
-          additionalPriorityFeeBudget
-        )
+        .extendSubscription(additionalDurationSeconds)
         .accountsPartial({
           feed: feedPDA,
           dataSource: dataSourcePDA,
@@ -253,30 +223,14 @@ describe("Subscription Integration Tests", () => {
         initialDueTime.toNumber() + additionalDurationSeconds.toNumber(),
         "Subscription due time should be extended"
       );
-
-      assert.equal(
-        updatedFeed.priorityFeeAllowance.toNumber(),
-        initialPriorityAllowance.toNumber() + additionalPriorityFeeBudget.toNumber(),
-        "Priority fee allowance should be increased"
-      );
-
-      // Note: Balance calculation depends on the program's pricing logic
-      assert.isTrue(
-        updatedFeed.balance.toNumber() >= initialBalance.toNumber(),
-        "Feed balance should be increased by extension cost"
-      );
     });
 
     it("Fails to extend subscription with duration less than 1 day", async () => {
       const additionalDurationSeconds = new anchor.BN(86399); // 1 day - 1 second (less than 1 day)
-      const additionalPriorityFeeBudget = new anchor.BN(100); // 100 lamports
 
       try {
         await ctx.molphaProgram.methods
-          .extendSubscription(
-            additionalDurationSeconds,
-            additionalPriorityFeeBudget
-          )
+          .extendSubscription(additionalDurationSeconds)
           .accountsPartial({
             feed: feedPDA,
             authority: ctx.authority.publicKey,
@@ -298,17 +252,13 @@ describe("Subscription Integration Tests", () => {
 
     it("Fails to extend subscription when caller is not the feed authority", async () => {
       const additionalDurationSeconds = new anchor.BN(86400); // 1 day
-      const additionalPriorityFeeBudget = new anchor.BN(100); // 100 lamports
 
       // Create a different authority
       const differentAuthority = anchor.web3.Keypair.generate();
 
       try {
         await ctx.molphaProgram.methods
-          .extendSubscription(
-            additionalDurationSeconds,
-            additionalPriorityFeeBudget
-          )
+          .extendSubscription(additionalDurationSeconds)
           .accountsPartial({
             feed: feedPDA,
             authority: differentAuthority.publicKey,
@@ -334,25 +284,22 @@ describe("Subscription Integration Tests", () => {
 
   describe("Publish Answer with Subscription Validation", () => {
     it("Successfully publishes answer when subscription is active", async () => {
-      // First, add some nodes to the registry (need 2 nodes since minSignaturesThreshold is 2)
+      // First, register some nodes (need 2 nodes since minSignaturesThreshold is 2)
       const testNode1 = anchor.web3.Keypair.generate();
       const testNode2 = anchor.web3.Keypair.generate();
-      
-      await ctx.molphaProgram.methods
-        .addNode(testNode1.publicKey)
-        .accountsPartial({
-          nodeRegistry: ctx.nodeRegistryPDA,
-          authority: ctx.authority.publicKey,
-        })
-        .rpc();
-        
-      await ctx.molphaProgram.methods
-        .addNode(testNode2.publicKey)
-        .accountsPartial({
-          nodeRegistry: ctx.nodeRegistryPDA,
-          authority: ctx.authority.publicKey,
-        })
-        .rpc();
+
+      const evmPubkey = Buffer.alloc(33, 1);
+
+      const node1PDA = await registerNodeWithDeposit(
+        ctx,
+        testNode1.publicKey,
+        evmPubkey
+      );
+      const node2PDA = await registerNodeWithDeposit(
+        ctx,
+        testNode2.publicKey,
+        evmPubkey
+      );
 
       // Create a test answer with a timestamp further in the past
       const answer = {
@@ -376,15 +323,20 @@ describe("Subscription Integration Tests", () => {
         preIxs.push(ix);
       });
 
+      // Get Node PDAs for remaining accounts
+      const nodePDAs = [
+        { pubkey: node1PDA, isSigner: false, isWritable: false },
+        { pubkey: node2PDA, isSigner: false, isWritable: false },
+      ];
+
       // Publish answer with signature
       await ctx.molphaProgram.methods
         .publishAnswer(answer)
         .accountsPartial({
           feed: feedPDA,
-          nodeRegistry: ctx.nodeRegistryPDA,
-          protocolConfig: ctx.protocolConfigPDA,
           instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         })
+        .remainingAccounts(nodePDAs)
         .preInstructions(preIxs)
         .rpc();
 
@@ -420,12 +372,6 @@ describe("Subscription Integration Tests", () => {
           Buffer.from(shortFeedParams.jobId),
         ],
         ctx.molphaProgram.programId
-      );
-
-      const dataSourceInfo = createTestDataSourceInfo(
-        testDataSource.dataSourceType,
-        testDataSource.source,
-        testDataSource.name
       );
 
       // Create feed with minimum valid subscription duration
@@ -466,8 +412,6 @@ describe("Subscription Integration Tests", () => {
           .publishAnswer(answer)
           .accountsPartial({
             feed: shortFeedPDA,
-            nodeRegistry: ctx.nodeRegistryPDA,
-            protocolConfig: ctx.protocolConfigPDA,
             instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           })
           .rpc();
@@ -487,21 +431,6 @@ describe("Subscription Integration Tests", () => {
       assert.isTrue(
         feed.subscriptionDueTime.toNumber() > currentTime,
         "Subscription should be active"
-      );
-    });
-
-    it("Correctly tracks priority fee allowance and consumption", async () => {
-      const feed = await ctx.molphaProgram.account.feed.fetch(feedPDA);
-
-      assert.isTrue(
-        feed.priorityFeeAllowance.toNumber() > 0,
-        "Priority fee allowance should be set"
-      );
-
-      assert.equal(
-        feed.consumedPriorityFees.toNumber(),
-        0,
-        "Consumed priority fees should start at 0"
       );
     });
 
