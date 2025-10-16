@@ -10,7 +10,7 @@ pub struct UpdateProtocolConfigParams {
     pub reward_percentage: Option<u64>,
     pub node_security_deposit: Option<u64>,
 }
-
+ 
 pub fn update_protocol_config(
     ctx: Context<UpdateProtocolConfig>,
     params: UpdateProtocolConfigParams,

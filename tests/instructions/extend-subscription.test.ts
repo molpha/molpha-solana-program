@@ -12,6 +12,7 @@ import {
   createTestDataSourceInfo,
   getDataSourcePda,
   createFeedParams,
+  getFeedPda,
 } from "../setup";
 import { Clock } from "solana-bankrun";
 
@@ -70,17 +71,14 @@ describe("Extend Subscription Instruction", () => {
     const jobId = "0x7865";
     const feedParams = createFeedParams(jobId, { public: {} });
 
-    [feedPDA] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("feed"),
-        ctx.authority.publicKey.toBuffer(),
-        Buffer.from(feedParams.name),
-        Buffer.from([0]), // Public feed type
-        Buffer.from([feedParams.minSignaturesThreshold]),
-        feedParams.frequency.toBuffer("le", 8),
-        Buffer.from(feedParams.jobId),
-      ],
-      ctx.molphaProgram.programId
+    [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams.name,
+      0, // public feed type
+      feedParams.minSignaturesThreshold,
+      feedParams.frequency,
+      feedParams.jobId
     );
 
     // Create feed with 1 day subscription and 1000 lamports priority fee budget

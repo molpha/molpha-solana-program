@@ -14,14 +14,7 @@ pub struct UpdateDataSource<'info> {
     pub authority: Signer<'info>,
     #[account(
         mut,
-        has_one = authority,
-        seeds = [
-            DataSource::SEED_PREFIX,
-            &authority.key().as_ref(),
-            &data_source.name.as_bytes(),
-            data_source.data_source_type.to_seed(),
-        ],
-        bump,
+        has_one = authority
     )]
     pub data_source: Account<'info, DataSource>,
 }

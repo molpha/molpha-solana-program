@@ -357,7 +357,7 @@ export function createTestDataSourceInfo(dataSourceType: number, name: string) {
   metadataHash.fill(1);
   // Use proper discriminated union format for the enum
   const dataSourceTypeEnum =
-    dataSourceType === 1 ? { private: {} } : { public: {} };
+    dataSourceType === 1 ? { personal: {} } : { public: {} };
 
   return {
     dataSourceType: dataSourceTypeEnum,
@@ -372,12 +372,37 @@ export function getDataSourcePda(
   name: string,
   dataSourceType: number
 ) {
+  const { toSeed } = require('./helpers/seeds');
   return PublicKey.findProgramAddressSync(
     [
       Buffer.from("data_source"),
       authority.toBuffer(),
-      Buffer.from(name),
+      toSeed(name),
       Buffer.from([dataSourceType]),
+    ],
+    programId
+  );
+}
+
+export function getFeedPda(
+  programId: PublicKey,
+  authority: PublicKey,
+  name: string,
+  feedType: number,
+  minSignaturesThreshold: number,
+  frequency: anchor.BN,
+  jobId: number[]
+) {
+  const { toSeed } = require('./helpers/seeds');
+  return PublicKey.findProgramAddressSync(
+    [
+      Buffer.from("feed"),
+      authority.toBuffer(),
+      toSeed(name),
+      Buffer.from([feedType]),
+      Buffer.from([minSignaturesThreshold]),
+      frequency.toArrayLike(Buffer, 'le', 8),
+      Buffer.from(jobId),
     ],
     programId
   );

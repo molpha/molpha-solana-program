@@ -1,13 +1,16 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked},
+    token,
+    token_interface::{Mint, TokenAccount, TokenInterface},
 };
 
-use crate::error::FeedError;
-use crate::events::FeedCreated;
-use crate::state::{DataSource, DataSourceType, Feed, FeedType, ProtocolConfig, MAX_HISTORY};
-use crate::utils::pricing::*;
+use crate::{
+    error::FeedError,
+    events::FeedCreated,
+    state::{DataSource, DataSourceType, Feed, FeedType, ProtocolConfig, MAX_HISTORY},
+    utils::{pricing::*, seeds::to_seed},
+};
 
 pub fn create_feed(
     ctx: Context<CreateFeed>,
@@ -25,7 +28,7 @@ pub fn create_feed(
     ); // At least 1 day
 
     let data_source = &ctx.accounts.data_source;
-    if data_source.data_source_type == DataSourceType::Private {
+    if data_source.data_source_type == DataSourceType::Personal {
         require!(
             data_source.authority == ctx.accounts.authority.key(),
             FeedError::InvalidDataSource
@@ -61,16 +64,20 @@ pub fn create_feed(
     feed.price_per_second_scaled = price_per_second_scaled;
 
     // Transfer tokens from user to program token account
-    let decimals = ctx.accounts.underlying_token.decimals;
-    let cpi_accounts = TransferChecked {
-        from: ctx.accounts.user_token_account.to_account_info(),
-        to: ctx.accounts.program_token_account.to_account_info(),
-        authority: ctx.accounts.authority.to_account_info(),
-        mint: ctx.accounts.underlying_token.to_account_info(),
-    };
-    let cpi_program = ctx.accounts.token_program.to_account_info();
-    let cpi_context = CpiContext::new(cpi_program, cpi_accounts);
-    transfer_checked(cpi_context, subscription_cost, decimals)?;
+    let token_program = &ctx.accounts.token_program;
+    let user_token_account = &ctx.accounts.user_token_account;
+    let program_token_account = &ctx.accounts.program_token_account;
+    let authority = &ctx.accounts.authority;
+
+    let payment_cpi_ctx = CpiContext::new(
+        token_program.to_account_info(),
+        token::Transfer {
+            from: user_token_account.to_account_info(),
+            to: program_token_account.to_account_info(),
+            authority: authority.to_account_info(),
+        },
+    );
+    token::transfer(payment_cpi_ctx, subscription_cost)?;
 
     emit!(FeedCreated {
         key: feed.key(),
@@ -98,7 +105,7 @@ pub struct CreateFeed<'info> {
         seeds = [
             Feed::SEED_PREFIX,
             authority.key().as_ref(),
-            params.name.as_bytes().as_ref(),
+            &params.name_seed(),
             params.feed_type.to_seed().as_ref(),
             params.min_signatures_threshold.to_le_bytes().as_ref(),
             params.frequency.to_le_bytes().as_ref(),
@@ -108,16 +115,6 @@ pub struct CreateFeed<'info> {
     )]
     pub feed: Account<'info, Feed>,
 
-    /// CHECK: This account is verified to exist and be accessible
-    #[account(
-        seeds = [
-            DataSource::SEED_PREFIX,
-            &data_source.authority.as_ref(),
-            &data_source.name.as_bytes(),
-            data_source.data_source_type.to_seed(),
-            ],
-        bump,
-    )]
     pub data_source: Account<'info, DataSource>,
 
     #[account(mut)]
@@ -161,4 +158,10 @@ pub struct CreateFeedParams {
     pub min_signatures_threshold: u8,
     pub frequency: u64,
     pub ipfs_cid: String,
+}
+
+impl CreateFeedParams {
+    pub fn name_seed(&self) -> [u8; 32] {
+        to_seed(&self.name)
+    }
 }

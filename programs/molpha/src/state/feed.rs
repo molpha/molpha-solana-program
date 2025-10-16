@@ -1,6 +1,8 @@
 use super::{Answer, FeedType};
 use anchor_lang::prelude::*;
 
+use crate::utils::seeds::to_seed;
+
 pub const MAX_HISTORY: usize = 20; // Reduced from 100 to 20
 
 #[account]
@@ -43,5 +45,9 @@ impl Feed {
         } else {
             0
         }
+    }
+
+    pub fn name_seed(&self) -> [u8; 32] {
+        to_seed(&self.name)
     }
 }

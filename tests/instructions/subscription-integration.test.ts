@@ -15,6 +15,7 @@ import {
   getDataSourcePda,
   createFeedParams,
   registerNodeWithDeposit,
+  getFeedPda,
 } from "../setup";
 
 async function safePastOnchainTimestamp(
@@ -92,18 +93,15 @@ describe("Subscription Integration Tests", () => {
       const jobId = "0x02";
       const feedParams = createFeedParams(jobId, { public: {} });
 
-      [feedPDA] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("feed"),
-          ctx.authority.publicKey.toBuffer(),
-          Buffer.from(feedParams.name),
-          Buffer.from([0]), // Public feed type
-          Buffer.from([feedParams.minSignaturesThreshold]),
-          feedParams.frequency.toBuffer("le", 8),
-          Buffer.from(feedParams.jobId),
-        ],
-        ctx.molphaProgram.programId
-      );
+      [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams.name,
+      0, // public feed type
+      feedParams.minSignaturesThreshold,
+      feedParams.frequency,
+      feedParams.jobId
+    );
 
       // Create feed with 1 day subscription and 1000 lamports priority fee budget
       const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
@@ -147,18 +145,15 @@ describe("Subscription Integration Tests", () => {
       const jobId = "0x03";
       const feedParams = createFeedParams(jobId, { public: {} });
 
-      const [shortFeedPDA] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("feed"),
-          ctx.authority.publicKey.toBuffer(),
-          Buffer.from(feedParams.name),
-          Buffer.from([0]), // Public feed type
-          Buffer.from([feedParams.minSignaturesThreshold]),
-          feedParams.frequency.toBuffer("le", 8),
-          Buffer.from(feedParams.jobId),
-        ],
-        ctx.molphaProgram.programId
-      );
+      const [shortFeedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams.name,
+      0, // public feed type
+      feedParams.minSignaturesThreshold,
+      feedParams.frequency,
+      feedParams.jobId
+    );
 
       // Try to create feed with 12 hours subscription (less than 1 day)
       const subscriptionDurationSeconds = new anchor.BN(43200); // 12 hours
@@ -361,18 +356,15 @@ describe("Subscription Integration Tests", () => {
         dataSourceId
       );
 
-      const [shortFeedPDA] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("feed"),
-          ctx.authority.publicKey.toBuffer(),
-          Buffer.from(shortFeedParams.name),
-          Buffer.from([0]), // Public feed type
-          Buffer.from([shortFeedParams.minSignaturesThreshold]),
-          shortFeedParams.frequency.toBuffer("le", 8),
-          Buffer.from(shortFeedParams.jobId),
-        ],
-        ctx.molphaProgram.programId
-      );
+      const [shortFeedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      shortFeedParams.name,
+      0, // public feed type
+      shortFeedParams.minSignaturesThreshold,
+      shortFeedParams.frequency,
+      shortFeedParams.jobId
+    );
 
       // Create feed with minimum valid subscription duration
       const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day (minimum required)

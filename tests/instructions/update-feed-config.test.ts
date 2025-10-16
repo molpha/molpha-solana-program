@@ -12,6 +12,7 @@ import {
   createTestDataSourceInfo,
   createFeedParams,
   getDataSourcePda,
+  getFeedPda,
 } from "../setup";
 
 describe("Update Feed Config Instruction", () => {
@@ -48,17 +49,14 @@ describe("Update Feed Config Instruction", () => {
     const feedParams = createFeedParams(jobId, { personal: {} });
     feedParams.name = name; // Override with unique name
 
-    const [feedPDA] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("feed"),
-        ctx.authority.publicKey.toBuffer(),
-        Buffer.from(feedParams.name),
-        Buffer.from([1]), // Personal feed type
-        Buffer.from([feedParams.minSignaturesThreshold]),
-        feedParams.frequency.toBuffer("le", 8),
-        Buffer.from(feedParams.jobId),
-      ],
-      ctx.molphaProgram.programId
+    const [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams.name,
+      1, // personal feed type
+      feedParams.minSignaturesThreshold,
+      feedParams.frequency,
+      feedParams.jobId
     );
 
     // Create the personal feed with 1 day subscription

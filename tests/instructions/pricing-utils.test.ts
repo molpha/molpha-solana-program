@@ -13,6 +13,7 @@ import {
   createTestDataSourceInfo,
   createFeedParams,
   getDataSourcePda,
+  getFeedPda,
 } from "../setup";
 
 describe("Pricing Utility Tests", () => {
@@ -75,18 +76,15 @@ describe("Pricing Utility Tests", () => {
       const jobId = "0x786531";
       const feedParams = createFeedParams(jobId, { public: {} });
 
-      [feedPDA] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("feed"),
-          ctx.authority.publicKey.toBuffer(),
-          Buffer.from(feedParams.name),
-          Buffer.from([0]), // Public feed type
-          Buffer.from([feedParams.minSignaturesThreshold]),
-          feedParams.frequency.toBuffer("le", 8),
-          Buffer.from(feedParams.jobId),
-        ],
-        ctx.molphaProgram.programId
-      );
+      [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams.name,
+      0, // public feed type
+      feedParams.minSignaturesThreshold,
+      feedParams.frequency,
+      feedParams.jobId
+    );
 
       // Create feed with 1 day subscription and 1000 lamports priority fee budget
       const subscriptionDurationSeconds = new BN(86400); // 1 day
@@ -140,18 +138,15 @@ describe("Pricing Utility Tests", () => {
         ipfsCid: "QmTestCID123456789",
       };
 
-      const [highFreqFeedPDA] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("feed"),
-          ctx.authority.publicKey.toBuffer(),
-          Buffer.from(highFreqFeedParams.name),
-          Buffer.from([0]), // Public feed type
-          Buffer.from([highFreqFeedParams.minSignaturesThreshold]),
-          highFreqFeedParams.frequency.toBuffer("le", 8),
-          Buffer.from(highFreqFeedParams.jobId),
-        ],
-        ctx.molphaProgram.programId
-      );
+      const [highFreqFeedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      highFreqFeedParams.name,
+      0, // public feed type
+      highFreqFeedParams.minSignaturesThreshold,
+      highFreqFeedParams.frequency,
+      highFreqFeedParams.jobId
+    );
 
       // Create feed with 1 day subscription and 2000 lamports priority fee budget
       const subscriptionDurationSeconds = new BN(86400); // 1 day

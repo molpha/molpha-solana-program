@@ -1,10 +1,14 @@
-use crate::error::FeedError;
-use crate::events::SubscriptionExtended;
-use crate::state::{Feed, ProtocolConfig};
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked},
+    token,
+    token_interface::{Mint, TokenAccount, TokenInterface},
+};
+
+use crate::{
+    error::FeedError,
+    events::SubscriptionExtended,
+    state::{Feed, ProtocolConfig},
 };
 
 pub fn extend_subscription(
@@ -32,16 +36,21 @@ pub fn extend_subscription(
     feed.subscription_due_time = new_due_datetime;
 
     // Transfer tokens from user to program token account
-    let decimals = ctx.accounts.underlying_token.decimals;
-    let cpi_accounts = TransferChecked {
-        from: ctx.accounts.user_token_account.to_account_info(),
-        to: ctx.accounts.program_token_account.to_account_info(),
-        authority: ctx.accounts.authority.to_account_info(),
-        mint: ctx.accounts.underlying_token.to_account_info(),
-    };
-    let cpi_program = ctx.accounts.token_program.to_account_info();
-    let cpi_context = CpiContext::new(cpi_program, cpi_accounts);
-    transfer_checked(cpi_context, extension_cost, decimals)?;
+    let token_program = &ctx.accounts.token_program;
+    let user_token_account = &ctx.accounts.user_token_account;
+    let program_token_account = &ctx.accounts.program_token_account;
+    let authority = &ctx.accounts.authority;
+
+    let payment_cpi_ctx = CpiContext::new(
+        token_program.to_account_info(),
+        token::Transfer {
+            from: user_token_account.to_account_info(),
+            to: program_token_account.to_account_info(),
+            authority: authority.to_account_info(),
+        },
+    );
+    token::transfer(payment_cpi_ctx, extension_cost)?;
+
 
     // Emit event
     emit!(SubscriptionExtended {

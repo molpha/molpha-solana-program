@@ -14,6 +14,7 @@ import {
   getDataSourcePda,
   createTestDataSourceInfo,
   registerNodeWithDeposit,
+  getFeedPda,
 } from "../setup";
 
 async function safePastOnchainTimestamp(
@@ -51,17 +52,13 @@ describe("Publish Answer Instruction", () => {
       }
     }
 
-    const dataSourceInfo = {
-      dataSourceType: { public: {} },
-      source: "https://api.example.com/price",
-      owner: ctx.authority.publicKey,
-      name: "Test Price Feed",
-    };
+    const dataSourceName = "Test Price Feed";
+    const dataSourceInfo = createTestDataSourceInfo(0, dataSourceName);
 
     [dataSourcePDA] = getDataSourcePda(
       ctx.molphaProgram.programId,
       ctx.authority.publicKey,
-      dataSourceInfo.name,
+      dataSourceName,
       0
     );
 
@@ -72,6 +69,7 @@ describe("Publish Answer Instruction", () => {
         .accountsPartial({
           dataSource: dataSourcePDA,
           authority: ctx.authority.publicKey,
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
     } catch (e) {
@@ -88,17 +86,14 @@ describe("Publish Answer Instruction", () => {
       name: publicFeedId,
     };
 
-    [publicFeedPDA] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("feed"),
-        ctx.authority.publicKey.toBuffer(),
-        Buffer.from(publicFeedParams.name),
-        Buffer.from([0]), // FeedType::Public = 0
-        Buffer.from([publicFeedParams.minSignaturesThreshold]),
-        publicFeedParams.frequency.toBuffer("le", 8),
-        Buffer.from(publicFeedParams.jobId),
-      ],
-      ctx.molphaProgram.programId
+    [publicFeedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      publicFeedParams.name,
+      0, // public feed type
+      publicFeedParams.minSignaturesThreshold,
+      publicFeedParams.frequency,
+      publicFeedParams.jobId
     );
 
     try {
@@ -131,17 +126,14 @@ describe("Publish Answer Instruction", () => {
       name: personalFeedId,
     };
 
-    [personalFeedPDA] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("feed"),
-        ctx.authority.publicKey.toBuffer(),
-        Buffer.from(personalFeedParams.name),
-        Buffer.from([1]), // FeedType::Personal = 1
-        Buffer.from([personalFeedParams.minSignaturesThreshold]),
-        personalFeedParams.frequency.toBuffer("le", 8),
-        Buffer.from(personalFeedParams.jobId),
-      ],
-      ctx.molphaProgram.programId
+    [personalFeedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      personalFeedParams.name,
+      1, // personal feed type
+      personalFeedParams.minSignaturesThreshold,
+      personalFeedParams.frequency,
+      personalFeedParams.jobId
     );
 
     await ctx.molphaProgram.methods
@@ -611,17 +603,14 @@ describe("Publish Answer Instruction", () => {
         name: historyFeedName,
       };
 
-      const [historyFeedPDA] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("feed"),
-          ctx.authority.publicKey.toBuffer(),
-          Buffer.from(historyFeedParams.name),
-          Buffer.from([0]), // FeedType::Public.to_seed() = [0]
-          Buffer.from([historyFeedParams.minSignaturesThreshold]), // u8.to_le_bytes() = [value]
-          historyFeedParams.frequency.toBuffer("le", 8),
-          Buffer.from(historyFeedParams.jobId),
-        ],
-        ctx.molphaProgram.programId
+      const [historyFeedPDA] = getFeedPda(
+        ctx.molphaProgram.programId,
+        ctx.authority.publicKey,
+        historyFeedParams.name,
+        0, // public feed type
+        historyFeedParams.minSignaturesThreshold,
+        historyFeedParams.frequency,
+        historyFeedParams.jobId
       );
 
       const dataSourceInfo = createTestDataSourceInfo(0, "History Test Feed");

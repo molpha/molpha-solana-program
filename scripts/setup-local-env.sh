@@ -173,27 +173,26 @@ setup_test_nodes() {
 
 # Create test feeds
 create_test_feeds() {
-    log_info "Creating test feeds..."
+    log_info "Creating test data sources and feeds..."
     
     cd "$PROJECT_ROOT"
     
-    # Create public feed
+    # Create data sources first
+    log_info "Creating public data source: TestDataSource"
+    node scripts/create-data-source.js "TestDataSource" "public" || log_warning "Public data source may already exist"
+    
+    log_info "Creating personal data source: PersonalDataSource"
+    node scripts/create-data-source.js "PersonalDataSource" "personal" || log_warning "Personal data source may already exist"
+    
+    # Create public feed (with 30 day subscription)
     log_info "Creating public feed: BTC-USD-PUBLIC"
-    anchor run create-feed -- "BTC-USD-PUBLIC" "public" 1 60 "QmTestCidPublic" || log_warning "Public feed may already exist"
+    node scripts/create-feed.js "BTC-USD-PUBLIC" "TestDataSource" "public" 1 60 "QmTestCidPublic" 30 || log_warning "Public feed may already exist"
     
-    # Create personal feed
+    # Create personal feed (with 30 day subscription)
     log_info "Creating personal feed: BTC-USD-PERSONAL"
-    anchor run create-feed -- "BTC-USD-PERSONAL" "personal" 2 30 "QmTestCidPersonal" || log_warning "Personal feed may already exist"
+    node scripts/create-feed.js "BTC-USD-PERSONAL" "PersonalDataSource" "personal" 2 30 "QmTestCidPersonal" 30 || log_warning "Personal feed may already exist"
     
-    # Subscribe to personal feed and top up
-    WALLET_ADDRESS=$(solana address)
-    log_info "Creating subscription for personal feed..."
-    anchor run subscribe -- "BTC-USD-PERSONAL" "$WALLET_ADDRESS" || log_warning "Subscription may already exist"
-    
-    log_info "Topping up subscription with 100,000 lamports..."
-    anchor run top-up -- "BTC-USD-PERSONAL" "$WALLET_ADDRESS" 100000 || log_warning "Top-up may have failed"
-    
-    log_success "Test feeds created"
+    log_success "Test data sources and feeds created"
 }
 
 # Build Go client

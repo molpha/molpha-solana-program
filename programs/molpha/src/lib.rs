@@ -11,7 +11,7 @@ pub mod utils;
 use instructions::*;
 use state::*;
 
-declare_id!("72vzGSKhPohoatawLW2W8mugeWbZRCdPZ3M4dVNDvkRz");
+declare_id!("moLfWuMFCoVYRisYjHSkABQA9ZD35fFV76axiPLHCtp");
 
 #[program]
 pub mod molpha {

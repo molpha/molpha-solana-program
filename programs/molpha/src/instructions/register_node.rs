@@ -42,23 +42,6 @@ pub fn register_node(
     );
     token::transfer(deposit_cpi_ctx, security_deposit_amount)?;
 
-    // // Transfer security deposit from node operator to node security deposit account
-    // let cpi_accounts = TransferChecked {
-    //     from: ctx.accounts.node_operator_token_account.to_account_info(),
-    //     mint: ctx.accounts.underlying_token.to_account_info(),
-    //     to: ctx.accounts.node_security_deposit_account.to_account_info(),
-    //     authority: ctx.accounts.authority.to_account_info(),
-    // };
-    // let cpi_program = ctx.accounts.token_program.to_account_info();
-    // let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
-
-    // transfer_checked(
-    //     cpi_ctx,
-    //     security_deposit_amount,
-    //     ctx.accounts.underlying_token.decimals,
-    // )?;
-    // }
-
     // Create the node PDA account
     let node = &mut ctx.accounts.node;
     node.init(
