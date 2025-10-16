@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 
+use crate::utils::seeds::to_seed;
+
 #[account]
 #[derive(Default, InitSpace)]
 pub struct DataSource {
@@ -20,12 +22,12 @@ impl DataSource {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace)]
 pub enum DataSourceType {
     Public,
-    Private,
+    Personal,
 }
 
 impl Default for DataSourceType {
     fn default() -> Self {
-        DataSourceType::Private
+        DataSourceType::Public
     }
 }
 
@@ -33,7 +35,7 @@ impl DataSourceType {
     pub fn to_seed(&self) -> &[u8] {
         match self {
             Self::Public => &[0],
-            Self::Private => &[1],
+            Self::Personal => &[1],
         }
     }
 }
@@ -44,4 +46,10 @@ pub struct DataSourceInfo {
     pub data_source_type: DataSourceType,
     pub metadata_hash: [u8; 32],
     pub name: String,
+}
+
+impl DataSourceInfo {
+    pub fn name_seed(&self) -> [u8; 32] {
+        to_seed(&self.name)
+    }
 }

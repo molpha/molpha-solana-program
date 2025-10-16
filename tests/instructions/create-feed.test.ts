@@ -13,7 +13,9 @@ import {
   createTestDataSourceInfo,
   createFeedParams,
   getDataSourcePda,
+  getFeedPda,
 } from "../setup";
+import { toSeed } from "../helpers/seeds";
 
 describe("Create Feed Instruction", () => {
   let ctx: TestContext;
@@ -117,17 +119,14 @@ describe("Create Feed Instruction", () => {
     const feedParams = createFeedParams(jobId, { public: {} });
     const frequencySeed = feedParams.frequency.toBuffer("le", 8);
 
-    const [feedPDA] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("feed"),
-        ctx.authority.publicKey.toBuffer(),
-        Buffer.from(feedParams.name),
-        Buffer.from([0]),
-        Buffer.from([feedParams.minSignaturesThreshold]),
-        feedParams.frequency.toBuffer("le", 8),
-        Buffer.from(feedParams.jobId),
-      ],
-      ctx.molphaProgram.programId
+    const [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams.name,
+      0, // public feed type
+      feedParams.minSignaturesThreshold,
+      feedParams.frequency,
+      feedParams.jobId
     );
 
     // Create feed with 1 day subscription and 1000 lamports priority fee budget
@@ -169,17 +168,14 @@ describe("Create Feed Instruction", () => {
     const jobId = "0x234234";
     const feedParams = createFeedParams(jobId, { personal: {} });
 
-    const [feedPDA] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("feed"),
-        ctx.authority.publicKey.toBuffer(),
-        Buffer.from(feedParams.name),
-        Buffer.from([1]),
-        Buffer.from([feedParams.minSignaturesThreshold]),
-        feedParams.frequency.toBuffer("le", 8),
-        Buffer.from(feedParams.jobId),
-      ],
-      ctx.molphaProgram.programId
+    const [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams.name,
+      1, // personal feed type
+      feedParams.minSignaturesThreshold,
+      feedParams.frequency,
+      feedParams.jobId
     );
 
     // Create feed with 1 day subscription and 1000 lamports priority fee budget
@@ -213,17 +209,14 @@ describe("Create Feed Instruction", () => {
     const jobId = "0x22";
     const feedParams = createFeedParams(jobId, { personal: {} });
 
-    const [feedPDA] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("feed"),
-        ctx.authority.publicKey.toBuffer(),
-        Buffer.from(feedParams.name),
-        Buffer.from([1]),
-        Buffer.from([feedParams.minSignaturesThreshold]),
-        feedParams.frequency.toBuffer("le", 8),
-        Buffer.from(feedParams.jobId),
-      ],
-      ctx.molphaProgram.programId
+    const [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams.name,
+      1, // personal feed type
+      feedParams.minSignaturesThreshold,
+      feedParams.frequency,
+      feedParams.jobId
     );
 
     await ctx.molphaProgram.methods
@@ -254,17 +247,14 @@ describe("Create Feed Instruction", () => {
     // Override with invalid threshold
     invalidParams.minSignaturesThreshold = 0;
 
-    const [feedPDA] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("feed"),
-        ctx.authority.publicKey.toBuffer(),
-        Buffer.from(invalidParams.name),
-        Buffer.from([0]),
-        Buffer.from([invalidParams.minSignaturesThreshold]),
-        invalidParams.frequency.toBuffer("le", 8),
-        Buffer.from(invalidParams.jobId),
-      ],
-      ctx.molphaProgram.programId
+    const [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      invalidParams.name,
+      0, // public feed type
+      invalidParams.minSignaturesThreshold,
+      invalidParams.frequency,
+      invalidParams.jobId
     );
 
     try {
@@ -300,17 +290,14 @@ describe("Create Feed Instruction", () => {
     // Override with invalid IPFS CID
     invalidParams.ipfsCid = "";
 
-    const [feedPDA] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("feed"),
-        ctx.authority.publicKey.toBuffer(),
-        Buffer.from(invalidParams.name),
-        Buffer.from([0]),
-        Buffer.from([invalidParams.minSignaturesThreshold]),
-        invalidParams.frequency.toBuffer("le", 8),
-        Buffer.from(invalidParams.jobId),
-      ],
-      ctx.molphaProgram.programId
+    const [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      invalidParams.name,
+      0, // public feed type
+      invalidParams.minSignaturesThreshold,
+      invalidParams.frequency,
+      invalidParams.jobId
     );
 
     try {
@@ -344,17 +331,14 @@ describe("Create Feed Instruction", () => {
       "0xb6c3781295af4f459a731177b25fa4c1a0b4c757152fbbaba977a70f7d635474"; // Same as first test
     const feedParams = createFeedParams(jobId, { public: {} });
 
-    const [feedPDA] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("feed"),
-        ctx.authority.publicKey.toBuffer(),
-        Buffer.from(feedParams.name),
-        Buffer.from([0]),
-        Buffer.from([feedParams.minSignaturesThreshold]),
-        feedParams.frequency.toBuffer("le", 8),
-        Buffer.from(feedParams.jobId),
-      ],
-      ctx.molphaProgram.programId
+    const [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams.name,
+      0, // public feed type
+      feedParams.minSignaturesThreshold,
+      feedParams.frequency,
+      feedParams.jobId
     );
 
     try {

@@ -6,12 +6,12 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-faucet = "9kKrAJsk287onKUgcqAtYF5P8WF65uyWC9yuujxAjXMj"
-molpha = "72vzGSKhPohoatawLW2W8mugeWbZRCdPZ3M4dVNDvkRz"
+faucet = "AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ"
+molpha = "moLfWuMFCoVYRisYjHSkABQA9ZD35fFV76axiPLHCtp"
 
 [programs.localnet]
-faucet = "9kKrAJsk287onKUgcqAtYF5P8WF65uyWC9yuujxAjXMj"
-molpha = "72vzGSKhPohoatawLW2W8mugeWbZRCdPZ3M4dVNDvkRz"
+faucet = "AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ"
+molpha = "moLfWuMFCoVYRisYjHSkABQA9ZD35fFV76axiPLHCtp"
 
 [registry]
 url = "https://api.apr.dev"

@@ -13,6 +13,7 @@ import {
   createTestDataSourceInfo,
   getDataSourcePda,
   registerNodeWithDeposit,
+  getFeedPda,
 } from "../setup";
 import { BankrunProvider } from "anchor-bankrun";
 
@@ -106,18 +107,15 @@ describe("Integration Tests: Complete Oracle Flow", () => {
         ipfsCid: "QmIntegrationTest123",
       };
 
-      const [feedPDA] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("feed"),
-          ctx.authority.publicKey.toBuffer(),
-          Buffer.from(feedParams.name),
-          Buffer.from([0]), // FeedType::Public = 0
-          Buffer.from([feedParams.minSignaturesThreshold]),
-          feedParams.frequency.toBuffer("le", 8),
-          Buffer.from(feedParams.jobId),
-        ],
-        ctx.molphaProgram.programId
-      );
+      const [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams.name,
+      0, // public feed type
+      feedParams.minSignaturesThreshold,
+      feedParams.frequency,
+      feedParams.jobId
+    );
 
       const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
 
@@ -264,18 +262,15 @@ describe("Integration Tests: Complete Oracle Flow", () => {
         ipfsCid: "QmPrivateIntegrationTest",
       };
 
-      const [feedPDA] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("feed"),
-          ctx.authority.publicKey.toBuffer(),
-          Buffer.from(feedParams.name),
-          Buffer.from([1]), // FeedType::Personal = 1
-          Buffer.from([feedParams.minSignaturesThreshold]),
-          feedParams.frequency.toBuffer("le", 8),
-          Buffer.from(feedParams.jobId),
-        ],
-        ctx.molphaProgram.programId
-      );
+      const [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams.name,
+      1, // personal feed type
+      feedParams.minSignaturesThreshold,
+      feedParams.frequency,
+      feedParams.jobId
+    );
 
       const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
       const priorityFeeBudget = new anchor.BN(2000); // 2000 lamports
@@ -384,18 +379,15 @@ describe("Integration Tests: Complete Oracle Flow", () => {
         ipfsCid: "QmHighThreshold",
       };
 
-      const [feedPDA] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("feed"),
-          ctx.authority.publicKey.toBuffer(),
-          Buffer.from(feedParams.name),
-          Buffer.from([0]),
-          Buffer.from([feedParams.minSignaturesThreshold]),
-          feedParams.frequency.toBuffer("le", 8),
-          Buffer.from(feedParams.jobId),
-        ],
-        ctx.molphaProgram.programId
-      );
+      const [feedPDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams.name,
+      0, // public feed type
+      feedParams.minSignaturesThreshold,
+      feedParams.frequency,
+      feedParams.jobId
+    );
 
       const subscriptionDurationSeconds = new anchor.BN(86400);
 
@@ -539,18 +531,15 @@ describe("Integration Tests: Complete Oracle Flow", () => {
         };
 
         const feedTypeValue = config.type.public ? 0 : 1;
-        const [feedPDA] = PublicKey.findProgramAddressSync(
-          [
-            Buffer.from("feed"),
-            ctx.authority.publicKey.toBuffer(),
-            Buffer.from(feedParams.name),
-            Buffer.from([feedTypeValue]),
-            Buffer.from([feedParams.minSignaturesThreshold]),
-            feedParams.frequency.toBuffer("le", 8),
-            Buffer.from(feedParams.jobId),
-          ],
-          ctx.molphaProgram.programId
-        );
+          const [feedPDA] = getFeedPda(
+            ctx.molphaProgram.programId,
+            ctx.authority.publicKey,
+            feedParams.name,
+            feedTypeValue,
+            feedParams.minSignaturesThreshold,
+            feedParams.frequency,
+            feedParams.jobId
+          );
 
         const subscriptionDurationSeconds = new anchor.BN(86400);
         const priorityFeeBudget = new anchor.BN(1000);

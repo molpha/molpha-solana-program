@@ -11,7 +11,7 @@ pub use constants::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("9kKrAJsk287onKUgcqAtYF5P8WF65uyWC9yuujxAjXMj");
+declare_id!("AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ");
 
 #[program]
 pub mod faucet {

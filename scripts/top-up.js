@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+// ⚠️ DEPRECATED: This script is for an older version of the program.
+// Subscriptions are now integrated into feeds and are extended via the
+// extend_subscription instruction. Use subscribe.js instead.
+// See: scripts/subscribe.js
+
 const anchor = require("@coral-xyz/anchor");
 const { SystemProgram } = require("@solana/web3.js");
 

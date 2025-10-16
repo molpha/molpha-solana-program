@@ -526,12 +526,20 @@ node scripts/add-node.js <NODE_PUBKEY> 0x020202...
 node scripts/read-nodes.js
 node scripts/manage-nodes.js status <NODE_PUBKEY>
 
-# 6. Create feeds (using other scripts)
-node scripts/create-feed.js --name "BTC-USD" --min-signatures 1
+# 6. Create data sources and feeds
+# First create a data source
+node scripts/create-data-source.js "MyDataSource" "public"
 
-# 7. Monitor feeds and subscriptions
+# Then create a feed that uses the data source
+node scripts/create-feed.js "BTC-USD" "MyDataSource" "public" 1 60 "QmTestCid" 30
+
+# 7. Monitor feeds, data sources, and subscriptions
+node scripts/read-data-sources.js
 node scripts/read-feeds.js
 node scripts/read-subscriptions.js
+
+# 8. Extend feed subscriptions
+node scripts/subscribe.js <FEED_ADDRESS> 30
 ```
 
 ---

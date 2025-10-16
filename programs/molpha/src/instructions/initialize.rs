@@ -1,9 +1,12 @@
-use crate::events::ProtocolInitialized;
-use crate::state::ProtocolConfig;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{Mint, TokenAccount, TokenInterface},
+};
+
+use crate::{
+    events::ProtocolInitialized,
+    state::ProtocolConfig,
 };
 
 pub fn initialize(ctx: Context<Initialize>) -> Result<()> {

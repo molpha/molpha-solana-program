@@ -53,7 +53,7 @@ describe("Create Data Source Instruction", () => {
       dataSourceAccount.authority.toBase58(),
       ctx.authority.publicKey.toBase58()
     );
-    assert.deepEqual(dataSourceAccount.dataSourceType, { private: {} });
+    assert.deepEqual(dataSourceAccount.dataSourceType, { personal: {} });
     assert.ok(dataSourceAccount.createdAt.toNumber() > 0);
   });
 

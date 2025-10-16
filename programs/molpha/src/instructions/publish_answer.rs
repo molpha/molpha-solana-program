@@ -1,16 +1,13 @@
-use crate::error::FeedError;
-use crate::events::AnswerPublished;
-use crate::state::{Answer, Feed, Node, MAX_HISTORY};
-use crate::utils::{parse_ed25519_instruction, pricing::*};
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{ed25519_program, sysvar};
 
-/// Maximum number of Node PDAs that can be passed as remaining accounts
-/// Constrained by:
-/// - Solana tx account limit (64 total)
-/// - Compute unit budget (200k-1.4M CU)
-/// - Transaction size limit (~1232 bytes)
-/// Practical safe limit considering all constraints
+use crate::{
+    error::FeedError,
+    events::AnswerPublished,
+    state::{Answer, Feed, Node, MAX_HISTORY},
+    utils::{parse_ed25519_instruction, pricing::*},
+};
+
 const MAX_NODES_PER_PUBLISH: usize = 25;
 
 pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()> {
@@ -142,7 +139,7 @@ pub struct PublishAnswer<'info> {
         seeds = [
             Feed::SEED_PREFIX,
             feed.authority.as_ref(),
-            feed.name.as_bytes().as_ref(),
+            &feed.name_seed(),
             feed.feed_type.to_seed().as_ref(),
             feed.min_signatures_threshold.to_le_bytes().as_ref(),
             feed.frequency.to_le_bytes().as_ref(),
@@ -158,3 +155,4 @@ pub struct PublishAnswer<'info> {
     // Note: Node PDAs should be passed as remaining_accounts
     // Each node PDA should have seeds = [Node::SEED_PREFIX, node_pubkey]
 }
+

@@ -2,8 +2,6 @@ use crate::error::NodeRegistryError;
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program;
 
-pub mod pricing;
-
 /// Parses a legacy Ed25519 verification instruction to extract the signer's public key and the message.
 /// The instruction data format is a 16-byte header followed by data payloads.
 /// Header layout:

@@ -1,8 +1,10 @@
 use anchor_lang::prelude::*;
 
-use crate::error::DataSourceError;
-use crate::events::DataSourceCreated;
-use crate::state::{DataSource, DataSourceInfo, DataSourceType};
+use crate::{
+    error::DataSourceError,
+    events::DataSourceCreated,
+    state::{DataSource, DataSourceInfo, DataSourceType},
+};
 
 pub fn create_data_source(ctx: Context<CreateDataSource>, data: DataSourceInfo) -> Result<()> {
     let authority = ctx.accounts.authority.key();
@@ -10,7 +12,7 @@ pub fn create_data_source(ctx: Context<CreateDataSource>, data: DataSourceInfo) 
     let data_source = &mut ctx.accounts.data_source;
 
     require!(
-        data.data_source_type == DataSourceType::Private
+        data.data_source_type == DataSourceType::Personal
             || data.data_source_type == DataSourceType::Public,
         DataSourceError::InvalidDataSourceType
     );
@@ -53,7 +55,7 @@ pub struct CreateDataSource<'info> {
         seeds = [
             DataSource::SEED_PREFIX,
             &authority.key().as_ref(),
-            &data.name.as_bytes(),
+            &data.name_seed(),
             data.data_source_type.to_seed(),
         ],
         bump
