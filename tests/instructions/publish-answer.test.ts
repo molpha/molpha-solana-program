@@ -91,9 +91,6 @@ describe("Publish Answer Instruction", () => {
       ctx.authority.publicKey,
       publicFeedParams.name,
       0, // public feed type
-      publicFeedParams.minSignaturesThreshold,
-      publicFeedParams.frequency,
-      publicFeedParams.jobId
     );
 
     try {
@@ -131,9 +128,6 @@ describe("Publish Answer Instruction", () => {
       ctx.authority.publicKey,
       personalFeedParams.name,
       1, // personal feed type
-      personalFeedParams.minSignaturesThreshold,
-      personalFeedParams.frequency,
-      personalFeedParams.jobId
     );
 
     await ctx.molphaProgram.methods
@@ -326,12 +320,6 @@ describe("Publish Answer Instruction", () => {
         const feed = await ctx.molphaProgram.account.feed.fetch(
           personalFeedPDA
         );
-        console.log(
-          "feed.latestAnswer.timestamp:",
-          feed.latestAnswer.timestamp.toNumber()
-        );
-        console.log("answer.timestamp:", answer.timestamp.toNumber());
-        console.log("myerror:", JSON.stringify(error));
         assert.ok(
           error.message.includes("NotEnoughSignatures") ||
             error.message.includes("custom program error")
@@ -608,9 +596,6 @@ describe("Publish Answer Instruction", () => {
         ctx.authority.publicKey,
         historyFeedParams.name,
         0, // public feed type
-        historyFeedParams.minSignaturesThreshold,
-        historyFeedParams.frequency,
-        historyFeedParams.jobId
       );
 
       const dataSourceInfo = createTestDataSourceInfo(0, "History Test Feed");
@@ -713,6 +698,143 @@ describe("Publish Answer Instruction", () => {
           Buffer.from(`${i.toString().padStart(64, "0")}`, "hex")
         );
         assert.deepEqual(feed.answerHistory[i].value, expectedValue);
+      }
+    });
+
+    it("Ring buffer wraps around correctly after MAX_HISTORY (21 answers)", async () => {
+      // Create a new feed for ring buffer testing
+      const ringBufferFeedId = "ring-buffer-test-feed";
+      const ringBufferFeedName = ringBufferFeedId;
+      const ringBufferFeedParams = {
+        jobId: Array.from(Buffer.from(ringBufferFeedId.padEnd(32, "\0"))),
+        feedType: { public: {} },
+        minSignaturesThreshold: 2,
+        frequency: new anchor.BN(300),
+        ipfsCid: "QmRingBufferTest",
+        name: ringBufferFeedName,
+      };
+
+      const [ringBufferFeedPDA] = getFeedPda(
+        ctx.molphaProgram.programId,
+        ctx.authority.publicKey,
+        ringBufferFeedParams.name,
+        0, // public feed type
+      );
+
+      const dataSourceInfo = createTestDataSourceInfo(0, "Ring Buffer Test Feed");
+
+      const [ringBufferDataSourcePDA] = getDataSourcePda(
+        ctx.molphaProgram.programId,
+        ctx.authority.publicKey,
+        dataSourceInfo.name,
+        0
+      );
+
+      await ctx.molphaProgram.methods
+        .createDataSource(dataSourceInfo as any)
+        .accountsPartial({
+          dataSource: ringBufferDataSourcePDA,
+          authority: ctx.authority.publicKey,
+        })
+        .rpc();
+
+      await ctx.molphaProgram.methods
+        .createFeed(ringBufferFeedParams, new anchor.BN(86400))
+        .accountsPartial({
+          feed: ringBufferFeedPDA,
+          dataSource: ringBufferDataSourcePDA,
+          authority: ctx.authority.publicKey,
+          protocolConfig: ctx.protocolConfigPDA,
+          userTokenAccount: ctx.userTokenAccount,
+          programTokenAccount: ctx.programTokenAccount,
+          underlyingToken: ctx.underlyingTokenMint,
+          systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+
+      // Publish 21 answers to test ring buffer wrap-around
+      const numAnswers = 21;
+      const maxHistory = 20; // MAX_HISTORY from the program
+
+      for (let i = 0; i < numAnswers; i++) {
+        const answer = {
+          value: Array.from(
+            Buffer.from(`${(1000 + i).toString().padStart(64, "0")}`, "hex")
+          ),
+          timestamp: new anchor.BN(Math.floor(Date.now() / 1000) - 200 + i),
+        };
+
+        const message = Buffer.from(answer.value);
+        const preIxs: anchor.web3.TransactionInstruction[] = [];
+        const signers = [ctx.nodes[0], ctx.nodes[1]];
+
+        signers.forEach((signer) => {
+          const signature = nacl.sign.detached(message, signer.secretKey);
+          const ix = anchor.web3.Ed25519Program.createInstructionWithPublicKey({
+            publicKey: signer.publicKey.toBytes(),
+            message,
+            signature,
+          });
+          preIxs.push(ix);
+        });
+
+        const nodePDAs = signers.map((signer) => {
+          const [nodePDA] = PublicKey.findProgramAddressSync(
+            [Buffer.from("node"), signer.publicKey.toBuffer()],
+            ctx.molphaProgram.programId
+          );
+          return { pubkey: nodePDA, isSigner: false, isWritable: false };
+        });
+
+        await ctx.molphaProgram.methods
+          .publishAnswer(answer)
+          .accountsPartial({
+            feed: ringBufferFeedPDA,
+            instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          })
+          .remainingAccounts(nodePDAs)
+          .preInstructions(preIxs)
+          .rpc();
+
+        // Small delay to ensure timestamp progression
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+
+      // Verify ring buffer behavior
+      const feed = await ctx.molphaProgram.account.feed.fetch(ringBufferFeedPDA);
+      
+      // History should cap at MAX_HISTORY (20)
+      assert.equal(feed.answerHistory.length, maxHistory, 
+        "History length should be capped at MAX_HISTORY");
+
+      // Latest answer should be the 21st answer (index 20)
+      const expectedLatestValue = Array.from(
+        Buffer.from(`${(1000 + 20).toString().padStart(64, "0")}`, "hex")
+      );
+      assert.deepEqual(feed.latestAnswer.value, expectedLatestValue,
+        "Latest answer should be the 21st answer");
+
+      // The ring buffer should have wrapped around
+      // Index 0 should now contain the 21st answer (index 20), overwriting the 1st answer
+      const expectedWrappedValue = Array.from(
+        Buffer.from(`${(1000 + 20).toString().padStart(64, "0")}`, "hex")
+      );
+      assert.deepEqual(feed.answerHistory[0].value, expectedWrappedValue,
+        "Ring buffer should wrap around - index 0 should contain the 21st answer");
+
+      // Verify history_idx wrapped around to 1
+      assert.equal(feed.historyIdx.toNumber(), 1,
+        "history_idx should be 1 after publishing 21 answers");
+
+      // Verify the remaining history contains answers 2-20 in positions 1-19
+      for (let i = 1; i < maxHistory; i++) {
+        const expectedValue = Array.from(
+          Buffer.from(`${(1000 + i).toString().padStart(64, "0")}`, "hex")
+        );
+        assert.deepEqual(feed.answerHistory[i].value, expectedValue,
+          `Position ${i} should contain answer ${i + 1}`);
       }
     });
   });

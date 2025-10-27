@@ -98,9 +98,6 @@ describe("Subscription Integration Tests", () => {
       ctx.authority.publicKey,
       feedParams.name,
       0, // public feed type
-      feedParams.minSignaturesThreshold,
-      feedParams.frequency,
-      feedParams.jobId
     );
 
       // Create feed with 1 day subscription and 1000 lamports priority fee budget
@@ -150,9 +147,6 @@ describe("Subscription Integration Tests", () => {
       ctx.authority.publicKey,
       feedParams.name,
       0, // public feed type
-      feedParams.minSignaturesThreshold,
-      feedParams.frequency,
-      feedParams.jobId
     );
 
       // Try to create feed with 12 hours subscription (less than 1 day)
@@ -361,9 +355,6 @@ describe("Subscription Integration Tests", () => {
       ctx.authority.publicKey,
       shortFeedParams.name,
       0, // public feed type
-      shortFeedParams.minSignaturesThreshold,
-      shortFeedParams.frequency,
-      shortFeedParams.jobId
     );
 
       // Create feed with minimum valid subscription duration

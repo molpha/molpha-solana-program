@@ -12,11 +12,13 @@ pub fn register_node(
     ctx: Context<RegisterNode>,
     node_pubkey: Pubkey,
     evm_pubkey: Vec<u8>,
+    url: String,
 ) -> Result<()> {
     require!(
         node_pubkey != Pubkey::default(),
         NodeRegistryError::ZeroPubkey
     );
+    require!(!url.is_empty(), NodeRegistryError::InvalidURL);
 
     let protocol_config = &ctx.accounts.protocol_config;
     let security_deposit_amount = protocol_config.node_security_deposit;
@@ -48,6 +50,7 @@ pub fn register_node(
         ctx.accounts.authority.key(),
         node_pubkey,
         evm_pubkey.clone(),
+        url.clone(),
     )?;
     node.security_deposit = security_deposit_amount;
 
@@ -56,6 +59,8 @@ pub fn register_node(
         node: node_pubkey,
         evm_pubkey: evm_pubkey,
         authority: ctx.accounts.authority.key(),
+        security_deposit: security_deposit_amount,
+        url: url.clone(),
         added_at: Clock::get()?.unix_timestamp,
     });
 

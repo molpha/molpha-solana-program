@@ -54,9 +54,6 @@ describe("Update Feed Config Instruction", () => {
       ctx.authority.publicKey,
       feedParams.name,
       1, // personal feed type
-      feedParams.minSignaturesThreshold,
-      feedParams.frequency,
-      feedParams.jobId
     );
 
     // Create the personal feed with 1 day subscription
@@ -357,5 +354,149 @@ describe("Update Feed Config Instruction", () => {
           error.message.includes("InvalidFeedConfig")
       );
     }
+  });
+
+  it("Calculates new price per second correctly when feed config is updated", async () => {
+    await ctx.molphaProgram.methods
+      .updateProtocolConfig({
+        basePricePerSecondScaled: new anchor.BN(5787037),
+        frequencyCoefficient: new anchor.BN(4000),
+        signersCoefficient: new anchor.BN(5000),
+        rewardPercentage: new anchor.BN(5000),
+        nodeSecurityDeposit: new anchor.BN(10000000000),
+      })
+      .accountsPartial({
+        protocolConfig: ctx.protocolConfigPDA,
+        authority: ctx.authority.publicKey,
+      })
+      .rpc();
+
+    // Create first feed with initial parameters: frequency=300, signatures=2
+    const { feedPDA: feed1PDA } = await createTestPersonalFeed(
+      "Test Personal Feed 12",
+      "0xabcdef123"
+    );
+
+    // Create second feed with different parameters: frequency=600, signatures=3
+    const jobId2 = new Uint8Array(32);
+    jobId2.fill(55);
+
+    // Create a data source for the second feed
+    const dataSourceName2 = "DS_Feed13";
+    const dataSourceInfo2 = createTestDataSourceInfo(1, dataSourceName2);
+    const [dataSourcePDA2] = getDataSourcePda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      dataSourceName2,
+      1
+    );
+
+    await ctx.molphaProgram.methods
+      .createDataSource(dataSourceInfo2 as any)
+      .accountsPartial({
+        authority: ctx.authority.publicKey,
+        dataSource: dataSourcePDA2,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    // Create the second feed with different parameters
+    const feedParams2 = createFeedParams("Test Personal Feed 13", { personal: {} });
+    feedParams2.frequency = new anchor.BN(100); // Different frequency
+    feedParams2.minSignaturesThreshold = 3; // Different signatures
+    feedParams2.jobId = Array.from(jobId2);
+
+    const [feed2PDA] = getFeedPda(
+      ctx.molphaProgram.programId,
+      ctx.authority.publicKey,
+      feedParams2.name,
+      1
+    );
+
+    const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
+
+    await ctx.molphaProgram.methods
+      .createFeed(feedParams2, subscriptionDurationSeconds)
+      .accountsPartial({
+        feed: feed2PDA,
+        dataSource: dataSourcePDA2,
+        authority: ctx.authority.publicKey,
+        protocolConfig: ctx.protocolConfigPDA,
+        userTokenAccount: ctx.userTokenAccount,
+        programTokenAccount: ctx.programTokenAccount,
+        underlyingToken: ctx.underlyingTokenMint,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+
+    // Fetch initial states
+    const feed1Before = await ctx.molphaProgram.account.feed.fetch(feed1PDA);
+    const feed2 = await ctx.molphaProgram.account.feed.fetch(feed2PDA);
+
+    console.log("Feed 1 initial - frequency:", feed1Before.frequency.toString(), "signatures:", feed1Before.minSignaturesThreshold, "price:", feed1Before.pricePerSecondScaled.toString());
+    console.log("Feed 2 - frequency:", feed2.frequency.toString(), "signatures:", feed2.minSignaturesThreshold, "price:", feed2.pricePerSecondScaled.toString());
+
+    // Verify that feeds have different prices initially
+    console.log("Feed 1 price:", feed1Before.pricePerSecondScaled.toString());
+    console.log("Feed 2 price:", feed2.pricePerSecondScaled.toString());
+    assert.ok(
+      !feed1Before.pricePerSecondScaled.eq(feed2.pricePerSecondScaled),
+      "Feeds with different parameters should have different prices"
+    );
+
+    // Update feed 1 to match feed 2's parameters
+    const updateParams = createUpdateParams({
+      frequency: feed2.frequency,
+      minSignaturesThreshold: feed2.minSignaturesThreshold,
+    });
+
+    await ctx.molphaProgram.methods
+      .updateFeedConfig(updateParams as any)
+      .accountsPartial({
+        feed: feed1PDA,
+        authority: ctx.authority.publicKey,
+        protocolConfig: ctx.protocolConfigPDA,
+      })
+      .rpc();
+
+    // Fetch updated feed 1
+    const feed1After = await ctx.molphaProgram.account.feed.fetch(feed1PDA);
+
+    console.log("Feed 1 after update - price:", feed1After.pricePerSecondScaled.toString());
+    console.log("Feed 2 price:", feed2.pricePerSecondScaled.toString());
+
+    console.log("Feed 1 after update - frequency:", feed1After.frequency.toString(), "signatures:", feed1After.minSignaturesThreshold, "price:", feed1After.pricePerSecondScaled.toString());
+
+    // Verify that feed 1 parameters match feed 2
+    assert.equal(
+      feed1After.frequency.toNumber(),
+      feed2.frequency.toNumber(),
+      "Feed 1 frequency should match feed 2"
+    );
+    assert.equal(
+      feed1After.minSignaturesThreshold,
+      feed2.minSignaturesThreshold,
+      "Feed 1 signatures threshold should match feed 2"
+    );
+
+    // Verify that feed 1 price now matches feed 2 price
+    assert.ok(
+      feed1After.pricePerSecondScaled.eq(feed2.pricePerSecondScaled),
+      `Feed 1 price (${feed1After.pricePerSecondScaled.toString()}) should match feed 2 price (${feed2.pricePerSecondScaled.toString()}) after updating parameters`
+    );
+
+    // Verify that the price changed from the initial state
+    assert.ok(
+      !feed1After.pricePerSecondScaled.eq(feed1Before.pricePerSecondScaled),
+      "Feed 1 price should have changed after update"
+    );
+
+    // Verify that the subscription due time was adjusted
+    assert.ok(
+      feed1After.subscriptionDueTime.toNumber() !== feed1Before.subscriptionDueTime.toNumber(),
+      "Subscription due time should be adjusted after price change"
+    );
   });
 });

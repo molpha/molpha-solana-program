@@ -5,7 +5,7 @@ use crate::{
     error::FeedError,
     events::AnswerPublished,
     state::{Answer, Feed, Node, MAX_HISTORY},
-    utils::{parse_ed25519_instruction, pricing::*},
+    utils::parse_ed25519_instruction
 };
 
 const MAX_NODES_PER_PUBLISH: usize = 25;
@@ -62,17 +62,6 @@ pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()>
         }
     }
 
-    // Calculate actual priority fee paid (use provided nodes count)
-    let estimated_compute_units = estimate_compute_units(
-        registered_nodes.len() as u32,
-        feed.answer_history.len() as u32,
-    );
-
-    let priority_fee = calculate_priority_fee_from_instructions(
-        &ctx.accounts.instructions,
-        estimated_compute_units,
-    )?;
-
     // Validate signatures from registered nodes
     let instructions_sysvar = &ctx.accounts.instructions;
     let current_instruction_index =
@@ -109,16 +98,10 @@ pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()>
         feed.answer_history.push(answer);
         feed.history_idx = feed.answer_history.len() as u64;
     } else {
-        let history_idx = feed.history_idx as usize;
+        let history_idx = (feed.history_idx as usize) % MAX_HISTORY;
         feed.answer_history[history_idx] = answer;
         feed.history_idx = (history_idx as u64 + 1) % MAX_HISTORY as u64;
     }
-
-    msg!(
-        "Successfully published answer with {} valid signatures. Priority fee: {}",
-        unique_valid_signers.len(),
-        priority_fee
-    );
 
     // Emit event
     emit!(AnswerPublished {
@@ -139,11 +122,8 @@ pub struct PublishAnswer<'info> {
         seeds = [
             Feed::SEED_PREFIX,
             feed.authority.as_ref(),
-            &feed.name_seed(),
+            &feed.name_hash.as_ref(),
             feed.feed_type.to_seed().as_ref(),
-            feed.min_signatures_threshold.to_le_bytes().as_ref(),
-            feed.frequency.to_le_bytes().as_ref(),
-            feed.job_id.as_ref()
         ],
         bump = feed.bump
     )]

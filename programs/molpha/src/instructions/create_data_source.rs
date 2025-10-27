@@ -4,6 +4,7 @@ use crate::{
     error::DataSourceError,
     events::DataSourceCreated,
     state::{DataSource, DataSourceInfo, DataSourceType},
+    utils::hash::to_hash,
 };
 
 pub fn create_data_source(ctx: Context<CreateDataSource>, data: DataSourceInfo) -> Result<()> {
@@ -24,7 +25,7 @@ pub fn create_data_source(ctx: Context<CreateDataSource>, data: DataSourceInfo) 
     data_source.authority = authority;
     data_source.data_source_type = data.data_source_type;
     data_source.metadata_hash = data.metadata_hash;
-    data_source.name = data.name;
+    data_source.name_hash = to_hash(&data.name);
     data_source.created_at = clock.unix_timestamp;
     data_source.bump = ctx.bumps.data_source;
 
@@ -32,7 +33,8 @@ pub fn create_data_source(ctx: Context<CreateDataSource>, data: DataSourceInfo) 
     emit!(DataSourceCreated {
         id: data_source.key(),
         owner: authority,
-        name: data_source.name.clone(),
+        name: data.name.clone(),
+        name_hash: data_source.name_hash,
         data_source_type: data_source.data_source_type,
         metadata_hash: data_source.metadata_hash,
         created_at: clock.unix_timestamp,
@@ -63,4 +65,10 @@ pub struct CreateDataSource<'info> {
     pub data_source: Account<'info, DataSource>,
 
     pub system_program: Program<'info, System>,
+}
+
+impl DataSourceInfo {
+    pub fn name_seed(&self) -> [u8; 32] {
+        to_hash(&self.name)
+    }
 }

@@ -1,7 +1,7 @@
 pub mod ed25519;
 pub mod pricing;
-pub mod seeds;
+pub mod hash;
 
 pub use ed25519::*;
 pub use pricing::*;
-pub use seeds::*;
+pub use hash::*;

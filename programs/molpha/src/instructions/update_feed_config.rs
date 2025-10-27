@@ -37,9 +37,14 @@ pub fn update_feed_config(
 
     // Emit event
     emit!(FeedConfigUpdated {
-        feed: ctx.accounts.feed.key(),
-        authority: ctx.accounts.authority.key(),
-        new_ipfs_cid: params.ipfs_cid,
+        feed: feed.key(),
+        authority: feed.authority,
+        min_signatures_threshold: feed.min_signatures_threshold,
+        frequency: feed.frequency,
+        job_id: feed.job_id,
+        price_per_second_scaled: price_per_second_scaled,
+        subscription_due_time: feed.subscription_due_time,
+        ipfs_cid: feed.ipfs_cid.clone(),
         updated_at: Clock::get()?.unix_timestamp,
     });
 

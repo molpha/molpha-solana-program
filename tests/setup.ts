@@ -273,7 +273,6 @@ export async function initializeProtocol(ctx: TestContext): Promise<void> {
     // Set a default security deposit of 1000 tokens (1000 * 10^6 = 1000000000 with 6 decimals)
     await ctx.molphaProgram.methods
       .updateProtocolConfig({
-        underlyingToken: null,
         basePricePerSecondScaled: null,
         frequencyCoefficient: null,
         signersCoefficient: null,
@@ -298,7 +297,8 @@ export async function initializeProtocol(ctx: TestContext): Promise<void> {
 export async function registerNodeWithDeposit(
   ctx: TestContext,
   nodePubkey: PublicKey,
-  evmPubkey: Buffer
+  evmPubkey: Buffer,
+  url: string = "https://example.com/node"
 ): Promise<PublicKey> {
   const [nodePDA] = PublicKey.findProgramAddressSync(
     [Buffer.from("node"), nodePubkey.toBuffer()],
@@ -313,7 +313,7 @@ export async function registerNodeWithDeposit(
   );
 
   await ctx.molphaProgram.methods
-    .registerNode(nodePubkey, evmPubkey)
+    .registerNode(nodePubkey, evmPubkey, url)
     .accountsPartial({
       node: nodePDA,
       protocolConfig: ctx.protocolConfigPDA,
@@ -389,9 +389,6 @@ export function getFeedPda(
   authority: PublicKey,
   name: string,
   feedType: number,
-  minSignaturesThreshold: number,
-  frequency: anchor.BN,
-  jobId: number[]
 ) {
   const { toSeed } = require('./helpers/seeds');
   return PublicKey.findProgramAddressSync(
@@ -400,9 +397,6 @@ export function getFeedPda(
       authority.toBuffer(),
       toSeed(name),
       Buffer.from([feedType]),
-      Buffer.from([minSignaturesThreshold]),
-      frequency.toArrayLike(Buffer, 'le', 8),
-      Buffer.from(jobId),
     ],
     programId
   );

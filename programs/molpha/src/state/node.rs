@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 
+use crate::utils::hash::to_hash;
+
 #[account]
 #[derive(Default, InitSpace)]
 pub struct Node {
@@ -7,6 +9,7 @@ pub struct Node {
     pub node_pubkey: Pubkey, // The actual node's public key
     #[max_len(33)]
     pub node_pub_evm: Vec<u8>, // compressed secp256k1
+    pub url_hash: [u8; 32],
     pub stake_amount: u64,
     pub security_deposit: u64, // Amount of security deposit locked
     pub status: NodeStatus,
@@ -24,10 +27,12 @@ impl Node {
         authority: Pubkey,
         node_pubkey: Pubkey,
         evm_pubkey: Vec<u8>,
+        url: String,
     ) -> Result<()> {
         self.authority = authority;
         self.node_pubkey = node_pubkey;
         self.node_pub_evm = evm_pubkey;
+        self.url_hash = to_hash(&url);
         self.status = NodeStatus::Registered;
         self.created_at = Clock::get()?.unix_timestamp;
         Ok(())

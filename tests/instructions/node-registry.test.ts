@@ -289,7 +289,6 @@ describe("Node Management Instructions", () => {
       // Update protocol config to set deposit to 0
       await ctx.molphaProgram.methods
         .updateProtocolConfig({
-          underlyingToken: null,
           basePricePerSecondScaled: null,
           frequencyCoefficient: null,
           signersCoefficient: null,
@@ -318,7 +317,7 @@ describe("Node Management Instructions", () => {
       );
 
       await ctx.molphaProgram.methods
-        .registerNode(nodeToRegister.publicKey, evmPubkey)
+        .registerNode(nodeToRegister.publicKey, evmPubkey, "https://example.com/node")
         .accountsPartial({
           node: nodePDA,
           protocolConfig: ctx.protocolConfigPDA,
@@ -342,7 +341,6 @@ describe("Node Management Instructions", () => {
       // Restore original deposit amount for other tests
       await ctx.molphaProgram.methods
         .updateProtocolConfig({
-          underlyingToken: null,
           basePricePerSecondScaled: null,
           frequencyCoefficient: null,
           signersCoefficient: null,
@@ -379,7 +377,7 @@ describe("Node Management Instructions", () => {
       let didFail = false;
       try {
         await ctx.molphaProgram.methods
-          .registerNode(nodeToRegister.publicKey, evmPubkey)
+          .registerNode(nodeToRegister.publicKey, evmPubkey, "https://example.com/node")
           .accountsPartial({
             node: nodePDA,
             protocolConfig: ctx.protocolConfigPDA,
@@ -416,7 +414,6 @@ describe("Node Management Instructions", () => {
 
       await ctx.molphaProgram.methods
         .updateProtocolConfig({
-          underlyingToken: null,
           basePricePerSecondScaled: null,
           frequencyCoefficient: null,
           signersCoefficient: null,
@@ -458,7 +455,6 @@ describe("Node Management Instructions", () => {
       // Restore original deposit for other tests
       await ctx.molphaProgram.methods
         .updateProtocolConfig({
-          underlyingToken: null,
           basePricePerSecondScaled: null,
           frequencyCoefficient: null,
           signersCoefficient: null,

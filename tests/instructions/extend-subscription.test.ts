@@ -14,7 +14,6 @@ import {
   createFeedParams,
   getFeedPda,
 } from "../setup";
-import { Clock } from "solana-bankrun";
 
 describe("Extend Subscription Instruction", () => {
   let ctx: TestContext;
@@ -76,9 +75,6 @@ describe("Extend Subscription Instruction", () => {
       ctx.authority.publicKey,
       feedParams.name,
       0, // public feed type
-      feedParams.minSignaturesThreshold,
-      feedParams.frequency,
-      feedParams.jobId
     );
 
     // Create feed with 1 day subscription and 1000 lamports priority fee budget
