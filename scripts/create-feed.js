@@ -84,9 +84,6 @@ async function main() {
     provider.wallet.publicKey,
     feedName,
     feedTypeNum,
-    minSigs,
-    new anchor.BN(frequency),
-    jobId
   );
 
   // Get token accounts
