@@ -40,8 +40,13 @@ pub fn update_protocol_config(
 
     // Emit event
     emit!(ProtocolConfigUpdated {
-        protocol_config: ctx.accounts.protocol_config.key(),
+        protocol_config: protocol_config.key(),
         authority: ctx.accounts.authority.key(),
+        base_price_per_second_scaled: protocol_config.base_price_per_second_scaled,
+        frequency_coefficient: protocol_config.frequency_coefficient,
+        signers_coefficient: protocol_config.signers_coefficient,
+        reward_percentage: protocol_config.reward_percentage,
+        node_security_deposit: protocol_config.node_security_deposit,
         updated_at: clock.unix_timestamp,
     });
 

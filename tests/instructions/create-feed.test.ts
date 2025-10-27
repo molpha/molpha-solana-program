@@ -124,9 +124,6 @@ describe("Create Feed Instruction", () => {
       ctx.authority.publicKey,
       feedParams.name,
       0, // public feed type
-      feedParams.minSignaturesThreshold,
-      feedParams.frequency,
-      feedParams.jobId
     );
 
     // Create feed with 1 day subscription and 1000 lamports priority fee budget
@@ -173,9 +170,6 @@ describe("Create Feed Instruction", () => {
       ctx.authority.publicKey,
       feedParams.name,
       1, // personal feed type
-      feedParams.minSignaturesThreshold,
-      feedParams.frequency,
-      feedParams.jobId
     );
 
     // Create feed with 1 day subscription and 1000 lamports priority fee budget
@@ -214,9 +208,6 @@ describe("Create Feed Instruction", () => {
       ctx.authority.publicKey,
       feedParams.name,
       1, // personal feed type
-      feedParams.minSignaturesThreshold,
-      feedParams.frequency,
-      feedParams.jobId
     );
 
     await ctx.molphaProgram.methods
@@ -252,9 +243,6 @@ describe("Create Feed Instruction", () => {
       ctx.authority.publicKey,
       invalidParams.name,
       0, // public feed type
-      invalidParams.minSignaturesThreshold,
-      invalidParams.frequency,
-      invalidParams.jobId
     );
 
     try {
@@ -295,9 +283,6 @@ describe("Create Feed Instruction", () => {
       ctx.authority.publicKey,
       invalidParams.name,
       0, // public feed type
-      invalidParams.minSignaturesThreshold,
-      invalidParams.frequency,
-      invalidParams.jobId
     );
 
     try {
@@ -336,9 +321,6 @@ describe("Create Feed Instruction", () => {
       ctx.authority.publicKey,
       feedParams.name,
       0, // public feed type
-      feedParams.minSignaturesThreshold,
-      feedParams.frequency,
-      feedParams.jobId
     );
 
     try {

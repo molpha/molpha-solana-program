@@ -1,16 +1,13 @@
 use super::{Answer, FeedType};
 use anchor_lang::prelude::*;
 
-use crate::utils::seeds::to_seed;
-
 pub const MAX_HISTORY: usize = 20; // Reduced from 100 to 20
 
 #[account]
 #[derive(Default, InitSpace)]
 pub struct Feed {
     // Existing feed data
-    #[max_len(64)]
-    pub name: String,
+    pub name_hash: [u8; 32],
     pub authority: Pubkey,
     pub feed_type: FeedType,
     pub job_id: [u8; 32],
@@ -45,9 +42,5 @@ impl Feed {
         } else {
             0
         }
-    }
-
-    pub fn name_seed(&self) -> [u8; 32] {
-        to_seed(&self.name)
     }
 }

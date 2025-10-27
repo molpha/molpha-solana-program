@@ -112,9 +112,6 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       ctx.authority.publicKey,
       feedParams.name,
       0, // public feed type
-      feedParams.minSignaturesThreshold,
-      feedParams.frequency,
-      feedParams.jobId
     );
 
       const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
@@ -267,9 +264,6 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       ctx.authority.publicKey,
       feedParams.name,
       1, // personal feed type
-      feedParams.minSignaturesThreshold,
-      feedParams.frequency,
-      feedParams.jobId
     );
 
       const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
@@ -384,9 +378,6 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       ctx.authority.publicKey,
       feedParams.name,
       0, // public feed type
-      feedParams.minSignaturesThreshold,
-      feedParams.frequency,
-      feedParams.jobId
     );
 
       const subscriptionDurationSeconds = new anchor.BN(86400);
@@ -536,9 +527,6 @@ describe("Integration Tests: Complete Oracle Flow", () => {
             ctx.authority.publicKey,
             feedParams.name,
             feedTypeValue,
-            feedParams.minSignaturesThreshold,
-            feedParams.frequency,
-            feedParams.jobId
           );
 
         const subscriptionDurationSeconds = new anchor.BN(86400);

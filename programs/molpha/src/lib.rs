@@ -2,6 +2,7 @@
 
 use anchor_lang::prelude::*;
 
+pub mod adapters;
 pub mod error;
 pub mod events;
 pub mod instructions;
@@ -11,7 +12,7 @@ pub mod utils;
 use instructions::*;
 use state::*;
 
-declare_id!("moLfWuMFCoVYRisYjHSkABQA9ZD35fFV76axiPLHCtp");
+declare_id!("moLfNsTqLqej38QPHu4xq7uMBVK14MRQCQWhBhz8X3k");
 
 #[program]
 pub mod molpha {
@@ -27,8 +28,9 @@ pub mod molpha {
         ctx: Context<RegisterNode>,
         node_pubkey: Pubkey,
         evm_pubkey: Vec<u8>,
+        url: String,
     ) -> Result<()> {
-        instructions::register_node(ctx, node_pubkey, evm_pubkey)
+        instructions::register_node(ctx, node_pubkey, evm_pubkey, url)
     }
 
     // Feed management functions (from molpha-feed)

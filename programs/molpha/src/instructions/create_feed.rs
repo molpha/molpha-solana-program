@@ -9,7 +9,7 @@ use crate::{
     error::FeedError,
     events::FeedCreated,
     state::{DataSource, DataSourceType, Feed, FeedType, ProtocolConfig, MAX_HISTORY},
-    utils::{pricing::*, seeds::to_seed},
+    utils::{pricing::*, hash::to_hash},
 };
 
 pub fn create_feed(
@@ -41,7 +41,7 @@ pub fn create_feed(
 
     // Initialize feed with basic data
     let feed = &mut ctx.accounts.feed;
-    feed.name = params.name;
+    feed.name_hash = to_hash(&params.name);
     feed.authority = ctx.accounts.authority.key();
     feed.feed_type = params.feed_type;
     feed.min_signatures_threshold = params.min_signatures_threshold;
@@ -58,7 +58,6 @@ pub fn create_feed(
     // Calculate total subscription cost
     let subscription_cost =
         (price_per_second_scaled * subscription_duration_seconds) / ProtocolConfig::SCALAR;
-
     // Initialize subscription data
     feed.subscription_due_time = now + subscription_duration_seconds as i64;
     feed.price_per_second_scaled = price_per_second_scaled;
@@ -81,6 +80,8 @@ pub fn create_feed(
 
     emit!(FeedCreated {
         key: feed.key(),
+        name: params.name.clone(),
+        name_hash: feed.name_hash,
         authority: feed.authority,
         feed_type: feed.feed_type,
         min_signatures_threshold: feed.min_signatures_threshold,
@@ -90,6 +91,7 @@ pub fn create_feed(
         created_at: now,
         subscription_due_time: feed.subscription_due_time,
         total_cost: subscription_cost,
+        price_per_second_scaled: price_per_second_scaled,
     });
 
     Ok(())
@@ -107,9 +109,6 @@ pub struct CreateFeed<'info> {
             authority.key().as_ref(),
             &params.name_seed(),
             params.feed_type.to_seed().as_ref(),
-            params.min_signatures_threshold.to_le_bytes().as_ref(),
-            params.frequency.to_le_bytes().as_ref(),
-            params.job_id.as_ref(),
         ],
         bump
     )]
@@ -162,6 +161,6 @@ pub struct CreateFeedParams {
 
 impl CreateFeedParams {
     pub fn name_seed(&self) -> [u8; 32] {
-        to_seed(&self.name)
+        to_hash(&self.name)
     }
 }

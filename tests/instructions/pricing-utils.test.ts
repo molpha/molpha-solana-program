@@ -81,9 +81,6 @@ describe("Pricing Utility Tests", () => {
       ctx.authority.publicKey,
       feedParams.name,
       0, // public feed type
-      feedParams.minSignaturesThreshold,
-      feedParams.frequency,
-      feedParams.jobId
     );
 
       // Create feed with 1 day subscription and 1000 lamports priority fee budget
@@ -143,9 +140,6 @@ describe("Pricing Utility Tests", () => {
       ctx.authority.publicKey,
       highFreqFeedParams.name,
       0, // public feed type
-      highFreqFeedParams.minSignaturesThreshold,
-      highFreqFeedParams.frequency,
-      highFreqFeedParams.jobId
     );
 
       // Create feed with 1 day subscription and 2000 lamports priority fee budget

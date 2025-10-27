@@ -16,6 +16,8 @@ pub enum NodeRegistryError {
     InvalidEd25519Instruction,
     #[msg("Insufficient security deposit.")]
     InsufficientSecurityDeposit,
+    #[msg("Invalid URL.")]
+    InvalidURL,
 }
 
 #[error_code]

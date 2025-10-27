@@ -1,15 +1,12 @@
 use anchor_lang::prelude::*;
 
-use crate::utils::seeds::to_seed;
-
 #[account]
 #[derive(Default, InitSpace)]
 pub struct DataSource {
     pub authority: Pubkey,                // Solana address of the owner
     pub data_source_type: DataSourceType, // Type of data source
     pub metadata_hash: [u8; 32],          // Hash of the metadata
-    #[max_len(32)]
-    pub name: String,   // Name of the data source
+    pub name_hash: [u8; 32],   // Name of the data source
     pub created_at: i64,                  // Creation timestamp
     pub bump: u8,                         // PDA bump
 }
@@ -46,10 +43,4 @@ pub struct DataSourceInfo {
     pub data_source_type: DataSourceType,
     pub metadata_hash: [u8; 32],
     pub name: String,
-}
-
-impl DataSourceInfo {
-    pub fn name_seed(&self) -> [u8; 32] {
-        to_seed(&self.name)
-    }
 }
