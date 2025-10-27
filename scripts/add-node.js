@@ -10,9 +10,9 @@ const {
 async function main() {
   if (!process.argv[2]) {
     console.error("❌ Error: Node public key is required");
-    console.log("Usage: node add-node.js <NODE_PUBKEY> [EVM_PUBKEY_HEX]");
+    console.log("Usage: node add-node.js <NODE_PUBKEY> [EVM_PUBKEY_HEX] [URL]");
     console.log(
-      "Example: node add-node.js 11111111111111111111111111111112 0x0404..."
+      "Example: node add-node.js 11111111111111111111111111111112 0x0404... https://node.example.com"
     );
     process.exit(1);
   }
@@ -43,6 +43,9 @@ async function main() {
       process.exit(1);
     }
 
+    // Get URL or use default
+    const url = process.argv[4] || `https://node-${nodePubkey.toString().slice(0, 8)}.example.com`;
+
     // Derive the node PDA
     const [nodePDA] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("node"), nodePubkey.toBuffer()],
@@ -69,6 +72,22 @@ async function main() {
       true // allowOwnerOffCurve
     );
 
+    // Get SOL balance
+    const solBalance = await provider.connection.getBalance(provider.wallet.publicKey);
+    const solBalanceSOL = solBalance / anchor.web3.LAMPORTS_PER_SOL;
+
+    // Get token balance
+    let tokenBalance = 0;
+    try {
+      const tokenAccountInfo = await provider.connection.getTokenAccountBalance(
+        nodeOperatorTokenAccount
+      );
+      tokenBalance = parseInt(tokenAccountInfo.value.amount);
+    } catch (e) {
+      // Token account doesn't exist or other error
+      tokenBalance = 0;
+    }
+
     console.log("🔍 Registering node with the following details:");
     console.log("Node pubkey:", nodePubkey.toString());
     console.log("Node PDA:", nodePDA.toString());
@@ -77,6 +96,13 @@ async function main() {
     console.log("Underlying Token:", underlyingToken.toString());
     console.log("Security Deposit:", securityDeposit.toString(), "tokens");
     console.log("EVM Pubkey:", evmPubkey.toString("hex"));
+    console.log("Node URL:", url);
+    console.log("");
+    console.log("💰 Balance Information:");
+    console.log("SOL Balance:", solBalanceSOL.toFixed(6), "SOL");
+    console.log("Token Balance:", tokenBalance.toString(), "tokens");
+    console.log("Required Security Deposit:", securityDeposit.toString(), "tokens");
+    console.log("Token Account:", nodeOperatorTokenAccount.toString());
     console.log("");
 
     // Check if node already exists
@@ -86,6 +112,19 @@ async function main() {
       process.exit(1);
     } catch (e) {
       // Node doesn't exist, which is good for registering
+    }
+
+    // Check if you have enough tokens for security deposit
+    if (tokenBalance < securityDeposit) {
+      console.error("❌ Error: Insufficient token balance for security deposit");
+      console.error(`Required: ${securityDeposit.toString()} tokens`);
+      console.error(`Available: ${tokenBalance.toString()} tokens`);
+      console.error(`Missing: ${(securityDeposit - tokenBalance).toString()} tokens`);
+      console.error("");
+      console.error("💡 To get tokens:");
+      console.error("1. Use the faucet: node scripts/faucet.js");
+      console.error("2. Or transfer tokens to your account");
+      process.exit(1);
     }
 
     // Check operator token account balance
@@ -108,7 +147,7 @@ async function main() {
     }
 
     const txSignature = await program.methods
-      .registerNode(nodePubkey, evmPubkey)
+      .registerNode(nodePubkey, evmPubkey, url)
       .accounts({
         node: nodePDA,
         protocolConfig: protocolConfigPDA,

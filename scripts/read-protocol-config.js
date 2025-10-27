@@ -120,69 +120,6 @@ async function readProtocolConfig(program) {
     console.log("   (Based on current configuration)");
     console.log("");
 
-    if (
-      config.basePricePerSecondScaled &&
-      config.frequencyCoefficient &&
-      config.signersCoefficient
-    ) {
-      // Example 1: Basic feed
-      const basicPrice = config.basePricePerSecondScaled;
-      console.log(`   Basic Feed (1 signature, 60s frequency):`);
-      console.log(
-        `     Price per second: ${formatTokenAmount(
-          basicPrice / 1000000
-        )} tokens`
-      );
-      console.log(
-        `     Price per day: ${formatTokenAmount(
-          (basicPrice * 86400) / 1000000
-        )} tokens`
-      );
-      console.log(
-        `     Price per month: ${formatTokenAmount(
-          (basicPrice * 86400 * 30) / 1000000
-        )} tokens`
-      );
-      console.log("");
-
-      // Example 2: High frequency feed
-      const highFreqPrice =
-        basicPrice + (basicPrice * config.frequencyCoefficient) / 10000;
-      console.log(`   High Frequency Feed (1 signature, 10s frequency):`);
-      console.log(
-        `     Price per second: ${formatTokenAmount(
-          highFreqPrice / 1000000
-        )} tokens`
-      );
-      console.log(
-        `     Price per day: ${formatTokenAmount(
-          (highFreqPrice * 86400) / 1000000
-        )} tokens`
-      );
-      console.log("");
-
-      // Example 3: Multi-signature feed
-      const multiSigPrice =
-        basicPrice + (basicPrice * config.signersCoefficient) / 10000;
-      console.log(`   Multi-Signature Feed (3 signatures, 60s frequency):`);
-      console.log(
-        `     Price per second: ${formatTokenAmount(
-          multiSigPrice / 1000000
-        )} tokens`
-      );
-      console.log(
-        `     Price per day: ${formatTokenAmount(
-          (multiSigPrice * 86400) / 1000000
-        )} tokens`
-      );
-      console.log("");
-    } else {
-      console.log(
-        "   ⚠️  Cannot calculate pricing scenarios - missing configuration data"
-      );
-      console.log("");
-    }
-
     // Check if program token account exists
     try {
       const { getAssociatedTokenAddressSync } = require("@solana/spl-token");

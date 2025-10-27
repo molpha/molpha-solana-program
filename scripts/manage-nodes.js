@@ -16,16 +16,17 @@ Usage:
   node manage-nodes.js <command> [arguments]
 
 Commands:
-  check                             Check protocol initialization status
-  register <node_pubkey> [evm_hex]  Register a single node (with optional EVM pubkey)
-  batch-register <file_path>        Register multiple nodes from file
-  status <node_pubkey>              Get status of a specific node
-  generate-keypairs <count>         Generate keypairs for testing
+  check                                      Check protocol initialization status
+  register <node_pubkey> [evm_hex] [url]    Register a single node (with optional EVM pubkey and URL)
+  batch-register <file_path>                Register multiple nodes from file
+  status <node_pubkey>                      Get status of a specific node
+  generate-keypairs <count>                 Generate keypairs for testing
 
 Examples:
   node manage-nodes.js check
   node manage-nodes.js register 11111111111111111111111111111112
   node manage-nodes.js register 11111111111111111111111111111112 0x0404...
+  node manage-nodes.js register 11111111111111111111111111111112 0x0404... https://node.example.com
   node manage-nodes.js batch-register nodes.json
   node manage-nodes.js status 11111111111111111111111111111112
   node manage-nodes.js generate-keypairs 5
@@ -34,14 +35,16 @@ File format for batch-register (nodes.json):
 [
   {
     "nodePubkey": "11111111111111111111111111111112",
-    "evmPubkey": "0x0404..."
+    "evmPubkey": "0x0404...",
+    "url": "https://node1.example.com"
   },
   {
-    "nodePubkey": "22222222222222222222222222222223"
+    "nodePubkey": "22222222222222222222222222222223",
+    "url": "https://node2.example.com"
   }
 ]
 
-Or simple array format (uses default EVM pubkeys):
+Or simple array format (uses default EVM pubkeys and URLs):
 [
   "11111111111111111111111111111112",
   "22222222222222222222222222222223"
@@ -80,149 +83,6 @@ async function setupProgram() {
   );
 
   return { program, provider, nodeRegistryPDA, protocolConfigPDA };
-}
-
-async function initializeProtocol(feePerUpdate = 1000) {
-  const { program, provider, nodeRegistryPDA, protocolConfigPDA } =
-    await setupProgram();
-
-  try {
-    console.log("🔍 Initializing Molpha Protocol with:");
-    console.log("Fee per update:", feePerUpdate, "lamports");
-    console.log("NodeRegistry PDA:", nodeRegistryPDA.toString());
-    console.log("ProtocolConfig PDA:", protocolConfigPDA.toString());
-    console.log("Authority:", provider.wallet.publicKey.toString());
-    console.log("RPC URL:", provider.connection.rpcEndpoint);
-    console.log("");
-
-    // Check if already initialized
-    let nodeRegistryExists = false;
-    let protocolConfigExists = false;
-
-    try {
-      await program.account.nodeRegistry.fetch(nodeRegistryPDA);
-      nodeRegistryExists = true;
-      console.log("⚠️  NodeRegistry already exists");
-    } catch (e) {
-      console.log("📝 NodeRegistry will be created");
-    }
-
-    try {
-      await program.account.protocolConfig.fetch(protocolConfigPDA);
-      protocolConfigExists = true;
-      console.log("⚠️  ProtocolConfig already exists");
-    } catch (e) {
-      console.log("📝 ProtocolConfig will be created");
-    }
-
-    if (nodeRegistryExists && protocolConfigExists) {
-      console.log("✅ Protocol is already fully initialized!");
-
-      // Show current state
-      const nodeRegistry = await program.account.nodeRegistry.fetch(
-        nodeRegistryPDA
-      );
-      const protocolConfig = await program.account.protocolConfig.fetch(
-        protocolConfigPDA
-      );
-
-      console.log("");
-      console.log("📊 Current State:");
-      console.log("NodeRegistry:");
-      console.log("- Authority:", nodeRegistry.authority.toString());
-      console.log("- Nodes count:", nodeRegistry.nodes.length);
-
-      console.log("ProtocolConfig:");
-      console.log("- Authority:", protocolConfig.authority.toString());
-      console.log(
-        "- Fee per update:",
-        protocolConfig.feePerUpdate.toString(),
-        "lamports"
-      );
-
-      return true;
-    }
-
-    console.log("🔄 Initializing protocol...");
-
-    const txSignature = await program.methods
-      .initialize()
-      .accounts({
-        nodeRegistry: nodeRegistryPDA,
-        protocolConfig: protocolConfigPDA,
-        authority: provider.wallet.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .rpc();
-
-    console.log("✅ Protocol initialized successfully!");
-    console.log("Transaction signature:", txSignature);
-    console.log("");
-
-    // Verify initialization
-    try {
-      const nodeRegistry = await program.account.nodeRegistry.fetch(
-        nodeRegistryPDA
-      );
-      const protocolConfig = await program.account.protocolConfig.fetch(
-        protocolConfigPDA
-      );
-
-      console.log("📊 Initialized State:");
-      console.log("NodeRegistry:");
-      console.log("- PDA:", nodeRegistryPDA.toString());
-      console.log("- Authority:", nodeRegistry.authority.toString());
-      console.log("- Nodes count:", nodeRegistry.nodes.length);
-
-      console.log("ProtocolConfig:");
-      console.log("- PDA:", protocolConfigPDA.toString());
-      console.log("- Authority:", protocolConfig.authority.toString());
-      console.log(
-        "- Fee per update:",
-        protocolConfig.feePerUpdate.toString(),
-        "lamports"
-      );
-
-      console.log("");
-      console.log("🎉 Protocol is ready for use!");
-      console.log("Next steps:");
-      console.log("1. Add nodes: ./scripts/nodes add <NODE_PUBKEY>");
-      console.log("2. Create feeds: node scripts/create-feed.js");
-      console.log("3. Start publishing data");
-    } catch (e) {
-      console.warn(
-        "⚠️  Warning: Could not fetch initialized accounts for verification:",
-        e.message
-      );
-    }
-
-    return true;
-  } catch (e) {
-    console.error("❌ Error initializing protocol:", e.message);
-    if (e.logs) {
-      console.error("Transaction logs:", e.logs);
-    }
-
-    // Provide helpful error messages
-    if (e.message.includes("failed to get recent blockhash")) {
-      console.error("\n💡 Tip: Make sure the Solana validator is running:");
-      console.error("   solana-test-validator --reset");
-    } else if (
-      e.message.includes(
-        "Attempt to debit an account but found no record of a prior credit"
-      )
-    ) {
-      console.error("\n💡 Tip: Make sure your wallet has sufficient SOL:");
-      console.error("   solana airdrop 10");
-    } else if (e.message.includes("already in use")) {
-      console.error(
-        "\n💡 Tip: Protocol may already be initialized. Check with:"
-      );
-      console.error("   ./scripts/nodes check");
-    }
-
-    return false;
-  }
 }
 
 async function checkProtocolStatus() {
@@ -291,7 +151,7 @@ async function checkProtocolStatus() {
   }
 }
 
-async function registerNode(nodePubkeyStr, evmPubkeyHex = null) {
+async function registerNode(nodePubkeyStr, evmPubkeyHex = null, url = null) {
   const { program, provider, protocolConfigPDA } = await setupProgram();
 
   try {
@@ -308,6 +168,9 @@ async function registerNode(nodePubkeyStr, evmPubkeyHex = null) {
       );
       return false;
     }
+
+    // Use provided URL or default
+    const nodeUrl = url || `https://node-${nodePubkeyStr.slice(0, 8)}.example.com`;
 
     const [nodePDA] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("node"), nodePubkey.toBuffer()],
@@ -353,11 +216,26 @@ async function registerNode(nodePubkeyStr, evmPubkeyHex = null) {
       // Node doesn't exist, which is good for registering
     }
 
+    // Get token balance
+    let tokenBalance = 0;
+    try {
+      const tokenAccountInfo = await provider.connection.getTokenAccountBalance(
+        nodeOperatorTokenAccount
+      );
+      tokenBalance = parseInt(tokenAccountInfo.value.amount);
+    } catch (e) {
+      // Token account doesn't exist or other error
+      tokenBalance = 0;
+    }
+
     console.log(`🔄 Registering node: ${nodePubkeyStr}`);
+    console.log(`   URL: ${nodeUrl}`);
     console.log(`   Security deposit: ${securityDeposit.toString()} tokens`);
+    console.log(`   Your token balance: ${tokenBalance.toString()} tokens`);
+    console.log(`   Token account: ${nodeOperatorTokenAccount.toString()}`);
 
     const txSignature = await program.methods
-      .registerNode(nodePubkey, evmPubkey)
+      .registerNode(nodePubkey, evmPubkey, nodeUrl)
       .accounts({
         node: nodePDA,
         protocolConfig: protocolConfigPDA,
@@ -372,53 +250,13 @@ async function registerNode(nodePubkeyStr, evmPubkeyHex = null) {
       .rpc();
 
     console.log(`✅ Node registered successfully: ${nodePubkeyStr}`);
-    console.log(`   Transaction: ${txSignature}`);
+    // console.log(`   Transaction: ${txSignature}`);
     return true;
   } catch (e) {
     console.error(`❌ Error registering node ${nodePubkeyStr}:`, e.message);
     if (e.logs) {
       console.error("Transaction logs:", e.logs.join("\n"));
     }
-    return false;
-  }
-}
-
-async function removeNode(nodePubkeyStr) {
-  const { program, provider, nodeRegistryPDA } = await setupProgram();
-
-  try {
-    const nodePubkey = new anchor.web3.PublicKey(nodePubkeyStr);
-
-    const [nodePDA] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("node"), nodePubkey.toBuffer()],
-      program.programId
-    );
-
-    // Check if node exists
-    try {
-      await program.account.node.fetch(nodePDA);
-    } catch (e) {
-      console.error(`❌ Error: Node ${nodePubkeyStr} not found`);
-      return false;
-    }
-
-    console.log(`🔄 Removing node: ${nodePubkeyStr}`);
-
-    const txSignature = await program.methods
-      .removeNode(nodePubkey)
-      .accounts({
-        nodeRegistry: nodeRegistryPDA,
-        node: nodePDA,
-        authority: provider.wallet.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .rpc();
-
-    console.log(`✅ Node removed successfully: ${nodePubkeyStr}`);
-    console.log(`   Transaction: ${txSignature}`);
-    return true;
-  } catch (e) {
-    console.error(`❌ Error removing node ${nodePubkeyStr}:`, e.message);
     return false;
   }
 }
@@ -452,22 +290,24 @@ async function batchRegisterNodes(filePath) {
     const nodeEntry = nodes[i];
     console.log(`\n[${i + 1}/${nodes.length}]`);
 
-    let nodePubkeyStr, evmPubkeyHex;
+    let nodePubkeyStr, evmPubkeyHex, url;
 
     // Support both string format and object format
     if (typeof nodeEntry === "string") {
       nodePubkeyStr = nodeEntry;
       evmPubkeyHex = null;
+      url = null;
     } else if (typeof nodeEntry === "object") {
       nodePubkeyStr = nodeEntry.nodePubkey;
       evmPubkeyHex = nodeEntry.evmPubkey || null;
+      url = nodeEntry.url || null;
     } else {
       console.error(`❌ Invalid node entry format at index ${i}`);
       failureCount++;
       continue;
     }
 
-    const success = await registerNode(nodePubkeyStr, evmPubkeyHex);
+    const success = await registerNode(nodePubkeyStr, evmPubkeyHex, url);
     if (success) {
       successCount++;
     } else {
@@ -479,62 +319,6 @@ async function batchRegisterNodes(filePath) {
   console.log(`   ✅ Successful: ${successCount}`);
   console.log(`   ❌ Failed: ${failureCount}`);
   console.log(`   📋 Total: ${nodes.length}`);
-}
-
-async function listNodes() {
-  const { program, nodeRegistryPDA } = await setupProgram();
-
-  try {
-    const nodeRegistryAccount = await program.account.nodeRegistry.fetch(
-      nodeRegistryPDA
-    );
-
-    console.log(`📋 Node Registry Status:`);
-    console.log(`   Authority: ${nodeRegistryAccount.authority.toString()}`);
-    console.log(`   Total Nodes: ${nodeRegistryAccount.nodes.length}`);
-    console.log("");
-
-    if (nodeRegistryAccount.nodes.length === 0) {
-      console.log("   No nodes registered");
-      return;
-    }
-
-    console.log("📊 Registered Nodes:");
-    for (let i = 0; i < nodeRegistryAccount.nodes.length; i++) {
-      const nodePubkey = nodeRegistryAccount.nodes[i];
-      console.log(`   ${i + 1}. ${nodePubkey.toString()}`);
-
-      // Try to get detailed node information
-      try {
-        const [nodePDA] = anchor.web3.PublicKey.findProgramAddressSync(
-          [Buffer.from("node"), nodePubkey.toBuffer()],
-          program.programId
-        );
-
-        const nodeAccount = await program.account.node.fetch(nodePDA);
-        console.log(`      - Active: ${nodeAccount.isActive}`);
-        console.log(
-          `      - Created: ${new Date(
-            nodeAccount.createdAt.toNumber() * 1000
-          ).toISOString()}`
-        );
-        console.log(
-          `      - Last Active: ${new Date(
-            nodeAccount.lastActive.toNumber() * 1000
-          ).toISOString()}`
-        );
-      } catch (e) {
-        console.log(`      - Details: Unable to fetch (${e.message})`);
-      }
-    }
-  } catch (e) {
-    console.log("nodeRegistryPDA", nodeRegistryPDA.toString());
-
-    console.log("e", e);
-    console.error(
-      "❌ Error: Node registry not found. Please run initialize script first."
-    );
-  }
 }
 
 async function getNodeStatus(nodePubkeyStr) {
@@ -621,12 +405,13 @@ async function main() {
       if (!arg) {
         console.error("❌ Error: Node public key is required");
         console.log(
-          "Usage: node manage-nodes.js register <NODE_PUBKEY> [EVM_PUBKEY_HEX]"
+          "Usage: node manage-nodes.js register <NODE_PUBKEY> [EVM_PUBKEY_HEX] [URL]"
         );
         return;
       }
       const evmPubkey = process.argv[4] || null;
-      await registerNode(arg, evmPubkey);
+      const url = process.argv[5] || null;
+      await registerNode(arg, evmPubkey, url);
       break;
 
     case "batch-register":
