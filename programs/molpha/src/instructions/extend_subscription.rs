@@ -51,7 +51,6 @@ pub fn extend_subscription(
     );
     token::transfer(payment_cpi_ctx, extension_cost)?;
 
-
     // Emit event
     emit!(SubscriptionExtended {
         feed: ctx.accounts.feed.key(),

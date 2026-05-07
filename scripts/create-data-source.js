@@ -8,10 +8,10 @@ const crypto = require("crypto");
 async function main() {
   if (!process.argv[2]) {
     console.error("❌ Error: Data source name is required");
+    console.log("Usage: node create-data-source.js <DATA_SOURCE_NAME> [TYPE]");
     console.log(
-      "Usage: node create-data-source.js <DATA_SOURCE_NAME> [TYPE]"
+      "  DATA_SOURCE_NAME: name of the data source (will be hashed for PDA)"
     );
-    console.log('  DATA_SOURCE_NAME: name of the data source (will be hashed for PDA)');
     console.log('  TYPE: "personal" or "public" (default: public)');
     process.exit(1);
   }
@@ -24,7 +24,8 @@ async function main() {
   // Parse command line arguments
   const dataSourceName = process.argv[2];
   const dataSourceTypeStr = process.argv[3] || "public";
-  const dataSourceType = dataSourceTypeStr === "personal" ? { personal: {} } : { public: {} };
+  const dataSourceType =
+    dataSourceTypeStr === "personal" ? { personal: {} } : { public: {} };
   const dataSourceTypeNum = dataSourceTypeStr === "personal" ? 1 : 0;
 
   // Generate a random metadata hash (32 bytes)
@@ -71,4 +72,3 @@ async function main() {
 }
 
 main().catch(console.error);
-

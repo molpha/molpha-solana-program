@@ -77,11 +77,11 @@ describe("Pricing Utility Tests", () => {
       const feedParams = createFeedParams(jobId, { public: {} });
 
       [feedPDA] = getFeedPda(
-      ctx.molphaProgram.programId,
-      ctx.authority.publicKey,
-      feedParams.name,
-      0, // public feed type
-    );
+        ctx.molphaProgram.programId,
+        ctx.authority.publicKey,
+        feedParams.name,
+        0 // public feed type
+      );
 
       // Create feed with 1 day subscription and 1000 lamports priority fee budget
       const subscriptionDurationSeconds = new BN(86400); // 1 day
@@ -136,11 +136,11 @@ describe("Pricing Utility Tests", () => {
       };
 
       const [highFreqFeedPDA] = getFeedPda(
-      ctx.molphaProgram.programId,
-      ctx.authority.publicKey,
-      highFreqFeedParams.name,
-      0, // public feed type
-    );
+        ctx.molphaProgram.programId,
+        ctx.authority.publicKey,
+        highFreqFeedParams.name,
+        0 // public feed type
+      );
 
       // Create feed with 1 day subscription and 2000 lamports priority fee budget
       const subscriptionDurationSeconds = new BN(86400); // 1 day

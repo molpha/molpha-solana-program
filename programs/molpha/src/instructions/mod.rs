@@ -8,6 +8,7 @@ pub mod register_node;
 pub mod update_data_source;
 pub mod update_feed_config;
 pub mod update_protocol_config;
+pub mod verify_answer;
 
 // Re-export all instruction structs and functions
 pub use create_data_source::*;
@@ -19,3 +20,4 @@ pub use register_node::*;
 pub use update_data_source::*;
 pub use update_feed_config::*;
 pub use update_protocol_config::*;
+pub use verify_answer::*;

@@ -53,7 +53,7 @@ describe("Update Feed Config Instruction", () => {
       ctx.molphaProgram.programId,
       ctx.authority.publicKey,
       feedParams.name,
-      1, // personal feed type
+      1 // personal feed type
     );
 
     // Create the personal feed with 1 day subscription
@@ -364,6 +364,12 @@ describe("Update Feed Config Instruction", () => {
         signersCoefficient: new anchor.BN(5000),
         rewardPercentage: new anchor.BN(5000),
         nodeSecurityDeposit: new anchor.BN(10000000000),
+        wormholeBridgeProgram: null,
+        targetChainIds: null,
+        registryXAgg: null,
+        signaturesRequired: null,
+        nodeCount: null,
+        redundancyBuffer: null,
       })
       .accountsPartial({
         protocolConfig: ctx.protocolConfigPDA,
@@ -401,7 +407,9 @@ describe("Update Feed Config Instruction", () => {
       .rpc();
 
     // Create the second feed with different parameters
-    const feedParams2 = createFeedParams("Test Personal Feed 13", { personal: {} });
+    const feedParams2 = createFeedParams("Test Personal Feed 13", {
+      personal: {},
+    });
     feedParams2.frequency = new anchor.BN(100); // Different frequency
     feedParams2.minSignaturesThreshold = 3; // Different signatures
     feedParams2.jobId = Array.from(jobId2);
@@ -435,8 +443,22 @@ describe("Update Feed Config Instruction", () => {
     const feed1Before = await ctx.molphaProgram.account.feed.fetch(feed1PDA);
     const feed2 = await ctx.molphaProgram.account.feed.fetch(feed2PDA);
 
-    console.log("Feed 1 initial - frequency:", feed1Before.frequency.toString(), "signatures:", feed1Before.minSignaturesThreshold, "price:", feed1Before.pricePerSecondScaled.toString());
-    console.log("Feed 2 - frequency:", feed2.frequency.toString(), "signatures:", feed2.minSignaturesThreshold, "price:", feed2.pricePerSecondScaled.toString());
+    console.log(
+      "Feed 1 initial - frequency:",
+      feed1Before.frequency.toString(),
+      "signatures:",
+      feed1Before.minSignaturesThreshold,
+      "price:",
+      feed1Before.pricePerSecondScaled.toString()
+    );
+    console.log(
+      "Feed 2 - frequency:",
+      feed2.frequency.toString(),
+      "signatures:",
+      feed2.minSignaturesThreshold,
+      "price:",
+      feed2.pricePerSecondScaled.toString()
+    );
 
     // Verify that feeds have different prices initially
     console.log("Feed 1 price:", feed1Before.pricePerSecondScaled.toString());
@@ -464,10 +486,20 @@ describe("Update Feed Config Instruction", () => {
     // Fetch updated feed 1
     const feed1After = await ctx.molphaProgram.account.feed.fetch(feed1PDA);
 
-    console.log("Feed 1 after update - price:", feed1After.pricePerSecondScaled.toString());
+    console.log(
+      "Feed 1 after update - price:",
+      feed1After.pricePerSecondScaled.toString()
+    );
     console.log("Feed 2 price:", feed2.pricePerSecondScaled.toString());
 
-    console.log("Feed 1 after update - frequency:", feed1After.frequency.toString(), "signatures:", feed1After.minSignaturesThreshold, "price:", feed1After.pricePerSecondScaled.toString());
+    console.log(
+      "Feed 1 after update - frequency:",
+      feed1After.frequency.toString(),
+      "signatures:",
+      feed1After.minSignaturesThreshold,
+      "price:",
+      feed1After.pricePerSecondScaled.toString()
+    );
 
     // Verify that feed 1 parameters match feed 2
     assert.equal(
@@ -495,7 +527,8 @@ describe("Update Feed Config Instruction", () => {
 
     // Verify that the subscription due time was adjusted
     assert.ok(
-      feed1After.subscriptionDueTime.toNumber() !== feed1Before.subscriptionDueTime.toNumber(),
+      feed1After.subscriptionDueTime.toNumber() !==
+        feed1Before.subscriptionDueTime.toNumber(),
       "Subscription due time should be adjusted after price change"
     );
   });

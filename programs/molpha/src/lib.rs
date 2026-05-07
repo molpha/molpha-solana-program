@@ -12,7 +12,7 @@ pub mod utils;
 use instructions::*;
 use state::*;
 
-declare_id!("moLfNsTqLqej38QPHu4xq7uMBVK14MRQCQWhBhz8X3k");
+declare_id!("MoLf7ZFr5KgMPf4UvNaGnuN1QjxNRctP2iYu5PLZH2m");
 
 #[program]
 pub mod molpha {
@@ -58,6 +58,10 @@ pub mod molpha {
 
     pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()> {
         instructions::publish_answer(ctx, answer)
+    }
+
+    pub fn verify_answer(ctx: Context<VerifyAnswer>, params: VerifyAnswerArgs) -> Result<()> {
+        instructions::verify_answer(ctx, params)
     }
 
     // Data source management functions

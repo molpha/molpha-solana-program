@@ -1,4 +1,4 @@
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 // Helper function to convert a string into a deterministic seed
 pub fn to_hash(string: &str) -> [u8; 32] {

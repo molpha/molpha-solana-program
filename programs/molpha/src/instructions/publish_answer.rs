@@ -1,12 +1,14 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::{ed25519_program, sysvar};
+use anchor_lang::solana_program::sysvar;
+use solana_sdk_ids::ed25519_program;
 
 use crate::{
     error::FeedError,
     events::AnswerPublished,
     state::{Answer, Feed, Node, MAX_HISTORY},
-    utils::parse_ed25519_instruction
+    utils::parse_ed25519_instruction,
 };
+use solana_keccak_hasher::hashv;
 
 const MAX_NODES_PER_PUBLISH: usize = 25;
 
@@ -47,14 +49,18 @@ pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()>
                 // Skip the 8-byte discriminator
                 if data.len() > 8 {
                     if let Ok(node) = Node::try_deserialize(&mut &data[..]) {
-                        // Verify the PDA derivation
-                        let (expected_pda, _bump) = Pubkey::find_program_address(
-                            &[Node::SEED_PREFIX, node.node_pubkey.as_ref()],
+                        let bump_seed = [node.bump];
+                        if let Ok(expected_pda) = Pubkey::create_program_address(
+                            &[
+                                Node::SEED_PREFIX,
+                                node.node_pubkey.as_ref(),
+                                bump_seed.as_slice(),
+                            ],
                             ctx.program_id,
-                        );
-
-                        if account_info.key == &expected_pda {
-                            registered_nodes.push(node.node_pubkey);
+                        ) {
+                            if account_info.key == &expected_pda {
+                                registered_nodes.push(node.node_pubkey);
+                            }
                         }
                     }
                 }
@@ -103,6 +109,19 @@ pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()>
         feed.history_idx = (history_idx as u64 + 1) % MAX_HISTORY as u64;
     }
 
+    // Advance job seed / round (EVM _advanceJobRound)
+    let prev_seed = feed.seed;
+    feed.seed = hashv(&[
+        prev_seed.as_slice(),
+        answer.value.as_slice(),
+        &(answer.timestamp as u64).to_be_bytes(),
+    ])
+    .to_bytes();
+    feed.current_round = feed
+        .current_round
+        .checked_add(1)
+        .ok_or(FeedError::InvalidFeedConfig)?;
+
     // Emit event
     emit!(AnswerPublished {
         feed: ctx.accounts.feed.key(),
@@ -135,4 +154,3 @@ pub struct PublishAnswer<'info> {
     // Note: Node PDAs should be passed as remaining_accounts
     // Each node PDA should have seeds = [Node::SEED_PREFIX, node_pubkey]
 }
-

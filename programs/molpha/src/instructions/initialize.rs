@@ -4,10 +4,7 @@ use anchor_spl::{
     token_interface::{Mint, TokenAccount, TokenInterface},
 };
 
-use crate::{
-    events::ProtocolInitialized,
-    state::ProtocolConfig,
-};
+use crate::{events::ProtocolInitialized, state::ProtocolConfig};
 
 pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
     let clock = Clock::get()?;
@@ -17,6 +14,7 @@ pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
     protocol_config.authority = ctx.accounts.authority.key();
     protocol_config.underlying_token = ctx.accounts.underlying_token.key();
     protocol_config.bump = ctx.bumps.protocol_config;
+    protocol_config.redundancy_buffer = 2;
 
     // Emit event
     emit!(ProtocolInitialized {

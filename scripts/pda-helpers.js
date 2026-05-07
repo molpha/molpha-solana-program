@@ -1,4 +1,4 @@
-const crypto = require('crypto');
+const crypto = require("crypto");
 
 /**
  * Hash a name string to a 32-byte seed for PDA derivation
@@ -7,7 +7,7 @@ const crypto = require('crypto');
  * @returns {Buffer} 32-byte hash as Buffer
  */
 function toSeed(name) {
-  return crypto.createHash('sha256').update(name, 'utf-8').digest();
+  return crypto.createHash("sha256").update(name, "utf-8").digest();
 }
 
 /**
@@ -19,18 +19,13 @@ function toSeed(name) {
  * @returns {[import('@solana/web3.js').PublicKey, number]} The PDA and bump seed
  */
 function getFeedPda(programId, authority, name, feedType) {
-  const anchor = require('@coral-xyz/anchor');
-  
+  const anchor = require("@coral-xyz/anchor");
+
   // Convert feed type to buffer (single byte)
   const feedTypeBuffer = Buffer.from([feedType]);
-  
+
   return anchor.web3.PublicKey.findProgramAddressSync(
-    [
-      Buffer.from('feed'),
-      authority.toBuffer(),
-      toSeed(name),
-      feedTypeBuffer,
-    ],
+    [Buffer.from("feed"), authority.toBuffer(), toSeed(name), feedTypeBuffer],
     programId
   );
 }
@@ -44,11 +39,11 @@ function getFeedPda(programId, authority, name, feedType) {
  * @returns {[import('@solana/web3.js').PublicKey, number]} The PDA and bump seed
  */
 function getDataSourcePda(programId, authority, name, dataSourceType) {
-  const anchor = require('@coral-xyz/anchor');
-  
+  const anchor = require("@coral-xyz/anchor");
+
   return anchor.web3.PublicKey.findProgramAddressSync(
     [
-      Buffer.from('data_source'),
+      Buffer.from("data_source"),
       authority.toBuffer(),
       toSeed(name),
       Buffer.from([dataSourceType]),
@@ -62,4 +57,3 @@ module.exports = {
   getFeedPda,
   getDataSourcePda,
 };
-

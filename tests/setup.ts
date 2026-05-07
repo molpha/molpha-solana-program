@@ -1,7 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program, BN, AnchorError, Wallet } from "@coral-xyz/anchor";
 import { Molpha } from "../target/types/molpha";
-import { Keypair, SystemProgram, PublicKey } from "@solana/web3.js";
+import { Keypair, SystemProgram, PublicKey, ComputeBudgetProgram } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
@@ -10,7 +10,13 @@ import {
 import { BankrunProvider } from "anchor-bankrun";
 import * as toml from "toml";
 import * as fs from "fs";
+import * as crypto from "crypto";
 import { AddedAccount, startAnchor } from "solana-bankrun";
+import {
+  createDefaultMockWormholeAccounts,
+  MOCK_WORMHOLE_BRIDGE_PROGRAM,
+  WormholeAccounts,
+} from "./helpers/wormhole";
 
 export interface TestContext {
   molphaProgram: Program<Molpha>;
@@ -178,14 +184,28 @@ export async function getProvider() {
     },
   });
 
+  // Debug: ensure bankrun picks up latest program artifact.
+  try {
+    const soPath = "./target/deploy/molpha.so";
+    const bytes = fs.readFileSync(soPath);
+    const sha = crypto.createHash("sha256").update(bytes).digest("hex");
+    // eslint-disable-next-line no-console
+    console.log("molpha.so sha256", sha, "bytes", bytes.length);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.log("molpha.so missing/unreadable", e);
+  }
+
   const context = await startAnchor(
     ".",
     [
       {
         name: "molpha",
-        programId: new PublicKey(
-          "7MgLh8MFfPrs4Jmx9z3hTq7oapXavoZQ2UXJmy3vdozx"
-        ),
+        programId: getProgramId(),
+      },
+      {
+        name: "mock_wormhole_bridge",
+        programId: MOCK_WORMHOLE_BRIDGE_PROGRAM,
       },
     ],
     wa
@@ -222,7 +242,7 @@ export async function setupTestContext(): Promise<TestContext> {
   );
 
   const nodes: Keypair[] = [];
-  const MAX_NODES = 5;
+  const MAX_NODES = 20;
 
   for (let i = 0; i < MAX_NODES; i++) {
     nodes.push(Keypair.generate());
@@ -278,6 +298,12 @@ export async function initializeProtocol(ctx: TestContext): Promise<void> {
         signersCoefficient: null,
         rewardPercentage: null,
         nodeSecurityDeposit: new BN(1000000000), // 1000 tokens
+        wormholeBridgeProgram: null,
+        targetChainIds: null,
+        registryXAgg: null,
+        signaturesRequired: null,
+        nodeCount: null,
+        redundancyBuffer: null,
       })
       .accountsPartial({
         protocolConfig: ctx.protocolConfigPDA,
@@ -298,7 +324,7 @@ export async function registerNodeWithDeposit(
   ctx: TestContext,
   nodePubkey: PublicKey,
   evmPubkey: Buffer,
-  url: string = "https://example.com/node"
+  url: string = "https://example.com/node",
 ): Promise<PublicKey> {
   const [nodePDA] = PublicKey.findProgramAddressSync(
     [Buffer.from("node"), nodePubkey.toBuffer()],
@@ -325,6 +351,11 @@ export async function registerNodeWithDeposit(
       tokenProgram: TOKEN_PROGRAM_ID,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     })
+    .preInstructions([
+      // Node registration performs one secp256k1 pubkey decompression (sqrt in BPF),
+      // so we need a higher CU limit than the bankrun default.
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+    ])
     .rpc();
 
   return nodePDA;
@@ -372,7 +403,7 @@ export function getDataSourcePda(
   name: string,
   dataSourceType: number
 ) {
-  const { toSeed } = require('./helpers/seeds');
+  const { toSeed } = require("./helpers/seeds");
   return PublicKey.findProgramAddressSync(
     [
       Buffer.from("data_source"),
@@ -388,9 +419,9 @@ export function getFeedPda(
   programId: PublicKey,
   authority: PublicKey,
   name: string,
-  feedType: number,
+  feedType: number
 ) {
-  const { toSeed } = require('./helpers/seeds');
+  const { toSeed } = require("./helpers/seeds");
   return PublicKey.findProgramAddressSync(
     [
       Buffer.from("feed"),

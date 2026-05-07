@@ -2,6 +2,7 @@ use crate::error::NodeRegistryError;
 use crate::events::NodeAdded;
 use crate::state::{Node, ProtocolConfig};
 use anchor_lang::prelude::*;
+use libsecp256k1::{PublicKey, PublicKeyFormat};
 use anchor_spl::{
     associated_token::AssociatedToken,
     token,
@@ -19,8 +20,13 @@ pub fn register_node(
         NodeRegistryError::ZeroPubkey
     );
     require!(!url.is_empty(), NodeRegistryError::InvalidURL);
+    require!(evm_pubkey.len() == 33, NodeRegistryError::InvalidEvmPubkey);
 
-    let protocol_config = &ctx.accounts.protocol_config;
+    let protocol_config = &mut ctx.accounts.protocol_config;
+    require!(
+        protocol_config.node_count < 256,
+        NodeRegistryError::MaxNodesReached
+    );
     let security_deposit_amount = protocol_config.node_security_deposit;
     let user_token_account = &ctx.accounts.node_operator_token_account;
     let node_security_deposit_account = &ctx.accounts.node_security_deposit_account;
@@ -46,13 +52,27 @@ pub fn register_node(
 
     // Create the node PDA account
     let node = &mut ctx.accounts.node;
+
+    let pk = PublicKey::parse_slice(&evm_pubkey, Some(PublicKeyFormat::Compressed))
+        .map_err(|_| error!(NodeRegistryError::InvalidEvmPubkey))?;
+    let uncompressed = pk.serialize(); // 65 bytes: 0x04 || x || y
+    let mut x = [0u8; 32];
+    let mut y = [0u8; 32];
+    x.copy_from_slice(&uncompressed[1..33]);
+    y.copy_from_slice(&uncompressed[33..65]);
+
     node.init(
         ctx.accounts.authority.key(),
         node_pubkey,
-        evm_pubkey.clone(),
+        (x, y),
         url.clone(),
     )?;
     node.security_deposit = security_deposit_amount;
+    protocol_config.node_count = protocol_config
+        .node_count
+        .checked_add(1)
+        .ok_or(NodeRegistryError::MaxNodesReached)?;
+    node.node_index = protocol_config.node_count;
 
     // Emit event
     emit!(NodeAdded {
@@ -80,6 +100,7 @@ pub struct RegisterNode<'info> {
     pub node: Account<'info, Node>,
 
     #[account(
+        mut,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]

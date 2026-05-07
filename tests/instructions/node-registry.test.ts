@@ -14,6 +14,13 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { createAssociatedTokenAccount, getAccount } from "spl-token-bankrun";
+import {
+  createDefaultMockWormholeAccounts,
+  createMockWormholeAccounts,
+  MOCK_WORMHOLE_BRIDGE_PROGRAM,
+} from "../helpers/wormhole";
+import { SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
+import * as secp256k1 from "@noble/secp256k1";
 
 describe("Node Management Instructions", () => {
   let ctx: TestContext;
@@ -28,7 +35,9 @@ describe("Node Management Instructions", () => {
       const nodeToRegister = ctx.nodes[0];
 
       // Mock EVM pubkey (compressed secp256k1 - 33 bytes)
-      const evmPubkey = Buffer.alloc(33, 1);
+      const evmPubkey = Buffer.from(
+        secp256k1.getPublicKey(secp256k1.utils.randomPrivateKey(), true)
+      );
 
       // Register node with security deposit
       const nodePDA = await registerNodeWithDeposit(
@@ -41,7 +50,11 @@ describe("Node Management Instructions", () => {
       const nodeAccount = await ctx.molphaProgram.account.node.fetch(nodePDA);
       assert.ok(nodeAccount.authority.equals(ctx.authority.publicKey));
       assert.ok(nodeAccount.nodePubkey.equals(nodeToRegister.publicKey));
-      assert.deepEqual(Buffer.from(nodeAccount.nodePubEvm), evmPubkey);
+      const expectedUncompressed = Buffer.from(
+        secp256k1.Point.fromHex(Uint8Array.from(evmPubkey)).toRawBytes(false)
+      ); // 65: 0x04 || x || y
+      assert.deepEqual(Buffer.from(nodeAccount.nodePubEvmX), expectedUncompressed.subarray(1, 33));
+      assert.deepEqual(Buffer.from(nodeAccount.nodePubEvmY), expectedUncompressed.subarray(33, 65));
       assert.equal(nodeAccount.status.registered !== undefined, true);
       assert.ok(
         nodeAccount.securityDeposit.gt(new anchor.BN(0)),
@@ -53,7 +66,9 @@ describe("Node Management Instructions", () => {
       const nodeToRegister = ctx.nodes[0];
 
       // Mock EVM pubkey
-      const evmPubkey = Buffer.alloc(33, 1);
+      const evmPubkey = Buffer.from(
+        secp256k1.getPublicKey(secp256k1.utils.randomPrivateKey(), true)
+      );
 
       let didFail = false;
       try {
@@ -70,8 +85,12 @@ describe("Node Management Instructions", () => {
       const node1 = ctx.nodes[1];
       const node2 = ctx.nodes[2];
 
-      const evmPubkey1 = Buffer.alloc(33, 2);
-      const evmPubkey2 = Buffer.alloc(33, 3);
+      const evmPubkey1 = Buffer.from(
+        secp256k1.getPublicKey(secp256k1.utils.randomPrivateKey(), true)
+      );
+      const evmPubkey2 = Buffer.from(
+        secp256k1.getPublicKey(secp256k1.utils.randomPrivateKey(), true)
+      );
 
       // Register first node
       const nodePDA1 = await registerNodeWithDeposit(
@@ -93,8 +112,16 @@ describe("Node Management Instructions", () => {
 
       assert.ok(nodeAccount1.nodePubkey.equals(node1.publicKey));
       assert.ok(nodeAccount2.nodePubkey.equals(node2.publicKey));
-      assert.deepEqual(Buffer.from(nodeAccount1.nodePubEvm), evmPubkey1);
-      assert.deepEqual(Buffer.from(nodeAccount2.nodePubEvm), evmPubkey2);
+      const exp1 = Buffer.from(
+        secp256k1.Point.fromHex(Uint8Array.from(evmPubkey1)).toRawBytes(false)
+      );
+      const exp2 = Buffer.from(
+        secp256k1.Point.fromHex(Uint8Array.from(evmPubkey2)).toRawBytes(false)
+      );
+      assert.deepEqual(Buffer.from(nodeAccount1.nodePubEvmX), exp1.subarray(1, 33));
+      assert.deepEqual(Buffer.from(nodeAccount1.nodePubEvmY), exp1.subarray(33, 65));
+      assert.deepEqual(Buffer.from(nodeAccount2.nodePubEvmX), exp2.subarray(1, 33));
+      assert.deepEqual(Buffer.from(nodeAccount2.nodePubEvmY), exp2.subarray(33, 65));
       assert.ok(
         nodeAccount1.securityDeposit.gt(new anchor.BN(0)),
         "Security deposit should be greater than 0"
@@ -109,7 +136,9 @@ describe("Node Management Instructions", () => {
   describe("Security Deposit Locking", () => {
     it.skip("Transfers security deposit to node's token account", async () => {
       const nodeToRegister = new anchor.web3.Keypair();
-      const evmPubkey = Buffer.alloc(33, 4);
+      const evmPubkey = Buffer.from(
+        secp256k1.getPublicKey(secp256k1.utils.randomPrivateKey(), true)
+      );
 
       // Get protocol config to check deposit amount
       const protocolConfig =
@@ -204,7 +233,9 @@ describe("Node Management Instructions", () => {
 
     it("Records security deposit amount in Node state", async () => {
       const nodeToRegister = ctx.nodes[4];
-      const evmPubkey = Buffer.alloc(33, 5);
+      const evmPubkey = Buffer.from(
+        secp256k1.getPublicKey(secp256k1.utils.randomPrivateKey(), true)
+      );
 
       // Get protocol config to check expected deposit
       const protocolConfig =
@@ -238,7 +269,9 @@ describe("Node Management Instructions", () => {
 
       // Register a fresh node for this test
       const nodeToRegister = anchor.web3.Keypair.generate();
-      const evmPubkey = Buffer.alloc(33, 10);
+      const evmPubkey = Buffer.from(
+        secp256k1.getPublicKey(secp256k1.utils.randomPrivateKey(), true)
+      );
 
       const nodePDA = await registerNodeWithDeposit(
         ctx,
@@ -294,6 +327,12 @@ describe("Node Management Instructions", () => {
           signersCoefficient: null,
           rewardPercentage: null,
           nodeSecurityDeposit: new anchor.BN(0),
+          wormholeBridgeProgram: null,
+          targetChainIds: null,
+          registryXAgg: null,
+          signaturesRequired: null,
+          nodeCount: null,
+          redundancyBuffer: null,
         })
         .accountsPartial({
           protocolConfig: ctx.protocolConfigPDA,
@@ -303,7 +342,9 @@ describe("Node Management Instructions", () => {
 
       // Register a new node
       const nodeToRegister = anchor.web3.Keypair.generate();
-      const evmPubkey = Buffer.alloc(33, 100);
+      const evmPubkey = Buffer.from(
+        secp256k1.getPublicKey(secp256k1.utils.randomPrivateKey(), true)
+      );
 
       const [nodePDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("node"), nodeToRegister.publicKey.toBuffer()],
@@ -317,7 +358,11 @@ describe("Node Management Instructions", () => {
       );
 
       await ctx.molphaProgram.methods
-        .registerNode(nodeToRegister.publicKey, evmPubkey, "https://example.com/node")
+        .registerNode(
+          nodeToRegister.publicKey,
+          evmPubkey,
+          "https://example.com/node"
+        )
         .accountsPartial({
           node: nodePDA,
           protocolConfig: ctx.protocolConfigPDA,
@@ -329,6 +374,9 @@ describe("Node Management Instructions", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         })
+        .preInstructions([
+          anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+        ])
         .rpc();
 
       // Verify node was created with zero deposit
@@ -346,6 +394,12 @@ describe("Node Management Instructions", () => {
           signersCoefficient: null,
           rewardPercentage: null,
           nodeSecurityDeposit: new anchor.BN(1000000000), // 1000 tokens
+          wormholeBridgeProgram: null,
+          targetChainIds: null,
+          registryXAgg: null,
+          signaturesRequired: null,
+          nodeCount: null,
+          redundancyBuffer: null,
         })
         .accountsPartial({
           protocolConfig: ctx.protocolConfigPDA,
@@ -358,7 +412,9 @@ describe("Node Management Instructions", () => {
       // This test verifies that the instruction validates token account balance
       // For bankrun, we'll test with a non-existent token account which will fail
       const nodeToRegister = anchor.web3.Keypair.generate();
-      const evmPubkey = Buffer.alloc(33, 99);
+      const evmPubkey = Buffer.from(
+        secp256k1.getPublicKey(secp256k1.utils.randomPrivateKey(), true)
+      );
 
       const [nodePDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("node"), nodeToRegister.publicKey.toBuffer()],
@@ -377,7 +433,11 @@ describe("Node Management Instructions", () => {
       let didFail = false;
       try {
         await ctx.molphaProgram.methods
-          .registerNode(nodeToRegister.publicKey, evmPubkey, "https://example.com/node")
+          .registerNode(
+            nodeToRegister.publicKey,
+            evmPubkey,
+            "https://example.com/node"
+          )
           .accountsPartial({
             node: nodePDA,
             protocolConfig: ctx.protocolConfigPDA,
@@ -389,17 +449,31 @@ describe("Node Management Instructions", () => {
             tokenProgram: TOKEN_PROGRAM_ID,
             associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           })
+          .preInstructions([
+            anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+          ])
           .rpc();
       } catch (error: any) {
         didFail = true;
-        // Should fail due to account validation or constraint errors
+        // Should fail due to account validation or constraint errors.
+        // Use Boolean(...) so we never pass `undefined` into assert.ok (when logs are missing,
+        // `error.logs?.some(...)` is undefined and the whole || chain becomes undefined).
+        const msg = String(error?.message ?? "");
+        const logs: string[] = Array.isArray(error?.logs) ? error.logs : [];
+        const isExpectedFailure =
+          msg.includes("AccountNotFound") ||
+          msg.includes("InsufficientSecurityDeposit") ||
+          msg.includes("Account does not exist") ||
+          msg.includes("AnchorError") ||
+          msg.includes("custom program error") ||
+          msg.includes("failed:") ||
+          logs.some(
+            (log: string) =>
+              log.includes("Error") || log.toLowerCase().includes("failed")
+          );
         assert.ok(
-          error.message.includes("AccountNotFound") ||
-            error.message.includes("InsufficientSecurityDeposit") ||
-            error.message.includes("Account does not exist") ||
-            error.message.includes("AnchorError") ||
-            error.logs?.some((log: string) => log.includes("Error")),
-          "Should fail with validation error"
+          isExpectedFailure,
+          `Should fail with validation error; message=${msg}`
         );
       }
 
@@ -419,6 +493,12 @@ describe("Node Management Instructions", () => {
           signersCoefficient: null,
           rewardPercentage: null,
           nodeSecurityDeposit: newDepositAmount,
+          wormholeBridgeProgram: null,
+          targetChainIds: null,
+          registryXAgg: null,
+          signaturesRequired: null,
+          nodeCount: null,
+          redundancyBuffer: null,
         })
         .accountsPartial({
           protocolConfig: ctx.protocolConfigPDA,
@@ -438,7 +518,9 @@ describe("Node Management Instructions", () => {
 
       // Register a new node with the new deposit amount
       const nodeToRegister = anchor.web3.Keypair.generate();
-      const evmPubkey = Buffer.alloc(33, 101);
+      const evmPubkey = Buffer.from(
+        secp256k1.getPublicKey(secp256k1.utils.randomPrivateKey(), true)
+      );
       const nodePDA = await registerNodeWithDeposit(
         ctx,
         nodeToRegister.publicKey,
@@ -460,6 +542,12 @@ describe("Node Management Instructions", () => {
           signersCoefficient: null,
           rewardPercentage: null,
           nodeSecurityDeposit: new anchor.BN(1000000000),
+          wormholeBridgeProgram: null,
+          targetChainIds: null,
+          registryXAgg: null,
+          signaturesRequired: null,
+          nodeCount: null,
+          redundancyBuffer: null,
         })
         .accountsPartial({
           protocolConfig: ctx.protocolConfigPDA,

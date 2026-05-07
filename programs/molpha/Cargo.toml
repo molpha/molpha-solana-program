@@ -17,7 +17,17 @@ no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 
 [dependencies]
-anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
-anchor-spl = { version = "0.31.1", features = ["metadata"] }
+solana-sdk-ids = "2"
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+anchor-spl = { version = "0.32.1", features = ["metadata"] }
 spl-token = { version = "4.0.0", features = ["no-entrypoint"] }
 sha2 = "0.10.9"
+# Wormhole integration - using direct CPI to Wormhole Core Bridge
+# Program IDs are defined in code constants
+borsh = "0.10.3"
+solana-keccak-hasher = { version = "3.1.0", features = ["sha3"] }
+solana-secp256k1-recover = "3.1.1"
+libsecp256k1 = { version = "0.6.0", default-features = false }
+
+[dev-dependencies]
+num-bigint = "0.4.6"

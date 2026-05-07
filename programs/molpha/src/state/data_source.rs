@@ -6,7 +6,7 @@ pub struct DataSource {
     pub authority: Pubkey,                // Solana address of the owner
     pub data_source_type: DataSourceType, // Type of data source
     pub metadata_hash: [u8; 32],          // Hash of the metadata
-    pub name_hash: [u8; 32],   // Name of the data source
+    pub name_hash: [u8; 32],              // Name of the data source
     pub created_at: i64,                  // Creation timestamp
     pub bump: u8,                         // PDA bump
 }

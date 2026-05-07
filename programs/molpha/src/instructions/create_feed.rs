@@ -9,8 +9,9 @@ use crate::{
     error::FeedError,
     events::FeedCreated,
     state::{DataSource, DataSourceType, Feed, FeedType, ProtocolConfig, MAX_HISTORY},
-    utils::{pricing::*, hash::to_hash},
+    utils::{hash::to_hash, pricing::*},
 };
+use solana_keccak_hasher::hashv;
 
 pub fn create_feed(
     ctx: Context<CreateFeed>,
@@ -52,6 +53,14 @@ pub fn create_feed(
     feed.answer_history = Vec::with_capacity(MAX_HISTORY);
     feed.created_at = now;
     feed.bump = ctx.bumps.feed;
+    // EVM initializeJob: keccak256(abi.encodePacked(jobId, uint256(0), startTime))
+    feed.seed = hashv(&[
+        params.job_id.as_slice(),
+        &[0u8; 32],
+        &(now as u64).to_be_bytes(),
+    ])
+    .to_bytes();
+    feed.current_round = 0;
     // Calculate subscription pricing (like PricingHelper.calculatePrice)
     let price_per_second_scaled = calculate_price_per_second_scaled(feed, config)?;
 

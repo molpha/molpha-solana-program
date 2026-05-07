@@ -123,7 +123,7 @@ describe("Create Feed Instruction", () => {
       ctx.molphaProgram.programId,
       ctx.authority.publicKey,
       feedParams.name,
-      0, // public feed type
+      0 // public feed type
     );
 
     // Create feed with 1 day subscription and 1000 lamports priority fee budget
@@ -169,7 +169,7 @@ describe("Create Feed Instruction", () => {
       ctx.molphaProgram.programId,
       ctx.authority.publicKey,
       feedParams.name,
-      1, // personal feed type
+      1 // personal feed type
     );
 
     // Create feed with 1 day subscription and 1000 lamports priority fee budget
@@ -207,7 +207,7 @@ describe("Create Feed Instruction", () => {
       ctx.molphaProgram.programId,
       ctx.authority.publicKey,
       feedParams.name,
-      1, // personal feed type
+      1 // personal feed type
     );
 
     await ctx.molphaProgram.methods
@@ -242,7 +242,7 @@ describe("Create Feed Instruction", () => {
       ctx.molphaProgram.programId,
       ctx.authority.publicKey,
       invalidParams.name,
-      0, // public feed type
+      0 // public feed type
     );
 
     try {
@@ -282,7 +282,7 @@ describe("Create Feed Instruction", () => {
       ctx.molphaProgram.programId,
       ctx.authority.publicKey,
       invalidParams.name,
-      0, // public feed type
+      0 // public feed type
     );
 
     try {
@@ -320,7 +320,7 @@ describe("Create Feed Instruction", () => {
       ctx.molphaProgram.programId,
       ctx.authority.publicKey,
       feedParams.name,
-      0, // public feed type
+      0 // public feed type
     );
 
     try {

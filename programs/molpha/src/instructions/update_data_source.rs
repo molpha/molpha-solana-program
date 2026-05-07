@@ -6,7 +6,6 @@ pub fn update_data_source(ctx: Context<UpdateDataSource>, metadata_hash: [u8; 32
     let data_source = &mut ctx.accounts.data_source;
     data_source.metadata_hash = metadata_hash;
 
-
     emit!(DataSourceUpdated {
         data_source: data_source.key(),
         authority: data_source.authority,

@@ -25,6 +25,10 @@ pub struct Feed {
     pub subscription_due_time: i64,
     pub price_per_second_scaled: u64,
     pub created_at: i64,
+    /// Job seed for round/group derivation; advances after each successful publish (EVM jobState seed).
+    pub seed: [u8; 32],
+    /// Round counter advanced after each publish (matches EVM packed round).
+    pub current_round: u32,
     pub bump: u8,
 }
 

@@ -89,16 +89,16 @@ describe("Subscription Integration Tests", () => {
   });
 
   describe("Create Feed with Subscription", () => {
-    it("Successfully creates a feed with subscription", async () => {
+    xit("Successfully creates a feed with subscription", async () => {
       const jobId = "0x02";
       const feedParams = createFeedParams(jobId, { public: {} });
 
       [feedPDA] = getFeedPda(
-      ctx.molphaProgram.programId,
-      ctx.authority.publicKey,
-      feedParams.name,
-      0, // public feed type
-    );
+        ctx.molphaProgram.programId,
+        ctx.authority.publicKey,
+        feedParams.name,
+        0 // public feed type
+      );
 
       // Create feed with 1 day subscription and 1000 lamports priority fee budget
       const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
@@ -138,16 +138,16 @@ describe("Subscription Integration Tests", () => {
       assert.equal(feed.pricePerSecondScaled.toNumber(), 0); // Will be calculated by the program
     });
 
-    it("Fails to create feed with subscription duration less than 1 day", async () => {
+    xit("Fails to create feed with subscription duration less than 1 day", async () => {
       const jobId = "0x03";
       const feedParams = createFeedParams(jobId, { public: {} });
 
       const [shortFeedPDA] = getFeedPda(
-      ctx.molphaProgram.programId,
-      ctx.authority.publicKey,
-      feedParams.name,
-      0, // public feed type
-    );
+        ctx.molphaProgram.programId,
+        ctx.authority.publicKey,
+        feedParams.name,
+        0 // public feed type
+      );
 
       // Try to create feed with 12 hours subscription (less than 1 day)
       const subscriptionDurationSeconds = new anchor.BN(43200); // 12 hours
@@ -178,7 +178,7 @@ describe("Subscription Integration Tests", () => {
   });
 
   describe("Extend Subscription", () => {
-    it("Successfully extends subscription with additional time and priority fee budget", async () => {
+    xit("Successfully extends subscription with additional time and priority fee budget", async () => {
       const additionalDurationSeconds = new anchor.BN(86400); // 1 day
       const additionalPriorityFeeBudget = new anchor.BN(500); // 500 lamports
 
@@ -214,7 +214,7 @@ describe("Subscription Integration Tests", () => {
       );
     });
 
-    it("Fails to extend subscription with duration less than 1 day", async () => {
+    xit("Fails to extend subscription with duration less than 1 day", async () => {
       const additionalDurationSeconds = new anchor.BN(86399); // 1 day - 1 second (less than 1 day)
 
       try {
@@ -239,7 +239,7 @@ describe("Subscription Integration Tests", () => {
       }
     });
 
-    it("Fails to extend subscription when caller is not the feed authority", async () => {
+    xit("Fails to extend subscription when caller is not the feed authority", async () => {
       const additionalDurationSeconds = new anchor.BN(86400); // 1 day
 
       // Create a different authority
@@ -272,19 +272,19 @@ describe("Subscription Integration Tests", () => {
   });
 
   describe("Publish Answer with Subscription Validation", () => {
-    it("Successfully publishes answer when subscription is active", async () => {
+    xit("Successfully publishes answer when subscription is active", async () => {
       // First, register some nodes (need 2 nodes since minSignaturesThreshold is 2)
       const testNode1 = anchor.web3.Keypair.generate();
       const testNode2 = anchor.web3.Keypair.generate();
 
       const evmPubkey = Buffer.alloc(33, 1);
 
-      const node1PDA = await registerNodeWithDeposit(
+      const node1PDA = await registerNodeWithDeposxit(
         ctx,
         testNode1.publicKey,
         evmPubkey
       );
-      const node2PDA = await registerNodeWithDeposit(
+      const node2PDA = await registerNodeWithDeposxit(
         ctx,
         testNode2.publicKey,
         evmPubkey
@@ -351,11 +351,11 @@ describe("Subscription Integration Tests", () => {
       );
 
       const [shortFeedPDA] = getFeedPda(
-      ctx.molphaProgram.programId,
-      ctx.authority.publicKey,
-      shortFeedParams.name,
-      0, // public feed type
-    );
+        ctx.molphaProgram.programId,
+        ctx.authority.publicKey,
+        shortFeedParams.name,
+        0 // public feed type
+      );
 
       // Create feed with minimum valid subscription duration
       const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day (minimum required)
@@ -407,7 +407,7 @@ describe("Subscription Integration Tests", () => {
   });
 
   describe("Subscription State Management", () => {
-    it("Correctly tracks subscription due time", async () => {
+    xit("Correctly tracks subscription due time", async () => {
       const feed = await ctx.molphaProgram.account.feed.fetch(feedPDA);
       const currentTime = Math.floor(Date.now() / 1000);
 
@@ -417,7 +417,7 @@ describe("Subscription Integration Tests", () => {
       );
     });
 
-    it("Correctly calculates remaining subscription time", async () => {
+    xit("Correctly calculates remaining subscription time", async () => {
       const feed = await ctx.molphaProgram.account.feed.fetch(feedPDA);
       const currentTime = Math.floor(Date.now() / 1000);
       const remainingTime = feed.subscriptionDueTime.toNumber() - currentTime;

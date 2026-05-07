@@ -16,13 +16,15 @@ async function main() {
     console.log(
       "Usage: node create-feed.js <FEED_NAME> <DATA_SOURCE_NAME> [TYPE] [MIN_SIGS] [FREQUENCY] [IPFS_CID] [SUBSCRIPTION_DAYS]"
     );
-    console.log('  FEED_NAME: name of the feed (will be hashed for PDA)');
-    console.log('  DATA_SOURCE_NAME: name of the data source to use');
+    console.log("  FEED_NAME: name of the feed (will be hashed for PDA)");
+    console.log("  DATA_SOURCE_NAME: name of the data source to use");
     console.log('  TYPE: "personal" or "public" (default: public)');
     console.log("  MIN_SIGS: minimum signatures threshold (default: 1)");
     console.log("  FREQUENCY: update frequency in seconds (default: 60)");
     console.log("  IPFS_CID: IPFS content identifier (default: QmTestCid)");
-    console.log("  SUBSCRIPTION_DAYS: subscription duration in days (default: 30)");
+    console.log(
+      "  SUBSCRIPTION_DAYS: subscription duration in days (default: 30)"
+    );
     process.exit(1);
   }
 
@@ -38,9 +40,10 @@ async function main() {
     console.error("❌ Error: Data source name is required");
     process.exit(1);
   }
-  
+
   const feedTypeStr = process.argv[4] || "public";
-  const feedType = feedTypeStr === "personal" ? { personal: {} } : { public: {} };
+  const feedType =
+    feedTypeStr === "personal" ? { personal: {} } : { public: {} };
   const feedTypeNum = feedTypeStr === "personal" ? 1 : 0;
   const minSigs = parseInt(process.argv[5]) || 1;
   const frequency = parseInt(process.argv[6]) || 60;
@@ -58,7 +61,9 @@ async function main() {
   );
 
   // Get protocol config to find underlying token
-  const protocolConfig = await program.account.protocolConfig.fetch(protocolConfigPDA);
+  const protocolConfig = await program.account.protocolConfig.fetch(
+    protocolConfigPDA
+  );
   const underlyingToken = protocolConfig.underlyingToken;
 
   // Derive data source PDA - assume public data source for now
@@ -83,7 +88,7 @@ async function main() {
     program.programId,
     provider.wallet.publicKey,
     feedName,
-    feedTypeNum,
+    feedTypeNum
   );
 
   // Get token accounts

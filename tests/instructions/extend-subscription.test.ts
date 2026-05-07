@@ -74,7 +74,7 @@ describe("Extend Subscription Instruction", () => {
       ctx.molphaProgram.programId,
       ctx.authority.publicKey,
       feedParams.name,
-      0, // public feed type
+      0 // public feed type
     );
 
     // Create feed with 1 day subscription and 1000 lamports priority fee budget

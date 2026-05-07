@@ -18,6 +18,8 @@ pub enum NodeRegistryError {
     InsufficientSecurityDeposit,
     #[msg("Invalid URL.")]
     InvalidURL,
+    #[msg("Invalid EVM secp256k1 public key.")]
+    InvalidEvmPubkey,
 }
 
 #[error_code]
@@ -60,4 +62,32 @@ pub enum DataSourceError {
     InvalidDataSourceData,
     #[msg("Invalid data source type.")]
     InvalidDataSourceType,
+}
+
+#[error_code]
+pub enum ProtocolConfigError {
+    #[msg("Too many target chains configured. Maximum is 10 chains.")]
+    TooManyTargetChains,
+}
+
+#[error_code]
+pub enum VerifyError {
+    #[msg("Signed data is too stale for the requested max staleness.")]
+    DataTooStale,
+    #[msg("Not enough signers in bitmap for required threshold.")]
+    InsufficientSigners,
+    #[msg("Invalid aggregate signature.")]
+    InvalidSignature,
+    #[msg("Signers bitmap contains out-of-range indices.")]
+    InvalidSignersBitmap,
+    #[msg("Malformed aggregated R point.")]
+    MalformedRPoint,
+    #[msg("Signer is not in the round's selected group bitmap.")]
+    SignerNotInGroup,
+    #[msg("Missing or extra Node account for a signer in the bitmap.")]
+    MissingSignerAccount,
+    #[msg("Feed job_id does not match verify args.")]
+    InvalidFeedJobId,
+    #[msg("Could not derive group bitmap (timeout or invalid parameters).")]
+    GroupBitmapDerivationFailed,
 }

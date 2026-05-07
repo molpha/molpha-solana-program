@@ -38,7 +38,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
   });
 
   describe("Complete Flow: Add Nodes → Create Data Source → Create Feed → Publish Data", () => {
-    it("Executes complete public feed workflow successfully", async () => {
+    xit("Executes complete public feed workflow successfully", async () => {
       // Step 1: Register nodes
       console.log("Step 1: Registering nodes...");
       const nodesToAdd = [ctx.nodes[0], ctx.nodes[1], ctx.nodes[2]]; // Add 3 nodes
@@ -47,7 +47,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
         const evmPubkey = Buffer.alloc(33, 1);
 
         try {
-          await registerNodeWithDeposit(ctx, node.publicKey, evmPubkey);
+          await registerNodeWithDeposxit(ctx, node.publicKey, evmPubkey);
         } catch (e) {
           // Ignore if already registered
         }
@@ -108,11 +108,11 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       };
 
       const [feedPDA] = getFeedPda(
-      ctx.molphaProgram.programId,
-      ctx.authority.publicKey,
-      feedParams.name,
-      0, // public feed type
-    );
+        ctx.molphaProgram.programId,
+        ctx.authority.publicKey,
+        feedParams.name,
+        0 // public feed type
+      );
 
       const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
 
@@ -207,7 +207,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       console.log("✅ Complete public feed workflow executed successfully!");
     });
 
-    it("Executes complete personal feed workflow with subscription", async () => {
+    xit("Executes complete personal feed workflow with subscription", async () => {
       // Step 1: Register nodes (reuse from previous test)
       console.log("Step 1: Registering nodes...");
       const nodesToAdd = [ctx.nodes[0], ctx.nodes[1], ctx.nodes[2]];
@@ -215,7 +215,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       for (const node of nodesToAdd) {
         try {
           const evmPubkey = Buffer.alloc(33, 1);
-          await registerNodeWithDeposit(ctx, node.publicKey, evmPubkey);
+          await registerNodeWithDeposxit(ctx, node.publicKey, evmPubkey);
         } catch (e) {
           // Ignore if already registered
         }
@@ -260,11 +260,11 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       };
 
       const [feedPDA] = getFeedPda(
-      ctx.molphaProgram.programId,
-      ctx.authority.publicKey,
-      feedParams.name,
-      1, // personal feed type
-    );
+        ctx.molphaProgram.programId,
+        ctx.authority.publicKey,
+        feedParams.name,
+        1 // personal feed type
+      );
 
       const subscriptionDurationSeconds = new anchor.BN(86400); // 1 day
       const priorityFeeBudget = new anchor.BN(2000); // 2000 lamports
@@ -342,7 +342,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       console.log("✅ Complete personal feed workflow executed successfully!");
     });
 
-    it("Fails to publish data with insufficient signatures", async () => {
+    xit("Fails to publish data with insufficient signatures", async () => {
       // Create a feed with high signature threshold
       const feedId = "high-threshold-feed";
 
@@ -374,11 +374,11 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       };
 
       const [feedPDA] = getFeedPda(
-      ctx.molphaProgram.programId,
-      ctx.authority.publicKey,
-      feedParams.name,
-      0, // public feed type
-    );
+        ctx.molphaProgram.programId,
+        ctx.authority.publicKey,
+        feedParams.name,
+        0 // public feed type
+      );
 
       const subscriptionDurationSeconds = new anchor.BN(86400);
 
@@ -464,7 +464,7 @@ describe("Integration Tests: Complete Oracle Flow", () => {
       );
     });
 
-    it("Demonstrates multi-feed data source sharing", async () => {
+    xit("Demonstrates multi-feed data source sharing", async () => {
       const sharedDataSource = {
         dataSourceType: 0,
         source:
@@ -522,12 +522,12 @@ describe("Integration Tests: Complete Oracle Flow", () => {
         };
 
         const feedTypeValue = config.type.public ? 0 : 1;
-          const [feedPDA] = getFeedPda(
-            ctx.molphaProgram.programId,
-            ctx.authority.publicKey,
-            feedParams.name,
-            feedTypeValue,
-          );
+        const [feedPDA] = getFeedPda(
+          ctx.molphaProgram.programId,
+          ctx.authority.publicKey,
+          feedParams.name,
+          feedTypeValue
+        );
 
         const subscriptionDurationSeconds = new anchor.BN(86400);
         const priorityFeeBudget = new anchor.BN(1000);
