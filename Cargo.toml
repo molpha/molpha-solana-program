@@ -2,6 +2,7 @@
 members = [
     "programs/molpha",
     "programs/faucet",
+    "crates/mock_wormhole_bridge",
 ]
 exclude = [
     "programs/molpha-solana",

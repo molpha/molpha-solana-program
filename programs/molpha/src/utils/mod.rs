@@ -1,3 +1,4 @@
+pub mod bitmap;
 pub mod ed25519;
 pub mod hash;
 pub mod pricing;

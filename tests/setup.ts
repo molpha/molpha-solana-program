@@ -242,7 +242,7 @@ export async function setupTestContext(): Promise<TestContext> {
   );
 
   const nodes: Keypair[] = [];
-  const MAX_NODES = 20;
+  const MAX_NODES = 32;
 
   for (let i = 0; i < MAX_NODES; i++) {
     nodes.push(Keypair.generate());

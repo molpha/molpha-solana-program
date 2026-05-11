@@ -7,19 +7,22 @@ skip-lint = false
 
 [programs.devnet]
 faucet = "AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ"
-molpha = "moLfWuMFCoVYRisYjHSkABQA9ZD35fFV76axiPLHCtp"
+molpha = "MoLf7ZFr5KgMPf4UvNaGnuN1QjxNRctP2iYu5PLZH2m"
 
 [programs.localnet]
 faucet = "AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ"
-molpha = "moLfWuMFCoVYRisYjHSkABQA9ZD35fFV76axiPLHCtp"
+molpha = "MoLf7ZFr5KgMPf4UvNaGnuN1QjxNRctP2iYu5PLZH2m"
+mock_wormhole_bridge = "HSaVLzvssvTMroUHvB4sDGvThHK7RmpZLQPr8W8z61jo"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
 setup-faucet = "yarn setup-test-faucet"
-test = "RUST_LOG=error yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+# `anchor test` runs `anchor build` first, which emits `target/deploy/molpha.so` (unlike bare `cargo build-sbf` without `--sbf-out-dir`).
+# Keep this in sync with `package.json` `test` (Jest), minus `build:molpha` — the Anchor CLI already built the program.
+test = "node ./scripts/build-mock-wormhole.js && cp target/deploy/molpha.so tests/fixtures && RUST_LOG= yarn jest --runInBand --verbose --forceExit"

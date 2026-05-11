@@ -10,6 +10,8 @@ import {
 import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import * as secp256k1 from "@noble/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
+import * as fs from "fs";
+import * as path from "path";
 import {
   initializeProtocol,
   setupTestContext,
@@ -25,47 +27,31 @@ function hexToBuf(hex: string): Buffer {
   return Buffer.from(normalized, "hex");
 }
 
-function commitmentAddrFromRxParity(rx: Buffer, ryParity: number): Buffer {
-  const prefix = ryParity === 0 ? 0x02 : 0x03;
-  const compressed = Buffer.concat([Buffer.from([prefix]), rx]);
-  const R = secp256k1.Point.fromHex(Uint8Array.from(compressed));
-  const uncompressed = Buffer.from(R.toRawBytes(false)); // 65: 0x04 || x || y
-  const digest = Buffer.from(keccak_256(uncompressed.subarray(1))); // keccak(x||y)
-  return digest.subarray(12, 32); // last 20 bytes
-}
-
-/**
- * Cross-chain verify vector (`verify_answer` preimage matches `Validator._constructMessage`:
- * registryVersion, configHash, signersBitmap, etc. — see `programs/molpha/src/instructions/verify_answer.rs`).
- */
-const VERIFY_FIXTURE = {
-  keysArrayLength: 6,
-  registeredNodeCount: 5,
-  nodeIndexesOneBased: [1, 2, 3, 4, 5],
-  nodePubkeys: [
-    "0x03c09527e978f6ea69f0c6b7ac0fb63ad081a8a291151c5a0b115cce435751be7d",
-    "0x0264a72704f39f8dd17f20d71c5b21f37b5852656bc0555442bf727222f29d7e58",
-    "0x0275ae1e3dac00eb7df02e9fe8d9709c8a2c09a11ed4f7d9aa46a7dea6cf376d7f",
-    "0x026ce25b3a161ab8e0f05e4cd1c77b77696d26c641ebdea4e81aa89a90f32cfc54",
-    "0x035b95d703228befccc378629dc19804cefe56c33c645fa4bc1aa0f375e3b4fa5e",
-  ],
+type VerifyFixture = {
+  registeredNodeCount: number;
+  registryVersion: number;
+  configHash: string;
+  nodeIndexesOneBased: number[];
+  nodePubkeys: string[];
   dataUpdate: {
-    jobId:
-      "0x6a6f622d65787472616374000000000000000000000000000000000000000000",
-    registryVersion: 42,
-    signaturesRequired: 3,
-    configHash:
-      "0x6366672d65787472616374000000000000000000000000000000000000000000",
-    value: "0x76616c2d65787472616374000000000000000000000000000000000000000000",
-    canonicalTimestamp: 1700001234,
-  },
+    jobId: string;
+    registryVersion: number;
+    signaturesRequired: number;
+    configHash: string;
+    value: string;
+    canonicalTimestamp: number;
+  };
   schnorrSignature: {
-    s: "0x367288bf1bbda4cd584479320c9e96a2fbe86f76a88463c36ca827030167c951",
-    rx: "0x5866b9f352c60f7f9334f09056885e2281421a79de81a7127ce2b2e6e2b9063c",
-    ryParity: 1,
-    signersBitmap: 7,
-  },
-} as const;
+    signature: string;
+    commitment: string;
+    signersBitmap: number;
+  };
+};
+
+function loadVerifyFixture(): VerifyFixture {
+  const p = path.join(__dirname, "..", "fixtures-json", "verify-answer-evm.json");
+  return JSON.parse(fs.readFileSync(p, "utf8"));
+}
 
 /** EVM `uint256` bitmap: same layout as `evm_bitmap_bit_set` (LSB in byte 31). */
 function evmUint256BitmapFromNumber(n: number): number[] {
@@ -106,20 +92,22 @@ describe("Verify Answer Instruction - EVM vector compatibility", () => {
   let ctx: TestContext;
   let feedPda: PublicKey;
   const nodePdas: PublicKey[] = [];
-  /** Six Solana operator keys: first `registeredNodeCount` are registered; sixth is unused (EVM keys-array padding). */
   let operatorKeys: Keypair[];
+  const VERIFY_FIXTURE = loadVerifyFixture();
 
   before(async () => {
+    assert.strictEqual(VERIFY_FIXTURE.nodePubkeys.length, 10);
     assert.strictEqual(
       VERIFY_FIXTURE.nodePubkeys.length,
       VERIFY_FIXTURE.registeredNodeCount
     );
     assert.strictEqual(
-      VERIFY_FIXTURE.nodeIndexesOneBased.length,
-      VERIFY_FIXTURE.registeredNodeCount
+      VERIFY_FIXTURE.dataUpdate.signaturesRequired,
+      8,
+      "fixture assumes 8-of-10 signing coalition"
     );
 
-    operatorKeys = Array.from({ length: VERIFY_FIXTURE.keysArrayLength }, () =>
+    operatorKeys = Array.from({ length: VERIFY_FIXTURE.registeredNodeCount }, () =>
       Keypair.generate()
     );
 
@@ -315,14 +303,17 @@ describe("Verify Answer Instruction - EVM vector compatibility", () => {
    * - `_constructMessage` preimage (see `ref/src/Validator.sol`)
    * - Schnorr verify via the EVM `ecrecover` construction (ported on Solana via `secp256k1_recover`)
    *
-   * On-chain, `remaining_accounts` order does not affect verification (program sorts by `node_index`).
-   * We still pass Node PDAs in bitmap bit order (nodes 1..k) for readability.
+   * `remaining_accounts` must list Node PDAs in ascending bitmap bit order (same as EVM
+   * `Validator.verify` / `get_index`): position `i` must be the node for the `i`th set bit.
    */
   it("walks the EVM vector through bitmap/group checks and verifies the signature", async () => {
     const valueBytes = hexToBuf(VERIFY_FIXTURE.dataUpdate.value);
     const signersBitmap = evmUint256BitmapFromNumber(
       VERIFY_FIXTURE.schnorrSignature.signersBitmap
     );
+
+    const commitmentAddr = hexToBuf(VERIFY_FIXTURE.schnorrSignature.commitment);
+    assert.strictEqual(commitmentAddr.length, 20, "fixture commitment must be 20 bytes");
 
     const args = {
       jobId: Array.from(hexToBuf(VERIFY_FIXTURE.dataUpdate.jobId)),
@@ -331,13 +322,8 @@ describe("Verify Answer Instruction - EVM vector compatibility", () => {
       timestamp: new BN(VERIFY_FIXTURE.dataUpdate.canonicalTimestamp),
       round: 0,
       signersBitmap,
-      s: Array.from(hexToBuf(VERIFY_FIXTURE.schnorrSignature.s)),
-      commitmentAddr: Array.from(
-        commitmentAddrFromRxParity(
-          hexToBuf(VERIFY_FIXTURE.schnorrSignature.rx),
-          VERIFY_FIXTURE.schnorrSignature.ryParity
-        )
-      ),
+      s: Array.from(hexToBuf(VERIFY_FIXTURE.schnorrSignature.signature)),
+      commitmentAddr: Array.from(commitmentAddr),
       registryVersion: VERIFY_FIXTURE.dataUpdate.registryVersion,
       configHash: Array.from(hexToBuf(VERIFY_FIXTURE.dataUpdate.configHash)),
       maxStaleness: 0,
@@ -345,7 +331,7 @@ describe("Verify Answer Instruction - EVM vector compatibility", () => {
 
     assert.strictEqual(
       Buffer.from(args.s).toString("hex"),
-      VERIFY_FIXTURE.schnorrSignature.s.replace(/^0x/, ""),
+      VERIFY_FIXTURE.schnorrSignature.signature.replace(/^0x/, ""),
       "sanity: ix args.s must match fixture hex"
     );
 
@@ -372,8 +358,8 @@ describe("Verify Answer Instruction - EVM vector compatibility", () => {
         feed: feedPda,
       })
       .preInstructions([
-        // This instruction can exceed 800k CUs on bankrun when PDA fallback runs per signer; keep ample budget.
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+        // This instruction can consume up to 500k CUs for 18 signers.
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 500_000 }),
       ])
       .remainingAccounts(remainingAccounts)
       .rpc();

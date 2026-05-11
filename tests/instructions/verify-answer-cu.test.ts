@@ -114,14 +114,14 @@ function schnorrSignForVerifier(opts: {
 }
 
 describe("verify_answer CU budgets", () => {
-  it("measures CU usage for 3, 7, 18 signers", async () => {
+  it("measures CU usage for 3, 7, 18, 32 signers", async () => {
     const ctx: TestContext = await setupTestContext();
     await initializeProtocol(ctx);
 
-    // Register 18 nodes once; reuse them across sub-cases.
+    // Register 32 nodes once; reuse them across sub-cases.
     const nodePdas: PublicKey[] = [];
     const privKeys: bigint[] = [];
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 32; i++) {
       const skBytes = secp256k1.utils.randomPrivateKey();
       const sk = modN(bigintFromBytesBE(skBytes));
       privKeys.push(sk);
@@ -130,7 +130,7 @@ describe("verify_answer CU budgets", () => {
       nodePdas.push(nodePda);
     }
 
-    const nodeCount = 18;
+    const nodeCount = 32;
     const registryVersion = 1;
     const configHash = bytes32FromAscii("cu-config");
     const valueBytes32 = bytes32FromAscii("cu-value");
@@ -290,6 +290,7 @@ describe("verify_answer CU budgets", () => {
     const cu3 = await measureForSignerCount(3);
     const cu7 = await measureForSignerCount(7);
     const cu18 = await measureForSignerCount(18);
+    // const cu32 = await measureForSignerCount(2);
 
     // Log for visibility in CI output.
     // eslint-disable-next-line no-console

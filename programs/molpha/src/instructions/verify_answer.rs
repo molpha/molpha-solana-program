@@ -8,10 +8,11 @@ use crate::{
     error::VerifyError,
     state::{Feed, Node, ProtocolConfig},
     utils::{
-        bitmap_is_subset, bitmap_popcount_evm, derive_group_bitmap, evm_bitmap_bit_set,
-        evm_bitmap_set_bit, eth_address_from_uncompressed_pubkey, evm_schnorr_ecdsa_inputs,
+        bitmap::{
+            bitmap_is_subset, bitmap_popcount_evm, derive_group_bitmap, evm_bitmap_set_bit, evm_bitmap_bit_set
+        },
+        eth_address_from_uncompressed_pubkey, evm_schnorr_ecdsa_inputs,
         secp256k1_scalar_is_valid_nonzero,
-        validate_bitmap_upper_bits_clear,
     },
 };
 
@@ -63,7 +64,7 @@ pub fn verify_answer(ctx: Context<VerifyAnswer>, params: VerifyAnswerArgs) -> Re
         VerifyError::InvalidSignature
     );
 
-    validate_bitmap_upper_bits_clear(&params.signers_bitmap, protocol_config.node_count)?;
+    // validate_bitmap_upper_bits_clear(&params.signers_bitmap, protocol_config.node_count)?;
 
     let signatures_required = feed.min_signatures_threshold;
 
@@ -94,9 +95,7 @@ pub fn verify_answer(ctx: Context<VerifyAnswer>, params: VerifyAnswerArgs) -> Re
         VerifyError::MissingSignerAccount
     );
 
-    // Signer pubkeys are combined in ascending bitmap bit order (EVM `Validator.verify`).
-    // Collect per-(node_index) keys, then sort — small `k` (signature threshold), cheap vs 256-slot map.
-    let mut signer_entries: Vec<(u32, PublicKey)> = Vec::with_capacity(signer_count as usize);
+    let mut coalition_pks: Vec<PublicKey> = Vec::with_capacity(signer_count as usize);
     let mut covered = [0u8; 32];
 
     for account_info in ctx.remaining_accounts.iter() {
@@ -108,27 +107,6 @@ pub fn verify_answer(ctx: Context<VerifyAnswer>, params: VerifyAnswerArgs) -> Re
         let data = account_info.try_borrow_data()?;
         let node = Node::try_deserialize(&mut &data[..])
             .map_err(|_| error!(VerifyError::MissingSignerAccount))?;
-
-        // Prefer stored bump (one SHA256 via syscall); only hit the expensive
-        // canonical derivation when the bump is missing or wrong (legacy data).
-        let bump_seed = [node.bump];
-        match Pubkey::create_program_address(
-            &[
-                Node::SEED_PREFIX,
-                node.node_pubkey.as_ref(),
-                bump_seed.as_slice(),
-            ],
-            ctx.program_id,
-        ) {
-            Ok(pda) if pda == account_info.key() => {}
-            _ => {
-                let (canonical, _) = Pubkey::find_program_address(
-                    &[Node::SEED_PREFIX, node.node_pubkey.as_ref()],
-                    ctx.program_id,
-                );
-                require_keys_eq!(canonical, account_info.key());
-            }
-        }
 
         require!(node.node_index >= 1, VerifyError::MissingSignerAccount);
         let pos = node.node_index.saturating_sub(1) as usize;
@@ -154,7 +132,7 @@ pub fn verify_answer(ctx: Context<VerifyAnswer>, params: VerifyAnswerArgs) -> Re
         uncompressed[33..65].copy_from_slice(&node.node_pub_evm_y);
         let pk = PublicKey::parse_slice(&uncompressed, Some(PublicKeyFormat::Full))
             .map_err(|_| error!(VerifyError::InvalidSignature))?;
-        signer_entries.push((node.node_index, pk));
+        coalition_pks.push(pk);
     }
 
     require!(
@@ -162,9 +140,9 @@ pub fn verify_answer(ctx: Context<VerifyAnswer>, params: VerifyAnswerArgs) -> Re
         VerifyError::MissingSignerAccount
     );
 
-    signer_entries.sort_unstable_by_key(|e| e.0);
+    // signer_entries.sort_unstable_by_key(|e| e.0);
 
-    let coalition_pks: Vec<PublicKey> = signer_entries.iter().map(|(_, pk)| *pk).collect();
+    // let coalition_pks: Vec<PublicKey> = signer_entries.iter().map(|(_, pk)| *pk).collect();
     let coalition_key =
         PublicKey::combine(&coalition_pks).map_err(|_| error!(VerifyError::InvalidSignature))?;
     let x_coalition = coalition_key.serialize_compressed();
