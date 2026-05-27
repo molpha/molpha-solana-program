@@ -1,9 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::state::{
-    RegistryIndex, RegistryState, RegistryTransitionAccount, RegistryTransitionType,
-    VIRTUAL_INDEX,
-};
+use crate::state::{RegistryIndex, RegistryState, RegistryTransitionType, VIRTUAL_INDEX};
 
 pub fn finalize_registry_transition(ctx: Context<FinalizeRegistryTransition>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
@@ -13,10 +10,6 @@ pub fn finalize_registry_transition(ctx: Context<FinalizeRegistryTransition>) ->
         crate::error::MolphaError::TransitionStillInGrace
     );
 
-    if let Some(transition) = &mut ctx.accounts.transition_account {
-        transition.close(ctx.accounts.rent_receiver.to_account_info())?;
-    }
-
     if let Some(virtual_registry_index) = &mut ctx.accounts.virtual_registry_index {
         virtual_registry_index.close(ctx.accounts.rent_receiver.to_account_info())?;
     }
@@ -25,7 +18,7 @@ pub fn finalize_registry_transition(ctx: Context<FinalizeRegistryTransition>) ->
     registry.previous_node_count = registry.current_node_count;
     registry.previous_expires_at = 0;
     registry.last_transition_type = RegistryTransitionType::None;
-    registry.transition_account = Pubkey::default();
+    registry.clear_remove_transition_metadata();
 
     Ok(())
 }
@@ -38,9 +31,6 @@ pub struct FinalizeRegistryTransition<'info> {
         bump = registry_state.bump,
     )]
     pub registry_state: Account<'info, RegistryState>,
-
-    #[account(mut)]
-    pub transition_account: Option<Account<'info, RegistryTransitionAccount>>,
 
     #[account(
         mut,

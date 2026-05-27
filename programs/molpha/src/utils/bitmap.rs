@@ -231,51 +231,6 @@ pub fn effective_selection_size(
 
 pub const MOLPHA_SELECTION_V1: &[u8] = b"MOLPHA_SELECTION_V1";
 
-/// v0.3 selection: rank active bits in `accepted_bitmap` by
-/// `keccak256(selection_seed || node_index_be)` and take the first `group_size`.
-pub fn derive_selection_bitmap(
-    job_id: &[u8; 32],
-    registry_version: u32,
-    round_id: &[u8; 32],
-    accepted_bitmap: &[u8; 32],
-    group_size: u8,
-) -> Result<[u8; 32], MolphaError> {
-    if group_size == 0 {
-        return Ok([0u8; 32]);
-    }
-
-    let active_count = bitmap_popcount_evm(accepted_bitmap);
-    if (group_size as u32) > active_count {
-        return Err(MolphaError::InvalidSelectionBitmap);
-    }
-    if active_count == group_size as u32 {
-        return Ok(*accepted_bitmap);
-    }
-
-    let selection_seed = hashv(&[
-        MOLPHA_SELECTION_V1,
-        job_id.as_ref(),
-        registry_version.to_be_bytes().as_ref(),
-        round_id.as_ref(),
-    ])
-    .to_bytes();
-
-    let mut ranked: Vec<([u8; 32], u32)> = Vec::new();
-    for_each_set_bit(accepted_bitmap, |bit_pos| {
-        let rank_hash =
-            hashv(&[selection_seed.as_ref(), (bit_pos as u32).to_be_bytes().as_ref()]).to_bytes();
-        ranked.push((rank_hash, bit_pos as u32));
-    });
-
-    ranked.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let mut out = U256::ZERO;
-    for (_, node_index) in ranked.into_iter().take(group_size as usize) {
-        out |= U256::from(1u8) << node_index;
-    }
-    Ok(bitmap_store(out))
-}
-
 pub fn validate_bitmap_upper_bits_clear(
     bitmap: &[u8; 32],
     node_count: u32,
@@ -339,46 +294,6 @@ mod tests {
     }
 
     #[test]
-    fn derive_selection_bitmap_full_bitmap_shortcut() {
-        let mut accepted = [0u8; 32];
-        bitmap_set_bit(&mut accepted, 0);
-        bitmap_set_bit(&mut accepted, 1);
-        bitmap_set_bit(&mut accepted, 2);
-
-        let job_id = [2u8; 32];
-        let round_id = [3u8; 32];
-
-        let got = derive_selection_bitmap(&job_id, 1, &round_id, &accepted, 3).unwrap();
-        assert_eq!(got, accepted);
-    }
-
-    #[test]
-    fn derive_selection_bitmap_zero_group_size() {
-        let mut accepted = [0u8; 32];
-        bitmap_set_bit(&mut accepted, 0);
-
-        let got = derive_selection_bitmap(&[0u8; 32], 0, &[0u8; 32], &accepted, 0).unwrap();
-        assert_eq!(got, [0u8; 32]);
-    }
-
-    #[test]
-    fn derive_selection_bitmap_deterministic_subset() {
-        let mut accepted = [0u8; 32];
-        bitmap_set_bit(&mut accepted, 0);
-        bitmap_set_bit(&mut accepted, 5);
-        bitmap_set_bit(&mut accepted, 10);
-
-        let job_id = [8u8; 32];
-        let round_id = [9u8; 32];
-
-        let a = derive_selection_bitmap(&job_id, 42, &round_id, &accepted, 2).unwrap();
-        let b = derive_selection_bitmap(&job_id, 42, &round_id, &accepted, 2).unwrap();
-        assert_eq!(a, b);
-        assert_eq!(bitmap_popcount_evm(&a), 2);
-        assert!(bitmap_is_subset(&a, &accepted));
-    }
-
-    #[test]
     fn derive_group_bitmap_matches_evm_reference_vectors() {
         let seed = [0x11u8; 32];
         let cases: &[(u32, u32, &str)] = &[
@@ -422,14 +337,5 @@ mod tests {
             out[i] = u8::from_str_radix(s, 16).unwrap();
         }
         out
-    }
-
-    #[test]
-    fn derive_selection_bitmap_errors_when_group_too_large() {
-        let mut accepted = [0u8; 32];
-        bitmap_set_bit(&mut accepted, 0);
-
-        let err = derive_selection_bitmap(&[0u8; 32], 0, &[0u8; 32], &accepted, 2);
-        assert!(matches!(err, Err(MolphaError::InvalidSelectionBitmap)));
     }
 }

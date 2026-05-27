@@ -5,14 +5,14 @@ use crate::{
     error::MolphaError,
     events::NodeDeactivated,
     state::{
-        Node, NodeStatus, RegistryIndex, RegistryState, RegistryTransitionAccount,
-        RegistryTransitionType, VIRTUAL_INDEX,
+        Node, NodeStatus, ProtocolConfig, RegistryIndex, RegistryState, RegistryTransitionType, VIRTUAL_INDEX,
     },
 };
 
 pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
     let clock = Clock::get()?;
     let now = clock.unix_timestamp;
+    let config = &ctx.accounts.protocol_config;
 
     let registry = &mut ctx.accounts.registry_state;
     require!(
@@ -104,29 +104,21 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
         transition_type = RegistryTransitionType::RemoveSwap;
     }
 
-    let transition = &mut ctx.accounts.transition_account;
-    transition.previous_version = old_version;
-    transition.current_version = old_version.saturating_add(1);
-    transition.expires_at = now.saturating_add(registry.grace_secs);
-    transition.transition_type = transition_type;
-    transition.removed_old_index = removed_index;
-    transition.removed_node = removed_node.key();
-    transition.moved_old_index = moved_old_index;
-    transition.moved_node = moved_node;
-    transition.bump = ctx.bumps.transition_account;
-
     removed_node.current_index = VIRTUAL_INDEX;
     removed_node.status = NodeStatus::Deactivated;
     removed_node.deactivated_at = now;
-    removed_node.withdrawable_at = now.saturating_add(registry.withdrawal_cooldown_secs);
+    removed_node.withdrawable_at = now.saturating_add(config.withdrawal_cooldown_secs);
 
     registry.previous_version = old_version;
     registry.previous_node_count = registry.current_node_count;
-    registry.previous_expires_at = transition.expires_at;
+    registry.previous_expires_at = now.saturating_add(registry.grace_secs);
     registry.current_version = old_version.saturating_add(1);
     registry.current_node_count = registry.current_node_count.saturating_sub(1);
     registry.last_transition_type = transition_type;
-    registry.transition_account = transition.key();
+    registry.removed_old_index = removed_index;
+    registry.removed_node = removed_node.key();
+    registry.moved_old_index = moved_old_index;
+    registry.moved_node = moved_node;
 
     emit!(NodeDeactivated {
         owner: removed_node.owner,
@@ -144,6 +136,12 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
 pub struct DeactivateNode<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
+
+    #[account(
+        seeds = [ProtocolConfig::SEED_PREFIX],
+        bump = protocol_config.bump,
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
 
     #[account(
         mut,
@@ -168,18 +166,6 @@ pub struct DeactivateNode<'info> {
         bump = removed_index_account.bump,
     )]
     pub removed_index_account: Account<'info, RegistryIndex>,
-
-    #[account(
-        init,
-        payer = authority,
-        space = RegistryTransitionAccount::SPACE,
-        seeds = [
-            RegistryTransitionAccount::SEED_PREFIX,
-            registry_state.current_version.to_le_bytes().as_ref(),
-        ],
-        bump,
-    )]
-    pub transition_account: Account<'info, RegistryTransitionAccount>,
 
     #[account(
         init,

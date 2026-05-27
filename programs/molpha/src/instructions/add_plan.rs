@@ -11,7 +11,6 @@ pub struct AddPlanArgs {
     pub plan_type: PlanType,
     pub subscription_price: u64,
     pub max_jobs: u32,
-    pub signatures_required: u8,
     pub max_signers: u8,
     pub private_api_enabled: bool,
     pub is_active: bool,

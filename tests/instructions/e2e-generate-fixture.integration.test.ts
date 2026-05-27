@@ -191,7 +191,6 @@ describe("e2e generate verify-answer-evm fixture", () => {
         submitter: ctx.authority.publicKey,
         protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
-        transitionAccount: null,
         job: jobPda,
         feed: feedPda,
       })
@@ -213,7 +212,6 @@ describe("e2e generate verify-answer-evm fixture", () => {
       String(scenario.canonicalTimestamp)
     );
     
-    console.log("feed.roundId", feed.roundId);
     console.log("feed.value", feed.value);
     console.log("registry.currentVersion", registry.currentVersion);
     console.log("signed", signed);

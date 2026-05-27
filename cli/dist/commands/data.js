@@ -59,7 +59,7 @@ function registerDataCommands(program) {
         const submitArgs = resolveSubmitArgs(options, ctx.programId);
         const [jobPda] = (0, pdas_1.findJobPda)(ctx.programId, bytesFromField(submitArgs.jobId, 32, "job id"));
         const [feedPda] = (0, pdas_1.findFeedPda)(ctx.programId, bytesFromField(submitArgs.jobId, 32, "job id"));
-        const { transitionAccount, remainingTransition } = await (0, accounts_1.resolveTransitionForRegistryVersion)(ctx.program, registryState, Number(submitArgs.registryVersion));
+        const { remainingTransition } = await (0, accounts_1.resolveTransitionForRegistryVersion)(ctx.program, registryState, Number(submitArgs.registryVersion));
         const remaining = (0, data_update_1.signerRemainingAccounts)(ctx.programId, bytesFromField(submitArgs.signersBitmap, 32, "signers bitmap"), remainingTransition);
         const signature = await ctx.program.methods
             .submitDataUpdate(submitArgs)
@@ -67,8 +67,6 @@ function registerDataCommands(program) {
             submitter: ctx.wallet.publicKey,
             protocolConfig: protocolConfigPda,
             registryState: registryStatePda,
-            transitionAccount,
-            job: jobPda,
             feed: feedPda,
         })
             .remainingAccounts(remaining)
@@ -110,14 +108,12 @@ function registerDataCommands(program) {
         }
         const submitArgs = resolveSubmitArgs(options, ctx.programId);
         const [jobPda] = (0, pdas_1.findJobPda)(ctx.programId, bytesFromField(submitArgs.jobId, 32, "job id"));
-        const { transitionAccount, remainingTransition } = await (0, accounts_1.resolveTransitionForRegistryVersion)(ctx.program, registryState, Number(submitArgs.registryVersion));
+        const { remainingTransition } = await (0, accounts_1.resolveTransitionForRegistryVersion)(ctx.program, registryState, Number(submitArgs.registryVersion));
         const remaining = (0, data_update_1.signerRemainingAccounts)(ctx.programId, bytesFromField(submitArgs.signersBitmap, 32, "signers bitmap"), remainingTransition);
         const verifyIx = await ctx.program.methods
             .verifyDataUpdate(submitArgs)
             .accountsPartial({
             registryState: registryStatePda,
-            transitionAccount,
-            job: jobPda,
         })
             .remainingAccounts(remaining)
             .instruction();
@@ -184,7 +180,9 @@ function normalizeSubmitArgs(value) {
         registryVersion: typeof value.registryVersion === "number"
             ? value.registryVersion
             : (0, utils_1.parseInteger)(value.registryVersion, "registry version"),
-        roundId: Array.from(bytesFromField(value.roundId, 32, "round id")),
+        signaturesRequired: typeof value.signaturesRequired === "number"
+            ? value.signaturesRequired
+            : (0, utils_1.parseInteger)(value.signaturesRequired, "signatures required"),
         signersBitmap: Array.from(bytesFromField(value.signersBitmap, 32, "signers bitmap")),
         value: Array.from(bytesFromField(value.value, 32, "value")),
         canonicalTimestamp: new anchor_1.BN(String(value.canonicalTimestamp)),

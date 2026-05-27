@@ -88,19 +88,4 @@ pub mod molpha {
     ) -> Result<()> {
         instructions::verify_data_update(ctx, args)
     }
-
-    #[cfg(feature = "cu-bench")]
-    pub fn bench_noop(ctx: Context<BenchDeriveGroupBitmap>) -> Result<()> {
-        instructions::bench_noop(ctx)
-    }
-
-    #[cfg(feature = "cu-bench")]
-    pub fn bench_derive_group_bitmap(
-        ctx: Context<BenchDeriveGroupBitmap>,
-        seed: [u8; 32],
-        node_count: u32,
-        group_size: u32,
-    ) -> Result<()> {
-        instructions::bench_derive_group_bitmap(ctx, seed, node_count, group_size)
-    }
 }

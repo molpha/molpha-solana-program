@@ -99,17 +99,6 @@ function registerAccountCommands(program) {
             (0, pdas_1.findRegistryIndexPda)(ctx.programId, (0, utils_1.parseInteger)((0, utils_1.requireValue)(options.index, "Missing --index"), "index"))[0].toBase58();
         await printNamedAccount(command, "registryIndexAccount", address);
     });
-    account
-        .command("registry-transition")
-        .description("Fetch registry transition account")
-        .option("--address <pubkey>", "transition address")
-        .option("--previous-version <number>", "previous version used in PDA")
-        .action(async (options, command) => {
-        const ctx = await (0, client_1.getCliContext)(command);
-        const address = options.address ??
-            (0, pdas_1.findRegistryTransitionPda)(ctx.programId, (0, utils_1.parseInteger)((0, utils_1.requireValue)(options.previousVersion, "Missing --previous-version"), "previous version"))[0].toBase58();
-        await printNamedAccount(command, "registryTransitionAccount", address);
-    });
 }
 function findJobOrNodeAddress(kind, programId, idHex) {
     const label = kind === "job" ? "job" : "node";

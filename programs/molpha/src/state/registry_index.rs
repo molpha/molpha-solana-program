@@ -1,7 +1,5 @@
 use anchor_lang::prelude::*;
 
-use libsecp256k1::PublicKey;
-
 #[account]
 #[derive(InitSpace)]
 pub struct RegistryIndex {

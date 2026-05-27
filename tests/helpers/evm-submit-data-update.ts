@@ -81,7 +81,7 @@ export function buildEvmSubmitDataUpdateArgs() {
   return {
     jobId: Array.from(EVM_FIXTURE_JOB_ID),
     registryVersion: evmFixture.dataUpdate.registryVersion,
-    roundId: Array.from(new Uint8Array(32)),
+    signaturesRequired: evmFixture.dataUpdate.signaturesRequired,
     signersBitmap: Array.from(uint256BE(BigInt(evmFixture.schnorrSignature.signersBitmap))),
     value: Array.from(EVM_FIXTURE_VALUE),
     canonicalTimestamp: new BN(evmFixture.dataUpdate.canonicalTimestamp),
@@ -232,14 +232,14 @@ export function deriveGroupBitmap(
 export function deriveSelectionSeed(
   jobId: Uint8Array,
   registryVersion: number,
-  roundId: Uint8Array = new Uint8Array(32)
+  canonicalTimestamp: number
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
       MOLPHA_SELECTION_V1,
       Buffer.from(jobId),
       Buffer.from(u32be(registryVersion)),
-      Buffer.from(roundId),
+      Buffer.from(u64be(canonicalTimestamp)),
     ])
   );
 }
@@ -259,14 +259,14 @@ export function deriveSignersBitmapForJob(
   nodeCount: number,
   signaturesRequired: number,
   redundancyBuffer = 2,
-  roundId: Uint8Array = new Uint8Array(32)
+  canonicalTimestamp: number
 ): Uint8Array {
   const selectionSize = effectiveSelectionSize(
     signaturesRequired,
     redundancyBuffer,
     nodeCount
   );
-  const seed = deriveSelectionSeed(jobId, registryVersion, roundId);
+  const seed = deriveSelectionSeed(jobId, registryVersion, canonicalTimestamp);
   return deriveGroupBitmap(seed, nodeCount, selectionSize);
 }
 
@@ -583,8 +583,8 @@ export function buildSubmitArgsFromE2eFixture(fixture: LoadedE2eFixture) {
   const signersBitmap = uint256BE(BigInt(fixture.schnorrSignature.signersBitmap));
   return {
     jobId: Array.from(hexToBytes(fixture.dataUpdate.jobId)),
+    signaturesRequired: fixture.dataUpdate.signaturesRequired,
     registryVersion: fixture.dataUpdate.registryVersion,
-    roundId: Array.from(new Uint8Array(32)),
     signersBitmap: Array.from(signersBitmap),
     value: Array.from(hexToBytes(fixture.dataUpdate.value)),
     canonicalTimestamp: new BN(fixture.dataUpdate.canonicalTimestamp),
@@ -665,7 +665,8 @@ export function signE2eDataUpdate(
   dataUpdate: E2eDataUpdateFields,
   signaturesRequired?: number,
   nodeCount?: number,
-  redundancyBuffer = 2
+  redundancyBuffer = 2,
+  canonicalTimestamp = 0
 ): SignedE2eDataUpdate {
   const signersBitmap =
     typeof signerCountOrBitmap === "number"
@@ -674,7 +675,8 @@ export function signE2eDataUpdate(
           registryVersion,
           nodeCount ?? signerCountOrBitmap,
           signaturesRequired ?? signerCountOrBitmap,
-          redundancyBuffer
+          redundancyBuffer,
+          canonicalTimestamp
         )
       : signerCountOrBitmap;
   const signerCount = bitmapPopcountEvm(signersBitmap);
@@ -715,7 +717,7 @@ export function signE2eDataUpdate(
   const submitArgs = {
     jobId: Array.from(jobId),
     registryVersion,
-    roundId: Array.from(new Uint8Array(32)),
+    signaturesRequired,
     signersBitmap: Array.from(signersBitmap),
     value: Array.from(dataUpdate.value),
     canonicalTimestamp: new BN(dataUpdate.canonicalTimestamp),
@@ -734,12 +736,10 @@ export const VERIFY_DATA_UPDATE_RETURN_LEN = 72;
 export function expectedVerifyDataUpdateReturnBytes(
   value: Uint8Array,
   canonicalTimestamp: number,
-  roundId: Uint8Array = new Uint8Array(32)
 ): Uint8Array {
   const out = new Uint8Array(VERIFY_DATA_UPDATE_RETURN_LEN);
   out.set(value.subarray(0, 32), 0);
   out.set(u64be(canonicalTimestamp), 32);
-  out.set(roundId.subarray(0, 32), 40);
   return out;
 }
 
@@ -760,8 +760,6 @@ export async function executeVerifyDataUpdateReturnData(
     .verifyDataUpdate(signed.submitArgs)
     .accountsPartial({
       registryState: accounts.registryStatePda,
-      transitionAccount: null,
-      job: accounts.jobPda,
     })
     .remainingAccounts(
       signerRemainingAccounts(program.programId, signed.submitArgs.signersBitmap)
@@ -979,7 +977,6 @@ export async function registerNodesForE2e(
       .finalizeRegistryTransition()
       .accountsPartial({
         registryState: accounts.registryStatePda,
-        transitionAccount: null,
         rentReceiver: ctx.authority.publicKey,
         virtualRegistryIndex: null,
       })
@@ -1196,7 +1193,10 @@ export async function seedEvmRegistryState(
     currentNodeCount: number;
     previousNodeCount: number;
     lastTransitionType: Record<string, unknown>;
-    transitionAccount: PublicKey;
+    removedOldIndex?: number;
+    removedNode?: PublicKey;
+    movedOldIndex?: number;
+    movedNode?: PublicKey;
     graceSecs: BN;
     withdrawalCooldownSecs: BN;
     maxNodeCount: number;
@@ -1271,7 +1271,6 @@ export async function seedEvmJobAndFeed(
   await setProgramAccount(ctx, program, feedPda, "feed", {
     jobId: Array.from(EVM_FIXTURE_JOB_ID),
     registryVersion: 0,
-    roundId: Array.from(new Uint8Array(32)),
     canonicalTimestamp: new BN(0),
     value: Array.from(new Uint8Array(32)),
     signersBitmap: Array.from(new Uint8Array(32)),
@@ -1294,7 +1293,8 @@ export async function seedEvmRemoveSwapGraceState(
     previousVersion: number;
     currentVersion: number;
     previousExpiresAt: BN;
-    transitionPda: PublicKey;
+    removedNode?: PublicKey;
+    movedNode?: PublicKey;
     authority: PublicKey;
     graceSecs: BN;
     withdrawalCooldownSecs: BN;
@@ -1308,7 +1308,6 @@ export async function seedEvmRemoveSwapGraceState(
     previousVersion,
     currentVersion,
     previousExpiresAt,
-    transitionPda,
   } = opts;
 
   await setProgramAccount(ctx, program, registryStatePda, "registryState", {
@@ -1319,7 +1318,10 @@ export async function seedEvmRemoveSwapGraceState(
     currentNodeCount: 7,
     previousNodeCount: 8,
     lastTransitionType: { removeSwap: {} },
-    transitionAccount: transitionPda,
+    removedOldIndex,
+    removedNode: opts.removedNode ?? PublicKey.unique(),
+    movedOldIndex,
+    movedNode: opts.movedNode ?? PublicKey.unique(),
     graceSecs: opts.graceSecs,
     withdrawalCooldownSecs: opts.withdrawalCooldownSecs,
     maxNodeCount: opts.maxNodeCount,

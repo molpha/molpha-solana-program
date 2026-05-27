@@ -4,14 +4,14 @@ use crate::{
     error::MolphaError,
     events::FeedUpdated,
     instructions::data_update_core::build_coalition_and_verify,
-    state::{Feed, Job, ProtocolConfig, RegistryState, RegistryTransitionAccount},
+    state::{Feed, Job, ProtocolConfig, RegistryState},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SubmitDataUpdateArgs {
     pub job_id: [u8; 32],
+    pub signatures_required: u8,
     pub registry_version: u32,
-    pub round_id: [u8; 32],
     pub signers_bitmap: [u8; 32],
     pub value: [u8; 32],
     pub canonical_timestamp: i64,
@@ -25,10 +25,9 @@ pub fn submit_data_update(
     ctx: Context<SubmitDataUpdate>,
     args: SubmitDataUpdateArgs,
 ) -> Result<()> {
-    let job = &ctx.accounts.job;
+    // let job = &ctx.accounts.job;
     let feed = &mut ctx.accounts.feed;
     let registry = &ctx.accounts.registry_state;
-    let protocol_config = &ctx.accounts.protocol_config;
 
     require!(
         args.canonical_timestamp > feed.canonical_timestamp,
@@ -41,25 +40,22 @@ pub fn submit_data_update(
     build_coalition_and_verify(
         &args,
         registry,
-        protocol_config,
-        job,
-        ctx.accounts.transition_account.as_ref().map(|a| a.as_ref()),
         now,
         ctx.remaining_accounts,
         ctx.program_id,
+        args.signatures_required,
+        registry.redundancy_buffer,
     )?;
 
     feed.value = args.value;
     feed.canonical_timestamp = args.canonical_timestamp;
-    feed.round_id = args.round_id;
     feed.registry_version = args.registry_version;
     feed.signers_bitmap = args.signers_bitmap;
-    feed.signatures_required = job.signatures_required;
+    feed.signatures_required = args.signatures_required;
     feed.last_updated_slot = clock.slot;
 
     emit!(FeedUpdated {
         job_id: args.job_id,
-        round_id: args.round_id,
         registry_version: args.registry_version,
         canonical_timestamp: args.canonical_timestamp,
         value: args.value,
@@ -76,25 +72,17 @@ pub struct SubmitDataUpdate<'info> {
     pub submitter: Signer<'info>,
 
     #[account(
-        seeds = [ProtocolConfig::SEED_PREFIX],
-        bump = protocol_config.bump,
-    )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
-
-    #[account(
         seeds = [RegistryState::SEED_PREFIX],
         bump = registry_state.bump,
     )]
     pub registry_state: Account<'info, RegistryState>,
 
-    pub transition_account: Option<Account<'info, RegistryTransitionAccount>>,
-
-    #[account(
-        seeds = [Job::SEED_PREFIX, args.job_id.as_ref()],
-        bump = job.bump,
-        constraint = job.job_id == args.job_id @ MolphaError::DataUpdateJobMismatch,
-    )]
-    pub job: Account<'info, Job>,
+    // #[account(
+    //     seeds = [Job::SEED_PREFIX, args.job_id.as_ref()],
+    //     bump = job.bump,
+    //     constraint = job.job_id == args.job_id @ MolphaError::DataUpdateJobMismatch,
+    // )]
+    // pub job: Account<'info, Job>,
 
     #[account(
         mut,
@@ -115,8 +103,8 @@ mod tests {
     fn fixture_args() -> SubmitDataUpdateArgs {
         SubmitDataUpdateArgs {
             job_id: [0x11; 32],
+            signatures_required: 3,
             registry_version: 7,
-            round_id: [0x22; 32],
             signers_bitmap: [0x33; 32],
             value: [0x44; 32],
             canonical_timestamp: 1_700_000_000,
@@ -137,7 +125,6 @@ mod tests {
 
         assert_eq!(decoded.job_id, args.job_id);
         assert_eq!(decoded.registry_version, args.registry_version);
-        assert_eq!(decoded.round_id, args.round_id);
         assert_eq!(decoded.signers_bitmap, args.signers_bitmap);
         assert_eq!(decoded.value, args.value);
         assert_eq!(decoded.canonical_timestamp, args.canonical_timestamp);

@@ -49,6 +49,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.max_node_count = args.max_node_count;
     protocol_config.redundancy_buffer = args.redundancy_buffer;
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
+    protocol_config.withdrawal_cooldown_secs = args.withdrawal_cooldown_secs;
     protocol_config.timelock_expires_at = None;
     protocol_config.pending_change = None;
     protocol_config.bump = ctx.bumps.protocol_config;
@@ -56,9 +57,8 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     let registry_state = &mut ctx.accounts.registry_state;
     registry_state.init_genesis(
         ctx.accounts.authority.key(),
+        args.redundancy_buffer,
         args.previous_grace_secs,
-        args.withdrawal_cooldown_secs,
-        args.max_node_count,
         ctx.bumps.registry_state,
     );
 
@@ -143,7 +143,6 @@ mod tests {
 
         assert_eq!(decoded.registry_cooldown_secs, args.registry_cooldown_secs);
         assert_eq!(decoded.previous_grace_secs, args.previous_grace_secs);
-        assert_eq!(decoded.withdrawal_cooldown_secs, args.withdrawal_cooldown_secs);
         assert_eq!(decoded.max_node_count, args.max_node_count);
         assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
         assert_eq!(decoded.reward_per_signature, args.reward_per_signature);

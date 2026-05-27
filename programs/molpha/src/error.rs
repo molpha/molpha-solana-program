@@ -10,9 +10,7 @@ pub enum MolphaError {
     InvalidNodeIndex,
     #[msg("RegistryIndex does not match expected index/node")]
     InvalidRegistryIndexAccount,
-    #[msg("Previous-after-remove verification requires transition account")]
-    MissingTransitionAccount,
-    #[msg("Transition account does not match expected versions/mappings")]
+    #[msg("Previous-after-remove verification requires remove-transition metadata")]
     InvalidTransitionAccount,
     #[msg("moved_node.node_id does not match last_index_account.node_id")]
     MovedNodeMismatch,

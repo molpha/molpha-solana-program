@@ -134,10 +134,9 @@ async function main() {
   const rows = [];
 
   console.log("=== production-shaped (job selection seed, NODE_COUNT=%d) ===\n", NODE_COUNT);
-  const roundId = Buffer.alloc(32);
   for (const sigReq of SIG_REQ_CASES) {
     const groupSize = effectiveSelectionSize(sigReq, REDUNDANCY_BUFFER, NODE_COUNT);
-    const seed = deriveSelectionSeed(FIXTURE_JOB_ID, FIXTURE_REGISTRY_VERSION, roundId);
+    const seed = deriveSelectionSeed(FIXTURE_JOB_ID, FIXTURE_REGISTRY_VERSION, FIXTURE_CANONICAL_TIMESTAMP);
     const { deriveCu, noopCu, deriveIxCu } = await measureDeriveCu(
       provider,
       payer,

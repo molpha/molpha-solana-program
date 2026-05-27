@@ -4,7 +4,6 @@ import { u32Le } from "./utils";
 export const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 export const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 export const REGISTRY_INDEX_SEED = Buffer.from("molpha_registry_index");
-export const REGISTRY_TRANSITION_SEED = Buffer.from("molpha_registry_transition");
 export const NODE_SEED = Buffer.from("molpha_node");
 export const PLAN_SEED = Buffer.from("molpha_plan");
 export const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
@@ -26,16 +25,6 @@ export function findRegistryIndexPda(programId: PublicKey, index: number): [Publ
 
 export function findVirtualRegistryIndexPda(programId: PublicKey): [PublicKey, number] {
   return findRegistryIndexPda(programId, VIRTUAL_INDEX);
-}
-
-export function findRegistryTransitionPda(
-  programId: PublicKey,
-  previousVersion: number
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [REGISTRY_TRANSITION_SEED, u32Le(previousVersion)],
-    programId
-  );
 }
 
 export function findNodePda(programId: PublicKey, nodeId: Uint8Array): [PublicKey, number] {

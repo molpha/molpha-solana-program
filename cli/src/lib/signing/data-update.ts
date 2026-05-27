@@ -39,7 +39,6 @@ export type SignedDataUpdate = {
   submitArgs: {
     jobId: number[];
     registryVersion: number;
-    roundId: number[];
     signersBitmap: number[];
     value: number[];
     canonicalTimestamp: BN;
@@ -224,14 +223,14 @@ export function deriveGroupBitmap(
 export function deriveSelectionSeed(
   jobId: Uint8Array,
   registryVersion: number,
-  roundId: Uint8Array = new Uint8Array(32)
+  canonicalTimestamp: number
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
       MOLPHA_SELECTION_V1,
       Buffer.from(jobId),
       Buffer.from(u32be(registryVersion)),
-      Buffer.from(roundId),
+      Buffer.from(u64be(canonicalTimestamp)),
     ])
   );
 }
@@ -251,7 +250,7 @@ export function deriveSignersBitmapForJob(
   nodeCount: number,
   signaturesRequired: number,
   redundancyBuffer = 2,
-  roundId: Uint8Array = new Uint8Array(32)
+  canonicalTimestamp = 0
 ): Uint8Array {
   const selectionSize = effectiveSelectionSize(
     signaturesRequired,
@@ -259,7 +258,7 @@ export function deriveSignersBitmapForJob(
     nodeCount
   );
   return deriveGroupBitmap(
-    deriveSelectionSeed(jobId, registryVersion, roundId),
+    deriveSelectionSeed(jobId, registryVersion, canonicalTimestamp),
     nodeCount,
     selectionSize
   );
@@ -290,7 +289,6 @@ function computeMessageHash(params: {
   jobId: Uint8Array;
   registryVersion: number;
   signaturesRequired: number;
-  configHash: Uint8Array;
   signersBitmap: Uint8Array;
   value: Uint8Array;
   canonicalTimestamp: number;
@@ -300,7 +298,6 @@ function computeMessageHash(params: {
     params.jobId,
     u32be(params.registryVersion),
     u32be(params.signaturesRequired),
-    params.configHash,
     params.signersBitmap,
     params.value,
     u64be(params.canonicalTimestamp),
@@ -355,7 +352,6 @@ export function signE2eDataUpdate(
     jobId,
     registryVersion,
     signaturesRequired: required,
-    configHash: dataUpdate.configHash,
     signersBitmap,
     value: dataUpdate.value,
     canonicalTimestamp: dataUpdate.canonicalTimestamp,
@@ -387,7 +383,6 @@ export function signE2eDataUpdate(
     submitArgs: {
       jobId: Array.from(jobId),
       registryVersion,
-      roundId: Array.from(new Uint8Array(32)),
       signersBitmap: Array.from(signersBitmap),
       value: Array.from(dataUpdate.value),
       canonicalTimestamp: new BN(dataUpdate.canonicalTimestamp),
@@ -406,7 +401,6 @@ export function buildSubmitArgsFromFixture(fixture: VerifyDataUpdateFixture) {
   return {
     jobId: Array.from(hexToBytes(fixture.dataUpdate.jobId, 32, "job id")),
     registryVersion: fixture.dataUpdate.registryVersion,
-    roundId: Array.from(new Uint8Array(32)),
     signersBitmap: Array.from(signersBitmap),
     value: Array.from(hexToBytes(fixture.dataUpdate.value, 32, "value")),
     canonicalTimestamp: new BN(fixture.dataUpdate.canonicalTimestamp),
@@ -431,12 +425,10 @@ function uint256BE(value: bigint): Uint8Array {
 export function expectedVerifyDataUpdateReturnBytes(
   value: Uint8Array,
   canonicalTimestamp: number,
-  roundId: Uint8Array = new Uint8Array(32)
 ): Uint8Array {
   const out = new Uint8Array(VERIFY_DATA_UPDATE_RETURN_LEN);
   out.set(value.subarray(0, 32), 0);
   out.set(u64be(canonicalTimestamp), 32);
-  out.set(roundId.subarray(0, 32), 40);
   return out;
 }
 

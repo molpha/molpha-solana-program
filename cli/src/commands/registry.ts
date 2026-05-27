@@ -14,7 +14,6 @@ import {
   findProtocolConfigPda,
   findRegistryIndexPda,
   findRegistryStatePda,
-  findRegistryTransitionPda,
   findVirtualRegistryIndexPda,
 } from "../lib/pdas";
 import { buildRegisterNodeArgs } from "../lib/signing/register-node";
@@ -135,10 +134,6 @@ export function registerRegistryCommands(program: Command): void {
 
       const removedIndex = Number(removedNodeAccount.currentIndex);
       const [removedIndexAccount] = findRegistryIndexPda(ctx.programId, removedIndex);
-      const [transitionAccount] = findRegistryTransitionPda(
-        ctx.programId,
-        Number(registryState.currentVersion)
-      );
       const [virtualRegistryIndex] = findVirtualRegistryIndexPda(ctx.programId);
       const lastIndex = Math.max(Number(registryState.currentNodeCount) - 1, 0);
 
@@ -166,7 +161,6 @@ export function registerRegistryCommands(program: Command): void {
           registryState: registryStatePda,
           removedNode,
           removedIndexAccount,
-          transitionAccount,
           virtualRegistryIndex,
           lastIndexAccount,
           movedNode,
@@ -193,7 +187,7 @@ export function registerRegistryCommands(program: Command): void {
         throw new Error("Registry state is not initialized");
       }
 
-      const { transitionAccount, virtualRegistryIndex } = await finalizeTransitionAccounts(
+      const { virtualRegistryIndex } = await finalizeTransitionAccounts(
         ctx.program,
         registryState
       );
@@ -205,7 +199,6 @@ export function registerRegistryCommands(program: Command): void {
         .finalizeRegistryTransition()
         .accountsPartial({
           registryState: registryStatePda,
-          transitionAccount,
           virtualRegistryIndex,
           rentReceiver: ctx.wallet.publicKey,
         })
@@ -213,7 +206,6 @@ export function registerRegistryCommands(program: Command): void {
 
       writeJson({
         signature,
-        transitionAccount: transitionAccount?.toBase58() ?? null,
         virtualRegistryIndex: virtualRegistryIndex?.toBase58() ?? null,
       });
     });

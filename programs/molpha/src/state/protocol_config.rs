@@ -28,6 +28,7 @@ pub struct ProtocolConfig {
     pub max_node_count: u32,
     pub redundancy_buffer: u8,
     pub minimum_node_deposit: u64,
+    pub withdrawal_cooldown_secs: i64,
     pub timelock_expires_at: Option<i64>,
     pub pending_change: Option<ConfigChange>,
     pub bump: u8,

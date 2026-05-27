@@ -5,7 +5,6 @@ use anchor_lang::prelude::*;
 pub struct Feed {
     pub job_id: [u8; 32],
     pub registry_version: u32,
-    pub round_id: [u8; 32],
     pub canonical_timestamp: i64,
     pub value: [u8; 32],
     pub signers_bitmap: [u8; 32],
@@ -21,7 +20,6 @@ impl Feed {
     pub fn init(&mut self, job_id: [u8; 32], bump: u8) {
         self.job_id = job_id;
         self.registry_version = 0;
-        self.round_id = [0u8; 32];
         self.canonical_timestamp = 0;
         self.value = [0u8; 32];
         self.signers_bitmap = [0u8; 32];

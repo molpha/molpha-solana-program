@@ -193,7 +193,8 @@ describe("solana-compat-v10 fixture e2e", () => {
       jobId,
       registry.currentVersion,
       registry.currentNodeCount,
-      SIGNER_COUNT
+      SIGNER_COUNT,
+      FIXTURE.dataUpdate.canonicalTimestamp
     );
     assert.deepEqual(
       Array.from(signersBitmap),
@@ -218,7 +219,6 @@ describe("solana-compat-v10 fixture e2e", () => {
       .verifyDataUpdate(signed.submitArgs)
       .accountsPartial({
         registryState: registryStatePda,
-        transitionAccount: null,
         job: jobPda,
       })
       .remainingAccounts(remaining8)
@@ -233,7 +233,6 @@ describe("solana-compat-v10 fixture e2e", () => {
         submitter: ctx.authority.publicKey,
         protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
-        transitionAccount: null,
         job: jobPda,
         feed: feedPda,
       })
@@ -289,7 +288,6 @@ describe("solana-compat-v10 fixture e2e", () => {
         .verifyDataUpdate(signedDense.submitArgs)
         .accountsPartial({
           registryState: registryStatePda,
-          transitionAccount: null,
           job: jobPda,
         })
         .remainingAccounts(remainingDense)
@@ -317,7 +315,6 @@ describe("solana-compat-v10 fixture e2e", () => {
         .verifyDataUpdate(frozenArgs)
         .accountsPartial({
           registryState: registryStatePda,
-          transitionAccount: null,
           job: jobPda,
         })
         .remainingAccounts(remainingFrozen)

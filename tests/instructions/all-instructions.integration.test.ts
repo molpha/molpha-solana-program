@@ -31,7 +31,6 @@ const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
 const REGISTRY_INDEX_SEED = Buffer.from("molpha_registry_index");
-const REGISTRY_TRANSITION_SEED = Buffer.from("molpha_registry_transition");
 
 const JOB_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
 const SECONDS_PER_MONTH = 30 * 24 * 60 * 60;
@@ -266,7 +265,7 @@ describe("Molpha instruction coverage integration", () => {
     const dataUpdateArgs = {
       jobId: Array.from(jobId),
       registryVersion: 0,
-      roundId: Array.from(Buffer.alloc(32, 0)),
+      signaturesRequired: 1,
       signersBitmap: Array.from(Buffer.alloc(32, 0)),
       value: Array.from(Buffer.alloc(32, 1)),
       canonicalTimestamp: new BN(1),
@@ -283,7 +282,6 @@ describe("Molpha instruction coverage integration", () => {
           submitter: ctx.authority.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
-          transitionAccount: null,
           job: jobPda,
           feed: feedPda,
         })
@@ -298,7 +296,6 @@ describe("Molpha instruction coverage integration", () => {
         .verifyDataUpdate(badDataUpdateArgs)
         .accountsPartial({
           registryState: registryStatePda,
-          transitionAccount: null,
           job: jobPda,
         })
         .rpc();
@@ -365,7 +362,6 @@ describe("Molpha instruction coverage integration", () => {
         submitter: ctx.authority.publicKey,
         protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
-        transitionAccount: null,
         job: evmJobPda,
         feed: evmFeedPda,
       })
@@ -454,19 +450,12 @@ describe("Molpha instruction coverage integration", () => {
     const registryForDeactivate = await program.account.registryState.fetch(
       registryStatePda
     );
-    const versionBytes = Buffer.alloc(4);
-    versionBytes.writeUInt32LE(registryForDeactivate.currentVersion);
-    const [transitionPda] = PublicKey.findProgramAddressSync(
-      [REGISTRY_TRANSITION_SEED, versionBytes],
-      program.programId
-    );
     try {
       await program.methods
         .deactivateNode()
         .accountsPartial({
           authority: ctx.authority.publicKey,
           registryState: registryStatePda,
-          transitionAccount: transitionPda,
           rentReceiver: ctx.authority.publicKey,
           systemProgram: SystemProgram.programId,
         })

@@ -30,7 +30,7 @@ import {
 type SubmitArgsShape = {
   jobId: number[] | string;
   registryVersion: number | string;
-  roundId: number[] | string;
+  signaturesRequired: number | string;
   signersBitmap: number[] | string;
   value: number[] | string;
   canonicalTimestamp: string | number;
@@ -91,7 +91,7 @@ export function registerDataCommands(program: Command): void {
       const submitArgs = resolveSubmitArgs(options, ctx.programId);
       const [jobPda] = findJobPda(ctx.programId, bytesFromField(submitArgs.jobId, 32, "job id"));
       const [feedPda] = findFeedPda(ctx.programId, bytesFromField(submitArgs.jobId, 32, "job id"));
-      const { transitionAccount, remainingTransition } = await resolveTransitionForRegistryVersion(
+      const { remainingTransition } = await resolveTransitionForRegistryVersion(
         ctx.program,
         registryState,
         Number(submitArgs.registryVersion)
@@ -108,8 +108,6 @@ export function registerDataCommands(program: Command): void {
           submitter: ctx.wallet.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
-          transitionAccount,
-          job: jobPda,
           feed: feedPda,
         })
         .remainingAccounts(remaining)
@@ -154,7 +152,7 @@ export function registerDataCommands(program: Command): void {
 
       const submitArgs = resolveSubmitArgs(options, ctx.programId);
       const [jobPda] = findJobPda(ctx.programId, bytesFromField(submitArgs.jobId, 32, "job id"));
-      const { transitionAccount, remainingTransition } = await resolveTransitionForRegistryVersion(
+      const { remainingTransition } = await resolveTransitionForRegistryVersion(
         ctx.program,
         registryState,
         Number(submitArgs.registryVersion)
@@ -169,8 +167,6 @@ export function registerDataCommands(program: Command): void {
         .verifyDataUpdate(submitArgs)
         .accountsPartial({
           registryState: registryStatePda,
-          transitionAccount,
-          job: jobPda,
         })
         .remainingAccounts(remaining)
         .instruction();
@@ -269,7 +265,10 @@ function normalizeSubmitArgs(value: SubmitArgsShape) {
       typeof value.registryVersion === "number"
         ? value.registryVersion
         : parseInteger(value.registryVersion, "registry version"),
-    roundId: Array.from(bytesFromField(value.roundId, 32, "round id")),
+    signaturesRequired:
+      typeof value.signaturesRequired === "number"
+        ? value.signaturesRequired
+        : parseInteger(value.signaturesRequired, "signatures required"),
     signersBitmap: Array.from(bytesFromField(value.signersBitmap, 32, "signers bitmap")),
     value: Array.from(bytesFromField(value.value, 32, "value")),
     canonicalTimestamp: new BN(String(value.canonicalTimestamp)),

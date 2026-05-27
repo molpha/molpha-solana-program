@@ -140,16 +140,18 @@ async function seedBenchAccounts(context, program, payer, sigReq, signerMaterial
 
   await setProgramAccount(context, program, registryStatePda, "registryState", {
     authority: payer.publicKey,
+    currentNodeCount: NODE_COUNT,
+    graceSecs: new anchor.BN(0),
+    redundancyBuffer: REDUNDANCY_BUFFER,
     currentVersion: FIXTURE_REGISTRY_VERSION,
     previousVersion: 0,
     previousExpiresAt: new anchor.BN(0),
-    currentNodeCount: NODE_COUNT,
     previousNodeCount: 0,
     lastTransitionType: { none: {} },
-    transitionAccount: PublicKey.default,
-    graceSecs: new anchor.BN(0),
-    withdrawalCooldownSecs: new anchor.BN(0),
-    maxNodeCount: NODE_COUNT,
+    removedOldIndex: 0,
+    removedNode: PublicKey.default,
+    movedOldIndex: 0xffffffff,
+    movedNode: PublicKey.default,
     bump: registryBump,
   });
 
@@ -168,7 +170,6 @@ async function seedBenchAccounts(context, program, payer, sigReq, signerMaterial
   await setProgramAccount(context, program, feedPda, "feed", {
     jobId: Array.from(FIXTURE_JOB_ID),
     registryVersion: 0,
-    roundId: Array.from(Buffer.alloc(32)),
     canonicalTimestamp: new anchor.BN(0),
     value: Array.from(Buffer.alloc(32)),
     signersBitmap: Array.from(Buffer.alloc(32)),
@@ -233,7 +234,6 @@ async function measureVerify(provider, program, payer, sigReq) {
     .accountsPartial({
       protocolConfig: protocolConfigPda,
       registryState: registryStatePda,
-      transitionAccount: null,
       job: jobPda,
     })
     .remainingAccounts(remainingAccounts)
@@ -297,6 +297,7 @@ async function main() {
       NODE_COUNT,
       sigReq,
       REDUNDANCY_BUFFER
+      FIXTURE_CANONICAL_TIMESTAMP
     );
     const rem = remainingPopcount(bm);
     const sel = selectionSize(sigReq);

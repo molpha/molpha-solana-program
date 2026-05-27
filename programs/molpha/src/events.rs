@@ -118,7 +118,6 @@ pub struct DelegateRemoved {
 #[event]
 pub struct FeedUpdated {
     pub job_id: [u8; 32],
-    pub round_id: [u8; 32],
     pub registry_version: u32,
     pub canonical_timestamp: i64,
     pub value: [u8; 32],

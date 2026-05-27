@@ -174,14 +174,14 @@ function deriveGroupBitmap(seed, nodeCount, groupSize) {
   return bigintToEvmBytes32(bitmap);
 }
 
-function deriveSelectionSeed(jobId, registryVersion, roundId = Buffer.alloc(32)) {
+function deriveSelectionSeed(jobId, registryVersion, canonicalTimestamp) {
   return Buffer.from(
     keccak_256(
       Buffer.concat([
         MOLPHA_SELECTION_V1,
         jobId,
         u32be(registryVersion),
-        roundId,
+        u64be(canonicalTimestamp),
       ])
     )
   );
@@ -197,14 +197,14 @@ function deriveSignersBitmapForJob(
   nodeCount,
   signaturesRequired,
   redundancyBuffer = REDUNDANCY_BUFFER,
-  roundId = Buffer.alloc(32)
+  timestamp
 ) {
   const selectionSize = effectiveSelectionSize(
     signaturesRequired,
     redundancyBuffer,
     nodeCount
   );
-  const seed = deriveSelectionSeed(jobId, registryVersion, roundId);
+  const seed = deriveSelectionSeed(jobId, registryVersion, timestamp);
   return deriveGroupBitmap(seed, nodeCount, selectionSize);
 }
 
@@ -269,7 +269,6 @@ function computeMessageHash({
   jobId,
   registryVersion,
   signaturesRequired,
-  configHash,
   signersBitmap,
   value,
   canonicalTimestamp,
@@ -279,7 +278,6 @@ function computeMessageHash({
     jobId,
     u32be(registryVersion),
     u32be(signaturesRequired),
-    configHash,
     signersBitmap,
     value,
     u64be(canonicalTimestamp),
@@ -371,13 +369,13 @@ function buildCoalitionSignature({
     registryVersion,
     nodeCount,
     signerCount,
-    redundancyBuffer
+    redundancyBuffer,
+    canonicalTimestamp
   );
   const messageHash = computeMessageHash({
     jobId,
     registryVersion,
     signaturesRequired: signerCount,
-    configHash,
     signersBitmap,
     value,
     canonicalTimestamp,
@@ -412,7 +410,7 @@ function buildSubmitArgs(signerCount, signatureMaterial, jobId) {
   return {
     jobId: Array.from(jobId),
     registryVersion: FIXTURE_REGISTRY_VERSION,
-    roundId: Array.from(Buffer.alloc(32)),
+    signaturesRequired: signerCount,
     signersBitmap: Array.from(signersBitmap),
     value: Array.from(FIXTURE_VALUE),
     canonicalTimestamp: new anchor.BN(FIXTURE_CANONICAL_TIMESTAMP),
@@ -494,16 +492,18 @@ async function buildBenchAccountSet(program, programId, payer, signerCount, sign
 
   const registryData = await encodeAccount(program, "registryState", {
     authority: payer.publicKey,
+    currentNodeCount: NODE_COUNT,
+    graceSecs: new anchor.BN(0),
+    redundancyBuffer: REDUNDANCY_BUFFER,
     currentVersion: FIXTURE_REGISTRY_VERSION,
     previousVersion: 0,
     previousExpiresAt: new anchor.BN(0),
-    currentNodeCount: NODE_COUNT,
     previousNodeCount: 0,
     lastTransitionType: { none: {} },
-    transitionAccount: PublicKey.default,
-    graceSecs: new anchor.BN(0),
-    withdrawalCooldownSecs: new anchor.BN(0),
-    maxNodeCount: NODE_COUNT,
+    removedOldIndex: 0,
+    removedNode: PublicKey.default,
+    movedOldIndex: 0xffffffff,
+    movedNode: PublicKey.default,
     bump: registryBump,
   });
   accounts.push({
@@ -528,7 +528,6 @@ async function buildBenchAccountSet(program, programId, payer, signerCount, sign
   const feedData = await encodeAccount(program, "feed", {
     jobId: Array.from(jobId),
     registryVersion: 0,
-    roundId: Array.from(Buffer.alloc(32)),
     canonicalTimestamp: new anchor.BN(0),
     value: Array.from(Buffer.alloc(32)),
     signersBitmap: Array.from(Buffer.alloc(32)),

@@ -106,7 +106,6 @@ function registerRegistryCommands(program) {
         }
         const removedIndex = Number(removedNodeAccount.currentIndex);
         const [removedIndexAccount] = (0, pdas_1.findRegistryIndexPda)(ctx.programId, removedIndex);
-        const [transitionAccount] = (0, pdas_1.findRegistryTransitionPda)(ctx.programId, Number(registryState.currentVersion));
         const [virtualRegistryIndex] = (0, pdas_1.findVirtualRegistryIndexPda)(ctx.programId);
         const lastIndex = Math.max(Number(registryState.currentNodeCount) - 1, 0);
         let lastIndexAccount = removedIndexAccount;
@@ -128,7 +127,6 @@ function registerRegistryCommands(program) {
             registryState: registryStatePda,
             removedNode,
             removedIndexAccount,
-            transitionAccount,
             virtualRegistryIndex,
             lastIndexAccount,
             movedNode,
@@ -152,7 +150,7 @@ function registerRegistryCommands(program) {
         if (!registryState) {
             throw new Error("Registry state is not initialized");
         }
-        const { transitionAccount, virtualRegistryIndex } = await (0, accounts_1.finalizeTransitionAccounts)(ctx.program, registryState);
+        const { virtualRegistryIndex } = await (0, accounts_1.finalizeTransitionAccounts)(ctx.program, registryState);
         if (virtualRegistryIndex && !(await (0, accounts_1.accountExists)(ctx.program, virtualRegistryIndex))) {
             throw new Error(`Virtual registry index not found at ${virtualRegistryIndex.toBase58()}`);
         }
@@ -160,14 +158,12 @@ function registerRegistryCommands(program) {
             .finalizeRegistryTransition()
             .accountsPartial({
             registryState: registryStatePda,
-            transitionAccount,
             virtualRegistryIndex,
             rentReceiver: ctx.wallet.publicKey,
         })
             .rpc();
         (0, utils_1.writeJson)({
             signature,
-            transitionAccount: transitionAccount?.toBase58() ?? null,
             virtualRegistryIndex: virtualRegistryIndex?.toBase58() ?? null,
         });
     });

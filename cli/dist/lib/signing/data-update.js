@@ -208,21 +208,21 @@ function deriveGroupBitmap(seed, nodeCount, groupSize) {
         : sampleWithoutReplacement(seed, nodeCount, groupSize);
     return bigintToEvmBytes32(bitmap);
 }
-function deriveSelectionSeed(jobId, registryVersion, roundId = new Uint8Array(32)) {
+function deriveSelectionSeed(jobId, registryVersion, canonicalTimestamp) {
     return (0, sha3_1.keccak_256)(Buffer.concat([
         MOLPHA_SELECTION_V1,
         Buffer.from(jobId),
         Buffer.from(u32be(registryVersion)),
-        Buffer.from(roundId),
+        Buffer.from(u64be(canonicalTimestamp)),
     ]));
 }
 /** Mirrors `effective_selection_size` in `programs/molpha/src/utils/bitmap.rs`. */
 function effectiveSelectionSize(signaturesRequired, redundancyBuffer, nodeCount) {
     return Math.min(nodeCount, signaturesRequired + redundancyBuffer);
 }
-function deriveSignersBitmapForJob(jobId, registryVersion, nodeCount, signaturesRequired, redundancyBuffer = 2, roundId = new Uint8Array(32)) {
+function deriveSignersBitmapForJob(jobId, registryVersion, nodeCount, signaturesRequired, redundancyBuffer = 2, canonicalTimestamp = 0) {
     const selectionSize = effectiveSelectionSize(signaturesRequired, redundancyBuffer, nodeCount);
-    return deriveGroupBitmap(deriveSelectionSeed(jobId, registryVersion, roundId), nodeCount, selectionSize);
+    return deriveGroupBitmap(deriveSelectionSeed(jobId, registryVersion, canonicalTimestamp), nodeCount, selectionSize);
 }
 function generateE2eSignerMaterialFromSeed(seed, signerCount) {
     const privKeys = [];
@@ -243,7 +243,6 @@ function computeMessageHash(params) {
         params.jobId,
         u32be(params.registryVersion),
         u32be(params.signaturesRequired),
-        params.configHash,
         params.signersBitmap,
         params.value,
         u64be(params.canonicalTimestamp),
@@ -283,7 +282,6 @@ function signE2eDataUpdate(registryVersion, signerMaterial, signerCountOrBitmap,
         jobId,
         registryVersion,
         signaturesRequired: required,
-        configHash: dataUpdate.configHash,
         signersBitmap,
         value: dataUpdate.value,
         canonicalTimestamp: dataUpdate.canonicalTimestamp,
@@ -310,7 +308,6 @@ function signE2eDataUpdate(registryVersion, signerMaterial, signerCountOrBitmap,
         submitArgs: {
             jobId: Array.from(jobId),
             registryVersion,
-            roundId: Array.from(new Uint8Array(32)),
             signersBitmap: Array.from(signersBitmap),
             value: Array.from(dataUpdate.value),
             canonicalTimestamp: new anchor_1.BN(dataUpdate.canonicalTimestamp),
@@ -328,7 +325,6 @@ function buildSubmitArgsFromFixture(fixture) {
     return {
         jobId: Array.from((0, utils_1.hexToBytes)(fixture.dataUpdate.jobId, 32, "job id")),
         registryVersion: fixture.dataUpdate.registryVersion,
-        roundId: Array.from(new Uint8Array(32)),
         signersBitmap: Array.from(signersBitmap),
         value: Array.from((0, utils_1.hexToBytes)(fixture.dataUpdate.value, 32, "value")),
         canonicalTimestamp: new anchor_1.BN(fixture.dataUpdate.canonicalTimestamp),
@@ -346,11 +342,10 @@ function uint256BE(value) {
     }
     return out;
 }
-function expectedVerifyDataUpdateReturnBytes(value, canonicalTimestamp, roundId = new Uint8Array(32)) {
+function expectedVerifyDataUpdateReturnBytes(value, canonicalTimestamp) {
     const out = new Uint8Array(exports.VERIFY_DATA_UPDATE_RETURN_LEN);
     out.set(value.subarray(0, 32), 0);
     out.set(u64be(canonicalTimestamp), 32);
-    out.set(roundId.subarray(0, 32), 40);
     return out;
 }
 function signerRemainingAccounts(programId, signersBitmap, transition) {

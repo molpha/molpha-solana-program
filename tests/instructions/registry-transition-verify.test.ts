@@ -19,7 +19,6 @@ import {
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
-const REGISTRY_TRANSITION_SEED = Buffer.from("molpha_registry_transition");
 
 async function initializeRegistry(ctx: Awaited<ReturnType<typeof setupTestContext>>) {
   const program = ctx.molphaProgram as any;
@@ -67,10 +66,11 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
   let ctx: Awaited<ReturnType<typeof setupTestContext>>;
   let program: any;
   let registryStatePda: PublicKey;
+  let protocolConfigPda: PublicKey;
 
   beforeAll(async () => {
     ctx = await setupTestContext();
-    ({ program, registryStatePda } = await initializeRegistry(ctx));
+    ({ program, protocolConfigPda, registryStatePda } = await initializeRegistry(ctx));
   });
 
   it("expectedRegistryIndex remaps removed and moved slots", () => {
@@ -89,39 +89,9 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
 
     const previousVersion = 1;
     const currentVersion = 2;
-    const previousVersionBytes = Buffer.alloc(4);
-    previousVersionBytes.writeUInt32LE(previousVersion);
-    const [transitionPda, transitionBump] = PublicKey.findProgramAddressSync(
-      [REGISTRY_TRANSITION_SEED, previousVersionBytes],
-      program.programId
-    );
-
     const removedOldIndex = 1;
     const movedOldIndex = 7;
     const previousExpiresAt = new BN(Math.floor(Date.now() / 1000) + 3600);
-
-    const transitionFields = {
-      previousVersion,
-      currentVersion,
-      expiresAt: previousExpiresAt,
-      transitionType: { removeSwap: {} },
-      removedOldIndex,
-      removedNode: PublicKey.unique(),
-      movedOldIndex,
-      movedNode: PublicKey.unique(),
-      bump: transitionBump,
-    };
-
-    const transitionData = await program.coder.accounts.encode(
-      "registryTransitionAccount",
-      transitionFields
-    );
-    ctx.provider.context.setAccount(transitionPda, {
-      lamports: 10_000_000,
-      owner: program.programId,
-      executable: false,
-      data: Buffer.from(transitionData),
-    });
 
     await seedEvmRemoveSwapGraceState(ctx, program, registryStatePda, {
       removedOldIndex,
@@ -129,7 +99,6 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
       previousVersion,
       currentVersion,
       previousExpiresAt,
-      transitionPda,
       authority: registry.authority,
       graceSecs: registry.graceSecs,
       withdrawalCooldownSecs: registry.withdrawalCooldownSecs,
@@ -137,11 +106,7 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
       registryBump: registry.bump,
     });
 
-    const { jobPda: evmJobPda } = await seedEvmJobAndFeed(
-      ctx,
-      program,
-      ctx.authority.publicKey
-    );
+    await seedEvmJobAndFeed(ctx, program, ctx.authority.publicKey);
 
     const verifyArgs = {
       ...buildEvmSubmitDataUpdateArgs(),
@@ -157,9 +122,8 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
     await program.methods
       .verifyDataUpdate(verifyArgs)
       .accountsPartial({
+        protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
-        transitionAccount: transitionPda,
-        job: evmJobPda,
       })
       .remainingAccounts(
         signerRemainingAccounts(
@@ -179,37 +143,9 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
 
     const previousVersion = 1;
     const currentVersion = 2;
-    const previousVersionBytes = Buffer.alloc(4);
-    previousVersionBytes.writeUInt32LE(previousVersion);
-    const [transitionPda, transitionBump] = PublicKey.findProgramAddressSync(
-      [REGISTRY_TRANSITION_SEED, previousVersionBytes],
-      program.programId
-    );
-
     const removedOldIndex = 1;
     const movedOldIndex = 7;
     const previousExpiresAt = new BN(Math.floor(Date.now() / 1000) + 3600);
-
-    const transitionData = await program.coder.accounts.encode(
-      "registryTransitionAccount",
-      {
-        previousVersion,
-        currentVersion,
-        expiresAt: previousExpiresAt,
-        transitionType: { removeSwap: {} },
-        removedOldIndex,
-        removedNode: PublicKey.unique(),
-        movedOldIndex,
-        movedNode: PublicKey.unique(),
-        bump: transitionBump,
-      }
-    );
-    ctx.provider.context.setAccount(transitionPda, {
-      lamports: 10_000_000,
-      owner: program.programId,
-      executable: false,
-      data: Buffer.from(transitionData),
-    });
 
     await seedEvmRemoveSwapGraceState(ctx, program, registryStatePda, {
       removedOldIndex,
@@ -217,7 +153,6 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
       previousVersion,
       currentVersion,
       previousExpiresAt,
-      transitionPda,
       authority: registry.authority,
       graceSecs: registry.graceSecs,
       withdrawalCooldownSecs: registry.withdrawalCooldownSecs,
@@ -225,11 +160,7 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
       registryBump: registry.bump,
     });
 
-    const { jobPda: evmJobPda } = await seedEvmJobAndFeed(
-      ctx,
-      program,
-      ctx.authority.publicKey
-    );
+    await seedEvmJobAndFeed(ctx, program, ctx.authority.publicKey);
 
     const verifyArgs = {
       ...buildEvmSubmitDataUpdateArgs(),
@@ -240,9 +171,8 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
       await program.methods
         .verifyDataUpdate(verifyArgs)
         .accountsPartial({
+          protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
-          transitionAccount: transitionPda,
-          job: evmJobPda,
         })
         .remainingAccounts(
           signerRemainingAccounts(program.programId, verifyArgs.signersBitmap)
@@ -252,11 +182,8 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
     } catch (error: any) {
       const err = String(error);
       assert.ok(
-        err.includes("InvalidRegistryIndexAccount") ||
-          err.includes("InvalidNodeIndex") ||
-          err.includes("MissingSignerAccount") ||
-          err.includes("InvalidAggregateSignature"),
-        `expected registry account validation error, got: ${err}`
+        err.includes("InvalidNodeIndex") || err.includes("InvalidRegistryIndexAccount"),
+        `expected index validation error, got: ${err}`
       );
     }
   });

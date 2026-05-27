@@ -45,7 +45,7 @@ pub fn register_node(
     );
     let config = &ctx.accounts.protocol_config;
     require!(
-        registry.current_node_count < registry.max_node_count,
+        registry.current_node_count < config.max_node_count,
         MolphaError::NodeCapExceeded
     );
     require!(
@@ -98,7 +98,7 @@ pub fn register_node(
     registry.current_version = current_version.saturating_add(1);
     registry.current_node_count = registry.current_node_count.saturating_add(1);
     registry.last_transition_type = RegistryTransitionType::Add;
-    registry.transition_account = Pubkey::default();
+    registry.clear_remove_transition_metadata();
 
     emit!(NodeRegistered {
         node_id,

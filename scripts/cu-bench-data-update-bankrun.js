@@ -167,7 +167,6 @@ function computeMessageHash({
   jobId,
   registryVersion,
   signaturesRequired,
-  configHash,
   signersBitmap,
   value,
   canonicalTimestamp,
@@ -177,7 +176,6 @@ function computeMessageHash({
     jobId,
     u32be(registryVersion),
     u32be(signaturesRequired),
-    configHash,
     signersBitmap,
     value,
     u64be(canonicalTimestamp),
@@ -264,16 +262,18 @@ async function seedBenchAccounts(context, program, payer, signerCount, signerMat
 
   await setProgramAccount(context, program, registryStatePda, "registryState", {
     authority: payer.publicKey,
+    currentNodeCount: NODE_COUNT,
+    graceSecs: new anchor.BN(0),
+    redundancyBuffer: 2,
     currentVersion: FIXTURE_REGISTRY_VERSION,
     previousVersion: 0,
     previousExpiresAt: new anchor.BN(0),
-    currentNodeCount: NODE_COUNT,
     previousNodeCount: 0,
     lastTransitionType: { none: {} },
-    transitionAccount: PublicKey.default,
-    graceSecs: new anchor.BN(0),
-    withdrawalCooldownSecs: new anchor.BN(0),
-    maxNodeCount: NODE_COUNT,
+    removedOldIndex: 0,
+    removedNode: PublicKey.default,
+    movedOldIndex: 0xffffffff,
+    movedNode: PublicKey.default,
     bump: registryBump,
   });
 
@@ -292,7 +292,6 @@ async function seedBenchAccounts(context, program, payer, signerCount, signerMat
   await setProgramAccount(context, program, feedPda, "feed", {
     jobId: Array.from(FIXTURE_JOB_ID),
     registryVersion: 0,
-    roundId: Array.from(Buffer.alloc(32)),
     canonicalTimestamp: new anchor.BN(0),
     value: Array.from(Buffer.alloc(32)),
     signersBitmap: Array.from(Buffer.alloc(32)),
@@ -371,8 +370,6 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     .verifyDataUpdate(args)
     .accountsPartial({
       registryState: registryStatePda,
-      transitionAccount: null,
-      job: jobPda,
     })
     .remainingAccounts(remainingAccounts)
     .instruction();
@@ -383,8 +380,6 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
       submitter: payer.publicKey,
       protocolConfig: protocolConfigPda,
       registryState: registryStatePda,
-      transitionAccount: null,
-      job: jobPda,
       feed: feedPda,
     })
     .remainingAccounts(remainingAccounts)

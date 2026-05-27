@@ -1,5 +1,3 @@
-#[cfg(feature = "cu-bench")]
-pub mod bench_derive_group_bitmap;
 pub mod add_delegate;
 pub mod add_plan;
 pub mod admin_withdraw_subscription_vault;
@@ -16,8 +14,6 @@ pub mod extend_subscription;
 pub mod update_plan;
 pub mod verify_data_update;
 
-#[cfg(feature = "cu-bench")]
-pub use bench_derive_group_bitmap::*;
 pub use add_delegate::*;
 pub use add_plan::*;
 pub use admin_withdraw_subscription_vault::*;

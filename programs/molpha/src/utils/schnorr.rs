@@ -578,11 +578,7 @@ mod tests {
         ];
         let registry_version = 42u32;
         let signatures_required = 3u32;
-        let config_hash: [u8; 32] = [
-            0x63, 0x66, 0x67, 0x2d, 0x65, 0x78, 0x74, 0x72, 0x61, 0x63, 0x74, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        ];
+
         // EVM bitmap integer `7` => nodes {1,2,3} => bits 0..2 set in EVM uint256 layout.
         let signers_bitmap: [u8; 32] = [
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -601,7 +597,6 @@ mod tests {
             job_id.as_slice(),
             registry_version.to_be_bytes().as_slice(),
             signatures_required.to_be_bytes().as_slice(),
-            config_hash.as_slice(),
             signers_bitmap.as_slice(),
             value_bytes32.as_slice(),
             timestamp.to_be_bytes().as_slice(),

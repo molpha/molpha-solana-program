@@ -181,7 +181,6 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
         submitter: ctx.authority.publicKey,
         protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
-        transitionAccount: null,
         job: jobPda,
         feed: feedPda,
       })
@@ -213,7 +212,6 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
     const expected = expectedVerifyDataUpdateReturnBytes(
       scenario.value,
       scenario.canonicalTimestamp,
-      new Uint8Array(signed.submitArgs.roundId)
     );
     assert.deepEqual(Array.from(returnBytes), Array.from(expected));
 

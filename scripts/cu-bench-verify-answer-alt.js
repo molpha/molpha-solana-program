@@ -405,7 +405,6 @@ async function main() {
       jobId,
       u32be(registryVersion),
       u32be(signerCount),
-      configHash,
       signersBitmap,
       valueBytes32,
       u64be(timestamp),

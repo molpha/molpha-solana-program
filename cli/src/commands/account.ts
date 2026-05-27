@@ -12,7 +12,6 @@ import {
   findProtocolConfigPda,
   findRegistryIndexPda,
   findRegistryStatePda,
-  findRegistryTransitionPda,
   findSubscriptionPda,
 } from "../lib/pdas";
 import { hexToBytes, parseInteger, parsePublicKey, requireValue, writeJson } from "../lib/utils";
@@ -133,24 +132,6 @@ export function registerAccountCommands(program: Command): void {
       await printNamedAccount(command, "registryIndexAccount", address);
     });
 
-  account
-    .command("registry-transition")
-    .description("Fetch registry transition account")
-    .option("--address <pubkey>", "transition address")
-    .option("--previous-version <number>", "previous version used in PDA")
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const address =
-        options.address ??
-        findRegistryTransitionPda(
-          ctx.programId,
-          parseInteger(
-            requireValue(options.previousVersion, "Missing --previous-version"),
-            "previous version"
-          )
-        )[0].toBase58();
-      await printNamedAccount(command, "registryTransitionAccount", address);
-    });
 }
 
 function findJobOrNodeAddress(kind: "job" | "node", programId: ReturnType<typeof parsePublicKey>, idHex: string) {

@@ -228,8 +228,6 @@ async function measureForSignerCount(connection, program, programId, payer, sign
     .verifyDataUpdate(args)
     .accountsPartial({
       registryState: registryStatePda,
-      transitionAccount: null,
-      job: jobPda,
     })
     .remainingAccounts(remainingAccounts)
     .instruction();
@@ -240,8 +238,6 @@ async function measureForSignerCount(connection, program, programId, payer, sign
       submitter: payer.publicKey,
       protocolConfig: protocolConfigPda,
       registryState: registryStatePda,
-      transitionAccount: null,
-      job: jobPda,
       feed: feedPda,
     })
     .remainingAccounts(remainingAccounts)

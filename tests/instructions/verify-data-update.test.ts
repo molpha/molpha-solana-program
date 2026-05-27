@@ -143,7 +143,6 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
       jobId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
-      configHash,
       signersBitmap,
       value,
       u64BE(canonicalTimestamp)
@@ -157,7 +156,6 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
       jobId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
-      configHash,
       signersBitmap,
       value,
       u64BE(canonicalTimestamp)
@@ -180,7 +178,6 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
       jobId,
       u32BE(registryVersion + 1),
       u32BE(signaturesRequired),
-      configHash,
       signersBitmap,
       value,
       u64BE(canonicalTimestamp)
@@ -197,7 +194,6 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
       jobId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
-      configHash,
       signersBitmap,
       mutValue,
       u64BE(canonicalTimestamp)
@@ -214,7 +210,6 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
       jobId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
-      configHash,
       mutBitmap,
       value,
       u64BE(canonicalTimestamp)

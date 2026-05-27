@@ -1,7 +1,7 @@
 import { BN, Program } from "@coral-xyz/anchor";
 import { AccountMeta, PublicKey } from "@solana/web3.js";
-import { findRegistryTransitionPda, findVirtualRegistryIndexPda } from "./pdas";
-import { isDefaultPubkey, normalizeForJson } from "./utils";
+import { findVirtualRegistryIndexPda } from "./pdas";
+import { normalizeForJson } from "./utils";
 
 export type RegistryTransitionKind = "none" | "add" | "removeTail" | "removeSwap";
 
@@ -44,31 +44,35 @@ export function registryTransitionKind(value: any): RegistryTransitionKind {
   return "none";
 }
 
-export function maybePublicKey(value: any): PublicKey | null {
-  if (!value) {
-    return null;
+export function removeTransitionInfoFromRegistry(registryState: any): RemoveTransitionInfo | undefined {
+  const transitionKind = registryTransitionKind(registryState.lastTransitionType);
+  if (transitionKind !== "removeTail" && transitionKind !== "removeSwap") {
+    return undefined;
   }
-  if (value instanceof PublicKey) {
-    return isDefaultPubkey(value) ? null : value;
+
+  const removedOldIndex = Number(registryState.removedOldIndex);
+  if (transitionKind === "removeTail") {
+    return {
+      removedOldIndex,
+      transitionType: "removeTail",
+    };
   }
-  try {
-    const parsed = new PublicKey(value);
-    return isDefaultPubkey(parsed) ? null : parsed;
-  } catch (error) {
-    return null;
-  }
+
+  const movedOldIndex = Number(registryState.movedOldIndex);
+  return {
+    removedOldIndex,
+    transitionType: "removeSwap",
+    movedOldIndex: movedOldIndex === 0xffffffff ? undefined : movedOldIndex,
+  };
 }
 
 export async function resolveTransitionForRegistryVersion(
   program: Program,
   registryState: any,
   registryVersion: number
-): Promise<{
-  transitionAccount: PublicKey | null;
-  remainingTransition: RemoveTransitionInfo | undefined;
-}> {
+): Promise<{ remainingTransition: RemoveTransitionInfo | undefined }> {
   if (registryVersion === registryState.currentVersion) {
-    return { transitionAccount: null, remainingTransition: undefined };
+    return { remainingTransition: undefined };
   }
 
   if (registryVersion !== registryState.previousVersion) {
@@ -79,50 +83,24 @@ export async function resolveTransitionForRegistryVersion(
 
   const transitionKind = registryTransitionKind(registryState.lastTransitionType);
   if (transitionKind === "none" || transitionKind === "add") {
-    return { transitionAccount: null, remainingTransition: undefined };
+    return { remainingTransition: undefined };
   }
 
-  const transitionAddress =
-    maybePublicKey(registryState.transitionAccount) ??
-    findRegistryTransitionPda(program.programId, Number(registryState.previousVersion))[0];
-
-  const transition = await fetchAccountOrNull<any>(
-    program,
-    "registryTransitionAccount",
-    transitionAddress
-  );
-  if (!transition) {
-    throw new Error(`Missing registry transition account at ${transitionAddress.toBase58()}`);
+  const remainingTransition = removeTransitionInfoFromRegistry(registryState);
+  if (!remainingTransition) {
+    throw new Error("Registry state is missing remove-transition metadata");
   }
 
-  const info: RemoveTransitionInfo =
-    transitionKind === "removeTail"
-      ? {
-          removedOldIndex: Number(transition.removedOldIndex),
-          transitionType: "removeTail",
-        }
-      : {
-          removedOldIndex: Number(transition.removedOldIndex),
-          transitionType: "removeSwap",
-          movedOldIndex:
-            Number(transition.movedOldIndex) === 0xffffffff
-              ? undefined
-              : Number(transition.movedOldIndex),
-        };
-
-  return { transitionAccount: transitionAddress, remainingTransition: info };
+  return { remainingTransition };
 }
 
 export async function finalizeTransitionAccounts(program: Program, registryState: any): Promise<{
-  transitionAccount: PublicKey | null;
   virtualRegistryIndex: PublicKey | null;
 }> {
   const transitionKind = registryTransitionKind(registryState.lastTransitionType);
-  const transitionAccount = maybePublicKey(registryState.transitionAccount);
   if (transitionKind === "removeTail" || transitionKind === "removeSwap") {
     const virtualRegistryIndex = findVirtualRegistryIndexPda(program.programId)[0];
     return {
-      transitionAccount,
       virtualRegistryIndex: (await accountExists(program, virtualRegistryIndex))
         ? virtualRegistryIndex
         : null,
@@ -130,7 +108,6 @@ export async function finalizeTransitionAccounts(program: Program, registryState
   }
 
   return {
-    transitionAccount,
     virtualRegistryIndex: null,
   };
 }
@@ -146,7 +123,6 @@ export function decodeVerifyReturnData(bytes: Uint8Array): {
   raw: string;
   value: string;
   canonicalTimestamp: string;
-  roundId: string;
 } {
   if (bytes.length !== 72) {
     throw new Error(`Expected 72 bytes of return data, got ${bytes.length}`);
@@ -157,7 +133,6 @@ export function decodeVerifyReturnData(bytes: Uint8Array): {
     raw: `0x${Buffer.from(bytes).toString("hex")}`,
     value: `0x${Buffer.from(bytes.slice(0, 32)).toString("hex")}`,
     canonicalTimestamp: timestamp.toString(),
-    roundId: `0x${Buffer.from(bytes.slice(40, 72)).toString("hex")}`,
   };
 }
 

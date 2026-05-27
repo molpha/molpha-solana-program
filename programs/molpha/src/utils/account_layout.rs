@@ -14,10 +14,7 @@ use libsecp256k1::util::{TAG_PUBKEY_EVEN, TAG_PUBKEY_ODD};
 
 use crate::{
     error::MolphaError,
-    state::{
-        Node, RegistryIndex, RegistryState, RegistryTransitionAccount,
-        RegistryTransitionType, VIRTUAL_INDEX,
-    },
+    state::{Node, RegistryIndex, RegistryState, RegistryTransitionType, VIRTUAL_INDEX},
 };
 
 pub const ANCHOR_DISCRIMINATOR_LEN: usize = 8;
@@ -53,42 +50,26 @@ fn read_bytes32(data: &[u8], offset: usize, err: MolphaError) -> Result<[u8; 32]
 
 /// Map a previous-version signer bit to the `RegistryIndex` slot that holds its pubkey.
 #[inline(always)]
-pub fn expected_registry_index(
-    bit_pos: u32,
-    transition: Option<&RegistryTransitionAccount>,
-) -> u32 {
-    let Some(transition) = transition else {
+pub fn expected_registry_index(bit_pos: u32, registry: &RegistryState, apply_remove_remap: bool) -> u32 {
+    if !apply_remove_remap {
         return bit_pos;
-    };
-    if bit_pos == transition.removed_old_index {
+    }
+    if bit_pos == registry.removed_old_index {
         VIRTUAL_INDEX
-    } else if transition.transition_type == RegistryTransitionType::RemoveSwap
-        && bit_pos == transition.moved_old_index
+    } else if registry.last_transition_type == RegistryTransitionType::RemoveSwap
+        && bit_pos == registry.moved_old_index
     {
-        transition.removed_old_index
+        registry.removed_old_index
     } else {
         bit_pos
     }
 }
 
-/// Ensure `RegistryTransitionAccount` matches live registry remove-transition metadata.
-pub fn validate_transition_account(
-    transition: &RegistryTransitionAccount,
-    registry: &RegistryState,
-) -> Result<()> {
+/// Previous-version verification during remove grace requires remove-transition metadata.
+#[inline(always)]
+pub fn validate_remove_transition_for_previous(registry: &RegistryState) -> Result<()> {
     require!(
-        transition.previous_version == registry.previous_version
-            && transition.current_version == registry.current_version
-            && transition.expires_at == registry.previous_expires_at,
-        MolphaError::InvalidTransitionAccount
-    );
-    require!(
-        registry.last_transition_type == RegistryTransitionType::RemoveTail
-            || registry.last_transition_type == RegistryTransitionType::RemoveSwap,
-        MolphaError::InvalidTransitionAccount
-    );
-    require!(
-        transition.transition_type == registry.last_transition_type,
+        registry.is_remove_transition(),
         MolphaError::InvalidTransitionAccount
     );
     Ok(())
@@ -246,7 +227,7 @@ mod tests {
     use anchor_lang::prelude::Pubkey;
     use anchor_lang::{AnchorDeserialize, AnchorSerialize, Discriminator};
 
-    use crate::state::{NodeStatus, RegistryTransitionAccount, RegistryTransitionType};
+    use crate::state::{NodeStatus, RegistryState, RegistryTransitionType};
 
     /// On-chain account bytes: 8-byte discriminator + serialized body.
     fn registry_index_bytes(account: &RegistryIndex) -> Vec<u8> {
@@ -330,48 +311,48 @@ mod tests {
         assert_eq!(decoded.secp256k1_pubkey_y, y);
     }
 
-    fn remove_swap_transition() -> RegistryTransitionAccount {
-        RegistryTransitionAccount {
-            previous_version: 1,
+    fn remove_swap_registry() -> RegistryState {
+        RegistryState {
+            authority: Pubkey::default(),
+            redundancy_buffer: 0,
             current_version: 2,
-            expires_at: 9_999,
-            transition_type: RegistryTransitionType::RemoveSwap,
+            previous_version: 1,
+            previous_expires_at: 9_999,
+            current_node_count: 7,
+            previous_node_count: 8,
+            last_transition_type: RegistryTransitionType::RemoveSwap,
             removed_old_index: 1,
             removed_node: Pubkey::new_from_array([0xAA; 32]),
             moved_old_index: 3,
             moved_node: Pubkey::new_from_array([0xBB; 32]),
+            grace_secs: 0,
             bump: 0,
         }
     }
 
     #[test]
     fn expected_registry_index_remove_swap_remaps_removed_and_moved() {
-        let t = remove_swap_transition();
-        assert_eq!(expected_registry_index(1, Some(&t)), VIRTUAL_INDEX);
-        assert_eq!(expected_registry_index(3, Some(&t)), 1);
-        assert_eq!(expected_registry_index(0, Some(&t)), 0);
+        let registry = remove_swap_registry();
+        assert_eq!(expected_registry_index(1, &registry, true), VIRTUAL_INDEX);
+        assert_eq!(expected_registry_index(3, &registry, true), 1);
+        assert_eq!(expected_registry_index(0, &registry, true), 0);
     }
 
     #[test]
     fn expected_registry_index_remove_tail_remaps_removed_only() {
-        let t = RegistryTransitionAccount {
-            previous_version: 1,
-            current_version: 2,
-            expires_at: 9_999,
-            transition_type: RegistryTransitionType::RemoveTail,
-            removed_old_index: 2,
-            removed_node: Pubkey::new_from_array([0xAA; 32]),
-            moved_old_index: VIRTUAL_INDEX,
-            moved_node: Pubkey::default(),
-            bump: 0,
-        };
-        assert_eq!(expected_registry_index(2, Some(&t)), VIRTUAL_INDEX);
-        assert_eq!(expected_registry_index(0, Some(&t)), 0);
+        let mut registry = remove_swap_registry();
+        registry.last_transition_type = RegistryTransitionType::RemoveTail;
+        registry.removed_old_index = 2;
+        registry.moved_old_index = VIRTUAL_INDEX;
+        registry.moved_node = Pubkey::default();
+        assert_eq!(expected_registry_index(2, &registry, true), VIRTUAL_INDEX);
+        assert_eq!(expected_registry_index(0, &registry, true), 0);
     }
 
     #[test]
-    fn expected_registry_index_without_transition_is_identity() {
-        assert_eq!(expected_registry_index(4, None), 4);
+    fn expected_registry_index_without_remove_remap_is_identity() {
+        let registry = remove_swap_registry();
+        assert_eq!(expected_registry_index(4, &registry, false), 4);
     }
 
     #[test]
