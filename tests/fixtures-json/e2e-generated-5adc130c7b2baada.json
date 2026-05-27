@@ -1,0 +1,48 @@
+{
+  "registeredNodeCount": 8,
+  "registryVersion": 8,
+  "configHash": "0xfcc3910d9fad9531a7cbd24db44e274672fe6b79986c76b31d375abafc60c377",
+  "nodeIndexesOneBased": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "nodePubkeys": [
+    "0x0262fb49c25e1ee5c2d3c007852bba4875912b5c2db05fa8b5cfdb066058261519",
+    "0x03a5ecc1cd542aa9acddd05fb1e9fc00b44fb2a2339e946ef7904aa946bec877aa",
+    "0x022c45685bff1c919c30fe2d3b88bab902a7a3da1882aa9a2f8edf7edc3157e48c",
+    "0x027ca6e5898ca8b09cd128e86b8cbeff732f0b821dcf76ae5e1948a67cdf31de01",
+    "0x03b14eb49737c370fa5a3f59a63ea7f0bf1484dc3d440b0264a819bd4a0722b4b5",
+    "0x03d092409fab746fde5e4d2f56e147147247a36aa38423b7f2127ab86b972f7bfc",
+    "0x0301e5c42a082c9ded026ae2b69c753ac57b81bb3a0dc5d8fcbc662dacc0f42443",
+    "0x03aafc0c2190bd1bf18cdee97e2c11d8cdbc09d5fb2b8916b1105d75e7ab07d943"
+  ],
+  "nodePrivkeys": [
+    "e94009abe8d8d6d04422b209698ac53a9a86b9db38b024b4b45a16fe7a182e8a",
+    "6611e8f29a26584de5158c4c403e5b3bbfc8672025fe85040846328f17f0c1c",
+    "b52e550a6d99d6ffc1e4dde87a6632ae61e371bbd9892ce8a26881c31e42ac9d",
+    "343ef3e2d033b55df2b4cc1f2212b6d44ce6fb5de9d8b60097ddb758b044d8cd",
+    "41df793964c799f122401cb7ef37462315c71fe3370a8637c01f17b09642ebe6",
+    "35de355094f9248432a36f3102ae7f18467a7772845cfbe896423be12d24b9af",
+    "778424aea3e58ff040f6dfe1c47d192e88895bdec5f6082934aa3261b96045d6",
+    "5acb590b45389c8ddd1c40861a6ddc24f52c267859d2e3f6de2d44b95b209e7a"
+  ],
+  "dataUpdate": {
+    "jobId": "0xe1dd7a3c71d4405dc3c7c172413fa866e19584f5f1259b6c508b08541238cc8b",
+    "registryVersion": 8,
+    "signaturesRequired": 8,
+    "configHash": "0xfcc3910d9fad9531a7cbd24db44e274672fe6b79986c76b31d375abafc60c377",
+    "value": "0x14e9eed69e93058c250c39f1adc7ef572441f9fa2ff89d314b56e77b6aa648de",
+    "canonicalTimestamp": 1708783016
+  },
+  "schnorrSignature": {
+    "signature": "0xae7659fee5b36af1751ed799839ece15e266cdff6c2fbc0a111a119eb5a5ec4e",
+    "commitment": "0x311a766ea6f39346bd5094c76fa28103d71c6838",
+    "signersBitmap": 255
+  }
+}

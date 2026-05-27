@@ -1,9 +1,14 @@
 {
   "license": "ISC",
+  "bin": {
+    "molpha": "cli/dist/index.js"
+  },
   "scripts": {
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
-    "test": "cp target/deploy/molpha.so tests/fixtures && RUST_LOG= jest --runInBand --verbose",
+    "build:molpha": "mkdir -p target/deploy && cargo-build-sbf --manifest-path programs/molpha/Cargo.toml --sbf-out-dir target/deploy",
+    "build:cli": "tsc -p cli/tsconfig.json",
+    "test": "yarn build:molpha && cp target/deploy/molpha.so tests/fixtures && RUST_LOG= jest --runInBand --verbose --forceExit",
     "test:node-registry": "anchor test --skip-deploy tests/instructions/node-registry.test.ts",
     "test:create-data-source": "anchor test --skip-deploy tests/instructions/create-data-source.test.ts",
     "test:create-feed": "anchor test --skip-deploy tests/instructions/create-feed.test.ts",
@@ -15,10 +20,21 @@
     "test:integration": "anchor test --skip-deploy tests/integration/integration.test.ts",
     "test:instructions": "anchor test --skip-deploy tests/instructions/",
     "test:all": "anchor test",
-    "setup-test-faucet": "node scripts/setup-test-faucet.js"
+    "setup-test-faucet": "node scripts/setup-test-faucet.js",
+    "cu:verify-answer-alt:localnet": "node scripts/cu-bench-verify-answer-alt.js",
+    "cu:data-update:bankrun": "node scripts/cu-bench-data-update-bankrun.js",
+    "cu:data-update:localnet": "node scripts/cu-bench-data-update-localnet.js",
+    "build:molpha:cu-bench": "mkdir -p target/deploy && cargo build-sbf --manifest-path programs/molpha/Cargo.toml --sbf-out-dir target/deploy -- --features cu-bench",
+    "cu:derive-group-bitmap": "yarn build:molpha:cu-bench && node scripts/cu-bench-derive-group-bitmap.js",
+    "molpha": "node cli/dist/index.js",
+    "molpha:dev": "ts-node -r tsconfig-paths/register cli/src/index.ts",
+    "test:e2e-fixture": "yarn test tests/instructions/e2e-generate-fixture.integration.test.ts",
+    "test:solana-compat-v10": "yarn test tests/instructions/solana-compat-v10.integration.test.ts"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.31.1",
+    "@coral-xyz/anchor": "^0.32.1",
+    "@noble/hashes": "^1.8.0",
+    "@noble/secp256k1": "^2.3.0",
     "@solana/spl-token": "^0.4.8",
     "@solana/web3.js": "^1.98.4",
     "anchor-bankrun": "^0.5.0",
@@ -28,8 +44,6 @@
     "spl-token-bankrun": "^0.2.6"
   },
   "devDependencies": {
-    "@noble/hashes": "^1.8.0",
-    "@noble/secp256k1": "^2.3.0",
     "@types/bn.js": "^5.1.0",
     "@types/chai": "^4.3.0",
     "@types/jest": "^30.0.0",
@@ -41,8 +55,10 @@
     "prettier": "^2.6.2",
     "ts-jest": "^29.4.2",
     "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "tweetnacl": "^1.0.3",
-    "typescript": "^4.3.5"
+    "typescript": "^6.0.3"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

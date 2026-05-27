@@ -1,147 +1,286 @@
+use ethnum::U256;
 use solana_keccak_hasher::hashv;
 
-use crate::error::VerifyError;
+use crate::error::MolphaError;
 
-/// Max derivation attempts (bounded compute); Solidity loop is unbounded.
-const DERIVE_GROUP_BITMAP_MAX_ATTEMPTS: u64 = 65_536;
+/// `keccak256("MOLPHA_SELECTION_DERIVE")` — EVM `NodeGroupBitmapLib.SELECTION_DOMAIN`.
+const SELECTION_DOMAIN: [u8; 32] = [
+    0x49, 0x28, 0x48, 0xfe, 0x5e, 0x85, 0xd4, 0xce, 0x22, 0x31, 0xd6, 0x93, 0xa5, 0x8f, 0x08,
+    0x20, 0xa4, 0x05, 0x6e, 0x28, 0x22, 0xfe, 0x5d, 0xca, 0xd7, 0xc7, 0x56, 0xaf, 0xe0, 0x44,
+    0xb7, 0x0b,
+];
 
-/// Solidity `uint256` layout for bitmaps: bit `pos` has weight `1 << pos`, `pos == 0` is the integer LSB (byte 31, bit 0).
+/// Max Keccak-256 rounds (bounded compute); Solidity loop is unbounded.
+const DERIVE_GROUP_BITMAP_MAX_ROUNDS: u64 = 65_536;
+
+/// EVM `uint256` bitmap loaded from Solidity `bytes32` (big-endian).
 #[inline]
-pub fn evm_bitmap_bit_set(bitmap: &[u8; 32], pos: usize) -> bool {
+pub fn bitmap_load(bytes: &[u8; 32]) -> U256 {
+    U256::from_be_bytes(*bytes)
+}
+
+/// Serialize an EVM `uint256` bitmap to `bytes32` for storage / hashing.
+#[inline]
+pub fn bitmap_store(value: U256) -> [u8; 32] {
+    value.to_be_bytes()
+}
+
+/// Solidity `uint256` layout: bit `pos` has weight `1 << pos`, `pos == 0` is the integer LSB.
+#[inline]
+pub fn bitmap_bit_set(bitmap: &[u8; 32], pos: usize) -> bool {
     debug_assert!(pos < 256);
-    let byte = 31 - (pos >> 3);
-    let bit = pos & 7;
-    (bitmap[byte] >> bit) & 1 == 1
+    (bitmap_load(bitmap) >> pos) & U256::from(1u8) != U256::ZERO
 }
 
 #[inline]
-pub fn evm_bitmap_set_bit(bitmap: &mut [u8; 32], pos: usize) {
+pub fn bitmap_set_bit(bitmap: &mut [u8; 32], pos: usize) {
     debug_assert!(pos < 256);
-    let byte = 31 - (pos >> 3);
-    let bit = pos & 7;
-    bitmap[byte] |= 1 << bit;
+    let mut v = bitmap_load(bitmap);
+    v |= U256::from(1u8) << pos;
+    *bitmap = bitmap_store(v);
+}
+
+#[inline]
+pub fn bitmap_clear_bit(bitmap: &mut [u8; 32], pos: usize) {
+    debug_assert!(pos < 256);
+    let mut v = bitmap_load(bitmap);
+    v &= !(U256::from(1u8) << pos);
+    *bitmap = bitmap_store(v);
 }
 
 pub fn bitmap_popcount_evm(bitmap: &[u8; 32]) -> u32 {
-    bitmap.iter().map(|b| b.count_ones()).sum()
+    bitmap_load(bitmap).count_ones()
+}
+
+/// `sub ⊆ sup` when both are already loaded as `U256`.
+#[inline]
+pub fn bitmap_is_subset_u256(sub: U256, sup: U256) -> bool {
+    (sub & !sup) == U256::ZERO
+}
+
+/// Reject signers with bits outside `[0, node_count)`.
+pub fn validate_bitmap_upper_bits_clear_u256(bitmap: U256, node_count: u32) -> Result<(), MolphaError> {
+    if node_count > 256 {
+        return Err(MolphaError::InvalidSignersBitmap);
+    }
+    let mask = if node_count == 256 {
+        U256::MAX
+    } else {
+        (U256::from(1u8) << node_count) - U256::from(1u8)
+    };
+    if (bitmap & !mask) != U256::ZERO {
+        return Err(MolphaError::InvalidSignersBitmap);
+    }
+    Ok(())
+}
+
+/// Visit set bits in ascending order; returns the peeled bitmap (zero when fully consumed).
+pub fn for_each_set_bit_u256<F, E>(mut bm: U256, mut f: F) -> Result<U256, E>
+where
+    F: FnMut(usize) -> Result<(), E>,
+{
+    while bm != U256::ZERO {
+        let bit_pos = bm.trailing_zeros() as usize;
+        bm &= bm - U256::from(1u8);
+        f(bit_pos)?;
+    }
+    Ok(bm)
 }
 
 /// Bitmap **bit index** of the signer at 0-based rank `pos` when signers are ordered by ascending
 /// bit index (same order as EVM `Validator.verify` combines pubkeys).
-///
-/// `pos` is the signer’s position in that list (`0` = first / lowest bit, `1` = second, …), not the
-/// bit index itself. For the latter, use [`evm_bitmap_bit_set`].
-///
-/// Returns `None` if the bitmap has fewer than `pos + 1` signers.
 pub fn get_index(bitmap: &[u8; 32], pos: usize) -> Option<usize> {
-    let mut seen = 0usize;
-    for bit_pos in 0..256 {
-        if evm_bitmap_bit_set(bitmap, bit_pos) {
-            if seen == pos {
-                return Some(bit_pos);
-            }
-            seen += 1;
+    let mut bm = bitmap_load(bitmap);
+    let mut rank = 0usize;
+    while bm != U256::ZERO {
+        let bit_pos = bm.trailing_zeros() as usize;
+        if rank == pos {
+            return Some(bit_pos);
         }
+        bm &= bm - U256::from(1u8);
+        rank += 1;
     }
     None
 }
 
-fn u256_be_mod_bytes(hash: &[u8; 32], modulus: u32) -> u32 {
-    if modulus == 0 {
-        return 0;
+/// Iterate set bit positions in ascending order (EVM signer order).
+pub fn for_each_set_bit<F>(bitmap: &[u8; 32], mut f: F)
+where
+    F: FnMut(usize),
+{
+    let mut bm = bitmap_load(bitmap);
+    while bm != U256::ZERO {
+        let bit_pos = bm.trailing_zeros() as usize;
+        f(bit_pos);
+        bm &= bm - U256::from(1u8);
     }
-    let mut rem = 0u64;
-    for byte in hash.iter() {
-        rem = ((rem << 8) | (*byte as u64)) % (modulus as u64);
-    }
-    rem as u32
 }
 
-fn u32_as_u256_be(x: u32) -> [u8; 32] {
+fn u256_be_from_u64(counter: u64) -> [u8; 32] {
     let mut out = [0u8; 32];
-    out[28..32].copy_from_slice(&x.to_be_bytes());
+    out[24..32].copy_from_slice(&counter.to_be_bytes());
     out
 }
 
-fn u64_as_u256_be(x: u64) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[24..32].copy_from_slice(&x.to_be_bytes());
-    out
+/// `keccak256(seed || SELECTION_DOMAIN || counter_be)` — uses `sol_keccak256` on BPF.
+fn selection_hash_round(seed: &[u8; 32], counter: u64) -> [u8; 32] {
+    let counter_word = u256_be_from_u64(counter);
+    hashv(&[seed.as_ref(), &SELECTION_DOMAIN, &counter_word]).to_bytes()
 }
 
-/// Port of `NodeGroupBitmapLib.derive` from the EVM reference.
-pub fn derive_group_bitmap(
+#[inline]
+fn full_mask_u256(node_count: u32) -> U256 {
+    if node_count == 256 {
+        U256::MAX
+    } else {
+        (U256::from(1u8) << node_count) - U256::from(1u8)
+    }
+}
+
+/// Without-replacement sampling — port of EVM `_sampleWithoutReplacement`.
+fn sample_without_replacement(
     seed: &[u8; 32],
-    round: u32,
     node_count: u32,
     group_size: u32,
-) -> Result<[u8; 32], VerifyError> {
-    if node_count == 0 {
-        return Err(VerifyError::GroupBitmapDerivationFailed);
-    }
-    if group_size > node_count {
-        return Err(VerifyError::GroupBitmapDerivationFailed);
-    }
-    if group_size == 0 {
-        return Ok([0u8; 32]);
-    }
-    if group_size == node_count {
-        if node_count == 256 {
-            return Ok([0xFFu8; 32]);
-        }
-        let mut bm = [0u8; 32];
-        for pos in 0..node_count as usize {
-            evm_bitmap_set_bit(&mut bm, pos);
-        }
-        return Ok(bm);
-    }
-
-    let mut bitmap = [0u8; 32];
+) -> Result<U256, MolphaError> {
+    let limit = (u64::from(u32::MAX) / u64::from(node_count)) * u64::from(node_count);
+    let mut bitmap = U256::ZERO;
     let mut selected = 0u32;
-    let mut attempt = 0u64;
-    let round_word = u32_as_u256_be(round);
+    let mut counter = 0u64;
 
     while selected < group_size {
-        if attempt >= DERIVE_GROUP_BITMAP_MAX_ATTEMPTS {
-            return Err(VerifyError::GroupBitmapDerivationFailed);
+        if counter >= DERIVE_GROUP_BITMAP_MAX_ROUNDS {
+            return Err(MolphaError::GroupBitmapDerivationFailed);
         }
 
-        let mut preimage = [0u8; 96];
-        preimage[..32].copy_from_slice(seed);
-        preimage[32..64].copy_from_slice(&round_word);
-        preimage[64..96].copy_from_slice(&u64_as_u256_be(attempt));
+        let digest = selection_hash_round(seed, counter);
+        counter += 1;
 
-        let h = hashv(&[&preimage]).to_bytes();
-        let pos = u256_be_mod_bytes(&h, node_count) as usize;
+        let mut word = bitmap_load(&digest);
+        for _ in 0..8 {
+            if selected >= group_size {
+                break;
+            }
 
-        if !evm_bitmap_bit_set(&bitmap, pos) {
-            evm_bitmap_set_bit(&mut bitmap, pos);
-            selected += 1;
+            let limb = u32::try_from(word >> 224).unwrap_or(u32::MAX);
+            word <<= 32;
+
+            if u64::from(limb) < limit {
+                let pos = (limb % node_count) as usize;
+                let bit = U256::from(1u8) << pos;
+                if (bitmap & bit) == U256::ZERO {
+                    bitmap |= bit;
+                    selected += 1;
+                }
+            }
         }
-
-        attempt += 1;
     }
 
     Ok(bitmap)
 }
 
+/// Port of `NodeGroupBitmapLib.derive` from the EVM reference.
+pub fn derive_group_bitmap(
+    seed: &[u8; 32],
+    node_count: u32,
+    group_size: u32,
+) -> Result<[u8; 32], MolphaError> {
+    if node_count == 0 {
+        return Err(MolphaError::GroupBitmapDerivationFailed);
+    }
+    if node_count > 256 {
+        return Err(MolphaError::GroupBitmapDerivationFailed);
+    }
+    if group_size > node_count {
+        return Err(MolphaError::GroupBitmapDerivationFailed);
+    }
+    if group_size == 0 {
+        return Ok([0u8; 32]);
+    }
+    if group_size == node_count {
+        return Ok(bitmap_store(full_mask_u256(node_count)));
+    }
+
+    let bitmap = if group_size > node_count / 2 {
+        let excluded = sample_without_replacement(seed, node_count, node_count - group_size)?;
+        full_mask_u256(node_count) ^ excluded
+    } else {
+        sample_without_replacement(seed, node_count, group_size)?
+    };
+
+    Ok(bitmap_store(bitmap))
+}
+
 pub fn bitmap_is_subset(sub: &[u8; 32], sup: &[u8; 32]) -> bool {
-    sub.iter().zip(sup.iter()).all(|(a, b)| *a & !*b == 0)
+    let sub = bitmap_load(sub);
+    let sup = bitmap_load(sup);
+    (sub & !sup) == U256::ZERO
+}
+
+/// Selection slot count: `min(node_count, signatures_required + redundancy_buffer)`.
+#[inline]
+pub fn effective_selection_size(
+    signatures_required: u8,
+    redundancy_buffer: u8,
+    node_count: u32,
+) -> u32 {
+    (signatures_required as u32)
+        .saturating_add(redundancy_buffer as u32)
+        .min(node_count)
+}
+
+pub const MOLPHA_SELECTION_V1: &[u8] = b"MOLPHA_SELECTION_V1";
+
+/// v0.3 selection: rank active bits in `accepted_bitmap` by
+/// `keccak256(selection_seed || node_index_be)` and take the first `group_size`.
+pub fn derive_selection_bitmap(
+    job_id: &[u8; 32],
+    registry_version: u32,
+    round_id: &[u8; 32],
+    accepted_bitmap: &[u8; 32],
+    group_size: u8,
+) -> Result<[u8; 32], MolphaError> {
+    if group_size == 0 {
+        return Ok([0u8; 32]);
+    }
+
+    let active_count = bitmap_popcount_evm(accepted_bitmap);
+    if (group_size as u32) > active_count {
+        return Err(MolphaError::InvalidSelectionBitmap);
+    }
+    if active_count == group_size as u32 {
+        return Ok(*accepted_bitmap);
+    }
+
+    let selection_seed = hashv(&[
+        MOLPHA_SELECTION_V1,
+        job_id.as_ref(),
+        registry_version.to_be_bytes().as_ref(),
+        round_id.as_ref(),
+    ])
+    .to_bytes();
+
+    let mut ranked: Vec<([u8; 32], u32)> = Vec::new();
+    for_each_set_bit(accepted_bitmap, |bit_pos| {
+        let rank_hash =
+            hashv(&[selection_seed.as_ref(), (bit_pos as u32).to_be_bytes().as_ref()]).to_bytes();
+        ranked.push((rank_hash, bit_pos as u32));
+    });
+
+    ranked.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut out = U256::ZERO;
+    for (_, node_index) in ranked.into_iter().take(group_size as usize) {
+        out |= U256::from(1u8) << node_index;
+    }
+    Ok(bitmap_store(out))
 }
 
 pub fn validate_bitmap_upper_bits_clear(
     bitmap: &[u8; 32],
     node_count: u32,
-) -> Result<(), VerifyError> {
-    if node_count > 256 {
-        return Err(VerifyError::InvalidSignersBitmap);
-    }
-    for pos in (node_count as usize)..256 {
-        if evm_bitmap_bit_set(bitmap, pos) {
-            return Err(VerifyError::InvalidSignersBitmap);
-        }
-    }
-    Ok(())
+) -> Result<(), MolphaError> {
+    validate_bitmap_upper_bits_clear_u256(bitmap_load(bitmap), node_count)
 }
 
 #[cfg(test)]
@@ -164,10 +303,133 @@ mod tests {
     #[test]
     fn get_index_skips_gaps() {
         let mut bm = [0u8; 32];
-        evm_bitmap_set_bit(&mut bm, 5);
-        evm_bitmap_set_bit(&mut bm, 10);
+        bitmap_set_bit(&mut bm, 5);
+        bitmap_set_bit(&mut bm, 10);
         assert_eq!(get_index(&bm, 0), Some(5));
         assert_eq!(get_index(&bm, 1), Some(10));
         assert_eq!(get_index(&bm, 2), None);
+    }
+
+    #[test]
+    fn validate_bitmap_upper_bits_clear_rejects_high_bits() {
+        let mut bm = [0u8; 32];
+        bitmap_set_bit(&mut bm, 10);
+        assert!(validate_bitmap_upper_bits_clear(&bm, 8).is_err());
+        assert!(validate_bitmap_upper_bits_clear(&bm, 11).is_ok());
+    }
+
+    #[test]
+    fn u256_bit_ops_match_byte_layout() {
+        let mut bm = [0u8; 32];
+        bitmap_set_bit(&mut bm, 0);
+        bitmap_set_bit(&mut bm, 7);
+        bitmap_set_bit(&mut bm, 255);
+        assert!(bitmap_bit_set(&bm, 0));
+        assert!(bitmap_bit_set(&bm, 7));
+        assert!(bitmap_bit_set(&bm, 255));
+        assert!(!bitmap_bit_set(&bm, 1));
+        assert_eq!(bitmap_popcount_evm(&bm), 3);
+    }
+
+    #[test]
+    fn effective_selection_size_caps_at_node_count() {
+        assert_eq!(effective_selection_size(8, 2, 8), 8);
+        assert_eq!(effective_selection_size(5, 2, 8), 7);
+        assert_eq!(effective_selection_size(10, 2, 8), 8);
+    }
+
+    #[test]
+    fn derive_selection_bitmap_full_bitmap_shortcut() {
+        let mut accepted = [0u8; 32];
+        bitmap_set_bit(&mut accepted, 0);
+        bitmap_set_bit(&mut accepted, 1);
+        bitmap_set_bit(&mut accepted, 2);
+
+        let job_id = [2u8; 32];
+        let round_id = [3u8; 32];
+
+        let got = derive_selection_bitmap(&job_id, 1, &round_id, &accepted, 3).unwrap();
+        assert_eq!(got, accepted);
+    }
+
+    #[test]
+    fn derive_selection_bitmap_zero_group_size() {
+        let mut accepted = [0u8; 32];
+        bitmap_set_bit(&mut accepted, 0);
+
+        let got = derive_selection_bitmap(&[0u8; 32], 0, &[0u8; 32], &accepted, 0).unwrap();
+        assert_eq!(got, [0u8; 32]);
+    }
+
+    #[test]
+    fn derive_selection_bitmap_deterministic_subset() {
+        let mut accepted = [0u8; 32];
+        bitmap_set_bit(&mut accepted, 0);
+        bitmap_set_bit(&mut accepted, 5);
+        bitmap_set_bit(&mut accepted, 10);
+
+        let job_id = [8u8; 32];
+        let round_id = [9u8; 32];
+
+        let a = derive_selection_bitmap(&job_id, 42, &round_id, &accepted, 2).unwrap();
+        let b = derive_selection_bitmap(&job_id, 42, &round_id, &accepted, 2).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(bitmap_popcount_evm(&a), 2);
+        assert!(bitmap_is_subset(&a, &accepted));
+    }
+
+    #[test]
+    fn derive_group_bitmap_matches_evm_reference_vectors() {
+        let seed = [0x11u8; 32];
+        let cases: &[(u32, u32, &str)] = &[
+            (8, 3, "0000000000000000000000000000000000000000000000000000000000000038"),
+            (10, 7, "00000000000000000000000000000000000000000000000000000000000003d3"),
+            (16, 5, "0000000000000000000000000000000000000000000000000000000000002c30"),
+            (
+                32,
+                20,
+                "00000000000000000000000000000000000000000000000000000000d7ddb3a1",
+            ),
+        ];
+        for (node_count, group_size, want_hex) in cases {
+            let got = derive_group_bitmap(&seed, *node_count, *group_size).unwrap();
+            let want = hex_to_bytes32(want_hex);
+            assert_eq!(got, want, "n={node_count} g={group_size}");
+        }
+    }
+
+    #[test]
+    fn derive_group_bitmap_complement_path_matches_direct_sample() {
+        let seed = [0x22u8; 32];
+        let node_count = 10u32;
+        let group_size = 7u32;
+        let direct = derive_group_bitmap(&seed, node_count, group_size).unwrap();
+        let excluded = derive_group_bitmap(&seed, node_count, node_count - group_size).unwrap();
+        let mut full = [0u8; 32];
+        for pos in 0..node_count as usize {
+            bitmap_set_bit(&mut full, pos);
+        }
+        let excluded_bm = bitmap_load(&excluded);
+        let complement = bitmap_store(bitmap_load(&full) ^ excluded_bm);
+        assert_eq!(direct, complement);
+    }
+
+    fn hex_to_bytes32(hex: &str) -> [u8; 32] {
+        let hex = hex.strip_prefix("0x").unwrap_or(hex);
+        let mut out = [0u8; 32];
+        for (i, chunk) in hex.as_bytes().chunks(2).enumerate() {
+            let s = std::str::from_utf8(chunk).unwrap();
+            out[i] = u8::from_str_radix(s, 16).unwrap();
+        }
+        out
+    }
+
+    #[test]
+    fn derive_selection_bitmap_errors_when_group_too_large() {
+        let mut accepted = [0u8; 32];
+        bitmap_set_bit(&mut accepted, 0);
+
+        let err = derive_selection_bitmap(&[0u8; 32], 0, &[0u8; 32], &accepted, 2);
+        assert!(matches!(err, Err(MolphaError::InvalidSelectionBitmap)));
     }
 }

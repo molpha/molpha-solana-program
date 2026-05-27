@@ -4,7 +4,7 @@ import { expect } from "@jest/globals";
 // Make Jest's expect available globally
 global.expect = expect;
 
-// Bankrun + startAnchor can exceed 60s on cold SBF builds; wormhole tests load an extra program.
+// Bankrun + startAnchor can exceed 60s on cold SBF builds.
 jest.setTimeout(180000);
 
 // Add Mocha-style hooks for compatibility

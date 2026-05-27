@@ -29,52 +29,6 @@ async function main() {
     program.programId
   );
 
-  // Helper function to derive Wormhole accounts
-  function getWormholeAccounts(protocolConfig, protocolConfigPDA) {
-    const wormholeBridgeProgram = protocolConfig.wormholeBridgeProgram;
-    const isWormholeConfigured =
-      wormholeBridgeProgram &&
-      !wormholeBridgeProgram.equals(anchor.web3.PublicKey.default);
-
-    // Use configured bridge program or default to SystemProgram for mock accounts
-    const bridgeProgram = isWormholeConfigured
-      ? wormholeBridgeProgram
-      : anchor.web3.SystemProgram.programId;
-
-    // Derive Wormhole bridge config PDA
-    const [wormholeBridge] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("Bridge")],
-      bridgeProgram
-    );
-
-    // Derive Wormhole sequence PDA (emitter is protocol config PDA)
-    const [wormholeSequence] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("Sequence"), protocolConfigPDA.toBuffer()],
-      bridgeProgram
-    );
-
-    // Derive Wormhole fee collector PDA
-    const [wormholeFeeCollector] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("fee_collector")],
-      bridgeProgram
-    );
-
-    // Generate a fresh keypair for the message account (signer)
-    const wormholeMessage = anchor.web3.Keypair.generate();
-
-    return {
-      wormholeBridgeProgram: bridgeProgram,
-      wormholeBridge,
-      wormholeMessage,
-      wormholeEmitter: protocolConfigPDA, // Protocol config is the emitter
-      wormholeSequence,
-      wormholeFeeCollector,
-      clock: SYSVAR_CLOCK_PUBKEY,
-      rent: SYSVAR_RENT_PUBKEY,
-      isWormholeConfigured,
-    };
-  }
-
   try {
     const nodePubkey = new anchor.web3.PublicKey(process.argv[2]);
 
@@ -117,12 +71,6 @@ async function main() {
     const underlyingToken = protocolConfig.underlyingToken;
     const securityDeposit = protocolConfig.nodeSecurityDeposit;
 
-    // Get Wormhole accounts
-    const wormholeAccounts = getWormholeAccounts(
-      protocolConfig,
-      protocolConfigPDA
-    );
-
     // Get operator's token account
     const nodeOperatorTokenAccount = getAssociatedTokenAddressSync(
       underlyingToken,
@@ -163,16 +111,6 @@ async function main() {
     console.log("Security Deposit:", securityDeposit.toString(), "tokens");
     console.log("EVM Pubkey:", evmPubkey.toString("hex"));
     console.log("Node URL:", url);
-    if (wormholeAccounts.isWormholeConfigured) {
-      console.log("🌉 Wormhole: Enabled");
-      console.log(
-        "   Bridge Program:",
-        wormholeAccounts.wormholeBridgeProgram.toString()
-      );
-      console.log("   Target Chains:", protocolConfig.targetChainIds || []);
-    } else {
-      console.log("🌉 Wormhole: Disabled (no cross-chain messaging)");
-    }
     console.log("");
     console.log("💰 Balance Information:");
     console.log("SOL Balance:", solBalanceSOL.toFixed(6), "SOL");
@@ -242,17 +180,7 @@ async function main() {
         systemProgram: anchor.web3.SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        // // Wormhole accounts (required even if Wormhole is disabled)
-        // wormholeBridgeProgram: wormholeAccounts.wormholeBridgeProgram,
-        // wormholeBridge: wormholeAccounts.wormholeBridge,
-        // wormholeMessage: wormholeAccounts.wormholeMessage.publicKey,
-        // wormholeEmitter: wormholeAccounts.wormholeEmitter,
-        // wormholeSequence: wormholeAccounts.wormholeSequence,
-        // wormholeFeeCollector: wormholeAccounts.wormholeFeeCollector,
-        // clock: wormholeAccounts.clock,
-        // rent: wormholeAccounts.rent,
       })
-      // .signers([wormholeAccounts.wormholeMessage])
       .rpc();
 
     console.log("✅ Node registered successfully!");

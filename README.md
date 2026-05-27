@@ -89,61 +89,86 @@ programs/
             └── faucet_config.rs
 ```
 
-## Quick Start
+## 🚀 Getting Started
 
-### Prerequisites
+### For Users & Integrators
+
+**Want to use Molpha oracles in your app?**
+
+👉 **Start here: [Quick Start Guide](QUICK_START.md)** - Get up and running in 5 minutes
+
+📖 **Then read: [User Guide](MOLPHA_USER_GUIDE.md)** - Complete documentation
+
+🔨 **Integration help: [Integration Guide](INTEGRATION_GUIDE.md)** - Step-by-step instructions
+
+### For Developers
+
+#### Prerequisites
 
 - Rust 1.70+
 - Solana CLI 1.17+
 - Anchor 0.30+
 - Node.js 18+
 
-### Build
+#### TypeScript CLI
+
+Use the in-repo CLI for operator flows and local testing:
 
 ```bash
+yarn build:cli
+yarn molpha --help
+```
+
+See [`cli/README.md`](cli/README.md) for the full command surface and end-to-end examples.
+
+#### Build & Deploy
+
+```bash
+# Build the program
 anchor build
-```
 
-### Test
-
-```bash
+# Run tests
 anchor test
-```
 
-### Deploy
+# CU regression (bankrun): verify/submit_data_update @ 3/8/18 signers
+yarn cu:data-update:bankrun
 
-```bash
 # Deploy to devnet
 anchor deploy --provider.cluster devnet
-
-# Deploy to mainnet
-anchor deploy --provider.cluster mainnet
 ```
 
-## Usage Examples
+#### Compute budgets (`submit_data_update` / `verify_data_update`)
 
-### Creating a Feed
+Bankrun measurements (see [`docs/solana-verifier-cu-optimization-v1.md`](docs/solana-verifier-cu-optimization-v1.md)):
 
-```bash
-node scripts/create-feed.js \
-  --name "BTC/USD" \
-  --type personal \
-  --frequency 60 \
-  --threshold 2
+| Signers | `verify_data_update` | `submit_data_update` |
+|---|---|---|
+| 3 | ~234K | ~239K |
+| 8 | ~299K | ~304K |
+| 18 | ~430K | ~436K |
+
+Recommended client `SetComputeUnitLimit`: **500,000** for submit-only (no receipt accounts); **700,000** if bundling receipt writes. CI enforces ceilings via `yarn cu:data-update:bankrun`.
+
+#### Quick Integration Example
+
+**TypeScript:**
+```typescript
+import { MolphaOracleClient } from './oracle-client';
+
+const client = new MolphaOracleClient(program, connection);
+const price = await client.getPrice(feedAddress);
+console.log(`Price: $${price.value}`);
 ```
 
-### Publishing Data
+**Rust:**
+```rust
+use molpha::adapters::pyth::PythCompatible;
 
-```bash
-node scripts/publish-answer.js \
-  --feed <FEED_PUBKEY> \
-  --value <ANSWER_VALUE> \
-  --signature <NODE_SIGNATURE>
+let price = feed.get_pyth_price_no_older_than(60)?;
+let actual_price = price.price as f64 * 10f64.powi(price.expo);
 ```
 
-### Consuming Feed Data
-
-See [example-oracle-usage.ts](scripts/example-oracle-usage.ts) for TypeScript examples.
+See [example-oracle-usage.ts](scripts/example-oracle-usage.ts) for complete examples.
 
 ## Program IDs
 
@@ -152,10 +177,27 @@ See [example-oracle-usage.ts](scripts/example-oracle-usage.ts) for TypeScript ex
 
 ## Documentation
 
+### 📚 User Documentation
+
+Start here to learn how to use and integrate Molpha oracles:
+
+- **[Documentation Index](DOCUMENTATION_INDEX.md)** - Find the right documentation for your needs
+- **[Quick Start](QUICK_START.md)** - Get up and running in 5 minutes
+- **[User Guide](MOLPHA_USER_GUIDE.md)** - Complete guide to using Molpha oracles
+- **[Integration Guide](INTEGRATION_GUIDE.md)** - Step-by-step integration instructions
+- **[API Reference](API_REFERENCE.md)** - Complete API documentation
+
+### 🔧 Technical Documentation
+
+- [Oracle Interfaces](ORACLE_INTERFACES.md) - Technical interface specifications
 - [Adapter Guide](programs/molpha/src/adapters/README.md) - Oracle compatibility layer
+- [Scripts Guide](scripts/README.md) - Utility scripts documentation
+
+### 📋 Project Information
+
 - [Complete Summary](COMPLETE_SUMMARY.md) - Recent implementation details
-- [Oracle Interfaces](ORACLE_INTERFACES.md) - Interface specifications
 - [Migration Guide](MIGRATION_GUIDE.md) - Upgrade instructions
+- [Devnet Deployment](DEVNET_DEPLOYMENT.md) - Devnet deployment guide
 - [Faucet README](FAUCET_README.md) - Test token faucet
 
 ## Scripts

@@ -725,6 +725,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
+name = "ethnum"
+version = "1.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40404c3f5f511ec4da6fe866ddf6a717c309fdbb69fbbad7b0f3edab8f2e835f"
+
+[[package]]
 name = "faucet"
 version = "0.1.0"
 dependencies = [
@@ -1042,22 +1048,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "mock_wormhole_bridge"
-version = "0.1.0"
-dependencies = [
- "solana-program",
-]
-
-[[package]]
 name = "molpha"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
  "borsh 0.10.4",
+ "ethnum",
  "libsecp256k1",
  "num-bigint",
- "sha2 0.10.9",
  "solana-keccak-hasher 3.1.0",
  "solana-sdk-ids",
  "solana-secp256k1-recover 3.1.1",

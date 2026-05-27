@@ -2,7 +2,6 @@
 
 use anchor_lang::prelude::*;
 
-pub mod adapters;
 pub mod error;
 pub mod events;
 pub mod instructions;
@@ -10,77 +9,98 @@ pub mod state;
 pub mod utils;
 
 use instructions::*;
-use state::*;
+use state::PlanType;
 
-declare_id!("MoLf7ZFr5KgMPf4UvNaGnuN1QjxNRctP2iYu5PLZH2m");
+declare_id!("MLPHd2Pv9D4WhGUyh3FJYGvd4rR9SMProkSNcXm7zh9");
 
 #[program]
 pub mod molpha {
     use super::*;
 
-    // Protocol initialization
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        instructions::initialize(ctx)
+    pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> {
+        instructions::initialize(ctx, args)
     }
 
-    // Node management
     pub fn register_node(
         ctx: Context<RegisterNode>,
-        node_pubkey: Pubkey,
-        evm_pubkey: Vec<u8>,
-        url: String,
+        args: RegisterNodeArgs,
+        node_id: [u8; 32],
     ) -> Result<()> {
-        instructions::register_node(ctx, node_pubkey, evm_pubkey, url)
+        instructions::register_node(ctx, args, node_id)
     }
 
-    // Feed management functions (from molpha-feed)
-    pub fn create_feed(
-        ctx: Context<CreateFeed>,
-        params: CreateFeedParams,
-        subscription_duration_seconds: u64,
+    pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
+        instructions::deactivate_node(ctx)
+    }
+
+    pub fn finalize_registry_transition(ctx: Context<FinalizeRegistryTransition>) -> Result<()> {
+        instructions::finalize_registry_transition(ctx)
+    }
+
+    pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
+        instructions::add_plan(ctx, args)
+    }
+
+    pub fn update_plan(ctx: Context<UpdatePlan>, args: UpdatePlanArgs) -> Result<()> {
+        instructions::update_plan(ctx, args)
+    }
+
+    pub fn create_job(
+        ctx: Context<CreateJob>,
+        args: CreateJobArgs,
+        job_id: [u8; 32],
     ) -> Result<()> {
-        instructions::create_feed(ctx, params, subscription_duration_seconds)
+        instructions::create_job(ctx, args, job_id)
     }
 
-    pub fn extend_subscription(
-        ctx: Context<ExtendSubscription>,
-        additional_duration_seconds: u64,
+    pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
+        instructions::subscribe(ctx, plan_type)
+    }
+
+    pub fn extend_subscription(ctx: Context<ExtendSubscription>) -> Result<()> {
+        instructions::extend_subscription(ctx)
+    }
+
+    pub fn admin_withdraw_subscription_vault(
+        ctx: Context<AdminWithdrawSubscriptionVault>,
     ) -> Result<()> {
-        instructions::extend_subscription(ctx, additional_duration_seconds)
+        instructions::admin_withdraw_subscription_vault(ctx)
     }
 
-    pub fn update_feed_config(
-        ctx: Context<UpdateFeedConfig>,
-        params: UpdateFeedConfigParams,
+    pub fn add_delegate(ctx: Context<AddDelegate>, args: AddDelegateArgs) -> Result<()> {
+        instructions::add_delegate(ctx, args)
+    }
+
+    pub fn remove_delegate(ctx: Context<RemoveDelegate>, args: RemoveDelegateArgs) -> Result<()> {
+        instructions::remove_delegate(ctx, args)
+    }
+
+    pub fn submit_data_update(
+        ctx: Context<SubmitDataUpdate>,
+        args: SubmitDataUpdateArgs,
     ) -> Result<()> {
-        instructions::update_feed_config(ctx, params)
+        instructions::submit_data_update(ctx, args)
     }
 
-    pub fn publish_answer(ctx: Context<PublishAnswer>, answer: Answer) -> Result<()> {
-        instructions::publish_answer(ctx, answer)
-    }
-
-    pub fn verify_answer(ctx: Context<VerifyAnswer>, params: VerifyAnswerArgs) -> Result<()> {
-        instructions::verify_answer(ctx, params)
-    }
-
-    // Data source management functions
-    pub fn create_data_source(ctx: Context<CreateDataSource>, data: DataSourceInfo) -> Result<()> {
-        instructions::create_data_source(ctx, data)
-    }
-
-    pub fn update_data_source(
-        ctx: Context<UpdateDataSource>,
-        metadata_hash: [u8; 32],
+    pub fn verify_data_update(
+        ctx: Context<VerifyDataUpdate>,
+        args: SubmitDataUpdateArgs,
     ) -> Result<()> {
-        instructions::update_data_source(ctx, metadata_hash)
+        instructions::verify_data_update(ctx, args)
     }
 
-    // Protocol configuration management
-    pub fn update_protocol_config(
-        ctx: Context<UpdateProtocolConfig>,
-        params: UpdateProtocolConfigParams,
+    #[cfg(feature = "cu-bench")]
+    pub fn bench_noop(ctx: Context<BenchDeriveGroupBitmap>) -> Result<()> {
+        instructions::bench_noop(ctx)
+    }
+
+    #[cfg(feature = "cu-bench")]
+    pub fn bench_derive_group_bitmap(
+        ctx: Context<BenchDeriveGroupBitmap>,
+        seed: [u8; 32],
+        node_count: u32,
+        group_size: u32,
     ) -> Result<()> {
-        instructions::update_protocol_config(ctx, params)
+        instructions::bench_derive_group_bitmap(ctx, seed, node_count, group_size)
     }
 }

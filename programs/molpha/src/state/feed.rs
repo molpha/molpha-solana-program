@@ -1,50 +1,32 @@
-use super::{Answer, FeedType};
 use anchor_lang::prelude::*;
 
-pub const MAX_HISTORY: usize = 20; // Reduced from 100 to 20
-
 #[account]
-#[derive(Default, InitSpace)]
+#[derive(InitSpace)]
 pub struct Feed {
-    // Existing feed data
-    pub name_hash: [u8; 32],
-    pub authority: Pubkey,
-    pub feed_type: FeedType,
     pub job_id: [u8; 32],
-    pub data_source: Pubkey,
-    pub min_signatures_threshold: u8,
-    pub frequency: u64,
-    #[max_len(60)]
-    pub ipfs_cid: String,
-    pub latest_answer: Answer,
-    #[max_len(MAX_HISTORY)]
-    pub answer_history: Vec<Answer>,
-    pub history_idx: u64,
-
-    // Integrated subscription data (like SubscriptionRegistry)
-    pub subscription_due_time: i64,
-    pub price_per_second_scaled: u64,
-    pub created_at: i64,
-    /// Job seed for round/group derivation; advances after each successful publish (EVM jobState seed).
-    pub seed: [u8; 32],
-    /// Round counter advanced after each publish (matches EVM packed round).
-    pub current_round: u32,
+    pub registry_version: u32,
+    pub round_id: [u8; 32],
+    pub canonical_timestamp: i64,
+    pub value: [u8; 32],
+    pub signers_bitmap: [u8; 32],
+    pub signatures_required: u8,
+    pub last_updated_slot: u64,
     pub bump: u8,
 }
 
 impl Feed {
-    pub const SEED_PREFIX: &'static [u8] = b"feed";
-    pub const SPACE: usize = 8 + Feed::INIT_SPACE;
+    pub const SEED_PREFIX: &'static [u8] = b"molpha_feed";
+    pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
-    pub fn is_subscription_active(&self, current_time: i64) -> bool {
-        self.subscription_due_time > current_time
-    }
-
-    pub fn remaining_subscription_time(&self, current_time: i64) -> i64 {
-        if self.subscription_due_time > current_time {
-            self.subscription_due_time - current_time
-        } else {
-            0
-        }
+    pub fn init(&mut self, job_id: [u8; 32], bump: u8) {
+        self.job_id = job_id;
+        self.registry_version = 0;
+        self.round_id = [0u8; 32];
+        self.canonical_timestamp = 0;
+        self.value = [0u8; 32];
+        self.signers_bitmap = [0u8; 32];
+        self.signatures_required = 0;
+        self.last_updated_slot = 0;
+        self.bump = bump;
     }
 }

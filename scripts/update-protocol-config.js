@@ -103,7 +103,6 @@ async function updateProtocolConfig(program, params) {
       nodeSecurityDeposit: params.securityDeposit
         ? parseTokenAmount(params.securityDeposit, 6)
         : null,
-      wormholeBridgeProgram: null,
       targetChainIds: null,
     };
 

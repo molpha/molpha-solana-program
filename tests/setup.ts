@@ -12,11 +12,6 @@ import * as toml from "toml";
 import * as fs from "fs";
 import * as crypto from "crypto";
 import { AddedAccount, startAnchor } from "solana-bankrun";
-import {
-  createDefaultMockWormholeAccounts,
-  MOCK_WORMHOLE_BRIDGE_PROGRAM,
-  WormholeAccounts,
-} from "./helpers/wormhole";
 
 export interface TestContext {
   molphaProgram: Program<Molpha>;
@@ -203,10 +198,6 @@ export async function getProvider() {
         name: "molpha",
         programId: getProgramId(),
       },
-      {
-        name: "mock_wormhole_bridge",
-        programId: MOCK_WORMHOLE_BRIDGE_PROGRAM,
-      },
     ],
     wa
   );
@@ -298,8 +289,6 @@ export async function initializeProtocol(ctx: TestContext): Promise<void> {
         signersCoefficient: null,
         rewardPercentage: null,
         nodeSecurityDeposit: new BN(1000000000), // 1000 tokens
-        wormholeBridgeProgram: null,
-        targetChainIds: null,
         registryXAgg: null,
         signaturesRequired: null,
         nodeCount: null,

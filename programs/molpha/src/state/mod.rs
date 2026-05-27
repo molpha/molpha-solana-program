@@ -1,15 +1,19 @@
-pub mod answer;
-pub mod data_source;
 pub mod feed;
-pub mod feed_types;
+pub mod job;
 pub mod node;
+pub mod plan;
 pub mod protocol_config;
-pub mod wormhole;
+pub mod registry_index;
+pub mod registry_state;
+pub mod registry_transition;
+pub mod subscription;
 
-pub use answer::*;
-pub use data_source::*;
 pub use feed::*;
-pub use feed_types::*;
+pub use job::*;
 pub use node::*;
+pub use plan::*;
 pub use protocol_config::*;
-pub use wormhole::*;
+pub use registry_index::*;
+pub use registry_state::*;
+pub use registry_transition::*;
+pub use subscription::*;
