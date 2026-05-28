@@ -4,9 +4,6 @@ version = "0.1.0"
 description = "Molpha Oracle Solana Program - Merged from molpha-solana and molpha-feed"
 edition = "2021"
 
-[lints]
-workspace = true
-
 [lib]
 crate-type = ["cdylib", "lib"]
 name = "molpha"
