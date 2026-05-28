@@ -31,9 +31,7 @@ impl Subscription {
         self.plan_type = plan_type;
         self.prepaid_usdc = monthly_price;
         self.price = monthly_price;
-        self.valid_until = now
-            .checked_add(Self::SECONDS_PER_MONTH)
-            .unwrap_or(i64::MAX);
+        self.valid_until = now.checked_add(Self::SECONDS_PER_MONTH).unwrap_or(i64::MAX);
         self.job_count = 0;
         self.bump = bump;
     }

@@ -6,11 +6,11 @@
 //! instead of per-signer `PublicKey::parse` / `PublicKey::combine`.
 
 use anchor_lang::prelude::*;
+use libsecp256k1::util::{TAG_PUBKEY_EVEN, TAG_PUBKEY_ODD};
 use libsecp256k1::{
     curve::{Affine, Field, Jacobian},
     PublicKey, PublicKeyFormat,
 };
-use libsecp256k1::util::{TAG_PUBKEY_EVEN, TAG_PUBKEY_ODD};
 
 use crate::{
     error::MolphaError,
@@ -50,7 +50,11 @@ fn read_bytes32(data: &[u8], offset: usize, err: MolphaError) -> Result<[u8; 32]
 
 /// Map a previous-version signer bit to the `RegistryIndex` slot that holds its pubkey.
 #[inline(always)]
-pub fn expected_registry_index(bit_pos: u32, registry: &RegistryState, apply_remove_remap: bool) -> u32 {
+pub fn expected_registry_index(
+    bit_pos: u32,
+    registry: &RegistryState,
+    apply_remove_remap: bool,
+) -> u32 {
     if !apply_remove_remap {
         return bit_pos;
     }
@@ -254,9 +258,9 @@ mod tests {
     fn coalition_accumulator_matches_public_key_combine() {
         let fixture_compressed: [[u8; 33]; 3] = [
             [
-                0x03, 0xc0, 0x95, 0x27, 0xe9, 0x78, 0xf6, 0xea, 0x69, 0xf0, 0xc6, 0xb7, 0xac,
-                0x0f, 0xb6, 0x3a, 0xd0, 0x81, 0xa8, 0xa2, 0x91, 0x15, 0x1c, 0x5a, 0x0b, 0x11, 0x5c,
-                0xce, 0x43, 0x57, 0x51, 0xbe, 0x7d,
+                0x03, 0xc0, 0x95, 0x27, 0xe9, 0x78, 0xf6, 0xea, 0x69, 0xf0, 0xc6, 0xb7, 0xac, 0x0f,
+                0xb6, 0x3a, 0xd0, 0x81, 0xa8, 0xa2, 0x91, 0x15, 0x1c, 0x5a, 0x0b, 0x11, 0x5c, 0xce,
+                0x43, 0x57, 0x51, 0xbe, 0x7d,
             ],
             [
                 0x02, 0x64, 0xa7, 0x27, 0x04, 0xf3, 0x9f, 0x8d, 0xd1, 0x7f, 0x20, 0xd7, 0x1c, 0x5b,
@@ -302,8 +306,7 @@ mod tests {
         let data = registry_index_bytes(&account);
         assert_eq!(data.len(), RegistryIndex::SPACE);
 
-        let decoded =
-            RegistryIndex::try_deserialize(&mut data.as_slice()).expect("deserialize");
+        let decoded = RegistryIndex::try_deserialize(&mut data.as_slice()).expect("deserialize");
         let (x, y) = read_registry_index_secp(&data, 5).expect("zero-copy read");
 
         assert_eq!(decoded.index, 5);

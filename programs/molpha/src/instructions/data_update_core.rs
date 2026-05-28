@@ -126,13 +126,9 @@ pub(crate) fn build_coalition_and_verify<'info>(
         canonical_timestamp_bytes.as_ref(),
     ])
     .to_bytes();
-    let selection_size = effective_selection_size(
-        signatures_required,
-        redundancy_buffer,
-        node_count,
-    );
-    let expected_selection =
-        derive_group_bitmap(&selection_seed, node_count, selection_size)?;
+    let selection_size =
+        effective_selection_size(signatures_required, redundancy_buffer, node_count);
+    let expected_selection = derive_group_bitmap(&selection_seed, node_count, selection_size)?;
 
     require!(
         bitmap_is_subset_u256(signers, bitmap_load(&expected_selection)),
@@ -167,9 +163,11 @@ pub(crate) fn build_coalition_and_verify<'info>(
 
         account_cursor = account_cursor.saturating_add(1);
 
-        let expected_index =
-            expected_registry_index(bit_pos as u32, registry, apply_remove_remap);
-        require!(registry_index.index == expected_index, MolphaError::InvalidNodeIndex);
+        let expected_index = expected_registry_index(bit_pos as u32, registry, apply_remove_remap);
+        require!(
+            registry_index.index == expected_index,
+            MolphaError::InvalidNodeIndex
+        );
 
         coalition.add_stored_xy(
             &registry_index.secp256k1_pubkey_x,

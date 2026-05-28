@@ -5,8 +5,7 @@ use crate::{
     error::MolphaError,
     events::NodeRegistered,
     state::{
-        Node, NodeStatus, ProtocolConfig, RegistryIndex, RegistryState,
-        RegistryTransitionType,
+        Node, NodeStatus, ProtocolConfig, RegistryIndex, RegistryState, RegistryTransitionType,
     },
     utils::registry::verify_pop_stub,
 };

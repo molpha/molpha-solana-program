@@ -5,7 +5,8 @@ use crate::{
     error::MolphaError,
     events::NodeDeactivated,
     state::{
-        Node, NodeStatus, ProtocolConfig, RegistryIndex, RegistryState, RegistryTransitionType, VIRTUAL_INDEX,
+        Node, NodeStatus, ProtocolConfig, RegistryIndex, RegistryState, RegistryTransitionType,
+        VIRTUAL_INDEX,
     },
 };
 

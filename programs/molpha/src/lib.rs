@@ -37,6 +37,14 @@ pub mod molpha {
         instructions::finalize_registry_transition(ctx)
     }
 
+    pub fn add_gateway(ctx: Context<AddGateway>, args: AddGatewayArgs) -> Result<()> {
+        instructions::add_gateway(ctx, args)
+    }
+
+    pub fn remove_gateway(ctx: Context<RemoveGateway>, args: RemoveGatewayArgs) -> Result<()> {
+        instructions::remove_gateway(ctx, args)
+    }
+
     pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
         instructions::add_plan(ctx, args)
     }

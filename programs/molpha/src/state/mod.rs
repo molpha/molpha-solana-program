@@ -1,4 +1,5 @@
 pub mod feed;
+pub mod gateway;
 pub mod job;
 pub mod node;
 pub mod plan;
@@ -8,6 +9,7 @@ pub mod registry_state;
 pub mod subscription;
 
 pub use feed::*;
+pub use gateway::*;
 pub use job::*;
 pub use node::*;
 pub use plan::*;

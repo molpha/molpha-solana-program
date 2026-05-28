@@ -5,9 +5,8 @@ use crate::error::MolphaError;
 
 /// `keccak256("MOLPHA_SELECTION_DERIVE")` — EVM `NodeGroupBitmapLib.SELECTION_DOMAIN`.
 const SELECTION_DOMAIN: [u8; 32] = [
-    0x49, 0x28, 0x48, 0xfe, 0x5e, 0x85, 0xd4, 0xce, 0x22, 0x31, 0xd6, 0x93, 0xa5, 0x8f, 0x08,
-    0x20, 0xa4, 0x05, 0x6e, 0x28, 0x22, 0xfe, 0x5d, 0xca, 0xd7, 0xc7, 0x56, 0xaf, 0xe0, 0x44,
-    0xb7, 0x0b,
+    0x49, 0x28, 0x48, 0xfe, 0x5e, 0x85, 0xd4, 0xce, 0x22, 0x31, 0xd6, 0x93, 0xa5, 0x8f, 0x08, 0x20,
+    0xa4, 0x05, 0x6e, 0x28, 0x22, 0xfe, 0x5d, 0xca, 0xd7, 0xc7, 0x56, 0xaf, 0xe0, 0x44, 0xb7, 0x0b,
 ];
 
 /// Max Keccak-256 rounds (bounded compute); Solidity loop is unbounded.
@@ -59,7 +58,10 @@ pub fn bitmap_is_subset_u256(sub: U256, sup: U256) -> bool {
 }
 
 /// Reject signers with bits outside `[0, node_count)`.
-pub fn validate_bitmap_upper_bits_clear_u256(bitmap: U256, node_count: u32) -> Result<(), MolphaError> {
+pub fn validate_bitmap_upper_bits_clear_u256(
+    bitmap: U256,
+    node_count: u32,
+) -> Result<(), MolphaError> {
     if node_count > 256 {
         return Err(MolphaError::InvalidSignersBitmap);
     }
@@ -297,9 +299,21 @@ mod tests {
     fn derive_group_bitmap_matches_evm_reference_vectors() {
         let seed = [0x11u8; 32];
         let cases: &[(u32, u32, &str)] = &[
-            (8, 3, "0000000000000000000000000000000000000000000000000000000000000038"),
-            (10, 7, "00000000000000000000000000000000000000000000000000000000000003d3"),
-            (16, 5, "0000000000000000000000000000000000000000000000000000000000002c30"),
+            (
+                8,
+                3,
+                "0000000000000000000000000000000000000000000000000000000000000038",
+            ),
+            (
+                10,
+                7,
+                "00000000000000000000000000000000000000000000000000000000000003d3",
+            ),
+            (
+                16,
+                5,
+                "0000000000000000000000000000000000000000000000000000000000002c30",
+            ),
             (
                 32,
                 20,

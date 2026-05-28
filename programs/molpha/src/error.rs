@@ -40,6 +40,8 @@ pub enum MolphaError {
     NodeSlotNotReusable,
     #[msg("Caller is not ProtocolConfig.authority")]
     UnauthorisedAuthority,
+    #[msg("Gateway endpoint is invalid")]
+    InvalidGatewayEndpoint,
     #[msg("node_identity.owner does not match signer")]
     UnauthorisedNodeOwner,
     #[msg("node_slot.current_node_id does not match node_identity.node_id")]

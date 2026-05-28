@@ -93,6 +93,19 @@ pub struct SubscriptionVaultWithdrawn {
 }
 
 #[event]
+pub struct GatewayAdded {
+    pub ip: [u8; 4],
+    pub port: u16,
+    pub registered_at: i64,
+}
+
+#[event]
+pub struct GatewayRemoved {
+    pub ip: [u8; 4],
+    pub port: u16,
+}
+
+#[event]
 pub struct JobCreated {
     pub job_id: [u8; 32],
     pub owner: Pubkey,

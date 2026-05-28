@@ -147,9 +147,15 @@ mod tests {
         assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
         assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
         assert_eq!(decoded.gateway_fee, args.gateway_fee);
-        assert_eq!(decoded.receipt_submitter_bonus, args.receipt_submitter_bonus);
+        assert_eq!(
+            decoded.receipt_submitter_bonus,
+            args.receipt_submitter_bonus
+        );
         assert_eq!(decoded.protocol_fee_bps, args.protocol_fee_bps);
-        assert_eq!(decoded.max_receipt_delay_slots, args.max_receipt_delay_slots);
+        assert_eq!(
+            decoded.max_receipt_delay_slots,
+            args.max_receipt_delay_slots
+        );
         assert_eq!(decoded.usdc_mint, args.usdc_mint);
     }
 
