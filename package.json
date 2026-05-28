@@ -6,7 +6,7 @@
   "scripts": {
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
-    "build:molpha": "mkdir -p target/deploy && cargo-build-sbf --manifest-path programs/molpha/Cargo.toml --sbf-out-dir target/deploy",
+    "build:molpha": "anchor build -p molpha",
     "build:cli": "tsc -p cli/tsconfig.json",
     "test": "yarn build:molpha && cp target/deploy/molpha.so tests/fixtures && RUST_LOG= jest --runInBand --verbose --forceExit",
     "test:node-registry": "anchor test --skip-deploy tests/instructions/node-registry.test.ts",

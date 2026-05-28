@@ -201,9 +201,9 @@ pub fn inv_mod(a: &[u8; 32]) -> Option<[u8; 32]> {
 #[inline]
 fn be32_to_limbs_le(x: &[u8; 32]) -> [u64; 4] {
     let mut out = [0u64; 4];
-    for i in 0..4 {
+    for (i, limb) in out.iter_mut().enumerate() {
         let start = 32 - (i + 1) * 8;
-        out[i] = u64::from_be_bytes(x[start..start + 8].try_into().unwrap());
+        *limb = u64::from_be_bytes(x[start..start + 8].try_into().unwrap());
     }
     out
 }
@@ -271,11 +271,11 @@ fn mul_4x4(a: &[u64; 4], b: &[u64; 4]) -> [u64; 8] {
 fn mul_limbs(a: &[u64], b: &[u64], out: &mut [u64]) {
     debug_assert!(out.len() >= a.len() + b.len());
     out.fill(0);
-    for i in 0..a.len() {
+    for (i, &ai) in a.iter().enumerate() {
         let mut carry: u64 = 0;
-        for j in 0..b.len() {
+        for (j, &bj) in b.iter().enumerate() {
             let idx = i + j;
-            let t = (a[i] as u128) * (b[j] as u128) + (out[idx] as u128) + (carry as u128);
+            let t = (ai as u128) * (bj as u128) + (out[idx] as u128) + (carry as u128);
             out[idx] = t as u64;
             carry = (t >> 64) as u64;
         }

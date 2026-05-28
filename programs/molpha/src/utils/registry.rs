@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use libsecp256k1::{PublicKey, PublicKeyFormat};
 use solana_keccak_hasher::hashv;
 
 use crate::{error::MolphaError, utils::schnorr::secp256k1_scalar_is_valid_nonzero};

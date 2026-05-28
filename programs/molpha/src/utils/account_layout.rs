@@ -229,7 +229,7 @@ pub fn public_key_from_affine_xy(
 mod tests {
     use super::*;
     use anchor_lang::prelude::Pubkey;
-    use anchor_lang::{AnchorDeserialize, AnchorSerialize, Discriminator};
+    use anchor_lang::{AnchorSerialize, Discriminator};
 
     use crate::state::{NodeStatus, RegistryState, RegistryTransitionType};
 
