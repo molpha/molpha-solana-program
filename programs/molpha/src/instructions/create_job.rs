@@ -16,6 +16,7 @@ pub struct CreateJobArgs {
 
 pub fn create_job(ctx: Context<CreateJob>, args: CreateJobArgs, job_id: [u8; 32]) -> Result<()> {
     let plan = &ctx.accounts.plan;
+
     let clock = Clock::get().unwrap();
 
     let expected_job_id = derive_job_id(&ctx.accounts.owner.key(), &args.api_config_hash);

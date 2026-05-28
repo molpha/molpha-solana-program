@@ -290,15 +290,14 @@ describe("Molpha instruction coverage integration", () => {
         .verifyDataUpdate(badDataUpdateArgs)
         .accountsPartial({
           registryState: registryStatePda,
-          job: jobPda,
         })
         .rpc();
-      assert.fail("verify_data_update should fail for mismatched job_id");
+      assert.fail("verify_data_update should fail for invalid signature");
     } catch (error: any) {
       const err = String(error);
       assert.ok(
-        err.includes("ConstraintSeeds") || err.includes("DataUpdateJobMismatch"),
-        `expected job id mismatch, got: ${err}`
+        err.includes("InvalidAggregateSignature"),
+        `expected invalid aggregate signature, got: ${err}`
       );
     }
 

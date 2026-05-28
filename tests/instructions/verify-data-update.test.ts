@@ -76,15 +76,15 @@ function bitmapToNodeIndexesOneBased(bitmap: bigint): number[] {
 // ---------------------------------------------------------------------------
 
 /**
- * `EVM_ROUND_ID_PREFIX` = `bytes32(keccak256("MOLPHA_PULL_ROUND_V1"))`.
+ * `MESSAGE_PREFIX` = `bytes32(keccak256("MOLPHA_MESSAGE_V1"))`.
  *
  * Verified here as a JavaScript reference:
- *   keccak256(utf8("MOLPHA_PULL_ROUND_V1"))
+ *   keccak256(utf8("MOLPHA_MESSAGE_V1"))
  */
-const EXPECTED_EVM_ROUND_ID_PREFIX = Buffer.from([
-  0x05, 0xcc, 0x9a, 0xbf, 0xa8, 0x3c, 0xdc, 0x2d, 0xff, 0xa2, 0x8a, 0xe0,
-  0xd4, 0x68, 0x59, 0x5e, 0xce, 0xd0, 0x56, 0x4a, 0x16, 0xf6, 0xed, 0x9a,
-  0x3e, 0x2c, 0x5b, 0x4e, 0x65, 0x2d, 0x98, 0x26,
+const EXPECTED_MESSAGE_PREFIX = Buffer.from([
+  0xa7, 0x55, 0x23, 0xa2, 0xab, 0x7b, 0x71, 0x8d, 0x9c, 0xff, 0xd2, 0xfa,
+  0x97, 0xed, 0x06, 0x9f, 0xc1, 0x21, 0x84, 0xea, 0xbe, 0xe7, 0xd5, 0x07,
+  0x85, 0x4d, 0x09, 0x22, 0xf7, 0x0e, 0x7f, 0xe7,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -92,7 +92,6 @@ const EXPECTED_EVM_ROUND_ID_PREFIX = Buffer.from([
 // ---------------------------------------------------------------------------
 
 const jobId = hexToBytes(fixture.dataUpdate.jobId);
-const configHash = hexToBytes(fixture.dataUpdate.configHash);
 const value = hexToBytes(fixture.dataUpdate.value);
 const registryVersion: number = fixture.dataUpdate.registryVersion;
 const signaturesRequired: number = fixture.dataUpdate.signaturesRequired;
@@ -106,13 +105,13 @@ const commitment = hexToBytes(
 const nodePubkeys = fixture.nodePubkeys.map((h) => hexToBytes(h));
 
 // ---------------------------------------------------------------------------
-// EVM_ROUND_ID_PREFIX
+// MESSAGE_PREFIX
 // ---------------------------------------------------------------------------
 
-describe("EVM_ROUND_ID_PREFIX constant", () => {
-  it("equals keccak256('MOLPHA_PULL_ROUND_V1')", () => {
-    const computed = keccak_256(Buffer.from("MOLPHA_PULL_ROUND_V1"));
-    expect(Buffer.from(computed)).toEqual(EXPECTED_EVM_ROUND_ID_PREFIX);
+describe("MESSAGE_PREFIX constant", () => {
+  it("equals keccak256('MOLPHA_MESSAGE_V1')", () => {
+    const computed = keccak_256(Buffer.from("MOLPHA_MESSAGE_V1"));
+    expect(Buffer.from(computed)).toEqual(EXPECTED_MESSAGE_PREFIX);
   });
 });
 
@@ -126,11 +125,10 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
    *
    * ```
    * keccak256(abi.encodePacked(
-   *   EVM_ROUND_ID_PREFIX,
+   *   MESSAGE_PREFIX,
    *   jobId,
    *   registryVersion (uint32 BE),
    *   signaturesRequired (uint32 BE),
-   *   configHash,
    *   signersBitmap (uint256 BE),
    *   value,
    *   canonicalTimestamp (uint64 BE)
@@ -143,11 +141,10 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
 
   function buildMessagePreimage(): Uint8Array {
     return concat(
-      EXPECTED_EVM_ROUND_ID_PREFIX,
+      EXPECTED_MESSAGE_PREFIX,
       jobId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
-      configHash,
       signersBitmap,
       value,
       u64BE(canonicalTimestamp)
@@ -166,7 +163,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
   it("changes when registry_version is mutated", () => {
     const base = computeMessageHash();
     const altered = concat(
-      EXPECTED_EVM_ROUND_ID_PREFIX,
+      EXPECTED_MESSAGE_PREFIX,
       jobId,
       u32BE(registryVersion + 1),
       u32BE(signaturesRequired),
@@ -182,7 +179,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
     const mutValue = new Uint8Array(value);
     mutValue[0] ^= 0xff;
     const altered = concat(
-      EXPECTED_EVM_ROUND_ID_PREFIX,
+      EXPECTED_MESSAGE_PREFIX,
       jobId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
@@ -198,7 +195,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
     const mutBitmap = new Uint8Array(signersBitmap);
     mutBitmap[31] ^= 0x01;
     const altered = concat(
-      EXPECTED_EVM_ROUND_ID_PREFIX,
+      EXPECTED_MESSAGE_PREFIX,
       jobId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
@@ -210,13 +207,13 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
   });
 
   it("encodes the message preimage with the exact expected byte length", () => {
-    // 32 + 32 + 4 + 4 + 32 + 32 + 32 + 8
-    expect(buildMessagePreimage().length).toBe(176);
+    // 32 + 32 + 4 + 4 + 32 + 32 + 8
+    expect(buildMessagePreimage().length).toBe(144);
   });
 
   it("matches a fixed known-good fixture hash vector", () => {
     const expectedHashHex =
-      "288215b1e5ca1f32f13f2f7fb2b0337fcc82e2604ffd63178d78d2312feb2e39";
+      "b4cde54bc4feac795acb2ff245f66d44e7630918cd645bb4c90dd2cbf3f37b25";
     expect(Buffer.from(computeMessageHash()).toString("hex")).toBe(
       expectedHashHex
     );

@@ -4,7 +4,7 @@ use crate::{
     error::MolphaError,
     events::FeedUpdated,
     instructions::data_update_core::build_coalition_and_verify,
-    state::{Feed, Job, RegistryState},
+    state::{Feed, RegistryState},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -16,7 +16,6 @@ pub struct SubmitDataUpdateArgs {
     pub value: [u8; 32],
     pub canonical_timestamp: i64,
     /// Schnorr signature R component
-    pub agg_sig_r: [u8; 32],
     pub agg_sig_s: [u8; 32],
     pub commitment_addr: [u8; 20],
 }
@@ -25,7 +24,6 @@ pub fn submit_data_update(
     ctx: Context<SubmitDataUpdate>,
     args: SubmitDataUpdateArgs,
 ) -> Result<()> {
-    let job = &ctx.accounts.job;
     let feed = &mut ctx.accounts.feed;
     let registry = &ctx.accounts.registry_state;
 
@@ -39,7 +37,6 @@ pub fn submit_data_update(
 
     build_coalition_and_verify(
         &args,
-        &job.api_config_hash,
         registry,
         now,
         ctx.remaining_accounts,
@@ -79,13 +76,6 @@ pub struct SubmitDataUpdate<'info> {
     pub registry_state: Account<'info, RegistryState>,
 
     #[account(
-        seeds = [Job::SEED_PREFIX, args.job_id.as_ref()],
-        bump = job.bump,
-        constraint = job.job_id == args.job_id @ MolphaError::DataUpdateJobMismatch,
-    )]
-    pub job: Account<'info, Job>,
-
-    #[account(
         mut,
         seeds = [Feed::SEED_PREFIX, args.job_id.as_ref()],
         bump = feed.bump,
@@ -109,7 +99,6 @@ mod tests {
             signers_bitmap: [0x33; 32],
             value: [0x44; 32],
             canonical_timestamp: 1_700_000_000,
-            agg_sig_r: [0x55; 32],
             agg_sig_s: [0x66; 32],
             commitment_addr: [0x77; 20],
         }
@@ -129,7 +118,6 @@ mod tests {
         assert_eq!(decoded.signers_bitmap, args.signers_bitmap);
         assert_eq!(decoded.value, args.value);
         assert_eq!(decoded.canonical_timestamp, args.canonical_timestamp);
-        assert_eq!(decoded.agg_sig_r, args.agg_sig_r);
         assert_eq!(decoded.agg_sig_s, args.agg_sig_s);
         assert_eq!(decoded.commitment_addr, args.commitment_addr);
     }

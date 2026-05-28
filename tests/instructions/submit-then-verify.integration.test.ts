@@ -203,7 +203,7 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
       ctx,
       program,
       signed,
-      { registryStatePda, jobPda }
+      { registryStatePda }
     );
 
     assert.equal(returnBytes.length, VERIFY_DATA_UPDATE_RETURN_LEN);

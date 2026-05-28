@@ -80,17 +80,6 @@ pub fn secp256k1_ecdsa_normalize_low_s(
     Ok(recovery_id)
 }
 
-fn add_be(a: &[u8; 32], b: &[u8; 32]) -> ([u8; 32], u8) {
-    let mut out = [0u8; 32];
-    let mut carry = 0u16;
-    for i in (0..32).rev() {
-        let sum = a[i] as u16 + b[i] as u16 + carry;
-        out[i] = (sum & 0xff) as u8;
-        carry = sum >> 8;
-    }
-    (out, carry as u8)
-}
-
 fn sub_be(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
     let mut out = [0u8; 32];
     let mut borrow = 0i16;
@@ -120,19 +109,6 @@ fn mod_reduce_once(mut x: [u8; 32]) -> [u8; 32] {
 /// This is used to port EVM `uint256(...) % Q()` semantics for challenges.
 pub fn secp256k1_scalar_reduce_be(x: [u8; 32]) -> [u8; 32] {
     mod_reduce_once(x)
-}
-
-pub(crate) fn add_mod(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
-    let (sum, carry) = add_be(a, b);
-    if carry > 0 || cmp_be(&sum, &SECP256K1_ORDER) != core::cmp::Ordering::Less {
-        sub_be(&sum, &SECP256K1_ORDER)
-    } else {
-        sum
-    }
-}
-
-pub(crate) fn mul_by_2_mod(a: &[u8; 32]) -> [u8; 32] {
-    add_mod(a, a)
 }
 
 fn is_zero(x: &[u8; 32]) -> bool {
@@ -468,30 +444,6 @@ mod tests {
         big_to_be32(rem)
     }
 
-    fn add_mod_bigint(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
-        let n = be32_to_big(&SECP256K1_ORDER);
-        let a = be32_to_big(a);
-        let b = be32_to_big(b);
-        let rem = (&a + &b) % &n;
-        big_to_be32(rem)
-    }
-
-    #[test]
-    fn add_mod_matches_bigint_random() {
-        let mut a = [0u8; 32];
-        let mut b = [0u8; 32];
-        for i in 0u8..64u8 {
-            a[31] = i.wrapping_mul(7);
-            b[31] = i.wrapping_mul(11);
-            b[8] = i;
-            let a_red = super::mod_reduce_once(a);
-            let b_red = super::mod_reduce_once(b);
-            let expected = add_mod_bigint(&a_red, &b_red);
-            let got = super::add_mod(&a_red, &b_red);
-            assert_eq!(got, expected, "add_mod mismatch at i={i}");
-        }
-    }
-
     #[test]
     fn mul_mod_matches_crypto_bigint_random() {
         let mut a = [0u8; 32];
@@ -541,11 +493,11 @@ mod tests {
 
     #[test]
     fn evm_schnorr_trick_recovers_commitment_for_verify_answer_fixture_vector() {
-        /// Must match `programs/molpha/src/instructions/verify_answer.rs`.
-        const EVM_ROUND_ID_PREFIX: [u8; 32] = [
-            0x05, 0xcc, 0x9a, 0xbf, 0xa8, 0x3c, 0xdc, 0x2d, 0xff, 0xa2, 0x8a, 0xe0, 0xd4, 0x68,
-            0x59, 0x5e, 0xce, 0xd0, 0x56, 0x4a, 0x16, 0xf6, 0xed, 0x9a, 0x3e, 0x2c, 0x5b, 0x4e,
-            0x65, 0x2d, 0x98, 0x26,
+        /// Must match `programs/molpha/src/instructions/data_update_core.rs`.
+        const MESSAGE_PREFIX: [u8; 32] = [
+            0xa7, 0x55, 0x23, 0xa2, 0xab, 0x7b, 0x71, 0x8d, 0x9c, 0xff, 0xd2, 0xfa, 0x97, 0xed,
+            0x06, 0x9f, 0xc1, 0x21, 0x84, 0xea, 0xbe, 0xe7, 0xd5, 0x07, 0x85, 0x4d, 0x09, 0x22,
+            0xf7, 0x0e, 0x7f, 0xe7,
         ];
 
         // Compressed pubkeys for registered nodes 1..3 from `tests/instructions/verify-answer.test.ts`.
@@ -593,7 +545,7 @@ mod tests {
         let timestamp = 1_700_001_234u64;
 
         let message_hash = hashv(&[
-            EVM_ROUND_ID_PREFIX.as_slice(),
+            MESSAGE_PREFIX.as_slice(),
             job_id.as_slice(),
             registry_version.to_be_bytes().as_slice(),
             signatures_required.to_be_bytes().as_slice(),
@@ -604,14 +556,14 @@ mod tests {
         .to_bytes();
 
         let s: [u8; 32] = [
-            0x36, 0x72, 0x88, 0xbf, 0x1b, 0xbd, 0xa4, 0xcd, 0x58, 0x44, 0x79, 0x32, 0x0c, 0x9e,
-            0x96, 0xa2, 0xfb, 0xe8, 0x6f, 0x76, 0xa8, 0x84, 0x63, 0xc3, 0x6c, 0xa8, 0x27, 0x03,
-            0x01, 0x67, 0xc9, 0x51,
+            0x6c, 0xf2, 0xe6, 0x80, 0xd7, 0xde, 0x65, 0x00, 0x72, 0xec, 0xef, 0x9d, 0x07, 0x32,
+            0xcd, 0x07, 0x8f, 0x68, 0x10, 0x0b, 0x6f, 0xf5, 0x31, 0x9f, 0xfd, 0x55, 0xb3, 0x19,
+            0x92, 0x52, 0x1c, 0x62,
         ];
         let rx: [u8; 32] = [
-            0x58, 0x66, 0xb9, 0xf3, 0x52, 0xc6, 0x0f, 0x7f, 0x93, 0x34, 0xf0, 0x90, 0x56, 0x88,
-            0x5e, 0x22, 0x81, 0x42, 0x1a, 0x79, 0xde, 0x81, 0xa7, 0x12, 0x7c, 0xe2, 0xb2, 0xe6,
-            0xe2, 0xb9, 0x06, 0x3c,
+            0xf0, 0x1d, 0x6b, 0x90, 0x18, 0xab, 0x42, 0x1d, 0xd4, 0x10, 0x40, 0x4c, 0xb8, 0x69,
+            0x07, 0x20, 0x65, 0x52, 0x2b, 0xf8, 0x57, 0x34, 0x00, 0x8f, 0x10, 0x5c, 0xf3, 0x85,
+            0xa0, 0x23, 0xa8, 0x0f,
         ];
         let ry_parity = 1u8;
 

@@ -26,8 +26,8 @@ import {
 } from "../helpers/e2e-fixture-export";
 import {
   createJobViaInstruction,
-  evmRegistryIndexRemainingAccounts,
   generateE2eSignerMaterialFromSeed,
+  signerRemainingAccounts,
   getProtocolTreasury,
   registerNodesForE2e,
   signE2eDataUpdate,
@@ -38,7 +38,9 @@ const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 
-const SIGNER_COUNT = 8;
+const NODE_COUNT = 10;
+const SIGNATURES_REQUIRED = 3;
+const REDUNDANCY_BUFFER = 2;
 const PLAN_ID = 1;
 
 async function advanceClock(ctx: TestContext, seconds: number): Promise<void> {
@@ -56,7 +58,7 @@ async function advanceClock(ctx: TestContext, seconds: number): Promise<void> {
 describe("e2e generate verify-answer-evm fixture", () => {
   it("runs full flow and writes JSON fixture", async () => {
     const seed = process.env.E2E_FIXTURE_SEED ?? randomE2eScenarioSeed();
-    const scenario = generateE2eScenario(seed, SIGNER_COUNT);
+    const scenario = generateE2eScenario(seed, SIGNATURES_REQUIRED);
     const outputPath = defaultE2eFixtureOutputPath(seed);
 
     const ctx = await setupTestContext();
@@ -87,8 +89,8 @@ describe("e2e generate verify-answer-evm fixture", () => {
         registryCooldownSecs: new BN(1),
         previousGraceSecs: new BN(1),
         withdrawalCooldownSecs: new BN(5),
-        maxNodeCount: SIGNER_COUNT,
-        redundancyBuffer: 2,
+        maxNodeCount: NODE_COUNT,
+        redundancyBuffer: REDUNDANCY_BUFFER,
         minimumNodeDeposit: new BN(100_000_000),
         rewardPerSignature: new BN(10),
         gatewayFee: new BN(20),
@@ -109,14 +111,13 @@ describe("e2e generate verify-answer-evm fixture", () => {
       })
       .rpc();
 
-    // add_plan (8-of-8 standard plan)
+    // add_plan (3-of-10 standard plan with redundancy buffer 2)
     await program.methods
       .addPlan({
         planType: { standard: {} },
         subscriptionPrice: new BN(3_000_000),
         maxJobs: 4,
-        signaturesRequired: SIGNER_COUNT,
-        maxSigners: SIGNER_COUNT,
+        maxSigners: SIGNATURES_REQUIRED,
         privateApiEnabled: true,
         isActive: true,
       })
@@ -131,7 +132,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
     await advanceClock(ctx, 5);
 
     // register nodes
-    const signerMaterial = generateE2eSignerMaterialFromSeed(seed, SIGNER_COUNT);
+    const signerMaterial = generateE2eSignerMaterialFromSeed(seed, NODE_COUNT);
     await registerNodesForE2e(
       ctx,
       program,
@@ -147,7 +148,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
     );
 
     const registry = await program.account.registryState.fetch(registryStatePda);
-    assert.equal(registry.currentNodeCount, SIGNER_COUNT);
+    assert.equal(registry.currentNodeCount, NODE_COUNT);
 
     // subscribe
     await program.methods
@@ -170,19 +171,23 @@ describe("e2e generate verify-answer-evm fixture", () => {
       ctx,
       program,
       { protocolConfigPda, planPda, subscriptionPda },
-      scenario.configHash
+      scenario.configHash,
+      { signaturesRequired: SIGNATURES_REQUIRED }
     );
 
     const signed = signE2eDataUpdate(
       registry.currentVersion,
       signerMaterial,
-      SIGNER_COUNT,
+      NODE_COUNT,
       jobId,
       {
         configHash: scenario.configHash,
         value: scenario.value,
         canonicalTimestamp: scenario.canonicalTimestamp,
-      }
+      },
+      SIGNATURES_REQUIRED,
+      NODE_COUNT,
+      REDUNDANCY_BUFFER
     );
 
     await program.methods
@@ -194,7 +199,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
         feed: feedPda,
       })
       .remainingAccounts(
-        evmRegistryIndexRemainingAccounts(program.programId, SIGNER_COUNT)
+        signerRemainingAccounts(program.programId, signed.submitArgs.signersBitmap)
       )
       .preInstructions([
         anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({
@@ -217,12 +222,12 @@ describe("e2e generate verify-answer-evm fixture", () => {
 
 
     const fixture = buildVerifyAnswerEvmFixture({
-      registeredNodeCount: SIGNER_COUNT,
+      registeredNodeCount: NODE_COUNT,
       registryVersion: registry.currentVersion,
       configHash: scenario.configHash,
       nodePubkeys: signerMaterial.compressedPubkeys,
       nodePrivkeys: signerMaterial.privKeys,
-      signerCount: SIGNER_COUNT,
+      signaturesRequired: SIGNATURES_REQUIRED,
       jobId,
       dataUpdate: {
         configHash: scenario.configHash,
@@ -244,8 +249,8 @@ describe("e2e generate verify-answer-evm fixture", () => {
       })
     );
 
-    assert.equal(fixture.nodePubkeys.length, SIGNER_COUNT);
-    assert.equal(fixture.dataUpdate.signaturesRequired, SIGNER_COUNT);
+    assert.equal(fixture.nodePubkeys.length, NODE_COUNT);
+    assert.equal(fixture.dataUpdate.signaturesRequired, SIGNATURES_REQUIRED);
     assert.notEqual(
       fixture.configHash,
       "0x736f6c616e612d636f6d7061742d636667000000000000000000000000000000"

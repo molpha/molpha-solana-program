@@ -19,11 +19,7 @@ import { VerifyAnswerEvmFixture } from "./e2e-fixture-export";
 import { TestContext } from "../setup";
 
 const NODE_ID_PREFIX = Buffer.from("MOLPHA_NODE_ID_V1");
-const EVM_ROUND_ID_PREFIX = Buffer.from([
-  0x05, 0xcc, 0x9a, 0xbf, 0xa8, 0x3c, 0xdc, 0x2d, 0xff, 0xa2, 0x8a, 0xe0, 0xd4, 0x68,
-  0x59, 0x5e, 0xce, 0xd0, 0x56, 0x4a, 0x16, 0xf6, 0xed, 0x9a, 0x3e, 0x2c, 0x5b, 0x4e,
-  0x65, 0x2d, 0x98, 0x26,
-]);
+const MESSAGE_PREFIX = Buffer.from(keccak_256(Buffer.from("MOLPHA_MESSAGE_V1")));
 
 const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
@@ -37,7 +33,9 @@ export const VIRTUAL_INDEX = 0xffffffff;
 const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
 const JOB_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
-const MOLPHA_SELECTION_V1 = Buffer.from("MOLPHA_SELECTION_V1");
+const SELECTION_SEED_PREFIX = Buffer.from(
+  keccak_256(Buffer.from("MOLPHA_SELECTION_V1"))
+);
 const SELECTION_DOMAIN = keccak_256(Buffer.from("MOLPHA_SELECTION_DERIVE"));
 const DERIVE_GROUP_BITMAP_MAX_ROUNDS = 65_536;
 
@@ -76,21 +74,32 @@ export function decompressSecp256k1(
   };
 }
 
-/** Static fixture args (registry version 1); use `buildSignedEvmSubmitDataUpdateArgs` for on-chain e2e. */
+/** Secret keys for `verify-answer-evm.json` coalition (see `secretKeys` in fixture). */
+function signerMaterialForVerifyAnswerEvm(): E2eSignerMaterial {
+  return signerMaterialFromFixture(evmFixture as LoadedE2eFixture);
+}
+
+/** Freshly signed args for `verify-answer-evm.json` fields (no `configHash` in message hash). */
+export function buildSignedVerifyAnswerEvmArgs(
+  registryVersion: number = evmFixture.dataUpdate.registryVersion
+) {
+  return signE2eDataUpdate(
+    registryVersion,
+    signerMaterialForVerifyAnswerEvm(),
+    evmUint256BitmapForFirstN(evmFixture.dataUpdate.signaturesRequired),
+    EVM_FIXTURE_JOB_ID,
+    {
+      configHash: EVM_FIXTURE_CONFIG_HASH,
+      value: EVM_FIXTURE_VALUE,
+      canonicalTimestamp: evmFixture.dataUpdate.canonicalTimestamp,
+    },
+    evmFixture.dataUpdate.signaturesRequired
+  ).submitArgs;
+}
+
+/** Static fixture args (registry version 1); signs at call time for on-chain e2e. */
 export function buildEvmSubmitDataUpdateArgs() {
-  return {
-    jobId: Array.from(EVM_FIXTURE_JOB_ID),
-    registryVersion: evmFixture.dataUpdate.registryVersion,
-    signaturesRequired: evmFixture.dataUpdate.signaturesRequired,
-    signersBitmap: Array.from(uint256BE(BigInt(evmFixture.schnorrSignature.signersBitmap))),
-    value: Array.from(EVM_FIXTURE_VALUE),
-    canonicalTimestamp: new BN(evmFixture.dataUpdate.canonicalTimestamp),
-    aggSigR: Array.from(new Uint8Array(32)),
-    aggSigS: Array.from(hexToBytes(evmFixture.schnorrSignature.signature)),
-    commitmentAddr: Array.from(
-      hexToBytes(evmFixture.schnorrSignature.commitment.toLowerCase())
-    ),
-  };
+  return buildSignedVerifyAnswerEvmArgs(evmFixture.dataUpdate.registryVersion);
 }
 
 export type E2eSignerMaterial = {
@@ -236,7 +245,7 @@ export function deriveSelectionSeed(
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
-      MOLPHA_SELECTION_V1,
+      SELECTION_SEED_PREFIX,
       Buffer.from(jobId),
       Buffer.from(u32be(registryVersion)),
       Buffer.from(u64be(canonicalTimestamp)),
@@ -333,6 +342,15 @@ export function evmSignersBitmapNumber(signerCount: number): number {
     n |= 1 << i;
   }
   return n;
+}
+
+/** EVM `uint256` bitmap integer from a 32-byte big-endian bitmap. */
+export function evmSignersBitmapNumberFromBytes(signersBitmap: Uint8Array): number {
+  const n = bigintFromBytesBE(signersBitmap);
+  if (n > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error("signersBitmap exceeds JS safe integer");
+  }
+  return Number(n);
 }
 
 export type LoadedE2eFixture = VerifyAnswerEvmFixture & {
@@ -542,7 +560,6 @@ export function computeFixtureMessageHash(fixture: LoadedE2eFixture): Uint8Array
     jobId: hexToBytes(fixture.dataUpdate.jobId),
     registryVersion: fixture.dataUpdate.registryVersion,
     signaturesRequired: fixture.dataUpdate.signaturesRequired,
-    configHash: hexToBytes(fixture.dataUpdate.configHash),
     signersBitmap,
     value: hexToBytes(fixture.dataUpdate.value),
     canonicalTimestamp: fixture.dataUpdate.canonicalTimestamp,
@@ -551,17 +568,29 @@ export function computeFixtureMessageHash(fixture: LoadedE2eFixture): Uint8Array
 
 /** Off-chain Schnorr-recovery check (same math as on-chain `verify_data_update`). */
 export function verifyFixtureSchnorrSignature(fixture: LoadedE2eFixture): void {
+  const material = fixture.secretKeys?.length
+    ? signerMaterialFromFixture(fixture)
+    : signerMaterialForVerifyAnswerEvm();
+  const signersBitmap = uint256BE(BigInt(fixture.schnorrSignature.signersBitmap));
+  const signed = signE2eDataUpdate(
+    fixture.dataUpdate.registryVersion,
+    material,
+    signersBitmap,
+    hexToBytes(fixture.dataUpdate.jobId),
+    {
+      configHash: hexToBytes(fixture.dataUpdate.configHash),
+      value: hexToBytes(fixture.dataUpdate.value),
+      canonicalTimestamp: fixture.dataUpdate.canonicalTimestamp,
+    },
+    fixture.dataUpdate.signaturesRequired
+  );
   const coalition = coalitionCompressedFromFixture(fixture);
   const messageHash = computeFixtureMessageHash(fixture);
-  const sigS = hexToBytes(fixture.schnorrSignature.signature);
-  const commitment = hexToBytes(
-    fixture.schnorrSignature.commitment.toLowerCase()
-  );
   const { recoveryId, ecdsaSig, ecdsaHash } = evmSchnorrEcdsaInputs({
     coalitionPubkeyCompressed: coalition,
     messageHash,
-    signature: sigS,
-    commitment,
+    signature: signed.aggSigS,
+    commitment: signed.commitmentAddr,
   });
 
   const { ethers } = require("ethers") as typeof import("ethers");
@@ -573,44 +602,47 @@ export function verifyFixtureSchnorrSignature(fixture: LoadedE2eFixture): void {
       v: recoveryId + 27,
     }
   );
-  if (recovered.toLowerCase() !== `0x${Buffer.from(commitment).toString("hex")}`) {
+  if (
+    recovered.toLowerCase() !==
+    `0x${Buffer.from(signed.commitmentAddr).toString("hex")}`
+  ) {
     throw new Error("Schnorr recovery address mismatch");
   }
 }
 
-/** Anchor `submitDataUpdate` / `verifyDataUpdate` args from a frozen JSON fixture. */
+/** Anchor `submitDataUpdate` / `verifyDataUpdate` args from an e2e JSON fixture. */
 export function buildSubmitArgsFromE2eFixture(fixture: LoadedE2eFixture) {
   const signersBitmap = uint256BE(BigInt(fixture.schnorrSignature.signersBitmap));
-  return {
-    jobId: Array.from(hexToBytes(fixture.dataUpdate.jobId)),
-    signaturesRequired: fixture.dataUpdate.signaturesRequired,
-    registryVersion: fixture.dataUpdate.registryVersion,
-    signersBitmap: Array.from(signersBitmap),
-    value: Array.from(hexToBytes(fixture.dataUpdate.value)),
-    canonicalTimestamp: new BN(fixture.dataUpdate.canonicalTimestamp),
-    aggSigR: Array.from(new Uint8Array(32)),
-    aggSigS: Array.from(hexToBytes(fixture.schnorrSignature.signature)),
-    commitmentAddr: Array.from(
-      hexToBytes(fixture.schnorrSignature.commitment.toLowerCase())
-    ),
-  };
+  const material = fixture.secretKeys?.length
+    ? signerMaterialFromFixture(fixture)
+    : signerMaterialForVerifyAnswerEvm();
+  return signE2eDataUpdate(
+    fixture.dataUpdate.registryVersion,
+    material,
+    signersBitmap,
+    hexToBytes(fixture.dataUpdate.jobId),
+    {
+      configHash: hexToBytes(fixture.dataUpdate.configHash),
+      value: hexToBytes(fixture.dataUpdate.value),
+      canonicalTimestamp: fixture.dataUpdate.canonicalTimestamp,
+    },
+    fixture.dataUpdate.signaturesRequired
+  ).submitArgs;
 }
 
 function computeMessageHash(params: {
   jobId: Uint8Array;
   registryVersion: number;
   signaturesRequired: number;
-  configHash: Uint8Array;
   signersBitmap: Uint8Array;
   value: Uint8Array;
   canonicalTimestamp: number;
 }): Uint8Array {
   return keccakConcat([
-    EVM_ROUND_ID_PREFIX,
+    MESSAGE_PREFIX,
     params.jobId,
     u32be(params.registryVersion),
     u32be(params.signaturesRequired),
-    params.configHash,
     params.signersBitmap,
     params.value,
     u64be(params.canonicalTimestamp),
@@ -685,7 +717,6 @@ export function signE2eDataUpdate(
     jobId,
     registryVersion,
     signaturesRequired: required,
-    configHash: dataUpdate.configHash,
     signersBitmap,
     value: dataUpdate.value,
     canonicalTimestamp: dataUpdate.canonicalTimestamp,
@@ -752,7 +783,6 @@ export async function executeVerifyDataUpdateReturnData(
   signed: SignedE2eDataUpdate,
   accounts: {
     registryStatePda: PublicKey;
-    jobPda: PublicKey;
   },
   computeUnitLimit = 1_400_000
 ): Promise<Uint8Array> {
@@ -760,7 +790,6 @@ export async function executeVerifyDataUpdateReturnData(
     .verifyDataUpdate(signed.submitArgs)
     .accountsPartial({
       registryState: accounts.registryStatePda,
-      job: accounts.jobPda,
     })
     .remainingAccounts(
       signerRemainingAccounts(program.programId, signed.submitArgs.signersBitmap)

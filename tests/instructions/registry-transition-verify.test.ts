@@ -123,7 +123,6 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
       .verifyDataUpdate(verifyArgs)
       .accountsPartial({
         registryState: registryStatePda,
-        job: jobPda,
       })
       .remainingAccounts(
         signerRemainingAccounts(
@@ -172,7 +171,6 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
         .verifyDataUpdate(verifyArgs)
         .accountsPartial({
           registryState: registryStatePda,
-          job: jobPda,
         })
         .remainingAccounts(
           signerRemainingAccounts(program.programId, verifyArgs.signersBitmap)

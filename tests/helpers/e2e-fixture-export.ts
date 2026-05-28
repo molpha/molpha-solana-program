@@ -6,7 +6,7 @@ import {
   bytesToHex0x,
   deriveJobId,
   E2eDataUpdateFields,
-  evmSignersBitmapNumber,
+  evmSignersBitmapNumberFromBytes,
   E2eSignerMaterial,
   SignedE2eDataUpdate,
 } from "./evm-submit-data-update";
@@ -74,15 +74,16 @@ export function buildVerifyAnswerEvmFixture(params: {
   configHash: Uint8Array;
   nodePubkeys: Uint8Array[];
   nodePrivkeys: bigint[];
-  signerCount: number;
+  signaturesRequired: number;
   jobId: Uint8Array;
   dataUpdate: E2eDataUpdateFields;
-  signed: Pick<SignedE2eDataUpdate, "aggSigS" | "commitmentAddr">;
+  signed: Pick<SignedE2eDataUpdate, "aggSigS" | "commitmentAddr" | "signersBitmap">;
 }): VerifyAnswerEvmFixture {
   const nodeIndexesOneBased = Array.from(
-    { length: params.signerCount },
+    { length: params.registeredNodeCount },
     (_, i) => i + 1
   );
+  const signersBitmap = evmSignersBitmapNumberFromBytes(params.signed.signersBitmap);
 
   return {
     registeredNodeCount: params.registeredNodeCount,
@@ -94,7 +95,7 @@ export function buildVerifyAnswerEvmFixture(params: {
     dataUpdate: {
       jobId: bytesToHex0x(params.jobId),
       registryVersion: params.registryVersion,
-      signaturesRequired: params.signerCount,
+      signaturesRequired: params.signaturesRequired,
       configHash: bytesToHex0x(params.dataUpdate.configHash),
       value: bytesToHex0x(params.dataUpdate.value),
       canonicalTimestamp: params.dataUpdate.canonicalTimestamp,
@@ -102,7 +103,7 @@ export function buildVerifyAnswerEvmFixture(params: {
     schnorrSignature: {
       signature: bytesToHex0x(params.signed.aggSigS),
       commitment: bytesToHex0x(params.signed.commitmentAddr),
-      signersBitmap: evmSignersBitmapNumber(params.signerCount),
+      signersBitmap,
     },
   };
 }

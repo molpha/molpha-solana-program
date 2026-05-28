@@ -36,11 +36,7 @@ const {
   findRegistryIndexPda,
 } = require("./lib/cu-bench-data-update-common");
 
-const EVM_ROUND_ID_PREFIX = Buffer.from([
-  0x05, 0xcc, 0x9a, 0xbf, 0xa8, 0x3c, 0xdc, 0x2d, 0xff, 0xa2, 0x8a, 0xe0, 0xd4, 0x68,
-  0x59, 0x5e, 0xce, 0xd0, 0x56, 0x4a, 0x16, 0xf6, 0xed, 0x9a, 0x3e, 0x2c, 0x5b, 0x4e,
-  0x65, 0x2d, 0x98, 0x26,
-]);
+const MESSAGE_PREFIX = Buffer.from(keccak_256(Buffer.from("MOLPHA_MESSAGE_V1")));
 
 const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
@@ -172,7 +168,7 @@ function computeMessageHash({
   canonicalTimestamp,
 }) {
   return keccakConcat([
-    EVM_ROUND_ID_PREFIX,
+    MESSAGE_PREFIX,
     jobId,
     u32be(registryVersion),
     u32be(signaturesRequired),

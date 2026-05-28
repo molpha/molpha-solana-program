@@ -18,7 +18,7 @@ use crate::{
         },
         bitmap::{
             bitmap_is_subset_u256, bitmap_load, derive_group_bitmap, effective_selection_size,
-            for_each_set_bit_u256, validate_bitmap_upper_bits_clear_u256, MOLPHA_SELECTION_V1,
+            for_each_set_bit_u256, validate_bitmap_upper_bits_clear_u256,
         },
         schnorr::{
             eth_address_from_uncompressed_pubkey, evm_schnorr_ecdsa_inputs,
@@ -27,12 +27,20 @@ use crate::{
     },
 };
 
-/// Solidity `bytes32(keccak256("MOLPHA_PULL_ROUND_V1"))` — EVM `Validator._constructMessage` prefix.
+/// `bytes32(keccak256("MOLPHA_MESSAGE_V1"))` — EVM `Validator._constructMessage` prefix.
 ///
-/// Value: `keccak256(bytes("MOLPHA_PULL_ROUND_V1"))`, verified by the unit test below.
-pub(crate) const EVM_ROUND_ID_PREFIX: [u8; 32] = [
-    0x05, 0xcc, 0x9a, 0xbf, 0xa8, 0x3c, 0xdc, 0x2d, 0xff, 0xa2, 0x8a, 0xe0, 0xd4, 0x68, 0x59, 0x5e,
-    0xce, 0xd0, 0x56, 0x4a, 0x16, 0xf6, 0xed, 0x9a, 0x3e, 0x2c, 0x5b, 0x4e, 0x65, 0x2d, 0x98, 0x26,
+/// Value: `keccak256(bytes("MOLPHA_MESSAGE_V1"))`, verified by the unit test below.
+pub(crate) const MESSAGE_PREFIX: [u8; 32] = [
+    0xa7, 0x55, 0x23, 0xa2, 0xab, 0x7b, 0x71, 0x8d, 0x9c, 0xff, 0xd2, 0xfa, 0x97, 0xed, 0x06, 0x9f,
+    0xc1, 0x21, 0x84, 0xea, 0xbe, 0xe7, 0xd5, 0x07, 0x85, 0x4d, 0x09, 0x22, 0xf7, 0x0e, 0x7f, 0xe7,
+];
+
+/// `bytes32(keccak256("MOLPHA_SELECTION_V1"))` — EVM `Validator` selection seed prefix.
+///
+/// Value: `keccak256(bytes("MOLPHA_SELECTION_V1"))`, verified by the unit test below.
+pub(crate) const SELECTION_SEED_PREFIX: [u8; 32] = [
+    0x1d, 0xef, 0x81, 0x59, 0xcb, 0xcf, 0xcd, 0xfd, 0x72, 0x8d, 0x41, 0x97, 0x51, 0x9a, 0x57, 0xc0,
+    0x6e, 0x24, 0x3f, 0x0d, 0x94, 0x68, 0xb4, 0xc1, 0xe5, 0xc4, 0xa2, 0x33, 0xfc, 0x56, 0x53, 0xc3,
 ];
 
 /// Compute the EVM-compatible `DataUpdate` message hash.
@@ -40,13 +48,12 @@ pub(crate) const EVM_ROUND_ID_PREFIX: [u8; 32] = [
 /// Matches `Validator._constructMessage` in the EVM reference implementation:
 /// ```text
 /// keccak256(abi.encodePacked(
-///     ROUND_ID_PREFIX, jobId, registryVersion, signaturesRequired,
+///     MESSAGE_PREFIX, jobId, registryVersion, signaturesRequired,
 ///     configHash, signersBitmap, value, canonicalTimestamp
 /// ))
 /// ```
 pub(crate) fn compute_message_hash(
     args: &SubmitDataUpdateArgs,
-    api_config_hash: &[u8; 32],
     signatures_required: u8,
 ) -> [u8; 32] {
     let registry_version_bytes = args.registry_version.to_be_bytes();
@@ -54,11 +61,10 @@ pub(crate) fn compute_message_hash(
     let canonical_timestamp_bytes = (args.canonical_timestamp as u64).to_be_bytes();
 
     hashv(&[
-        EVM_ROUND_ID_PREFIX.as_slice(),
+        MESSAGE_PREFIX.as_slice(),
         args.job_id.as_slice(),
         registry_version_bytes.as_slice(),
         signatures_required_bytes.as_slice(),
-        api_config_hash.as_slice(),
         args.signers_bitmap.as_slice(),
         args.value.as_slice(),
         canonical_timestamp_bytes.as_slice(),
@@ -79,7 +85,6 @@ pub(crate) fn compute_message_hash(
 ///    signature via the ECDSA-recovery trick.
 pub(crate) fn build_coalition_and_verify<'info>(
     args: &SubmitDataUpdateArgs,
-    api_config_hash: &[u8; 32],
     registry: &RegistryState,
     now: i64,
     remaining_accounts: &[AccountInfo<'info>],
@@ -116,11 +121,10 @@ pub(crate) fn build_coalition_and_verify<'info>(
     } else {
         registry.previous_node_count
     };
-    validate_bitmap_upper_bits_clear_u256(signers, node_count)?;
 
     let canonical_timestamp_bytes = (args.canonical_timestamp as u64).to_be_bytes();
     let selection_seed = hashv(&[
-        MOLPHA_SELECTION_V1,
+        SELECTION_SEED_PREFIX.as_slice(),
         args.job_id.as_ref(),
         args.registry_version.to_be_bytes().as_ref(),
         canonical_timestamp_bytes.as_ref(),
@@ -184,7 +188,7 @@ pub(crate) fn build_coalition_and_verify<'info>(
 
     let x_coalition = coalition.compressed_pubkey()?;
 
-    let message_hash = compute_message_hash(args, api_config_hash, signatures_required);
+    let message_hash = compute_message_hash(args, signatures_required);
 
     let (recovery_id, ecdsa_signature, ecdsa_hash) = evm_schnorr_ecdsa_inputs(
         &x_coalition,
@@ -218,7 +222,7 @@ mod tests {
     // Test vectors decoded from `tests/fixtures-json/verify-answer-evm.json`.
     //
     // These act as end-to-end EVM-compatibility regression tests for:
-    //   - The EVM_ROUND_ID_PREFIX constant
+    //   - The MESSAGE_PREFIX constant
     //   - compute_message_hash field ordering and encoding
     //   - The full Schnorr-recovery verification path
     // -----------------------------------------------------------------------
@@ -259,15 +263,15 @@ mod tests {
 
     /// `schnorrSignature.signature` — the Schnorr scalar `s`.
     const FIXTURE_S: [u8; 32] = [
-        0x01, 0x00, 0xbc, 0xe0, 0xe5, 0xdc, 0x39, 0x39, 0xed, 0x19, 0xfd, 0x7c, 0x42, 0xa8, 0x32,
-        0xb0, 0x50, 0x39, 0x10, 0x81, 0x79, 0xe0, 0xa4, 0x8f, 0x5f, 0x23, 0x07, 0x3a, 0xcb, 0x58,
-        0x8a, 0x38,
+        0xc7, 0xe0, 0x99, 0x60, 0x3c, 0xee, 0xd2, 0xa1, 0x13, 0xd7, 0x5a, 0x9d, 0x95, 0xe2, 0x0f,
+        0x92, 0x00, 0x6b, 0x06, 0xc5, 0x49, 0x7a, 0xdd, 0x09, 0x81, 0x7d, 0xa8, 0x90, 0x8d, 0x39,
+        0x0d, 0xa5,
     ];
 
     /// `schnorrSignature.commitment` — Ethereum address (20 bytes).
     const FIXTURE_COMMITMENT: [u8; 20] = [
-        0xb6, 0x74, 0xd4, 0xac, 0xe5, 0x7e, 0x88, 0xcb, 0xc9, 0x74, 0x44, 0x08, 0xa7, 0xb9, 0x09,
-        0x96, 0x2d, 0x3e, 0x65, 0xbc,
+        0xc6, 0xb9, 0x4f, 0xea, 0x5d, 0xd5, 0xf9, 0x65, 0xd8, 0x67, 0x14, 0xb1, 0xd9, 0x9d, 0xcf,
+        0xaf, 0x1e, 0x72, 0xee, 0x35,
     ];
 
     /// Compressed secp256k1 pubkeys for nodes at bit positions 0–7 (signersBitmap = 255).
@@ -322,7 +326,6 @@ mod tests {
             signatures_required: FIXTURE_SIGNATURES_REQUIRED,
             value: FIXTURE_VALUE,
             canonical_timestamp: FIXTURE_CANONICAL_TIMESTAMP,
-            agg_sig_r: [0u8; 32],
             agg_sig_s: FIXTURE_S,
             commitment_addr: FIXTURE_COMMITMENT,
         }
@@ -356,6 +359,16 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // domain constants
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn selection_seed_prefix_is_keccak_of_domain() {
+        let expected = hashv(&[b"MOLPHA_SELECTION_V1"]).to_bytes();
+        assert_eq!(SELECTION_SEED_PREFIX, expected);
+    }
+
+    // -----------------------------------------------------------------------
     // compute_message_hash
     // -----------------------------------------------------------------------
 
@@ -365,8 +378,8 @@ mod tests {
         let args = fixture_args();
         let job = fixture_job();
         assert_eq!(
-            compute_message_hash(&args, &job.api_config_hash, job.signatures_required),
-            compute_message_hash(&args, &job.api_config_hash, job.signatures_required)
+            compute_message_hash(&args, job.signatures_required),
+            compute_message_hash(&args, job.signatures_required)
         );
     }
 
@@ -377,14 +390,13 @@ mod tests {
         let base_job = fixture_job();
         let base = compute_message_hash(
             &base_args,
-            &base_job.api_config_hash,
             base_job.signatures_required,
         );
 
         let mut a = fixture_args();
         a.registry_version += 1;
         assert_ne!(
-            compute_message_hash(&a, &base_job.api_config_hash, base_job.signatures_required),
+            compute_message_hash(&a, base_job.signatures_required),
             base,
             "registry_version must affect hash"
         );
@@ -392,7 +404,7 @@ mod tests {
         let mut j = fixture_job();
         j.signatures_required = j.signatures_required.saturating_sub(1);
         assert_ne!(
-            compute_message_hash(&base_args, &base_job.api_config_hash, j.signatures_required),
+            compute_message_hash(&base_args, j.signatures_required),
             base,
             "signatures_required must affect hash"
         );
@@ -400,7 +412,7 @@ mod tests {
         let mut config_hash = base_job.api_config_hash;
         config_hash[0] ^= 0xff;
         assert_ne!(
-            compute_message_hash(&base_args, &config_hash, base_job.signatures_required),
+            compute_message_hash(&base_args, base_job.signatures_required),
             base,
             "api_config_hash must affect hash"
         );
@@ -408,7 +420,7 @@ mod tests {
         let mut a = fixture_args();
         a.signers_bitmap[31] ^= 0x01;
         assert_ne!(
-            compute_message_hash(&a, &base_job.api_config_hash, base_job.signatures_required),
+            compute_message_hash(&a, base_job.signatures_required),
             base,
             "signers_bitmap must affect hash"
         );
@@ -416,7 +428,7 @@ mod tests {
         let mut a = fixture_args();
         a.value[0] ^= 0xff;
         assert_ne!(
-            compute_message_hash(&a, &base_job.api_config_hash, base_job.signatures_required),
+            compute_message_hash(&a, base_job.signatures_required),
             base,
             "value must affect hash"
         );
@@ -424,7 +436,7 @@ mod tests {
         let mut a = fixture_args();
         a.canonical_timestamp += 1;
         assert_ne!(
-            compute_message_hash(&a, &base_job.api_config_hash, base_job.signatures_required),
+            compute_message_hash(&a, base_job.signatures_required),
             base,
             "canonical_timestamp must affect hash"
         );
@@ -432,7 +444,7 @@ mod tests {
         let mut a = fixture_args();
         a.job_id[0] ^= 0xff;
         assert_ne!(
-            compute_message_hash(&a, &base_job.api_config_hash, base_job.signatures_required),
+            compute_message_hash(&a, base_job.signatures_required),
             base,
             "job_id must affect hash"
         );
@@ -476,7 +488,7 @@ mod tests {
         let args = fixture_args();
         let job = fixture_job();
         let message_hash =
-            compute_message_hash(&args, &job.api_config_hash, job.signatures_required);
+            compute_message_hash(&args, job.signatures_required);
         let x_coalition = fixture_coalition_compressed();
 
         let (recovery_id, ecdsa_sig, ecdsa_hash) = crate::utils::schnorr::evm_schnorr_ecdsa_inputs(
@@ -504,7 +516,7 @@ mod tests {
         let args = fixture_args();
         let job = fixture_job();
         let message_hash =
-            compute_message_hash(&args, &job.api_config_hash, job.signatures_required);
+            compute_message_hash(&args, job.signatures_required);
         let x_coalition = fixture_coalition_compressed();
 
         let mut bad_s = FIXTURE_S;

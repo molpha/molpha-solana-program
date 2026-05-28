@@ -25,11 +25,9 @@
     "cu:data-update:bankrun": "node scripts/cu-bench-data-update-bankrun.js",
     "cu:data-update:localnet": "node scripts/cu-bench-data-update-localnet.js",
     "build:molpha:cu-bench": "mkdir -p target/deploy && cargo build-sbf --manifest-path programs/molpha/Cargo.toml --sbf-out-dir target/deploy -- --features cu-bench",
-    "cu:derive-group-bitmap": "yarn build:molpha:cu-bench && node scripts/cu-bench-derive-group-bitmap.js",
     "molpha": "node cli/dist/index.js",
     "molpha:dev": "ts-node -r tsconfig-paths/register cli/src/index.ts",
-    "test:e2e-fixture": "yarn test tests/instructions/e2e-generate-fixture.integration.test.ts",
-    "test:solana-compat-v10": "yarn test tests/instructions/solana-compat-v10.integration.test.ts"
+    "test:e2e-fixture": "yarn build:molpha && cp target/deploy/molpha.so tests/fixtures && RUST_LOG= jest --runInBand --verbose --forceExit --testPathIgnorePatterns=/node_modules/ --testPathPatterns=e2e-generate-fixture"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

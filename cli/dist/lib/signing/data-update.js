@@ -58,12 +58,8 @@ const secp256k1_1 = require("@noble/secp256k1");
 const sha3_1 = require("@noble/hashes/sha3");
 const pdas_1 = require("../pdas");
 const utils_1 = require("../utils");
-const EVM_ROUND_ID_PREFIX = Buffer.from([
-    0x05, 0xcc, 0x9a, 0xbf, 0xa8, 0x3c, 0xdc, 0x2d, 0xff, 0xa2, 0x8a, 0xe0, 0xd4, 0x68,
-    0x59, 0x5e, 0xce, 0xd0, 0x56, 0x4a, 0x16, 0xf6, 0xed, 0x9a, 0x3e, 0x2c, 0x5b, 0x4e,
-    0x65, 0x2d, 0x98, 0x26,
-]);
-const MOLPHA_SELECTION_V1 = Buffer.from("MOLPHA_SELECTION_V1");
+const MESSAGE_PREFIX = Buffer.from((0, sha3_1.keccak_256)(Buffer.from("MOLPHA_MESSAGE_V1")));
+const SELECTION_SEED_PREFIX = Buffer.from((0, sha3_1.keccak_256)(Buffer.from("MOLPHA_SELECTION_V1")));
 /** `keccak256("MOLPHA_SELECTION_DERIVE")` — EVM `NodeGroupBitmapLib.SELECTION_DOMAIN`. */
 const SELECTION_DOMAIN = (0, sha3_1.keccak_256)(Buffer.from("MOLPHA_SELECTION_DERIVE"));
 const DERIVE_GROUP_BITMAP_MAX_ROUNDS = 65536;
@@ -210,7 +206,7 @@ function deriveGroupBitmap(seed, nodeCount, groupSize) {
 }
 function deriveSelectionSeed(jobId, registryVersion, canonicalTimestamp) {
     return (0, sha3_1.keccak_256)(Buffer.concat([
-        MOLPHA_SELECTION_V1,
+        SELECTION_SEED_PREFIX,
         Buffer.from(jobId),
         Buffer.from(u32be(registryVersion)),
         Buffer.from(u64be(canonicalTimestamp)),
@@ -239,7 +235,7 @@ function generateE2eSignerMaterialFromSeed(seed, signerCount) {
 }
 function computeMessageHash(params) {
     return keccakConcat([
-        EVM_ROUND_ID_PREFIX,
+        MESSAGE_PREFIX,
         params.jobId,
         u32be(params.registryVersion),
         u32be(params.signaturesRequired),

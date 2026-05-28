@@ -231,8 +231,6 @@ pub fn effective_selection_size(
         .min(node_count)
 }
 
-pub const MOLPHA_SELECTION_V1: &[u8] = b"MOLPHA_SELECTION_V1";
-
 pub fn validate_bitmap_upper_bits_clear(
     bitmap: &[u8; 32],
     node_count: u32,
