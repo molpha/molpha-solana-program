@@ -179,7 +179,6 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
       .submitDataUpdate(signed.submitArgs)
       .accountsPartial({
         submitter: ctx.authority.publicKey,
-        protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
         job: jobPda,
         feed: feedPda,

@@ -189,7 +189,6 @@ describe("e2e generate verify-answer-evm fixture", () => {
       .submitDataUpdate(signed.submitArgs)
       .accountsPartial({
         submitter: ctx.authority.publicKey,
-        protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
         job: jobPda,
         feed: feedPda,

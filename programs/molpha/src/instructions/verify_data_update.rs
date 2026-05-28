@@ -1,10 +1,11 @@
 use anchor_lang::prelude::*;
 
 use crate::{
+    error::MolphaError,
     instructions::{
         data_update_core::build_coalition_and_verify, submit_data_update::SubmitDataUpdateArgs,
     },
-    state::{Job, ProtocolConfig, RegistryState},
+    state::{Job, RegistryState},
 };
 
 /// Return-data layout (72 bytes):
@@ -16,12 +17,14 @@ pub fn verify_data_update(
     ctx: Context<VerifyDataUpdate>,
     args: SubmitDataUpdateArgs,
 ) -> Result<()> {
+    let job = &ctx.accounts.job;
     let registry = &ctx.accounts.registry_state;
 
     let clock = Clock::get()?;
     let now = clock.unix_timestamp;
     build_coalition_and_verify(
         &args,
+        &job.api_config_hash,
         registry,
         now,
         ctx.remaining_accounts,
@@ -41,22 +44,16 @@ pub fn verify_data_update(
 #[derive(Accounts)]
 #[instruction(args: SubmitDataUpdateArgs)]
 pub struct VerifyDataUpdate<'info> {
-    // #[account(
-    //     seeds = [ProtocolConfig::SEED_PREFIX],
-    //     bump = protocol_config.bump,
-    // )]
-    // pub protocol_config: Account<'info, ProtocolConfig>,
-
     #[account(
         seeds = [RegistryState::SEED_PREFIX],
         bump = registry_state.bump,
     )]
     pub registry_state: Account<'info, RegistryState>,
 
-    // #[account(
-    //     seeds = [Job::SEED_PREFIX, args.job_id.as_ref()],
-    //     bump = job.bump,
-    //     constraint = job.job_id == args.job_id @ MolphaError::DataUpdateJobMismatch,
-    // )]
-    // pub job: Account<'info, Job>,
+    #[account(
+        seeds = [Job::SEED_PREFIX, args.job_id.as_ref()],
+        bump = job.bump,
+        constraint = job.job_id == args.job_id @ MolphaError::DataUpdateJobMismatch,
+    )]
+    pub job: Account<'info, Job>,
 }

@@ -4,7 +4,7 @@ use crate::{
     error::MolphaError,
     events::FeedUpdated,
     instructions::data_update_core::build_coalition_and_verify,
-    state::{Feed, Job, ProtocolConfig, RegistryState},
+    state::{Feed, Job, RegistryState},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -25,7 +25,7 @@ pub fn submit_data_update(
     ctx: Context<SubmitDataUpdate>,
     args: SubmitDataUpdateArgs,
 ) -> Result<()> {
-    // let job = &ctx.accounts.job;
+    let job = &ctx.accounts.job;
     let feed = &mut ctx.accounts.feed;
     let registry = &ctx.accounts.registry_state;
 
@@ -39,6 +39,7 @@ pub fn submit_data_update(
 
     build_coalition_and_verify(
         &args,
+        &job.api_config_hash,
         registry,
         now,
         ctx.remaining_accounts,
@@ -77,12 +78,12 @@ pub struct SubmitDataUpdate<'info> {
     )]
     pub registry_state: Account<'info, RegistryState>,
 
-    // #[account(
-    //     seeds = [Job::SEED_PREFIX, args.job_id.as_ref()],
-    //     bump = job.bump,
-    //     constraint = job.job_id == args.job_id @ MolphaError::DataUpdateJobMismatch,
-    // )]
-    // pub job: Account<'info, Job>,
+    #[account(
+        seeds = [Job::SEED_PREFIX, args.job_id.as_ref()],
+        bump = job.bump,
+        constraint = job.job_id == args.job_id @ MolphaError::DataUpdateJobMismatch,
+    )]
+    pub job: Account<'info, Job>,
 
     #[account(
         mut,

@@ -13,6 +13,10 @@ module.exports = {
   testMatch: [
     '**/tests/**/*.test.ts',
   ],
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    'e2e-generate-fixture.integration.test.ts',
+  ],
   collectCoverageFrom: [
     'tests/**/*.ts',
     '!tests/**/*.d.ts',

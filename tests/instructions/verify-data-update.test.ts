@@ -138,16 +138,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
    * ```
    */
   function computeMessageHash(): Uint8Array {
-    const preimage = concat(
-      EXPECTED_EVM_ROUND_ID_PREFIX,
-      jobId,
-      u32BE(registryVersion),
-      u32BE(signaturesRequired),
-      signersBitmap,
-      value,
-      u64BE(canonicalTimestamp)
-    );
-    return keccak_256(preimage);
+    return keccak_256(buildMessagePreimage());
   }
 
   function buildMessagePreimage(): Uint8Array {
@@ -156,6 +147,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
       jobId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
+      configHash,
       signersBitmap,
       value,
       u64BE(canonicalTimestamp)

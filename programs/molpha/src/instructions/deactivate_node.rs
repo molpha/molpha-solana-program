@@ -67,9 +67,6 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
             last_index_info.owner == ctx.program_id,
             MolphaError::InvalidRegistryIndexAccount
         );
-        let last_index_data = last_index_info.try_borrow_data()?;
-        let last_index_account = RegistryIndex::try_deserialize(&mut &last_index_data[..])
-            .map_err(|_| error!(MolphaError::InvalidRegistryIndexAccount))?;
         let expected_last_index = Pubkey::find_program_address(
             &[RegistryIndex::SEED_PREFIX, &last_index.to_le_bytes()],
             ctx.program_id,
@@ -80,11 +77,23 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
             expected_last_index,
             MolphaError::InvalidRegistryIndexAccount
         );
-        require!(
-            last_index_account.index == last_index,
-            MolphaError::InvalidNodeIndex
-        );
-        moved_node = last_index_account.node;
+
+        let (last_node, last_pubkey_x, last_pubkey_y) = {
+            let last_index_data = last_index_info.try_borrow_data()?;
+            let last_index_account = RegistryIndex::try_deserialize(&mut &last_index_data[..])
+                .map_err(|_| error!(MolphaError::InvalidRegistryIndexAccount))?;
+            require!(
+                last_index_account.index == last_index,
+                MolphaError::InvalidNodeIndex
+            );
+            (
+                last_index_account.node,
+                last_index_account.secp256k1_pubkey_x,
+                last_index_account.secp256k1_pubkey_y,
+            )
+        };
+
+        moved_node = last_node;
         moved_old_index = last_index;
 
         require!(
@@ -93,14 +102,21 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
         );
 
         removed_index_account.node = moved_node;
-        removed_index_account.secp256k1_pubkey_x = last_index_account.secp256k1_pubkey_x;
-        removed_index_account.secp256k1_pubkey_y = last_index_account.secp256k1_pubkey_y;
+        removed_index_account.secp256k1_pubkey_x = last_pubkey_x;
+        removed_index_account.secp256k1_pubkey_y = last_pubkey_y;
 
         close_account_info(
             last_index_info,
             &ctx.accounts.rent_receiver.to_account_info(),
         )?;
-        ctx.accounts.moved_node.current_index = removed_index;
+        {
+            let mut data = ctx.accounts.moved_node.try_borrow_mut_data()?;
+            let mut node = Node::try_deserialize(&mut &data[..])
+                .map_err(|_| error!(MolphaError::MovedNodeMismatch))?;
+            node.current_index = removed_index;
+            let mut writer: &mut [u8] = &mut data;
+            node.try_serialize(&mut writer)?;
+        }
         transition_type = RegistryTransitionType::RemoveSwap;
     }
 
@@ -179,13 +195,13 @@ pub struct DeactivateNode<'info> {
     )]
     pub virtual_registry_index: Account<'info, RegistryIndex>,
 
-    /// CHECK: required only in swap-remove branch.
+    /// CHECK: swap-remove only; pass system program for tail removal.
     #[account(mut)]
     pub last_index_account: UncheckedAccount<'info>,
 
-    /// CHECK: required only in swap-remove branch.
+    /// CHECK: swap-remove only; pass system program for tail removal.
     #[account(mut)]
-    pub moved_node: Account<'info, Node>,
+    pub moved_node: UncheckedAccount<'info>,
 
     /// CHECK: receives reclaimed rent from closed index accounts.
     #[account(mut)]

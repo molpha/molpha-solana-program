@@ -665,9 +665,9 @@ export function signE2eDataUpdate(
   dataUpdate: E2eDataUpdateFields,
   signaturesRequired?: number,
   nodeCount?: number,
-  redundancyBuffer = 2,
-  canonicalTimestamp = 0
+  redundancyBuffer = 2
 ): SignedE2eDataUpdate {
+  const selectionTimestamp = dataUpdate.canonicalTimestamp;
   const signersBitmap =
     typeof signerCountOrBitmap === "number"
       ? deriveSignersBitmapForJob(
@@ -676,7 +676,7 @@ export function signE2eDataUpdate(
           nodeCount ?? signerCountOrBitmap,
           signaturesRequired ?? signerCountOrBitmap,
           redundancyBuffer,
-          canonicalTimestamp
+          selectionTimestamp
         )
       : signerCountOrBitmap;
   const signerCount = bitmapPopcountEvm(signersBitmap);
@@ -717,7 +717,7 @@ export function signE2eDataUpdate(
   const submitArgs = {
     jobId: Array.from(jobId),
     registryVersion,
-    signaturesRequired,
+    signaturesRequired: required,
     signersBitmap: Array.from(signersBitmap),
     value: Array.from(dataUpdate.value),
     canonicalTimestamp: new BN(dataUpdate.canonicalTimestamp),
@@ -760,6 +760,7 @@ export async function executeVerifyDataUpdateReturnData(
     .verifyDataUpdate(signed.submitArgs)
     .accountsPartial({
       registryState: accounts.registryStatePda,
+      job: accounts.jobPda,
     })
     .remainingAccounts(
       signerRemainingAccounts(program.programId, signed.submitArgs.signersBitmap)

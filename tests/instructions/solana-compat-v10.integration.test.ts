@@ -194,6 +194,7 @@ describe("solana-compat-v10 fixture e2e", () => {
       registry.currentVersion,
       registry.currentNodeCount,
       SIGNER_COUNT,
+      2,
       FIXTURE.dataUpdate.canonicalTimestamp
     );
     assert.deepEqual(
@@ -231,7 +232,6 @@ describe("solana-compat-v10 fixture e2e", () => {
       .submitDataUpdate(signed.submitArgs)
       .accountsPartial({
         submitter: ctx.authority.publicKey,
-        protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
         job: jobPda,
         feed: feedPda,

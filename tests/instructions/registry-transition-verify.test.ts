@@ -106,7 +106,7 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
       registryBump: registry.bump,
     });
 
-    await seedEvmJobAndFeed(ctx, program, ctx.authority.publicKey);
+    const { jobPda } = await seedEvmJobAndFeed(ctx, program, ctx.authority.publicKey);
 
     const verifyArgs = {
       ...buildEvmSubmitDataUpdateArgs(),
@@ -122,8 +122,8 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
     await program.methods
       .verifyDataUpdate(verifyArgs)
       .accountsPartial({
-        protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
+        job: jobPda,
       })
       .remainingAccounts(
         signerRemainingAccounts(
@@ -160,7 +160,7 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
       registryBump: registry.bump,
     });
 
-    await seedEvmJobAndFeed(ctx, program, ctx.authority.publicKey);
+    const { jobPda } = await seedEvmJobAndFeed(ctx, program, ctx.authority.publicKey);
 
     const verifyArgs = {
       ...buildEvmSubmitDataUpdateArgs(),
@@ -171,8 +171,8 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
       await program.methods
         .verifyDataUpdate(verifyArgs)
         .accountsPartial({
-          protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
+          job: jobPda,
         })
         .remainingAccounts(
           signerRemainingAccounts(program.programId, verifyArgs.signersBitmap)
