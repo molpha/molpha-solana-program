@@ -1,260 +1,257 @@
 # Molpha Oracle Solana Program
 
-A decentralized oracle network on Solana that provides reliable, multi-source data feeds with signature verification and oracle adapter support.
+A decentralized oracle network on Solana with an on-chain node registry, subscription-based jobs, and Schnorr-verified data updates aligned with Molpha’s EVM contracts.
 
 ## Overview
 
-Molpha is a comprehensive oracle solution that combines:
-- **Oracle Node Management**: Register and manage oracle nodes with EVM key support
-- **Data Feed Management**: Create and configure flexible data feeds (public/personal)
-- **Data Source Management**: Define and manage multiple data sources
-- **Subscription System**: Time-based subscriptions for personal feeds with automatic expiration
-- **Oracle Adapters**: Compatible with Pyth and Switchboard interfaces
-- **Signature Verification**: Ed25519 signature verification for oracle nodes
-- **Protocol Governance**: Configurable pricing and subscription parameters
+Molpha on Solana provides:
+
+- **Node registry** — Register oracle nodes with USDC deposits, sequential indices, and registry version transitions
+- **Plans & subscriptions** — USDC-paid plans that cap jobs and define signing thresholds
+- **Jobs & feeds** — Each job owns a feed PDA; updates carry a 32-byte value, coalition bitmap, and aggregate Schnorr signature
+- **Data updates** — `submit_data_update` writes feed state; `verify_data_update` runs the same checks without writing (72-byte return data for CPI consumers)
+- **Delegates** — Job owners can authorize up to five delegates to submit on their behalf
+- **Protocol governance** — Admin config for fees, registry cooldowns, gateway allowlists, and treasury
+
+For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP.md`](WP.md) and the operator-focused [**Node Operator Guide**](NODE_OPERATOR_GUIDE.md).
 
 ## Features
 
-### 🔐 Node Management
-- Register oracle nodes with Solana and EVM public keys
-- Signature verification using Ed25519
-- Node-based access control for data publication
+### Node registry
 
-### 📊 Feed Management
-- **Public Feeds**: Open data accessible by anyone
-- **Personal Feeds**: Subscription-based, time-limited access
-- Configurable update frequency and signature thresholds
-- Support for any 32-byte data format
+- `register_node` / `deactivate_node` with versioned `RegistryState` and `RegistryIndex` entries
+- secp256k1 signing keys stored in the registry index (EVM-parity message hashing)
+- `finalize_registry_transition` after batch registry changes
 
-### 🔌 Oracle Adapters
-Compatible with major oracle standards:
-- **Pyth Network**: Price feeds with confidence intervals
-- **Switchboard**: Aggregated results with statistics
-- Extensible for custom oracle formats
+### Jobs, plans, and subscriptions
 
-See [Adapters README](programs/molpha/src/adapters/README.md) for details.
+- Admin-defined **plans** (`add_plan`, `update_plan`) with per-round pricing and signer limits
+- **Subscribe** / **extend_subscription** in USDC
+- **create_job** binds a `job_id` to a feed and API config hash
 
-### 💎 Data Source Management
-- Create multiple data sources with metadata
-- Link data sources to specific feeds
-- Update data source configurations
-- Support for various data source types
+### Data publication
 
-### 💰 Subscription System
-- Time-based subscriptions for personal feeds
-- Extend existing subscriptions
-- Automatic expiration handling
-- Configurable pricing per second
+- Coalition **Schnorr** verification with on-chain bitmap re-derivation (matches EVM `NodeGroupBitmapLib`)
+- Optional **verify-only** path for pull oracles that read return data in the same transaction
+- Off-chain signing helpers in the CLI and `scripts/lib/cu-bench-data-update-common.js`
 
-## Program Structure
+### Tooling
+
+- TypeScript **CLI** (`yarn molpha`) for init, registry, plans, jobs, delegates, and data flows
+- Scripts for local setup, node generation, CU benchmarks, and end-to-end job submission
+
+## Program structure
 
 ```
 programs/
-├── molpha/                    # Main oracle program
+├── molpha/                         # Main oracle program
 │   └── src/
-│       ├── adapters/          # Oracle compatibility layer
-│       │   ├── pyth.rs        # Pyth Network adapter
-│       │   ├── switchboard.rs # Switchboard adapter
-│       │   └── README.md      # Adapter documentation
-│       ├── instructions/      # Instruction handlers
-│       │   ├── initialize.rs           # Initialize protocol
-│       │   ├── register_node.rs        # Register oracle nodes
-│       │   ├── create_feed.rs          # Create data feeds
-│       │   ├── update_feed_config.rs   # Update feed settings
-│       │   ├── publish_answer.rs       # Publish oracle data
-│       │   ├── extend_subscription.rs  # Extend subscriptions
-│       │   ├── create_data_source.rs   # Create data sources
-│       │   ├── update_data_source.rs   # Update data sources
-│       │   └── update_protocol_config.rs # Update protocol config
-│       ├── state/             # Account definitions
-│       │   ├── protocol_config.rs # Protocol configuration
-│       │   ├── node.rs        # Oracle node state
-│       │   ├── feed.rs        # Feed account state
-│       │   ├── feed_types.rs  # Feed type enums
-│       │   ├── answer.rs      # Answer/response state
-│       │   └── data_source.rs # Data source state
-│       ├── utils/             # Utility functions
-│       │   ├── ed25519.rs     # Signature verification
-│       │   ├── hash.rs        # Hashing utilities
-│       │   └── pricing.rs     # Pricing calculations
-│       ├── events.rs          # Event definitions
-│       ├── error.rs           # Error types
-│       └── lib.rs             # Program entry point
-└── faucet/                    # Test token faucet
-    └── src/
-        ├── instructions/
-        │   ├── initialize.rs
-        │   └── request_tokens.rs
-        └── state/
-            └── faucet_config.rs
+│       ├── instructions/
+│       │   ├── initialize.rs
+│       │   ├── register_node.rs / deactivate_node.rs
+│       │   ├── finalize_registry_transition.rs
+│       │   ├── add_gateway.rs / remove_gateway.rs
+│       │   ├── add_plan.rs / update_plan.rs
+│       │   ├── subscribe.rs / extend_subscription.rs
+│       │   ├── create_job.rs
+│       │   ├── add_delegate.rs / remove_delegate.rs
+│       │   ├── submit_data_update.rs / verify_data_update.rs
+│       │   └── data_update_core.rs
+│       ├── state/
+│       │   ├── protocol_config.rs
+│       │   ├── registry_state.rs / registry_index.rs
+│       │   ├── node.rs / gateway.rs
+│       │   ├── plan.rs / subscription.rs
+│       │   ├── job.rs / feed.rs
+│       ├── utils/
+│       │   ├── bitmap.rs          # Group selection (EVM parity)
+│       │   ├── schnorr.rs
+│       │   └── registry.rs
+│       ├── events.rs
+│       ├── error.rs
+│       └── lib.rs
+└── faucet/                       # Test USDC faucet (localnet / devnet)
 ```
 
-## 🚀 Getting Started
+```
+cli/                                # TypeScript operator CLI
+scripts/                            # Setup, registration, benchmarks, e2e flows
+tests/                              # Jest + bankrun instruction tests
+```
 
-### For Users & Integrators
+## Getting started
 
-**Want to use Molpha oracles in your app?**
+### For integrators and feed consumers
 
-👉 **Start here: [Quick Start Guide](QUICK_START.md)** - Get up and running in 5 minutes
+| Goal | Document |
+|------|----------|
+| Quick integration | [QUICK_START.md](QUICK_START.md) |
+| Full product usage | [MOLPHA_USER_GUIDE.md](MOLPHA_USER_GUIDE.md) |
+| Step-by-step integration | [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) |
+| API & account reference | [API_REFERENCE.md](API_REFERENCE.md) |
 
-📖 **Then read: [User Guide](MOLPHA_USER_GUIDE.md)** - Complete documentation
+### For oracle node operators
 
-🔨 **Integration help: [Integration Guide](INTEGRATION_GUIDE.md)** - Step-by-step instructions
+👉 **[Node Operator Guide](NODE_OPERATOR_GUIDE.md)** — registry lifecycle, signing math, submit/verify flows, scripts, and CU limits
 
-### For Developers
+### For developers (build & test)
 
-#### Prerequisites
+**Prerequisites:** Rust 1.70+, Solana CLI 1.17+, Anchor **0.32.1**, Node.js 18+, Yarn 1.22+
 
-- Rust 1.70+
-- Solana CLI 1.17+
-- Anchor 0.30+
-- Node.js 18+
+```bash
+# Build program + copy .so for bankrun tests
+yarn build:molpha
 
-#### TypeScript CLI
+# Full test suite (build + jest/bankrun)
+yarn test
 
-Use the in-repo CLI for operator flows and local testing:
+# Anchor integration tests (validator)
+anchor test
+
+# CU regression: submit/verify @ 3/8/18 signers
+yarn cu:data-update:bankrun
+```
+
+**TypeScript CLI:**
 
 ```bash
 yarn build:cli
 yarn molpha --help
 ```
 
-See [`cli/README.md`](cli/README.md) for the full command surface and end-to-end examples.
+See [`cli/README.md`](cli/README.md) for command groups and an end-to-end example (`init` → plan → subscribe → job → submit).
 
-#### Build & Deploy
+**Deploy (devnet):**
 
 ```bash
-# Build the program
-anchor build
-
-# Run tests
-anchor test
-
-# CU regression (bankrun): verify/submit_data_update @ 3/8/18 signers
-yarn cu:data-update:bankrun
-
-# Deploy to devnet
 anchor deploy --provider.cluster devnet
 ```
 
-#### Compute budgets (`submit_data_update` / `verify_data_update`)
+Program IDs are defined in [`Anchor.toml`](Anchor.toml) (see below).
 
-Bankrun measurements (see [`docs/solana-verifier-cu-optimization-v1.md`](docs/solana-verifier-cu-optimization-v1.md)):
+### Compute budgets (`submit_data_update` / `verify_data_update`)
+
+Bankrun/localnet measurements (May 2026 — details in [NODE_OPERATOR_GUIDE.md §10](NODE_OPERATOR_GUIDE.md#10-compute-budgets-and-limits)):
 
 | Signers | `verify_data_update` | `submit_data_update` |
-|---|---|---|
-| 3 | ~234K | ~239K |
-| 8 | ~299K | ~304K |
-| 18 | ~430K | ~436K |
+|---------|----------------------|----------------------|
+| 3 | ~296K | ~300K |
+| 8 | ~384K | ~387K |
+| 18 | ~529K | ~532K |
 
-Recommended client `SetComputeUnitLimit`: **500,000** for submit-only (no receipt accounts); **700,000** if bundling receipt writes. CI enforces ceilings via `yarn cu:data-update:bankrun`.
+Use `ComputeBudgetProgram.setComputeUnitLimit` ≥ **550_000** for large coalitions. CI enforces ceilings via `yarn cu:data-update:bankrun`.
 
-#### Quick Integration Example
+### Example: read feed via CLI
 
-**TypeScript:**
-```typescript
-import { MolphaOracleClient } from './oracle-client';
-
-const client = new MolphaOracleClient(program, connection);
-const price = await client.getPrice(feedAddress);
-console.log(`Price: $${price.value}`);
+```bash
+yarn molpha account feed --job-id <64_hex_job_id>
 ```
 
-**Rust:**
-```rust
-use molpha::adapters::pyth::PythCompatible;
+Off-chain signing and submission:
 
-let price = feed.get_pyth_price_no_older_than(60)?;
-let actual_price = price.price as f64 * 10f64.powi(price.expo);
+```bash
+yarn molpha data sign --job-id <hex> --registry-version 1 --value <hex> ...
+yarn molpha data submit ...
 ```
 
-See [example-oracle-usage.ts](scripts/example-oracle-usage.ts) for complete examples.
+See [`scripts/subscribe-create-job-submit.js`](scripts/subscribe-create-job-submit.js) (`yarn job-flow`) for a full devnet/localnet path.
 
 ## Program IDs
 
-- **Molpha Oracle**: `moLfNsTqLqej38QPHu4xq7uMBVK14MRQCQWhBhz8X3k`
-- **Faucet** (devnet): Check `target/deploy/faucet-keypair.json`
+From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
+
+| Program | ID |
+|---------|-----|
+| **Molpha** | `MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8` |
+| **Faucet** | `AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ` |
 
 ## Documentation
 
-### 📚 User Documentation
+### User & integration
 
-Start here to learn how to use and integrate Molpha oracles:
+- [Documentation Index](DOCUMENTATION_INDEX.md)
+- [Quick Start](QUICK_START.md)
+- [User Guide](MOLPHA_USER_GUIDE.md)
+- [Integration Guide](INTEGRATION_GUIDE.md)
+- [API Reference](API_REFERENCE.md)
 
-- **[Documentation Index](DOCUMENTATION_INDEX.md)** - Find the right documentation for your needs
-- **[Quick Start](QUICK_START.md)** - Get up and running in 5 minutes
-- **[User Guide](MOLPHA_USER_GUIDE.md)** - Complete guide to using Molpha oracles
-- **[Integration Guide](INTEGRATION_GUIDE.md)** - Step-by-step integration instructions
-- **[API Reference](API_REFERENCE.md)** - Complete API documentation
+### Operators & protocol engineers
 
-### 🔧 Technical Documentation
+- [**Node Operator Guide**](NODE_OPERATOR_GUIDE.md) — canonical on-chain behavior and runbooks
+- [Oracle Interfaces](ORACLE_INTERFACES.md) — adapter and encoding notes
+- [Remaining Accounts Limits](REMAINING_ACCOUNTS_LIMITS.md)
+- [Feed Consumer Implementation](FEED_CONSUMER_IMPLEMENTATION.md)
 
-- [Oracle Interfaces](ORACLE_INTERFACES.md) - Technical interface specifications
-- [Adapter Guide](programs/molpha/src/adapters/README.md) - Oracle compatibility layer
-- [Scripts Guide](scripts/README.md) - Utility scripts documentation
+### Deployment & project notes
 
-### 📋 Project Information
+- [Devnet Deployment](DEVNET_DEPLOYMENT.md)
+- [Faucet README](FAUCET_README.md)
+- [Migration Guide](MIGRATION_GUIDE.md)
+- [Scripts README](scripts/README.md)
 
-- [Complete Summary](COMPLETE_SUMMARY.md) - Recent implementation details
-- [Migration Guide](MIGRATION_GUIDE.md) - Upgrade instructions
-- [Devnet Deployment](DEVNET_DEPLOYMENT.md) - Devnet deployment guide
-- [Faucet README](FAUCET_README.md) - Test token faucet
+## Scripts & yarn commands
 
-## Scripts
+| Command | Purpose |
+|---------|---------|
+| `yarn molpha` | Operator CLI (after `yarn build:cli`) |
+| `yarn register-nodes` | `scripts/generate-and-register-nodes.js` |
+| `yarn job-flow` | Subscribe → create job → submit update |
+| `yarn cu:data-update:bankrun` | CU benchmark (bankrun) |
+| `yarn setup-test-faucet` | Local test USDC faucet |
 
-The `scripts/` directory contains utility scripts:
-
-- `initialize.js` - Initialize protocol configuration
-- `create-feed.js` - Create new data feeds
-- `create-data-source.js` - Create data sources
-- `register-node.js` - Register oracle nodes
-- `read-feeds.js` - Read feed data
-- `subscribe.js` - Subscribe to personal feeds
-- `oracle-client.ts` - TypeScript client library
+Key scripts under `scripts/`: `initialize.js`, `generate-and-register-nodes.js`, `subscribe-create-job-submit.js`, `oracle-client.ts`, `pda-helpers.js`, and CU bench utilities.
 
 ## Architecture
 
-### Data Flow
+### Data flow (current on-chain path)
 
 ```
-Oracle Node → Sign Data → Publish Answer → Feed Account
-                                ↓
-                        Verify Signature
-                                ↓
-                        Update Feed State
-                                ↓
-                    Consumer Reads via Adapter
-                    (Pyth/Switchboard/Custom)
+Job owner subscribes → create_job (feed PDA)
+        ↓
+Off-chain coalition signs (secp256k1 / Schnorr, EVM-compatible message)
+        ↓
+submit_data_update → verify bitmap + signature → update Feed
+        ↓
+Consumers read Feed account OR CPI verify_data_update (no write, return data)
 ```
 
-### PDA Seeds
+### PDA seeds
 
-- **Protocol Config**: `["protocol_config"]`
-- **Node**: `["node", authority, node_pubkey]`
-- **Feed**: `["feed", authority, hash(name), feed_type, threshold, frequency, job_id]`
-- **Data Source**: `["data_source", authority, hash(name), type]`
+| Account | Seed prefix | Additional seeds |
+|---------|-------------|------------------|
+| Protocol config | `molpha_config` | — |
+| Registry state | `molpha_registry` | — |
+| Registry index | `molpha_registry_index` | version, index |
+| Node | `molpha_node` | node owner |
+| Plan | `molpha_plan` | plan type byte |
+| Subscription | `molpha_subscription` | subscriber owner |
+| Job | `molpha_job` | `job_id` (32 bytes) |
+| Feed | `molpha_feed` | `job_id` (32 bytes) |
+| Gateway | `molpha_gateway` | IP + port |
+
+Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_GUIDE.md#3-on-chain-accounts-and-pdas).
 
 ## Security
 
-- Ed25519 signature verification for all oracle submissions
-- PDA-based access control
-- Time-based subscription expiration
-- Authority-based feed management
+- Coalition Schnorr verification with on-chain group bitmap derivation
+- Registry version checks on data updates
+- PDA-scoped accounts and authority checks per instruction
+- USDC deposits and protocol fee configuration for node registration and subscriptions
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Run tests: `anchor test`
-5. Submit a pull request
+4. Run `yarn test` and/or `anchor test`
+5. Open a pull request
 
 ## License
 
-[Add your license here]
+ISC — see [package.json](package.json).
 
 ## Support
 
-For questions and support:
-- GitHub Issues: [Create an issue](https://github.com/your-repo/issues)
-- Documentation: See docs in this repository
+- GitHub Issues: [Molpha/molpha-solana-program](https://github.com/Molpha/molpha-solana-program/issues)
+- Operator & protocol details: [NODE_OPERATOR_GUIDE.md](NODE_OPERATOR_GUIDE.md)
+- Documentation hub: [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md)
