@@ -27,6 +27,8 @@
     "build:molpha:cu-bench": "mkdir -p target/deploy && cargo build-sbf --manifest-path programs/molpha/Cargo.toml --sbf-out-dir target/deploy -- --features cu-bench",
     "molpha": "node cli/dist/index.js",
     "molpha:dev": "ts-node -r tsconfig-paths/register cli/src/index.ts",
+    "register-nodes": "node scripts/generate-and-register-nodes.js",
+    "job-flow": "node scripts/subscribe-create-job-submit.js",
     "test:e2e-fixture": "yarn build:molpha && cp target/deploy/molpha.so tests/fixtures && RUST_LOG= jest --runInBand --verbose --forceExit --testPathIgnorePatterns=/node_modules/ --testPathPatterns=e2e-generate-fixture"
   },
   "dependencies": {

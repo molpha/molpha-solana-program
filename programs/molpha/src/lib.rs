@@ -11,7 +11,7 @@ pub mod utils;
 use instructions::*;
 use state::PlanType;
 
-declare_id!("MLPHd2Pv9D4WhGUyh3FJYGvd4rR9SMProkSNcXm7zh9");
+declare_id!("MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8");
 
 #[program]
 pub mod molpha {

@@ -7,11 +7,11 @@ skip-lint = false
 
 [programs.devnet]
 faucet = "AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ"
-molpha = "MLPHd2Pv9D4WhGUyh3FJYGvd4rR9SMProkSNcXm7zh9"
+molpha = "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
 
 [programs.localnet]
 faucet = "AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ"
-molpha = "MLPHd2Pv9D4WhGUyh3FJYGvd4rR9SMProkSNcXm7zh9"
+molpha = "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
 
 [registry]
 url = "https://api.apr.dev"

@@ -401,20 +401,110 @@ function buildCoalitionSignature({
 }
 
 function buildSubmitArgs(signerCount, signatureMaterial, jobId) {
-  const signersBitmap = signatureMaterial.signersBitmap;
-  const s = signatureMaterial.s;
-  const commitmentAddr = signatureMaterial.commitmentAddr;
-
-  return {
-    jobId: Array.from(jobId),
+  return buildLiveSubmitArgs({
+    jobId,
     registryVersion: FIXTURE_REGISTRY_VERSION,
     signaturesRequired: signerCount,
+    signersBitmap: signatureMaterial.signersBitmap,
+    value: FIXTURE_VALUE,
+    canonicalTimestamp: FIXTURE_CANONICAL_TIMESTAMP,
+    aggSigS: signatureMaterial.s,
+    commitmentAddr: signatureMaterial.commitmentAddr,
+  });
+}
+
+/** Anchor `submitDataUpdate` / `verifyDataUpdate` args (current on-chain layout). */
+function buildLiveSubmitArgs({
+  jobId,
+  registryVersion,
+  signaturesRequired,
+  signersBitmap,
+  value,
+  canonicalTimestamp,
+  aggSigS,
+  commitmentAddr,
+}) {
+  return {
+    jobId: Array.from(jobId),
+    signaturesRequired,
+    registryVersion,
     signersBitmap: Array.from(signersBitmap),
-    value: Array.from(FIXTURE_VALUE),
-    canonicalTimestamp: new anchor.BN(FIXTURE_CANONICAL_TIMESTAMP),
-    aggSigR: Array.from(Buffer.alloc(32, 0)),
-    aggSigS: Array.from(s),
+    value: Array.from(value),
+    canonicalTimestamp: new anchor.BN(canonicalTimestamp),
+    aggSigS: Array.from(aggSigS),
     commitmentAddr: Array.from(commitmentAddr),
+  };
+}
+
+function signerMaterialFromManifestNodes(nodes, nodeCount) {
+  const privKeys = new Array(nodeCount).fill(0n);
+  const compressedPubkeys = new Array(nodeCount).fill(null);
+
+  for (const node of nodes) {
+    const idx = node.index;
+    if (idx < 0 || idx >= nodeCount) {
+      throw new Error(
+        `Node index ${idx} is outside registry size ${nodeCount}; re-register or adjust --nodes`
+      );
+    }
+    const skHex = (node.evm?.privateKey ?? "").replace(/^0x/, "");
+    const pkHex =
+      node.evm?.publicKeyCompressed0x ??
+      node.evm?.publicKeyCompressed ??
+      "";
+    if (!skHex || !pkHex) {
+      throw new Error(`Node ${idx} is missing EVM key material in the manifest`);
+    }
+    privKeys[idx] = modN(bigintFromBytesBE(Buffer.from(skHex, "hex")));
+    compressedPubkeys[idx] = hexToBuffer(pkHex);
+  }
+
+  for (let i = 0; i < nodeCount; i++) {
+    if (compressedPubkeys[i] === null) {
+      throw new Error(
+        `Manifest has no node for registry index ${i}; expected ${nodeCount} contiguous entries`
+      );
+    }
+  }
+
+  return { privKeys, compressedPubkeys, nodeCount };
+}
+
+function signDataUpdateForRegistry({
+  registryVersion,
+  signerMaterial,
+  signaturesRequired,
+  jobId,
+  value,
+  canonicalTimestamp,
+  nodeCount,
+  redundancyBuffer = REDUNDANCY_BUFFER,
+}) {
+  const signatureMaterial = buildCoalitionSignature({
+    signerCount: signaturesRequired,
+    privKeys: signerMaterial.privKeys,
+    compressedPubkeys: signerMaterial.compressedPubkeys,
+    jobId,
+    registryVersion,
+    configHash: Buffer.alloc(32, 0),
+    value,
+    canonicalTimestamp,
+    nodeCount,
+    redundancyBuffer,
+  });
+
+  return {
+    submitArgs: buildLiveSubmitArgs({
+      jobId,
+      registryVersion,
+      signaturesRequired,
+      signersBitmap: signatureMaterial.signersBitmap,
+      value,
+      canonicalTimestamp,
+      aggSigS: signatureMaterial.s,
+      commitmentAddr: signatureMaterial.commitmentAddr,
+    }),
+    signersBitmap: signatureMaterial.signersBitmap,
   };
 }
 
@@ -630,6 +720,9 @@ module.exports = {
   generateSignerMaterial,
   buildCoalitionSignature,
   buildSubmitArgs,
+  buildLiveSubmitArgs,
+  signerMaterialFromManifestNodes,
+  signDataUpdateForRegistry,
   buildBenchAccountSet,
   writeAccountDir,
 };
