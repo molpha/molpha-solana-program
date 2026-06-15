@@ -6,6 +6,7 @@ const {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } = require("@solana/spl-token");
+const { SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY } = require("@solana/web3.js");
 
 async function main() {
   if (!process.argv[2]) {
@@ -32,19 +33,30 @@ async function main() {
     const nodePubkey = new anchor.web3.PublicKey(process.argv[2]);
 
     // Parse EVM pubkey (compressed secp256k1 - 33 bytes) or use default
-    const hexString = process.argv[3].startsWith("0x")
-      ? process.argv[3].slice(2)
-      : process.argv[3];
-    let evmPubkey = Buffer.from(hexString, "hex");
-    if (evmPubkey.length !== 33) {
-      console.error(
-        "❌ Error: EVM pubkey must be 33 bytes (compressed secp256k1)"
+    let evmPubkey;
+    if (process.argv[3]) {
+      const hexString = process.argv[3].startsWith("0x")
+        ? process.argv[3].slice(2)
+        : process.argv[3];
+      evmPubkey = Buffer.from(hexString, "hex");
+      if (evmPubkey.length !== 33) {
+        console.error(
+          "❌ Error: EVM pubkey must be 33 bytes (compressed secp256k1)"
+        );
+        process.exit(1);
+      }
+    } else {
+      // Default EVM pubkey (all zeros) if not provided
+      evmPubkey = Buffer.alloc(33, 0);
+      console.warn(
+        "⚠️  Warning: No EVM pubkey provided, using default (all zeros)"
       );
-      process.exit(1);
     }
 
     // Get URL or use default
-    const url = process.argv[4] || `https://node-${nodePubkey.toString().slice(0, 8)}.example.com`;
+    const url =
+      process.argv[4] ||
+      `https://node-${nodePubkey.toString().slice(0, 8)}.example.com`;
 
     // Derive the node PDA
     const [nodePDA] = anchor.web3.PublicKey.findProgramAddressSync(
@@ -73,7 +85,9 @@ async function main() {
     );
 
     // Get SOL balance
-    const solBalance = await provider.connection.getBalance(provider.wallet.publicKey);
+    const solBalance = await provider.connection.getBalance(
+      provider.wallet.publicKey
+    );
     const solBalanceSOL = solBalance / anchor.web3.LAMPORTS_PER_SOL;
 
     // Get token balance
@@ -101,7 +115,11 @@ async function main() {
     console.log("💰 Balance Information:");
     console.log("SOL Balance:", solBalanceSOL.toFixed(6), "SOL");
     console.log("Token Balance:", tokenBalance.toString(), "tokens");
-    console.log("Required Security Deposit:", securityDeposit.toString(), "tokens");
+    console.log(
+      "Required Security Deposit:",
+      securityDeposit.toString(),
+      "tokens"
+    );
     console.log("Token Account:", nodeOperatorTokenAccount.toString());
     console.log("");
 
@@ -116,10 +134,14 @@ async function main() {
 
     // Check if you have enough tokens for security deposit
     if (tokenBalance < securityDeposit) {
-      console.error("❌ Error: Insufficient token balance for security deposit");
+      console.error(
+        "❌ Error: Insufficient token balance for security deposit"
+      );
       console.error(`Required: ${securityDeposit.toString()} tokens`);
       console.error(`Available: ${tokenBalance.toString()} tokens`);
-      console.error(`Missing: ${(securityDeposit - tokenBalance).toString()} tokens`);
+      console.error(
+        `Missing: ${(securityDeposit - tokenBalance).toString()} tokens`
+      );
       console.error("");
       console.error("💡 To get tokens:");
       console.error("1. Use the faucet: node scripts/faucet.js");

@@ -1,25 +1,40 @@
 use anchor_lang::prelude::*;
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
+pub enum ConfigChange {
+    RewardPerSignature(u64),
+    GatewayFee(u64),
+    ReceiptSubmitterBonus(u64),
+    ProtocolFeeBps(u16),
+    MaxReceiptDelaySlots(u64),
+    MinimumNodeDeposit(u64),
+}
+
 #[account]
-#[derive(Default, InitSpace)]
+#[derive(InitSpace)]
 pub struct ProtocolConfig {
     pub authority: Pubkey,
-    pub underlying_token: Pubkey, // SPL token mint for subscription payments
-
-    // EVM-style pricing parameters (from PricingHelper.sol)
-    pub base_price_per_second_scaled: u64, // Base price per second * SCALAR
-    pub frequency_coefficient: u64,        // Coefficient for frequency scaling (basis points)
-    pub signers_coefficient: u64,          // Coefficient for signers scaling (basis points)
-    pub reward_percentage: u64,            // Reward percentage in basis points
-
-    // Node security deposit
-    pub node_security_deposit: u64, // Required security deposit amount for registering a node
-
+    pub pending_authority: Option<Pubkey>,
+    pub usdc_mint: Pubkey,
+    pub treasury: Pubkey,
+    pub reward_per_signature: u64,
+    pub gateway_fee: u64,
+    pub receipt_submitter_bonus: u64,
+    pub protocol_fee_bps: u16,
+    pub max_receipt_delay_slots: u64,
+    pub registry_cooldown_secs: i64,
+    /// Grace period after activation during which the previous registry version remains valid.
+    pub previous_grace_secs: i64,
+    pub max_node_count: u32,
+    pub redundancy_buffer: u8,
+    pub minimum_node_deposit: u64,
+    pub withdrawal_cooldown_secs: i64,
+    pub timelock_expires_at: Option<i64>,
+    pub pending_change: Option<ConfigChange>,
     pub bump: u8,
 }
 
 impl ProtocolConfig {
-    pub const SEED_PREFIX: &'static [u8] = b"config";
+    pub const SEED_PREFIX: &'static [u8] = b"molpha_config";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
-    pub const SCALAR: u64 = 1_000_000; // Same as EVM version
 }

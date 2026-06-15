@@ -1,63 +1,109 @@
 use anchor_lang::prelude::*;
 
 #[error_code]
-pub enum NodeRegistryError {
-    #[msg("The given node public key is a zero key.")]
-    ZeroPubkey,
-    #[msg("Maximum number of nodes reached.")]
-    MaxNodesReached,
-    #[msg("Node is already part of the registry.")]
-    NodeAlreadyAdded,
-    #[msg("Node is not part of the registry.")]
-    NodeNotFound,
-    #[msg("Not enough valid signatures from registered nodes.")]
-    NotEnoughSignatures,
-    #[msg("Failed to parse Ed25519 instruction.")]
-    InvalidEd25519Instruction,
-    #[msg("Insufficient security deposit.")]
-    InsufficientSecurityDeposit,
-    #[msg("Invalid URL.")]
-    InvalidURL,
-}
-
-#[error_code]
-pub enum FeedError {
-    #[msg("Invalid feed configuration.")]
-    InvalidFeedConfig,
-    #[msg("This operation is not supported for this feed type.")]
-    NotSupported,
-    #[msg("The caller is not the owner of the feed.")]
-    NotFeedOwner,
-    #[msg("The provided answer has a timestamp in the past.")]
-    PastTimestamp,
-    #[msg("The provided answer has a timestamp in the future.")]
-    FutureTimestamp,
-    #[msg("The answer value cannot be empty.")]
-    ZeroValue,
-    #[msg("Insufficient balance for this operation.")]
-    InsufficientBalance,
-    #[msg("Not enough valid signatures from registered nodes.")]
-    NotEnoughSignatures,
-    #[msg("Invalid or inaccessible data source.")]
-    InvalidDataSource,
-    #[msg("Subscription has expired.")]
-    SubscriptionExpired,
-    #[msg("Minimum subscription time is 1 day.")]
-    MinimumSubscriptionTime,
-    #[msg("Minimum extension time is 1 day.")]
-    MinimumExtensionTime,
-    #[msg("Insufficient priority fee budget.")]
-    InsufficientPriorityFeeBudget,
-    #[msg("Too many nodes provided. Maximum is 25 nodes per transaction.")]
-    TooManyNodes,
-}
-
-#[error_code]
-pub enum DataSourceError {
-    #[msg("Data source with this ID already exists.")]
-    DataSourceAlreadyExists,
-    #[msg("Invalid data source data format.")]
-    InvalidDataSourceData,
-    #[msg("Invalid data source type.")]
-    InvalidDataSourceType,
+pub enum MolphaError {
+    #[msg("Registry change attempted while previous version is still accepted")]
+    TransitionStillInGrace,
+    #[msg("`previous_version` used after previous_expires_at")]
+    PreviousRegistryExpired,
+    #[msg("Signer index outside node_count(version)")]
+    InvalidNodeIndex,
+    #[msg("RegistryIndex does not match expected index/node")]
+    InvalidRegistryIndexAccount,
+    #[msg("Previous-after-remove verification requires remove-transition metadata")]
+    InvalidTransitionAccount,
+    #[msg("moved_node.node_id does not match last_index_account.node_id")]
+    MovedNodeMismatch,
+    #[msg("new_index must equal registry.current_node_count")]
+    InvalidNewIndex,
+    #[msg("Caller is not node.owner or registry.authority")]
+    UnauthorizedNodeAuthority,
+    #[msg("secp256k1_pubkey matches existing active node")]
+    NodeAlreadyRegistered,
+    #[msg("pending_node_count >= max_node_count or node_index_hint >= max_node_count")]
+    NodeCapExceeded,
+    #[msg("PoP Schnorr verification failed at registration")]
+    InvalidPoP,
+    #[msg("Instruction requires Active node status")]
+    NodeNotActive,
+    #[msg("security_deposit < minimum_node_deposit")]
+    InsufficientDeposit,
+    #[msg("Submitted compressed pubkey does not decompress to a valid curve point")]
+    PubkeyNotOnCurve,
+    #[msg("registry_version is neither active_version nor grace-valid previous_version")]
+    InvalidRegistryVersion,
+    #[msg("Pending registry version used before activation")]
+    VersionNotActive,
+    #[msg("Supplied NodeSlotVersionAccount does not cover registry_version")]
+    InvalidNodeSlotVersion,
+    #[msg("Attempted slot reuse before reusable_after")]
+    NodeSlotNotReusable,
+    #[msg("Caller is not ProtocolConfig.authority")]
+    UnauthorisedAuthority,
+    #[msg("Gateway endpoint is invalid")]
+    InvalidGatewayEndpoint,
+    #[msg("node_identity.owner does not match signer")]
+    UnauthorisedNodeOwner,
+    #[msg("node_slot.current_node_id does not match node_identity.node_id")]
+    NodeSlotIdentityMismatch,
+    #[msg("Pending registry version is not ready for activation")]
+    PendingVersionNotReady,
+    #[msg("No pending registry fork to activate")]
+    NoPendingRegistryFork,
+    #[msg("node_slot_version interval does not match expected from_version")]
+    InvalidSlotVersionInterval,
+    #[msg("treasury token account mismatch")]
+    InvalidTreasury,
+    #[msg("owner_usdc token account mismatch")]
+    InvalidOwnerUsdc,
+    #[msg("treasury must be owned by protocol_config")]
+    InvalidTreasuryOwner,
+    #[msg("withdraw destination token account mismatch")]
+    InvalidWithdrawDestination,
+    #[msg("Invalid aggregate signature")]
+    InvalidSignature,
+    #[msg("Could not derive group bitmap")]
+    GroupBitmapDerivationFailed,
+    #[msg("Signers bitmap contains out-of-range indices")]
+    InvalidSignersBitmap,
+    #[msg("job_id PDA already initialised")]
+    JobAlreadyExists,
+    #[msg("plan exists but is_active is false")]
+    PlanNotActive,
+    #[msg("invalid plan quorum or signer parameters")]
+    InvalidPlanParams,
+    #[msg("delegate_count >= 5")]
+    DelegateLimitReached,
+    #[msg("remove_delegate target not in active delegate slots")]
+    DelegateNotFound,
+    #[msg("delegate pubkey already present in active delegate slots")]
+    DelegateAlreadyPresent,
+    #[msg("job.owner does not match signer")]
+    UnauthorisedJobOwner,
+    #[msg("job_id does not match derived value for args and created_at_slot")]
+    InvalidJobId,
+    #[msg("node_id does not match derived value for owner, pubkey, and salt")]
+    InvalidNodeId,
+    #[msg("Re-derived selection bitmap does not match submitted bitmap")]
+    InvalidSelectionBitmap,
+    #[msg("popcount(signers_bitmap) < signatures_required")]
+    InsufficientSigners,
+    #[msg("signatures_required exceeds plan.max_signers")]
+    SignaturesExceedPlanMax,
+    #[msg("Signer bits outside selection bitmap")]
+    SignersNotSubsetOfSelection,
+    #[msg("PoP-Schnorr aggregate verification failed")]
+    InvalidAggregateSignature,
+    #[msg("canonical_timestamp <= feed.canonical_timestamp")]
+    FeedNotNewer,
+    #[msg("args.job_id does not match job.job_id")]
+    DataUpdateJobMismatch,
+    #[msg("api_config_hash mismatch")]
+    DataUpdateConfigMismatch,
+    #[msg("Missing or mis-ordered signer slot version account")]
+    MissingSignerAccount,
+    #[msg("subscription has expired")]
+    SubscriptionNotActive,
+    #[msg("subscription job_count >= plan.max_jobs")]
+    JobLimitReached,
 }

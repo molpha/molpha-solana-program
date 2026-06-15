@@ -7,6 +7,7 @@ const {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } = require("@solana/spl-token");
+const { SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY } = require("@solana/web3.js");
 
 // Command line usage
 const USAGE = `
@@ -119,9 +120,9 @@ async function checkProtocolStatus() {
       console.log("✅ ProtocolConfig: Initialized");
       console.log("   Authority:", protocolConfig.authority.toString());
       console.log(
-        "   Fee per update:",
-        protocolConfig.feePerUpdate.toString(),
-        "lamports"
+        "   Node Security Deposit:",
+        protocolConfig.nodeSecurityDeposit?.toString() || "N/A",
+        "tokens"
       );
     } catch (e) {
       console.log("❌ ProtocolConfig: Not initialized");
@@ -158,19 +159,26 @@ async function registerNode(nodePubkeyStr, evmPubkeyHex = null, url = null) {
     const nodePubkey = new anchor.web3.PublicKey(nodePubkeyStr);
 
     // Parse EVM pubkey or use default
-    const hexString = evmPubkeyHex.startsWith("0x")
-      ? evmPubkeyHex.slice(2)
-      : evmPubkeyHex;
-    let evmPubkey = Buffer.from(hexString, "hex");
-    if (evmPubkey.length !== 33) {
-      console.error(
-        "❌ Error: EVM pubkey must be 33 bytes (compressed secp256k1)"
-      );
-      return false;
+    let evmPubkey;
+    if (evmPubkeyHex) {
+      const hexString = evmPubkeyHex.startsWith("0x")
+        ? evmPubkeyHex.slice(2)
+        : evmPubkeyHex;
+      evmPubkey = Buffer.from(hexString, "hex");
+      if (evmPubkey.length !== 33) {
+        console.error(
+          "❌ Error: EVM pubkey must be 33 bytes (compressed secp256k1)"
+        );
+        return false;
+      }
+    } else {
+      // Default EVM pubkey (all zeros) if not provided
+      evmPubkey = Buffer.alloc(33, 0);
     }
 
     // Use provided URL or default
-    const nodeUrl = url || `https://node-${nodePubkeyStr.slice(0, 8)}.example.com`;
+    const nodeUrl =
+      url || `https://node-${nodePubkeyStr.slice(0, 8)}.example.com`;
 
     const [nodePDA] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("node"), nodePubkey.toBuffer()],

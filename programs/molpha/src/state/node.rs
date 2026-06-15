@@ -1,50 +1,35 @@
 use anchor_lang::prelude::*;
 
-use crate::utils::hash::to_hash;
+pub const VIRTUAL_INDEX: u32 = u32::MAX;
 
 #[account]
-#[derive(Default, InitSpace)]
+#[derive(InitSpace)]
 pub struct Node {
-    pub authority: Pubkey,   // Who can manage this node
-    pub node_pubkey: Pubkey, // The actual node's public key
-    #[max_len(33)]
-    pub node_pub_evm: Vec<u8>, // compressed secp256k1
-    pub url_hash: [u8; 32],
-    pub stake_amount: u64,
-    pub security_deposit: u64, // Amount of security deposit locked
+    pub owner: Pubkey,
+    pub current_index: u32,
     pub status: NodeStatus,
-    pub cooldown_until: i64,
-    pub created_at: i64, // When the node was created
+    pub ip: [u8; 4],
+    pub port: u16,
+    pub locked_amount: u64,
+    pub pending_rewards: u64,
+    pub registered_at: i64,
+    pub deactivated_at: i64,
+    pub withdrawable_at: i64,
     pub bump: u8,
 }
 
 impl Node {
-    pub const SEED_PREFIX: &'static [u8] = b"node";
+    pub const SEED_PREFIX: &'static [u8] = b"molpha_node";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
-
-    pub fn init(
-        &mut self,
-        authority: Pubkey,
-        node_pubkey: Pubkey,
-        evm_pubkey: Vec<u8>,
-        url: String,
-    ) -> Result<()> {
-        self.authority = authority;
-        self.node_pubkey = node_pubkey;
-        self.node_pub_evm = evm_pubkey;
-        self.url_hash = to_hash(&url);
-        self.status = NodeStatus::Registered;
-        self.created_at = Clock::get()?.unix_timestamp;
-        Ok(())
-    }
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Default)]
+#[derive(
+    AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Default, Debug,
+)]
 pub enum NodeStatus {
     #[default]
-    Registered,
     Active,
-    Exited,
-    Jailed,
+    Deactivated,
     Slashed,
+    Exited,
 }

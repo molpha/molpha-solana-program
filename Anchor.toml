@@ -7,19 +7,19 @@ skip-lint = false
 
 [programs.devnet]
 faucet = "AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ"
-molpha = "moLfWuMFCoVYRisYjHSkABQA9ZD35fFV76axiPLHCtp"
+molpha = "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
 
 [programs.localnet]
 faucet = "AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ"
-molpha = "moLfWuMFCoVYRisYjHSkABQA9ZD35fFV76axiPLHCtp"
+molpha = "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
 setup-faucet = "yarn setup-test-faucet"
-test = "RUST_LOG=error yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+test = "cp target/deploy/molpha.so tests/fixtures && RUST_LOG= yarn jest --runInBand --verbose --forceExit"

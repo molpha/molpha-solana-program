@@ -3,3 +3,6 @@ target
 .anchor
 package-lock.json
 test-ledger
+ref
+docs
+scripts/.cu-bench-localnet-accounts

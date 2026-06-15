@@ -1,64 +1,50 @@
 use anchor_lang::prelude::*;
-use anchor_spl::{
-    associated_token::AssociatedToken,
-    token,
-    token_interface::{Mint, TokenAccount, TokenInterface},
-};
+use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
 use crate::{
-    error::FeedError,
+    error::MolphaError,
     events::SubscriptionExtended,
-    state::{Feed, ProtocolConfig},
+    state::{Plan, ProtocolConfig, Subscription},
 };
 
-pub fn extend_subscription(
-    ctx: Context<ExtendSubscription>,
-    additional_duration_seconds: u64,
-) -> Result<()> {
-    let feed = &mut ctx.accounts.feed;
+pub fn extend_subscription(ctx: Context<ExtendSubscription>) -> Result<()> {
+    let plan = &ctx.accounts.plan;
+    let monthly_price = plan.subscription_price;
+    let now = Clock::get()?.unix_timestamp;
 
-    require!(
-        additional_duration_seconds >= 86400, // At least 1 day
-        FeedError::MinimumExtensionTime
-    );
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.owner_usdc.to_account_info(),
+                to: ctx.accounts.treasury.to_account_info(),
+                authority: ctx.accounts.owner.to_account_info(),
+            },
+        ),
+        monthly_price,
+    )?;
 
-    let new_due_datetime = if feed.subscription_due_time > Clock::get()?.unix_timestamp {
-        feed.subscription_due_time + additional_duration_seconds as i64
+    let subscription = &mut ctx.accounts.subscription;
+    subscription.prepaid_usdc = subscription
+        .prepaid_usdc
+        .checked_add(monthly_price)
+        .ok_or(MolphaError::InvalidPlanParams)?;
+    subscription.price = monthly_price;
+    subscription.valid_until = if subscription.valid_until > now {
+        subscription
+            .valid_until
+            .checked_add(Subscription::SECONDS_PER_MONTH)
+            .ok_or(MolphaError::InvalidPlanParams)?
     } else {
-        Clock::get()?.unix_timestamp + additional_duration_seconds as i64
+        now.checked_add(Subscription::SECONDS_PER_MONTH)
+            .ok_or(MolphaError::InvalidPlanParams)?
     };
 
-    // Calculate cost for extension (like SubscriptionRegistry.extendSubscription)
-    let extension_cost =
-        (feed.price_per_second_scaled * additional_duration_seconds) / ProtocolConfig::SCALAR;
-
-    // Extend subscription
-    feed.subscription_due_time = new_due_datetime;
-
-    // Transfer tokens from user to program token account
-    let token_program = &ctx.accounts.token_program;
-    let user_token_account = &ctx.accounts.user_token_account;
-    let program_token_account = &ctx.accounts.program_token_account;
-    let authority = &ctx.accounts.authority;
-
-    let payment_cpi_ctx = CpiContext::new(
-        token_program.to_account_info(),
-        token::Transfer {
-            from: user_token_account.to_account_info(),
-            to: program_token_account.to_account_info(),
-            authority: authority.to_account_info(),
-        },
-    );
-    token::transfer(payment_cpi_ctx, extension_cost)?;
-
-
-    // Emit event
     emit!(SubscriptionExtended {
-        feed: ctx.accounts.feed.key(),
-        authority: ctx.accounts.authority.key(),
-        additional_duration: additional_duration_seconds,
-        new_due_time: new_due_datetime,
-        extended_at: Clock::get()?.unix_timestamp,
+        owner: ctx.accounts.owner.key(),
+        plan_type: subscription.plan_type as u8,
+        prepaid_usdc: subscription.prepaid_usdc,
+        valid_until: subscription.valid_until,
     });
 
     Ok(())
@@ -66,42 +52,48 @@ pub fn extend_subscription(
 
 #[derive(Accounts)]
 pub struct ExtendSubscription<'info> {
-    #[account(
-        mut,
-        has_one = authority,
-    )]
-    pub feed: Account<'info, Feed>,
-
     #[account(mut)]
-    pub authority: Signer<'info>,
+    pub owner: Signer<'info>,
 
-    /// User's associated token account to transfer tokens from
-    #[account(
-        mut,
-        associated_token::mint = underlying_token,
-        associated_token::authority = authority,
-    )]
-    pub user_token_account: InterfaceAccount<'info, TokenAccount>,
-
-    /// Program's associated token account to receive tokens
-    #[account(
-        mut,
-        associated_token::mint = underlying_token,
-        associated_token::authority = protocol_config,
-    )]
-    pub program_token_account: InterfaceAccount<'info, TokenAccount>,
-
-    /// Protocol config to get the underlying token authority
     #[account(
         seeds = [ProtocolConfig::SEED_PREFIX],
-        bump,
+        bump = protocol_config.bump,
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
-    /// The underlying token mint
-    pub underlying_token: InterfaceAccount<'info, Mint>,
+    #[account(
+        mut,
+        seeds = [Subscription::SEED_PREFIX, owner.key().as_ref()],
+        bump = subscription.bump,
+        constraint = subscription.owner == owner.key() @ MolphaError::UnauthorisedJobOwner,
+    )]
+    pub subscription: Account<'info, Subscription>,
 
-    pub system_program: Program<'info, System>,
-    pub token_program: Interface<'info, TokenInterface>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
+    #[account(
+        seeds = [Plan::SEED_PREFIX, &[subscription.plan_type as u8]],
+        bump = plan.bump,
+        constraint = plan.is_active @ MolphaError::PlanNotActive,
+    )]
+    pub plan: Account<'info, Plan>,
+
+    #[account(
+        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidOwnerUsdc
+    )]
+    pub usdc_mint: Account<'info, token::Mint>,
+
+    #[account(
+        mut,
+        constraint = owner_usdc.mint == usdc_mint.key() @ MolphaError::InvalidOwnerUsdc,
+        constraint = owner_usdc.owner == owner.key() @ MolphaError::InvalidOwnerUsdc,
+    )]
+    pub owner_usdc: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        constraint = treasury.key() == protocol_config.treasury @ MolphaError::InvalidTreasury,
+        constraint = treasury.mint == usdc_mint.key() @ MolphaError::InvalidTreasury,
+    )]
+    pub treasury: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
 }
