@@ -106,5 +106,10 @@ jobs:
       - name: Build CLI
         run: yarn build:cli
 
+      - name: Generate default Solana keypair
+        run: |
+          mkdir -p "$HOME/.config/solana"
+          solana-keygen new --no-bip39-passphrase --silent --outfile "$HOME/.config/solana/id.json"
+
       - name: Run tests
         run: yarn test
