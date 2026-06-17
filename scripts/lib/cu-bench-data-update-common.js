@@ -11,7 +11,9 @@ const path = require("path");
 
 const EVM_FIXTURE = require("../../tests/fixtures-json/verify-answer-evm.json");
 
-const MESSAGE_PREFIX = Buffer.from(keccak_256(Buffer.from("MOLPHA_MESSAGE_V1")));
+const MESSAGE_PREFIX = Buffer.from(
+  keccak_256(Buffer.from("MOLPHA_MESSAGE_V1"))
+);
 
 const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
@@ -40,7 +42,9 @@ const FIXTURE_CONFIG_HASH = hexToBuffer(EVM_FIXTURE.dataUpdate.configHash);
 const FIXTURE_VALUE = hexToBuffer(EVM_FIXTURE.dataUpdate.value);
 const FIXTURE_REGISTRY_VERSION = EVM_FIXTURE.dataUpdate.registryVersion;
 const FIXTURE_CANONICAL_TIMESTAMP = EVM_FIXTURE.dataUpdate.canonicalTimestamp;
-const FIXTURE_SIGNERS_BITMAP = uint256BE(BigInt(EVM_FIXTURE.schnorrSignature.signersBitmap));
+const FIXTURE_SIGNERS_BITMAP = uint256BE(
+  BigInt(EVM_FIXTURE.schnorrSignature.signersBitmap)
+);
 const FIXTURE_SIG_S = hexToBuffer(EVM_FIXTURE.schnorrSignature.signature);
 const FIXTURE_COMMITMENT = hexToBuffer(
   EVM_FIXTURE.schnorrSignature.commitment.toLowerCase()
@@ -95,7 +99,9 @@ function evmBitmapBitSet(bitmap, pos) {
 const SELECTION_SEED_PREFIX = Buffer.from(
   keccak_256(Buffer.from("MOLPHA_SELECTION_V1"))
 );
-const SELECTION_DOMAIN = Buffer.from(keccak_256(Buffer.from("MOLPHA_SELECTION_DERIVE")));
+const SELECTION_DOMAIN = Buffer.from(
+  keccak_256(Buffer.from("MOLPHA_SELECTION_DERIVE"))
+);
 const DERIVE_GROUP_BITMAP_MAX_ROUNDS = 65_536;
 const REDUNDANCY_BUFFER = 2;
 
@@ -106,7 +112,11 @@ function u256BeFromU64(counter) {
 }
 
 function selectionHashRound(seed, counter) {
-  const preimage = Buffer.concat([seed, SELECTION_DOMAIN, u256BeFromU64(counter)]);
+  const preimage = Buffer.concat([
+    seed,
+    SELECTION_DOMAIN,
+    u256BeFromU64(counter),
+  ]);
   return Buffer.from(keccak_256(preimage));
 }
 
@@ -185,7 +195,11 @@ function deriveSelectionSeed(jobId, registryVersion, canonicalTimestamp) {
   );
 }
 
-function effectiveSelectionSize(signaturesRequired, redundancyBuffer, nodeCount) {
+function effectiveSelectionSize(
+  signaturesRequired,
+  redundancyBuffer,
+  nodeCount
+) {
   return Math.min(nodeCount, signaturesRequired + redundancyBuffer);
 }
 
@@ -217,7 +231,8 @@ function modN(x) {
 
 function bytes32FromBigintBE(x) {
   let v = x;
-  if (v < 0n) v = (v % SECP256K1_ORDER_N + SECP256K1_ORDER_N) % SECP256K1_ORDER_N;
+  if (v < 0n)
+    v = ((v % SECP256K1_ORDER_N) + SECP256K1_ORDER_N) % SECP256K1_ORDER_N;
   v %= SECP256K1_ORDER_N;
   return Buffer.from(v.toString(16).padStart(64, "0"), "hex");
 }
@@ -233,7 +248,9 @@ function commitmentAddrFromPoint(R) {
 }
 
 function decompressSecp256k1(compressed) {
-  const point = secp256k1.Point.fromHex(Buffer.from(compressed).toString("hex"));
+  const point = secp256k1.Point.fromHex(
+    Buffer.from(compressed).toString("hex")
+  );
   const uncompressed = point.toRawBytes(false);
   return {
     x: uncompressed.subarray(1, 33),
@@ -241,7 +258,11 @@ function decompressSecp256k1(compressed) {
   };
 }
 
-function schnorrSignForVerifier({ coalitionPubkeyCompressed, messageHash, coalitionPrivkey }) {
+function schnorrSignForVerifier({
+  coalitionPubkeyCompressed,
+  messageHash,
+  coalitionPrivkey,
+}) {
   const px = coalitionPubkeyCompressed.subarray(1, 33);
   const recoveryId = coalitionPubkeyCompressed[0] & 1;
 
@@ -304,7 +325,14 @@ function loadProgramId() {
 }
 
 function loadIdl() {
-  const idlPath = path.join(__dirname, "..", "..", "target", "idl", "molpha.json");
+  const idlPath = path.join(
+    __dirname,
+    "..",
+    "..",
+    "target",
+    "idl",
+    "molpha.json"
+  );
   const raw = JSON.parse(fs.readFileSync(idlPath, "utf8"));
   const programId = new PublicKey(raw.address);
   return { idl: raw, programId };
@@ -313,7 +341,10 @@ function loadIdl() {
 function findRegistryIndexPda(programId, index) {
   const indexBytes = Buffer.alloc(4);
   indexBytes.writeUInt32LE(index);
-  return PublicKey.findProgramAddressSync([REGISTRY_INDEX_SEED, indexBytes], programId)[0];
+  return PublicKey.findProgramAddressSync(
+    [REGISTRY_INDEX_SEED, indexBytes],
+    programId
+  )[0];
 }
 
 function registryIndexRemainingAccounts(programId, signersBitmap) {
@@ -387,7 +418,9 @@ function buildCoalitionSignature({
     }
     coalitionSk = modN(coalitionSk + privKeys[bit]);
     coalitionPoint = coalitionPoint.add(
-      secp256k1.Point.fromHex(Buffer.from(compressedPubkeys[bit]).toString("hex"))
+      secp256k1.Point.fromHex(
+        Buffer.from(compressedPubkeys[bit]).toString("hex")
+      )
     );
   }
   const coalitionCompressed = Buffer.from(coalitionPoint.toRawBytes(true));
@@ -449,11 +482,11 @@ function signerMaterialFromManifestNodes(nodes, nodeCount) {
     }
     const skHex = (node.evm?.privateKey ?? "").replace(/^0x/, "");
     const pkHex =
-      node.evm?.publicKeyCompressed0x ??
-      node.evm?.publicKeyCompressed ??
-      "";
+      node.evm?.publicKeyCompressed0x ?? node.evm?.publicKeyCompressed ?? "";
     if (!skHex || !pkHex) {
-      throw new Error(`Node ${idx} is missing EVM key material in the manifest`);
+      throw new Error(
+        `Node ${idx} is missing EVM key material in the manifest`
+      );
     }
     privKeys[idx] = modN(bigintFromBytesBE(Buffer.from(skHex, "hex")));
     compressedPubkeys[idx] = hexToBuffer(pkHex);
@@ -513,7 +546,12 @@ async function encodeAccount(program, accountName, fields) {
   return Buffer.from(data);
 }
 
-function toValidatorAccountJson(pubkey, data, owner, lamports = ACCOUNT_LAMPORTS) {
+function toValidatorAccountJson(
+  pubkey,
+  data,
+  owner,
+  lamports = ACCOUNT_LAMPORTS
+) {
   return JSON.stringify(
     {
       pubkey: pubkey.toBase58(),
@@ -530,7 +568,13 @@ function toValidatorAccountJson(pubkey, data, owner, lamports = ACCOUNT_LAMPORTS
   );
 }
 
-async function buildBenchAccountSet(program, programId, payer, signerCount, signerMaterial) {
+async function buildBenchAccountSet(
+  program,
+  programId,
+  payer,
+  signerCount,
+  signerMaterial
+) {
   const configHash = benchConfigHash(signerCount);
   const jobId = deriveJobId(payer.publicKey, configHash);
 
@@ -659,7 +703,13 @@ async function buildBenchAccountSet(program, programId, payer, signerCount, sign
   };
 }
 
-async function writeAccountDir(program, programId, payer, signerCount, signerMaterial) {
+async function writeAccountDir(
+  program,
+  programId,
+  payer,
+  signerCount,
+  signerMaterial
+) {
   const dir = path.join(ACCOUNTS_ROOT, `n${signerCount}`);
   fs.mkdirSync(dir, { recursive: true });
 
@@ -673,10 +723,7 @@ async function writeAccountDir(program, programId, payer, signerCount, signerMat
 
   for (const { pubkey, data, owner } of accounts) {
     const file = path.join(dir, `${pubkey.toBase58()}.json`);
-    fs.writeFileSync(
-      file,
-      toValidatorAccountJson(pubkey, data, owner)
-    );
+    fs.writeFileSync(file, toValidatorAccountJson(pubkey, data, owner));
   }
 
   const payerFile = path.join(dir, `${payer.publicKey.toBase58()}.json`);

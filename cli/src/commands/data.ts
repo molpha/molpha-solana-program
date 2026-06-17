@@ -9,7 +9,12 @@ import {
 } from "../lib/accounts";
 import { getCliContext, getGlobalOptions } from "../lib/client";
 import { resolveCliOptions } from "../lib/config";
-import { findFeedPda, findJobPda, findProtocolConfigPda, findRegistryStatePda } from "../lib/pdas";
+import {
+  findFeedPda,
+  findJobPda,
+  findProtocolConfigPda,
+  findRegistryStatePda,
+} from "../lib/pdas";
 import {
   buildBitmapFromFlag,
   buildSubmitArgsFromFixture,
@@ -40,7 +45,9 @@ type SubmitArgsShape = {
 };
 
 export function registerDataCommands(program: Command): void {
-  const data = program.command("data").description("Sign and submit data updates");
+  const data = program
+    .command("data")
+    .description("Sign and submit data updates");
 
   data
     .command("sign")
@@ -54,7 +61,11 @@ export function registerDataCommands(program: Command): void {
     .option("--signer-count <number>", "number of signers to include", "8")
     .option("--signers-bitmap <hex>", "explicit 32-byte signers bitmap")
     .option("--signatures-required <number>", "override signatures required")
-    .option("--signer-seed <string>", "deterministic signer seed", "molpha-cli-e2e-signers")
+    .option(
+      "--signer-seed <string>",
+      "deterministic signer seed",
+      "molpha-cli-e2e-signers"
+    )
     .action(async (options, command: Command) => {
       const programId = getProgramIdFromGlobals(command);
       const { payload, remaining } = buildSignedPayload(options, programId);
@@ -77,20 +88,34 @@ export function registerDataCommands(program: Command): void {
     .option("--signer-count <number>", "number of signers to include", "8")
     .option("--signers-bitmap <hex>", "explicit 32-byte signers bitmap")
     .option("--signatures-required <number>", "override signatures required")
-    .option("--signer-seed <string>", "deterministic signer seed", "molpha-cli-e2e-signers")
+    .option(
+      "--signer-seed <string>",
+      "deterministic signer seed",
+      "molpha-cli-e2e-signers"
+    )
     .option("--compute-unit-limit <number>", "compute unit limit", "1400000")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
       const [registryStatePda] = findRegistryStatePda(ctx.programId);
-      const registryState = await fetchAccountOrNull<any>(ctx.program, "registryState", registryStatePda);
+      const registryState = await fetchAccountOrNull<any>(
+        ctx.program,
+        "registryState",
+        registryStatePda
+      );
       if (!registryState) {
         throw new Error("Registry state is not initialized");
       }
 
       const submitArgs = resolveSubmitArgs(options, ctx.programId);
-      const [jobPda] = findJobPda(ctx.programId, bytesFromField(submitArgs.jobId, 32, "job id"));
-      const [feedPda] = findFeedPda(ctx.programId, bytesFromField(submitArgs.jobId, 32, "job id"));
+      const [jobPda] = findJobPda(
+        ctx.programId,
+        bytesFromField(submitArgs.jobId, 32, "job id")
+      );
+      const [feedPda] = findFeedPda(
+        ctx.programId,
+        bytesFromField(submitArgs.jobId, 32, "job id")
+      );
       const { remainingTransition } = await resolveTransitionForRegistryVersion(
         ctx.program,
         registryState,
@@ -140,18 +165,29 @@ export function registerDataCommands(program: Command): void {
     .option("--signer-count <number>", "number of signers to include", "8")
     .option("--signers-bitmap <hex>", "explicit 32-byte signers bitmap")
     .option("--signatures-required <number>", "override signatures required")
-    .option("--signer-seed <string>", "deterministic signer seed", "molpha-cli-e2e-signers")
+    .option(
+      "--signer-seed <string>",
+      "deterministic signer seed",
+      "molpha-cli-e2e-signers"
+    )
     .option("--compute-unit-limit <number>", "compute unit limit", "1400000")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [registryStatePda] = findRegistryStatePda(ctx.programId);
-      const registryState = await fetchAccountOrNull<any>(ctx.program, "registryState", registryStatePda);
+      const registryState = await fetchAccountOrNull<any>(
+        ctx.program,
+        "registryState",
+        registryStatePda
+      );
       if (!registryState) {
         throw new Error("Registry state is not initialized");
       }
 
       const submitArgs = resolveSubmitArgs(options, ctx.programId);
-      const [jobPda] = findJobPda(ctx.programId, bytesFromField(submitArgs.jobId, 32, "job id"));
+      const [jobPda] = findJobPda(
+        ctx.programId,
+        bytesFromField(submitArgs.jobId, 32, "job id")
+      );
       const { remainingTransition } = await resolveTransitionForRegistryVersion(
         ctx.program,
         registryState,
@@ -178,10 +214,16 @@ export function registerDataCommands(program: Command): void {
         verifyIx
       );
       tx.feePayer = ctx.wallet.publicKey;
-      tx.recentBlockhash = (await ctx.connection.getLatestBlockhash(ctx.options.commitment)).blockhash;
+      tx.recentBlockhash = (
+        await ctx.connection.getLatestBlockhash(ctx.options.commitment)
+      ).blockhash;
       tx.sign(ctx.payer);
 
-      const simulation = await ctx.provider.simulate(tx, [ctx.payer], ctx.options.commitment);
+      const simulation = await ctx.provider.simulate(
+        tx,
+        [ctx.payer],
+        ctx.options.commitment
+      );
       if (!simulation.returnData) {
         throw new Error("verify_data_update returned no return data");
       }
@@ -205,9 +247,17 @@ function buildSignedPayload(
     return {
       payload: {
         submitArgs,
-        signersBitmap: bytesFromField(submitArgs.signersBitmap, 32, "signers bitmap"),
+        signersBitmap: bytesFromField(
+          submitArgs.signersBitmap,
+          32,
+          "signers bitmap"
+        ),
         aggSigS: bytesFromField(submitArgs.aggSigS, 32, "agg sig s"),
-        commitmentAddr: bytesFromField(submitArgs.commitmentAddr, 20, "commitment"),
+        commitmentAddr: bytesFromField(
+          submitArgs.commitmentAddr,
+          20,
+          "commitment"
+        ),
       },
       remaining: signerRemainingAccounts(
         programId,
@@ -218,25 +268,44 @@ function buildSignedPayload(
 
   const signerCount = parseInteger(options.signerCount ?? "8", "signer count");
   const signerSeed = options.signerSeed ?? "molpha-cli-e2e-signers";
-  const signerMaterial = generateE2eSignerMaterialFromSeed(signerSeed, signerCount);
+  const signerMaterial = generateE2eSignerMaterialFromSeed(
+    signerSeed,
+    signerCount
+  );
   const signersBitmap = options.signersBitmap
     ? buildBitmapFromFlag(options.signersBitmap)
     : undefined;
 
   const payload = signE2eDataUpdate(
-    parseInteger(requireValue(options.registryVersion, "Missing --registry-version"), "registry version"),
+    parseInteger(
+      requireValue(options.registryVersion, "Missing --registry-version"),
+      "registry version"
+    ),
     signerMaterial,
     signersBitmap ?? signerCount,
     hexToBytes(requireValue(options.jobId, "Missing --job-id"), 32, "job id"),
     {
-      configHash: hexToBytes(requireValue(options.configHash, "Missing --config-hash"), 32, "config hash"),
-      value: hexToBytes(requireValue(options.value, "Missing --value"), 32, "value"),
+      configHash: hexToBytes(
+        requireValue(options.configHash, "Missing --config-hash"),
+        32,
+        "config hash"
+      ),
+      value: hexToBytes(
+        requireValue(options.value, "Missing --value"),
+        32,
+        "value"
+      ),
       canonicalTimestamp: parseInteger(
-        requireValue(options.canonicalTimestamp, "Missing --canonical-timestamp"),
+        requireValue(
+          options.canonicalTimestamp,
+          "Missing --canonical-timestamp"
+        ),
         "canonical timestamp"
       ),
     },
-    options.signaturesRequired ? parseInteger(options.signaturesRequired, "signatures required") : undefined
+    options.signaturesRequired
+      ? parseInteger(options.signaturesRequired, "signatures required")
+      : undefined
   );
 
   return {
@@ -269,12 +338,16 @@ function normalizeSubmitArgs(value: SubmitArgsShape) {
       typeof value.signaturesRequired === "number"
         ? value.signaturesRequired
         : parseInteger(value.signaturesRequired, "signatures required"),
-    signersBitmap: Array.from(bytesFromField(value.signersBitmap, 32, "signers bitmap")),
+    signersBitmap: Array.from(
+      bytesFromField(value.signersBitmap, 32, "signers bitmap")
+    ),
     value: Array.from(bytesFromField(value.value, 32, "value")),
     canonicalTimestamp: new BN(String(value.canonicalTimestamp)),
     aggSigR: Array.from(bytesFromField(value.aggSigR, 32, "agg sig r")),
     aggSigS: Array.from(bytesFromField(value.aggSigS, 32, "agg sig s")),
-    commitmentAddr: Array.from(bytesFromField(value.commitmentAddr, 20, "commitment")),
+    commitmentAddr: Array.from(
+      bytesFromField(value.commitmentAddr, 20, "commitment")
+    ),
   };
 }
 
@@ -288,7 +361,9 @@ function bytesFromField(
   }
   const bytes = Uint8Array.from(value);
   if (bytes.length !== expectedLength) {
-    throw new Error(`${label} must be ${expectedLength} bytes, got ${bytes.length}`);
+    throw new Error(
+      `${label} must be ${expectedLength} bytes, got ${bytes.length}`
+    );
   }
   return bytes;
 }

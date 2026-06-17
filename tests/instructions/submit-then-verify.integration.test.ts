@@ -68,7 +68,10 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
       [SUBSCRIPTION_SEED, ctx.authority.publicKey.toBuffer()],
       program.programId
     );
-    const treasury = getProtocolTreasury(protocolConfigPda, ctx.underlyingTokenMint);
+    const treasury = getProtocolTreasury(
+      protocolConfigPda,
+      ctx.underlyingTokenMint
+    );
 
     await program.methods
       .initialize({
@@ -117,7 +120,10 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
 
     await advanceClock(ctx, 5);
 
-    const signerMaterial = generateE2eSignerMaterialFromSeed(E2E_SEED, SIGNER_COUNT);
+    const signerMaterial = generateE2eSignerMaterialFromSeed(
+      E2E_SEED,
+      SIGNER_COUNT
+    );
     await registerNodesForE2e(
       ctx,
       program,
@@ -132,7 +138,9 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
       advanceClock
     );
 
-    const registry = await program.account.registryState.fetch(registryStatePda);
+    const registry = await program.account.registryState.fetch(
+      registryStatePda
+    );
     assert.equal(registry.currentNodeCount, SIGNER_COUNT);
     assert.equal(registry.currentVersion, SIGNER_COUNT);
 
@@ -210,11 +218,14 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
 
     const expected = expectedVerifyDataUpdateReturnBytes(
       scenario.value,
-      scenario.canonicalTimestamp,
+      scenario.canonicalTimestamp
     );
     assert.deepEqual(Array.from(returnBytes), Array.from(expected));
 
-    const recoveredTs = new DataView(returnBytes.buffer).getBigUint64(32, false);
+    const recoveredTs = new DataView(returnBytes.buffer).getBigUint64(
+      32,
+      false
+    );
     assert.equal(recoveredTs, BigInt(scenario.canonicalTimestamp));
     assert.deepEqual(
       Array.from(returnBytes.slice(0, 32)),

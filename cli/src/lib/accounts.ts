@@ -3,7 +3,11 @@ import { AccountMeta, PublicKey } from "@solana/web3.js";
 import { findVirtualRegistryIndexPda } from "./pdas";
 import { normalizeForJson } from "./utils";
 
-export type RegistryTransitionKind = "none" | "add" | "removeTail" | "removeSwap";
+export type RegistryTransitionKind =
+  | "none"
+  | "add"
+  | "removeTail"
+  | "removeSwap";
 
 export type RemoveTransitionInfo = {
   removedOldIndex: number;
@@ -23,7 +27,10 @@ export async function fetchAccountOrNull<T = any>(
   }
 }
 
-export async function accountExists(program: Program, address: PublicKey): Promise<boolean> {
+export async function accountExists(
+  program: Program,
+  address: PublicKey
+): Promise<boolean> {
   const info = await program.provider.connection.getAccountInfo(address);
   return info !== null;
 }
@@ -44,8 +51,12 @@ export function registryTransitionKind(value: any): RegistryTransitionKind {
   return "none";
 }
 
-export function removeTransitionInfoFromRegistry(registryState: any): RemoveTransitionInfo | undefined {
-  const transitionKind = registryTransitionKind(registryState.lastTransitionType);
+export function removeTransitionInfoFromRegistry(
+  registryState: any
+): RemoveTransitionInfo | undefined {
+  const transitionKind = registryTransitionKind(
+    registryState.lastTransitionType
+  );
   if (transitionKind !== "removeTail" && transitionKind !== "removeSwap") {
     return undefined;
   }
@@ -81,7 +92,9 @@ export async function resolveTransitionForRegistryVersion(
     );
   }
 
-  const transitionKind = registryTransitionKind(registryState.lastTransitionType);
+  const transitionKind = registryTransitionKind(
+    registryState.lastTransitionType
+  );
   if (transitionKind === "none" || transitionKind === "add") {
     return { remainingTransition: undefined };
   }
@@ -94,12 +107,19 @@ export async function resolveTransitionForRegistryVersion(
   return { remainingTransition };
 }
 
-export async function finalizeTransitionAccounts(program: Program, registryState: any): Promise<{
+export async function finalizeTransitionAccounts(
+  program: Program,
+  registryState: any
+): Promise<{
   virtualRegistryIndex: PublicKey | null;
 }> {
-  const transitionKind = registryTransitionKind(registryState.lastTransitionType);
+  const transitionKind = registryTransitionKind(
+    registryState.lastTransitionType
+  );
   if (transitionKind === "removeTail" || transitionKind === "removeSwap") {
-    const virtualRegistryIndex = findVirtualRegistryIndexPda(program.programId)[0];
+    const virtualRegistryIndex = findVirtualRegistryIndexPda(
+      program.programId
+    )[0];
     return {
       virtualRegistryIndex: (await accountExists(program, virtualRegistryIndex))
         ? virtualRegistryIndex

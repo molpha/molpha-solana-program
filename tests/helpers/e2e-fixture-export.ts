@@ -77,13 +77,18 @@ export function buildVerifyAnswerEvmFixture(params: {
   signaturesRequired: number;
   jobId: Uint8Array;
   dataUpdate: E2eDataUpdateFields;
-  signed: Pick<SignedE2eDataUpdate, "aggSigS" | "commitmentAddr" | "signersBitmap">;
+  signed: Pick<
+    SignedE2eDataUpdate,
+    "aggSigS" | "commitmentAddr" | "signersBitmap"
+  >;
 }): VerifyAnswerEvmFixture {
   const nodeIndexesOneBased = Array.from(
     { length: params.registeredNodeCount },
     (_, i) => i + 1
   );
-  const signersBitmap = evmSignersBitmapNumberFromBytes(params.signed.signersBitmap);
+  const signersBitmap = evmSignersBitmapNumberFromBytes(
+    params.signed.signersBitmap
+  );
 
   return {
     registeredNodeCount: params.registeredNodeCount,
@@ -133,6 +138,9 @@ export function defaultE2eFixtureOutputPath(seed: string): string {
   );
 }
 
-export function jobIdForOwner(owner: import("@solana/web3.js").PublicKey, configHash: Uint8Array) {
+export function jobIdForOwner(
+  owner: import("@solana/web3.js").PublicKey,
+  configHash: Uint8Array
+) {
   return deriveJobId(owner, configHash);
 }

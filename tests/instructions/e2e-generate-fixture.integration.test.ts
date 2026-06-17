@@ -81,7 +81,10 @@ describe("e2e generate verify-answer-evm fixture", () => {
       program.programId
     );
 
-    const treasury = getProtocolTreasury(protocolConfigPda, ctx.underlyingTokenMint);
+    const treasury = getProtocolTreasury(
+      protocolConfigPda,
+      ctx.underlyingTokenMint
+    );
 
     // initialize
     await program.methods
@@ -147,7 +150,9 @@ describe("e2e generate verify-answer-evm fixture", () => {
       advanceClock
     );
 
-    const registry = await program.account.registryState.fetch(registryStatePda);
+    const registry = await program.account.registryState.fetch(
+      registryStatePda
+    );
     assert.equal(registry.currentNodeCount, NODE_COUNT);
 
     // subscribe
@@ -199,7 +204,10 @@ describe("e2e generate verify-answer-evm fixture", () => {
         feed: feedPda,
       })
       .remainingAccounts(
-        signerRemainingAccounts(program.programId, signed.submitArgs.signersBitmap)
+        signerRemainingAccounts(
+          program.programId,
+          signed.submitArgs.signersBitmap
+        )
       )
       .preInstructions([
         anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({
@@ -215,11 +223,10 @@ describe("e2e generate verify-answer-evm fixture", () => {
       feed.canonicalTimestamp.toString(),
       String(scenario.canonicalTimestamp)
     );
-    
+
     console.log("feed.value", feed.value);
     console.log("registry.currentVersion", registry.currentVersion);
     console.log("signed", signed);
-
 
     const fixture = buildVerifyAnswerEvmFixture({
       registeredNodeCount: NODE_COUNT,

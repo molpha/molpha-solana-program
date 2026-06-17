@@ -1,5 +1,8 @@
 import { BN } from "@coral-xyz/anchor";
-import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import { SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import {
@@ -28,44 +31,78 @@ import {
 } from "../lib/utils";
 
 export function registerRegistryCommands(program: Command): void {
-  const registry = program.command("registry").description("Manage registry state");
+  const registry = program
+    .command("registry")
+    .description("Manage registry state");
 
   registry
     .command("register")
     .description("Register a node")
-    .requiredOption("--secp-pubkey <hex>", "33-byte compressed secp256k1 pubkey")
+    .requiredOption(
+      "--secp-pubkey <hex>",
+      "33-byte compressed secp256k1 pubkey"
+    )
     .requiredOption("--registration-salt <hex>", "32-byte registration salt")
-    .option("--encryption-pubkey <hex>", "33-byte encryption pubkey, defaults to secp pubkey")
+    .option(
+      "--encryption-pubkey <hex>",
+      "33-byte encryption pubkey, defaults to secp pubkey"
+    )
     .option("--peer-id-hash <hex>", "32-byte peer id hash")
     .option("--metadata-hash <hex>", "32-byte metadata hash")
     .option("--security-deposit <amount>", "security deposit amount")
-    .option("--new-index <number>", "explicit new index, defaults to current node count")
-    .option("--node-owner-wallet <path>", "separate node owner keypair; admin remains provider wallet")
+    .option(
+      "--new-index <number>",
+      "explicit new index, defaults to current node count"
+    )
+    .option(
+      "--node-owner-wallet <path>",
+      "separate node owner keypair; admin remains provider wallet"
+    )
     .option("--owner-usdc <pubkey>", "owner token account")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
       const [registryStatePda] = findRegistryStatePda(ctx.programId);
-      const protocolConfig = await fetchAccountOrNull<any>(ctx.program, "protocolConfig", protocolConfigPda);
-      const registryState = await fetchAccountOrNull<any>(ctx.program, "registryState", registryStatePda);
+      const protocolConfig = await fetchAccountOrNull<any>(
+        ctx.program,
+        "protocolConfig",
+        protocolConfigPda
+      );
+      const registryState = await fetchAccountOrNull<any>(
+        ctx.program,
+        "registryState",
+        registryStatePda
+      );
       if (!protocolConfig || !registryState) {
         throw new Error("Protocol config or registry state is not initialized");
       }
 
-      const nodeOwner = options.nodeOwnerWallet ? loadKeypair(options.nodeOwnerWallet) : ctx.payer;
+      const nodeOwner = options.nodeOwnerWallet
+        ? loadKeypair(options.nodeOwnerWallet)
+        : ctx.payer;
       const secpPubkey = hexToBytes(options.secpPubkey, 33, "secp pubkey");
-      const registrationSalt = hexToBytes(options.registrationSalt, 32, "registration salt");
+      const registrationSalt = hexToBytes(
+        options.registrationSalt,
+        32,
+        "registration salt"
+      );
       const newIndex =
         options.newIndex !== undefined
           ? parseInteger(options.newIndex, "new index")
           : Number(registryState.currentNodeCount);
-      const nodeId = deriveNodeId(nodeOwner.publicKey, secpPubkey, registrationSalt);
+      const nodeId = deriveNodeId(
+        nodeOwner.publicKey,
+        secpPubkey,
+        registrationSalt
+      );
       const [nodeAccount] = findNodePda(ctx.programId, nodeId);
       const [registryIndex] = findRegistryIndexPda(ctx.programId, newIndex);
-      const ownerUsdc =
-        options.ownerUsdc
-          ? parsePublicKey(options.ownerUsdc, "owner USDC account")
-          : getAssociatedTokenAddressSync(protocolConfig.usdcMint, nodeOwner.publicKey);
+      const ownerUsdc = options.ownerUsdc
+        ? parsePublicKey(options.ownerUsdc, "owner USDC account")
+        : getAssociatedTokenAddressSync(
+            protocolConfig.usdcMint,
+            nodeOwner.publicKey
+          );
 
       const args = buildRegisterNodeArgs({
         newIndex,
@@ -74,7 +111,9 @@ export function registerRegistryCommands(program: Command): void {
         encryptionPubkey: options.encryptionPubkey
           ? hexToBytes(options.encryptionPubkey, 33, "encryption pubkey")
           : undefined,
-        peerIdHash: options.peerIdHash ? hexToBytes(options.peerIdHash, 32, "peer id hash") : undefined,
+        peerIdHash: options.peerIdHash
+          ? hexToBytes(options.peerIdHash, 32, "peer id hash")
+          : undefined,
         metadataHash: options.metadataHash
           ? hexToBytes(options.metadataHash, 32, "metadata hash")
           : undefined,
@@ -120,20 +159,31 @@ export function registerRegistryCommands(program: Command): void {
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [registryStatePda] = findRegistryStatePda(ctx.programId);
-      const registryState = await fetchAccountOrNull<any>(ctx.program, "registryState", registryStatePda);
+      const registryState = await fetchAccountOrNull<any>(
+        ctx.program,
+        "registryState",
+        registryStatePda
+      );
       if (!registryState) {
         throw new Error("Registry state is not initialized");
       }
 
       const nodeId = hexToBytes(options.nodeId, 32, "node id");
       const [removedNode] = findNodePda(ctx.programId, nodeId);
-      const removedNodeAccount = await fetchAccountOrNull<any>(ctx.program, "nodeAccount", removedNode);
+      const removedNodeAccount = await fetchAccountOrNull<any>(
+        ctx.program,
+        "nodeAccount",
+        removedNode
+      );
       if (!removedNodeAccount) {
         throw new Error(`Node not found at ${removedNode.toBase58()}`);
       }
 
       const removedIndex = Number(removedNodeAccount.currentIndex);
-      const [removedIndexAccount] = findRegistryIndexPda(ctx.programId, removedIndex);
+      const [removedIndexAccount] = findRegistryIndexPda(
+        ctx.programId,
+        removedIndex
+      );
       const [virtualRegistryIndex] = findVirtualRegistryIndexPda(ctx.programId);
       const lastIndex = Math.max(Number(registryState.currentNodeCount) - 1, 0);
 
@@ -147,9 +197,14 @@ export function registerRegistryCommands(program: Command): void {
           lastIndexAccount
         );
         if (!lastIndexData) {
-          throw new Error(`Last registry index not found at ${lastIndexAccount.toBase58()}`);
+          throw new Error(
+            `Last registry index not found at ${lastIndexAccount.toBase58()}`
+          );
         }
-        movedNode = findNodePda(ctx.programId, Uint8Array.from(lastIndexData.nodeId))[0];
+        movedNode = findNodePda(
+          ctx.programId,
+          Uint8Array.from(lastIndexData.nodeId)
+        )[0];
       }
 
       const signature = await (ctx.program.methods as any)
@@ -182,7 +237,11 @@ export function registerRegistryCommands(program: Command): void {
     .action(async (_options, command: Command) => {
       const ctx = await getCliContext(command);
       const [registryStatePda] = findRegistryStatePda(ctx.programId);
-      const registryState = await fetchAccountOrNull<any>(ctx.program, "registryState", registryStatePda);
+      const registryState = await fetchAccountOrNull<any>(
+        ctx.program,
+        "registryState",
+        registryStatePda
+      );
       if (!registryState) {
         throw new Error("Registry state is not initialized");
       }
@@ -191,8 +250,13 @@ export function registerRegistryCommands(program: Command): void {
         ctx.program,
         registryState
       );
-      if (virtualRegistryIndex && !(await accountExists(ctx.program, virtualRegistryIndex))) {
-        throw new Error(`Virtual registry index not found at ${virtualRegistryIndex.toBase58()}`);
+      if (
+        virtualRegistryIndex &&
+        !(await accountExists(ctx.program, virtualRegistryIndex))
+      ) {
+        throw new Error(
+          `Virtual registry index not found at ${virtualRegistryIndex.toBase58()}`
+        );
       }
 
       const signature = await (ctx.program.methods as any)

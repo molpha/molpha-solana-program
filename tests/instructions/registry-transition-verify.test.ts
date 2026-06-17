@@ -20,7 +20,9 @@ import {
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 
-async function initializeRegistry(ctx: Awaited<ReturnType<typeof setupTestContext>>) {
+async function initializeRegistry(
+  ctx: Awaited<ReturnType<typeof setupTestContext>>
+) {
   const program = ctx.molphaProgram as any;
   const [protocolConfigPda] = PublicKey.findProgramAddressSync(
     [PROTOCOL_CONFIG_SEED],
@@ -30,7 +32,10 @@ async function initializeRegistry(ctx: Awaited<ReturnType<typeof setupTestContex
     [REGISTRY_STATE_SEED],
     program.programId
   );
-  const treasury = getProtocolTreasury(protocolConfigPda, ctx.underlyingTokenMint);
+  const treasury = getProtocolTreasury(
+    protocolConfigPda,
+    ctx.underlyingTokenMint
+  );
 
   await program.methods
     .initialize({
@@ -70,7 +75,8 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
 
   beforeAll(async () => {
     ctx = await setupTestContext();
-    ({ program, protocolConfigPda, registryStatePda } = await initializeRegistry(ctx));
+    ({ program, protocolConfigPda, registryStatePda } =
+      await initializeRegistry(ctx));
   });
 
   it("expectedRegistryIndex remaps removed and moved slots", () => {
@@ -85,7 +91,9 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
   });
 
   it("verify_data_update accepts previous version with remapped RegistryIndex accounts", async () => {
-    const registry = await program.account.registryState.fetch(registryStatePda);
+    const registry = await program.account.registryState.fetch(
+      registryStatePda
+    );
 
     const previousVersion = 1;
     const currentVersion = 2;
@@ -106,7 +114,11 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
       registryBump: registry.bump,
     });
 
-    const { jobPda } = await seedEvmJobAndFeed(ctx, program, ctx.authority.publicKey);
+    const { jobPda } = await seedEvmJobAndFeed(
+      ctx,
+      program,
+      ctx.authority.publicKey
+    );
 
     const verifyArgs = {
       ...buildEvmSubmitDataUpdateArgs(),
@@ -132,13 +144,17 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
         )
       )
       .preInstructions([
-        anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 500_000 }),
+        anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({
+          units: 500_000,
+        }),
       ])
       .rpc();
   });
 
   it("verify_data_update rejects naive registry_index[bit] PDAs after RemoveSwap", async () => {
-    const registry = await program.account.registryState.fetch(registryStatePda);
+    const registry = await program.account.registryState.fetch(
+      registryStatePda
+    );
 
     const previousVersion = 1;
     const currentVersion = 2;
@@ -159,7 +175,11 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
       registryBump: registry.bump,
     });
 
-    const { jobPda } = await seedEvmJobAndFeed(ctx, program, ctx.authority.publicKey);
+    const { jobPda } = await seedEvmJobAndFeed(
+      ctx,
+      program,
+      ctx.authority.publicKey
+    );
 
     const verifyArgs = {
       ...buildEvmSubmitDataUpdateArgs(),
@@ -176,11 +196,14 @@ describe("registry transition verify (RegistryIndex-only + VIRTUAL_INDEX)", () =
           signerRemainingAccounts(program.programId, verifyArgs.signersBitmap)
         )
         .rpc();
-      assert.fail("expected registry index validation failure for unmapped remaining accounts");
+      assert.fail(
+        "expected registry index validation failure for unmapped remaining accounts"
+      );
     } catch (error: any) {
       const err = String(error);
       assert.ok(
-        err.includes("InvalidNodeIndex") || err.includes("InvalidRegistryIndexAccount"),
+        err.includes("InvalidNodeIndex") ||
+          err.includes("InvalidRegistryIndexAccount"),
         `expected index validation error, got: ${err}`
       );
     }

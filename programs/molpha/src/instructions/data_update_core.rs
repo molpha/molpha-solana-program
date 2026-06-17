@@ -388,10 +388,7 @@ mod tests {
     fn compute_message_hash_is_sensitive_to_each_field() {
         let base_args = fixture_args();
         let base_job = fixture_job();
-        let base = compute_message_hash(
-            &base_args,
-            base_job.signatures_required,
-        );
+        let base = compute_message_hash(&base_args, base_job.signatures_required);
 
         let mut a = fixture_args();
         a.registry_version += 1;
@@ -487,8 +484,7 @@ mod tests {
     fn evm_message_hash_and_schnorr_recovery_matches_fixture() {
         let args = fixture_args();
         let job = fixture_job();
-        let message_hash =
-            compute_message_hash(&args, job.signatures_required);
+        let message_hash = compute_message_hash(&args, job.signatures_required);
         let x_coalition = fixture_coalition_compressed();
 
         let (recovery_id, ecdsa_sig, ecdsa_hash) = crate::utils::schnorr::evm_schnorr_ecdsa_inputs(
@@ -515,8 +511,7 @@ mod tests {
     fn tampered_s_fails_commitment_check() {
         let args = fixture_args();
         let job = fixture_job();
-        let message_hash =
-            compute_message_hash(&args, job.signatures_required);
+        let message_hash = compute_message_hash(&args, job.signatures_required);
         let x_coalition = fixture_coalition_compressed();
 
         let mut bad_s = FIXTURE_S;
