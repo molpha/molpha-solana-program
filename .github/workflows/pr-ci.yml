@@ -18,7 +18,7 @@ concurrency:
 env:
   NODE_VERSION: "20"
   ANCHOR_VERSION: "0.32.1"
-  SOLANA_VERSION: "1.18.26"
+  SOLANA_VERSION: "3.1.10"
 
 jobs:
   quality:
