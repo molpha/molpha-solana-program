@@ -3,7 +3,13 @@ import { Command } from "commander";
 import { accountJson, fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import { findPlanPda, findProtocolConfigPda } from "../lib/pdas";
-import { bn, parseInteger, parsePublicKey, requireValue, writeJson } from "../lib/utils";
+import {
+  bn,
+  parseInteger,
+  parsePublicKey,
+  requireValue,
+  writeJson,
+} from "../lib/utils";
 
 export function registerPlanCommands(program: Command): void {
   const plan = program.command("plan").description("Manage Molpha plans");
@@ -11,8 +17,14 @@ export function registerPlanCommands(program: Command): void {
   plan
     .command("add")
     .description("Create a plan")
-    .requiredOption("--plan-type <type>", "basic|standard|professional|enterprise")
-    .requiredOption("--subscription-price <amount>", "monthly subscription price in USDC base units")
+    .requiredOption(
+      "--plan-type <type>",
+      "basic|standard|professional|enterprise"
+    )
+    .requiredOption(
+      "--subscription-price <amount>",
+      "monthly subscription price in USDC base units"
+    )
     .requiredOption("--max-jobs <count>", "max jobs")
     .requiredOption("--max-signers <count>", "max signers")
     .option("--private-api-enabled", "enable private api")
@@ -44,8 +56,14 @@ export function registerPlanCommands(program: Command): void {
   plan
     .command("update")
     .description("Update a plan")
-    .requiredOption("--plan-type <type>", "basic|standard|professional|enterprise")
-    .option("--subscription-price <amount>", "monthly subscription price in USDC base units")
+    .requiredOption(
+      "--plan-type <type>",
+      "basic|standard|professional|enterprise"
+    )
+    .option(
+      "--subscription-price <amount>",
+      "monthly subscription price in USDC base units"
+    )
     .option("--max-jobs <count>", "max jobs")
     .option("--max-signers <count>", "max signers")
     .option("--private-api-enabled", "enable private api")
@@ -53,7 +71,11 @@ export function registerPlanCommands(program: Command): void {
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfig] = findProtocolConfigPda(ctx.programId);
-      const planId = planTypeId(planTypeToAnchor(requireValue(options.planType as string, "Missing --plan-type")));
+      const planId = planTypeId(
+        planTypeToAnchor(
+          requireValue(options.planType as string, "Missing --plan-type")
+        )
+      );
       const [planPda] = findPlanPda(ctx.programId, planId);
 
       const current = await fetchAccountOrNull(ctx.program, "plan", planPda);
@@ -83,7 +105,10 @@ export function registerPlanCommands(program: Command): void {
     .command("show")
     .description("Fetch current on-chain plan data")
     .option("--plan-type <type>", "basic|standard|professional|enterprise")
-    .option("--plan-id <number>", "plan id (0=basic, 1=standard, 2=professional, 3=enterprise)")
+    .option(
+      "--plan-id <number>",
+      "plan id (0=basic, 1=standard, 2=professional, 3=enterprise)"
+    )
     .option("--address <pubkey>", "plan account address")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -106,12 +131,20 @@ export function registerPlanCommands(program: Command): void {
 
 function buildPlanArgs(options: Record<string, string | boolean>) {
   return {
-    planType: planTypeToAnchor(requireValue(options.planType as string, "Missing --plan-type")),
+    planType: planTypeToAnchor(
+      requireValue(options.planType as string, "Missing --plan-type")
+    ),
     subscriptionPrice: bn(
-      requireValue(options.subscriptionPrice as string, "Missing --subscription-price"),
+      requireValue(
+        options.subscriptionPrice as string,
+        "Missing --subscription-price"
+      ),
       "subscription price"
     ),
-    maxJobs: parseInteger(requireValue(options.maxJobs as string, "Missing --max-jobs"), "max jobs"),
+    maxJobs: parseInteger(
+      requireValue(options.maxJobs as string, "Missing --max-jobs"),
+      "max jobs"
+    ),
     signaturesRequired: 0,
     maxSigners: parseInteger(
       requireValue(options.maxSigners as string, "Missing --max-signers"),
@@ -134,7 +167,9 @@ function buildUpdatePlanArgs(
   }
 ) {
   return {
-    planType: planTypeToAnchor(requireValue(options.planType as string, "Missing --plan-type")),
+    planType: planTypeToAnchor(
+      requireValue(options.planType as string, "Missing --plan-type")
+    ),
     subscriptionPrice:
       options.subscriptionPrice !== undefined
         ? bn(options.subscriptionPrice as string, "subscription price")

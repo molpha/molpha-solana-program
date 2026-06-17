@@ -1,8 +1,5 @@
 import { Command } from "commander";
-import {
-  accountJson,
-  fetchAccountOrNull,
-} from "../lib/accounts";
+import { accountJson, fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import {
   findFeedPda,
@@ -14,7 +11,13 @@ import {
   findRegistryStatePda,
   findSubscriptionPda,
 } from "../lib/pdas";
-import { hexToBytes, parseInteger, parsePublicKey, requireValue, writeJson } from "../lib/utils";
+import {
+  hexToBytes,
+  parseInteger,
+  parsePublicKey,
+  requireValue,
+  writeJson,
+} from "../lib/utils";
 
 async function printNamedAccount(
   command: Command,
@@ -31,7 +34,9 @@ async function printNamedAccount(
 }
 
 export function registerAccountCommands(program: Command): void {
-  const account = program.command("account").description("Read Molpha accounts");
+  const account = program
+    .command("account")
+    .description("Read Molpha accounts");
 
   account
     .command("protocol-config")
@@ -39,7 +44,8 @@ export function registerAccountCommands(program: Command): void {
     .option("--address <pubkey>", "override PDA")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const address = options.address ?? findProtocolConfigPda(ctx.programId)[0].toBase58();
+      const address =
+        options.address ?? findProtocolConfigPda(ctx.programId)[0].toBase58();
       await printNamedAccount(command, "protocolConfig", address);
     });
 
@@ -49,7 +55,8 @@ export function registerAccountCommands(program: Command): void {
     .option("--address <pubkey>", "override PDA")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const address = options.address ?? findRegistryStatePda(ctx.programId)[0].toBase58();
+      const address =
+        options.address ?? findRegistryStatePda(ctx.programId)[0].toBase58();
       await printNamedAccount(command, "registryState", address);
     });
 
@@ -75,7 +82,13 @@ export function registerAccountCommands(program: Command): void {
       const ctx = await getCliContext(command);
       const address =
         options.address ??
-        findPlanPda(ctx.programId, parseInteger(requireValue(options.planId, "Missing --plan-id"), "plan id"))[0].toBase58();
+        findPlanPda(
+          ctx.programId,
+          parseInteger(
+            requireValue(options.planId, "Missing --plan-id"),
+            "plan id"
+          )
+        )[0].toBase58();
       await printNamedAccount(command, "plan", address);
     });
 
@@ -86,9 +99,12 @@ export function registerAccountCommands(program: Command): void {
     .option("--owner <pubkey>", "subscription owner")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const owner = options.owner ? parsePublicKey(options.owner, "owner") : ctx.wallet.publicKey;
+      const owner = options.owner
+        ? parsePublicKey(options.owner, "owner")
+        : ctx.wallet.publicKey;
       const address =
-        options.address ?? findSubscriptionPda(ctx.programId, owner)[0].toBase58();
+        options.address ??
+        findSubscriptionPda(ctx.programId, owner)[0].toBase58();
       await printNamedAccount(command, "subscription", address);
     });
 
@@ -100,7 +116,8 @@ export function registerAccountCommands(program: Command): void {
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const address =
-        options.address ?? findJobOrNodeAddress("job", ctx.programId, options.jobId).toBase58();
+        options.address ??
+        findJobOrNodeAddress("job", ctx.programId, options.jobId).toBase58();
       await printNamedAccount(command, "job", address);
     });
 
@@ -111,8 +128,13 @@ export function registerAccountCommands(program: Command): void {
     .option("--job-id <hex>", "32-byte job id")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const jobId = hexToBytes(requireValue(options.jobId, "Missing --job-id"), 32, "job id");
-      const address = options.address ?? findFeedPda(ctx.programId, jobId)[0].toBase58();
+      const jobId = hexToBytes(
+        requireValue(options.jobId, "Missing --job-id"),
+        32,
+        "job id"
+      );
+      const address =
+        options.address ?? findFeedPda(ctx.programId, jobId)[0].toBase58();
       await printNamedAccount(command, "feed", address);
     });
 
@@ -131,11 +153,20 @@ export function registerAccountCommands(program: Command): void {
         )[0].toBase58();
       await printNamedAccount(command, "registryIndexAccount", address);
     });
-
 }
 
-function findJobOrNodeAddress(kind: "job" | "node", programId: ReturnType<typeof parsePublicKey>, idHex: string) {
+function findJobOrNodeAddress(
+  kind: "job" | "node",
+  programId: ReturnType<typeof parsePublicKey>,
+  idHex: string
+) {
   const label = kind === "job" ? "job" : "node";
-  const bytes = hexToBytes(requireValue(idHex, `Missing --${label}-id`), 32, `${label} id`);
-  return kind === "job" ? findJobPda(programId, bytes)[0] : findNodePda(programId, bytes)[0];
+  const bytes = hexToBytes(
+    requireValue(idHex, `Missing --${label}-id`),
+    32,
+    `${label} id`
+  );
+  return kind === "job"
+    ? findJobPda(programId, bytes)[0]
+    : findNodePda(programId, bytes)[0];
 }

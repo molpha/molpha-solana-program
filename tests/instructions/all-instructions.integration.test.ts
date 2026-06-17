@@ -75,7 +75,10 @@ describe("Molpha instruction coverage integration", () => {
       [SUBSCRIPTION_SEED, ctx.authority.publicKey.toBuffer()],
       program.programId
     );
-    const treasury = getProtocolTreasury(protocolConfigPda, ctx.underlyingTokenMint);
+    const treasury = getProtocolTreasury(
+      protocolConfigPda,
+      ctx.underlyingTokenMint
+    );
 
     // 1) initialize
     await program.methods
@@ -182,7 +185,9 @@ describe("Molpha instruction coverage integration", () => {
       })
       .rpc();
 
-    const subscription = await program.account.subscription.fetch(subscriptionPda);
+    const subscription = await program.account.subscription.fetch(
+      subscriptionPda
+    );
     assert.equal(subscription.prepaidUsdc.toString(), "6000000");
     const clock = await ctx.provider.context.banksClient.getClock();
     const now = Number(clock.unixTimestamp);
@@ -268,7 +273,10 @@ describe("Molpha instruction coverage integration", () => {
       aggSigS: Array.from(Buffer.alloc(32, 0)),
       commitmentAddr: Array.from(Buffer.alloc(20, 0)),
     };
-    const badDataUpdateArgs = { ...dataUpdateArgs, jobId: Array.from(badJobId) };
+    const badDataUpdateArgs = {
+      ...dataUpdateArgs,
+      jobId: Array.from(badJobId),
+    };
 
     try {
       await program.methods
@@ -280,7 +288,9 @@ describe("Molpha instruction coverage integration", () => {
           feed: feedPda,
         })
         .rpc();
-      assert.fail("submit_data_update should fail with invalid aggregate signature");
+      assert.fail(
+        "submit_data_update should fail with invalid aggregate signature"
+      );
     } catch (error: any) {
       assert.include(String(error), "InvalidAggregateSignature");
     }
@@ -347,7 +357,10 @@ describe("Molpha instruction coverage integration", () => {
       extraCompressed,
       extraSalt
     );
-    const extraNodePda = findNodePdaByOwner(program.programId, capNodeOwner.publicKey);
+    const extraNodePda = findNodePdaByOwner(
+      program.programId,
+      capNodeOwner.publicKey
+    );
     const capOwnerUsdc = await fundNodeOwnerInBankrun(
       ctx,
       capNodeOwner,
@@ -419,5 +432,4 @@ describe("Molpha instruction coverage integration", () => {
     assert.equal(registryAfterFlow.currentNodeCount, 8);
     assert.equal(registryAfterFlow.previousExpiresAt.toString(), "0");
   });
-
 });

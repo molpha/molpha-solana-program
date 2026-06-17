@@ -54,7 +54,10 @@ async function initializeRegistry(
     [REGISTRY_STATE_SEED],
     program.programId
   );
-  const treasury = getProtocolTreasury(protocolConfigPda, ctx.underlyingTokenMint);
+  const treasury = getProtocolTreasury(
+    protocolConfigPda,
+    ctx.underlyingTokenMint
+  );
 
   await program.methods
     .initialize({
@@ -102,9 +105,18 @@ async function deactivateNodeAtIndex(
   const lastIndex = nodeCount - 1;
 
   const nodeOwner = ctx.nodes[removedIndex];
-  const removedNode = findNodePdaByOwner(program.programId, nodeOwner.publicKey);
-  const removedIndexAccount = findRegistryIndexPda(program.programId, removedIndex);
-  const virtualRegistryIndex = findRegistryIndexPda(program.programId, VIRTUAL_INDEX);
+  const removedNode = findNodePdaByOwner(
+    program.programId,
+    nodeOwner.publicKey
+  );
+  const removedIndexAccount = findRegistryIndexPda(
+    program.programId,
+    removedIndex
+  );
+  const virtualRegistryIndex = findRegistryIndexPda(
+    program.programId,
+    VIRTUAL_INDEX
+  );
 
   let lastIndexAccount: PublicKey = SystemProgram.programId;
   let movedNode: PublicKey = SystemProgram.programId;
@@ -166,10 +178,15 @@ describe("registry lifecycle", () => {
 
     await advanceClock(ctx, 5);
 
-    await deactivateNodeAtIndex(ctx, program, {
-      protocolConfigPda,
-      registryStatePda,
-    }, 0);
+    await deactivateNodeAtIndex(
+      ctx,
+      program,
+      {
+        protocolConfigPda,
+        registryStatePda,
+      },
+      0
+    );
 
     const afterDeactivate = await program.account.registryState.fetch(
       registryStatePda

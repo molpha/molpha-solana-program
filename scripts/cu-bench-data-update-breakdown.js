@@ -64,12 +64,20 @@ const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
 
 function decompressSecp256k1(compressed) {
-  const point = secp256k1.Point.fromHex(Buffer.from(compressed).toString("hex"));
+  const point = secp256k1.Point.fromHex(
+    Buffer.from(compressed).toString("hex")
+  );
   const uncompressed = point.toRawBytes(false);
   return { x: uncompressed.subarray(1, 33), y: uncompressed.subarray(33, 65) };
 }
 
-async function setProgramAccount(context, program, address, accountName, fields) {
+async function setProgramAccount(
+  context,
+  program,
+  address,
+  accountName,
+  fields
+) {
   const data = await program.coder.accounts.encode(accountName, fields);
   context.setAccount(address, {
     lamports: ACCOUNT_LAMPORTS,
@@ -90,17 +98,29 @@ async function seedRegistryIndices(context, program, compressedPubkeys) {
       [REGISTRY_INDEX_SEED, Buffer.from(new Uint8Array([index, 0, 0, 0]))],
       program.programId
     )[1];
-    await setProgramAccount(context, program, registryIndexPda, "registryIndex", {
-      index,
-      node: PublicKey.unique(),
-      secp256K1PubkeyX: Array.from(x),
-      secp256K1PubkeyY: Array.from(y),
-      bump,
-    });
+    await setProgramAccount(
+      context,
+      program,
+      registryIndexPda,
+      "registryIndex",
+      {
+        index,
+        node: PublicKey.unique(),
+        secp256K1PubkeyX: Array.from(x),
+        secp256K1PubkeyY: Array.from(y),
+        bump,
+      }
+    );
   }
 }
 
-async function seedBenchAccounts(context, program, payer, sigReq, signerMaterial) {
+async function seedBenchAccounts(
+  context,
+  program,
+  payer,
+  sigReq,
+  signerMaterial
+) {
   const [protocolConfigPda, protocolBump] = PublicKey.findProgramAddressSync(
     [PROTOCOL_CONFIG_SEED],
     program.programId
@@ -118,25 +138,31 @@ async function seedBenchAccounts(context, program, payer, sigReq, signerMaterial
     program.programId
   );
 
-  await setProgramAccount(context, program, protocolConfigPda, "protocolConfig", {
-    authority: payer.publicKey,
-    pendingAuthority: null,
-    usdcMint: PublicKey.default,
-    treasury: PublicKey.default,
-    rewardPerSignature: new anchor.BN(0),
-    gatewayFee: new anchor.BN(0),
-    receiptSubmitterBonus: new anchor.BN(0),
-    protocolFeeBps: 0,
-    maxReceiptDelaySlots: new anchor.BN(0),
-    registryCooldownSecs: new anchor.BN(0),
-    previousGraceSecs: new anchor.BN(0),
-    maxNodeCount: NODE_COUNT,
-    redundancyBuffer: REDUNDANCY_BUFFER,
-    minimumNodeDeposit: new anchor.BN(0),
-    timelockExpiresAt: null,
-    pendingChange: null,
-    bump: protocolBump,
-  });
+  await setProgramAccount(
+    context,
+    program,
+    protocolConfigPda,
+    "protocolConfig",
+    {
+      authority: payer.publicKey,
+      pendingAuthority: null,
+      usdcMint: PublicKey.default,
+      treasury: PublicKey.default,
+      rewardPerSignature: new anchor.BN(0),
+      gatewayFee: new anchor.BN(0),
+      receiptSubmitterBonus: new anchor.BN(0),
+      protocolFeeBps: 0,
+      maxReceiptDelaySlots: new anchor.BN(0),
+      registryCooldownSecs: new anchor.BN(0),
+      previousGraceSecs: new anchor.BN(0),
+      maxNodeCount: NODE_COUNT,
+      redundancyBuffer: REDUNDANCY_BUFFER,
+      minimumNodeDeposit: new anchor.BN(0),
+      timelockExpiresAt: null,
+      pendingChange: null,
+      bump: protocolBump,
+    }
+  );
 
   await setProgramAccount(context, program, registryStatePda, "registryState", {
     authority: payer.publicKey,
@@ -190,7 +216,9 @@ async function seedBenchAccounts(context, program, payer, sigReq, signerMaterial
 async function simulateIx(provider, payer, ix) {
   const [blockhash] = await provider.context.banksClient.getLatestBlockhash();
   const tx = new Transaction();
-  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT }));
+  tx.add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT })
+  );
   tx.add(ix);
   tx.feePayer = payer.publicKey;
   tx.recentBlockhash = blockhash;
@@ -215,13 +243,14 @@ async function measureVerify(provider, program, payer, sigReq) {
     canonicalTimestamp: FIXTURE_CANONICAL_TIMESTAMP,
   });
 
-  const { protocolConfigPda, registryStatePda, jobPda } = await seedBenchAccounts(
-    provider.context,
-    program,
-    payer,
-    sigReq,
-    signerMaterial
-  );
+  const { protocolConfigPda, registryStatePda, jobPda } =
+    await seedBenchAccounts(
+      provider.context,
+      program,
+      payer,
+      sigReq,
+      signerMaterial
+    );
 
   const args = buildSubmitArgs(sigReq, signatureMaterial, FIXTURE_JOB_ID);
   const remainingAccounts = registryIndexRemainingAccounts(
@@ -296,7 +325,7 @@ async function main() {
       FIXTURE_REGISTRY_VERSION,
       NODE_COUNT,
       sigReq,
-      REDUNDANCY_BUFFER
+      REDUNDANCY_BUFFER,
       FIXTURE_CANONICAL_TIMESTAMP
     );
     const rem = remainingPopcount(bm);
@@ -306,20 +335,25 @@ async function main() {
     console.log("row", rows[rows.length - 1]);
   }
 
-  const fitRem = linearFit(rows.map((r) => ({ x: r.remainingAccounts, y: r.verifyCu })));
+  const fitRem = linearFit(
+    rows.map((r) => ({ x: r.remainingAccounts, y: r.verifyCu }))
+  );
   const fitSig = linearFit(rows.map((r) => ({ x: r.sigReq, y: r.verifyCu })));
 
   const summary = {
-    note:
-      "Bench label sigReq = job.signatures_required; remaining_accounts = popcount(selection_bitmap) = min(32, sigReq+2) unless sigReq>=30.",
+    note: "Bench label sigReq = job.signatures_required; remaining_accounts = popcount(selection_bitmap) = min(32, sigReq+2) unless sigReq>=30.",
     rows,
     linearFitByRemainingAccounts: {
       ...fitRem,
-      formula: `verify_cu ≈ ${Math.round(fitRem.intercept)} + ${Math.round(fitRem.slope)} * remaining_accounts`,
+      formula: `verify_cu ≈ ${Math.round(fitRem.intercept)} + ${Math.round(
+        fitRem.slope
+      )} * remaining_accounts`,
     },
     linearFitBySigReq: {
       ...fitSig,
-      formula: `verify_cu ≈ ${Math.round(fitSig.intercept)} + ${Math.round(fitSig.slope)} * sigReq`,
+      formula: `verify_cu ≈ ${Math.round(fitSig.intercept)} + ${Math.round(
+        fitSig.slope
+      )} * sigReq`,
     },
     benchPoints: {
       sigReq3: rows.find((r) => r.sigReq === 3),

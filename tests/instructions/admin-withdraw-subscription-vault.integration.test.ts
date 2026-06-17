@@ -56,9 +56,7 @@ async function readTokenAmount(
   return Buffer.from(account!.data).readBigUInt64LE(64);
 }
 
-async function initializeProtocol(
-  ctx: TestContext
-): Promise<{
+async function initializeProtocol(ctx: TestContext): Promise<{
   program: any;
   protocolConfigPda: PublicKey;
   planPda: PublicKey;
@@ -89,7 +87,10 @@ async function initializeProtocol(
     [SUBSCRIPTION_SEED, ctx.authority.publicKey.toBuffer()],
     program.programId
   );
-  const treasury = getProtocolTreasury(protocolConfigPda, ctx.underlyingTokenMint);
+  const treasury = getProtocolTreasury(
+    protocolConfigPda,
+    ctx.underlyingTokenMint
+  );
 
   await program.methods
     .initialize({
@@ -171,10 +172,7 @@ describe("admin withdraw subscription vault", () => {
       })
       .rpc();
 
-    assert.equal(
-      (await readTokenAmount(ctx, treasury)).toString(),
-      "2000000"
-    );
+    assert.equal((await readTokenAmount(ctx, treasury)).toString(), "2000000");
     assert.equal(
       (await readTokenAmount(ctx, ctx.userTokenAccount)).toString(),
       (startingUserBalance - 2_000_000n).toString()
@@ -185,17 +183,14 @@ describe("admin withdraw subscription vault", () => {
       .accountsPartial({
         protocolConfig: protocolConfigPda,
         usdcMint: ctx.underlyingTokenMint,
-          treasury,
+        treasury,
         destination: ctx.userTokenAccount,
         authority: ctx.authority.publicKey,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .rpc();
 
-    assert.equal(
-      (await readTokenAmount(ctx, treasury)).toString(),
-      "0"
-    );
+    assert.equal((await readTokenAmount(ctx, treasury)).toString(), "0");
     assert.equal(
       (await readTokenAmount(ctx, ctx.userTokenAccount)).toString(),
       startingUserBalance.toString()
@@ -212,7 +207,9 @@ describe("admin withdraw subscription vault", () => {
       ctx.underlyingTokenMint,
       unauthorized.publicKey
     );
-    const { program, protocolConfigPda, treasury } = await initializeProtocol(ctx);
+    const { program, protocolConfigPda, treasury } = await initializeProtocol(
+      ctx
+    );
 
     try {
       await program.methods
@@ -235,7 +232,9 @@ describe("admin withdraw subscription vault", () => {
 
   it("is a no-op when the subscription vault is empty", async () => {
     const ctx = await setupTestContext();
-    const { program, protocolConfigPda, treasury } = await initializeProtocol(ctx);
+    const { program, protocolConfigPda, treasury } = await initializeProtocol(
+      ctx
+    );
     const startingUserBalance = await readTokenAmount(
       ctx,
       ctx.userTokenAccount
@@ -253,10 +252,7 @@ describe("admin withdraw subscription vault", () => {
       })
       .rpc();
 
-    assert.equal(
-      (await readTokenAmount(ctx, treasury)).toString(),
-      "0"
-    );
+    assert.equal((await readTokenAmount(ctx, treasury)).toString(), "0");
     assert.equal(
       (await readTokenAmount(ctx, ctx.userTokenAccount)).toString(),
       startingUserBalance.toString()

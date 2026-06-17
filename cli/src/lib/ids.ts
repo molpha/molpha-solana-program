@@ -19,7 +19,10 @@ export function deriveNodeId(
   );
 }
 
-export function deriveJobId(owner: PublicKey, apiConfigHash: Uint8Array): Uint8Array {
+export function deriveJobId(
+  owner: PublicKey,
+  apiConfigHash: Uint8Array
+): Uint8Array {
   return keccak_256(
     Buffer.concat([JOB_ID_PREFIX, owner.toBuffer(), Buffer.from(apiConfigHash)])
   );
