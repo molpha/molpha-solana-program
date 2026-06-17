@@ -18,7 +18,7 @@ use crate::{
         },
         bitmap::{
             bitmap_is_subset_u256, bitmap_load, derive_group_bitmap, effective_selection_size,
-            for_each_set_bit_u256, validate_bitmap_upper_bits_clear_u256,
+            for_each_set_bit_u256,
         },
         schnorr::{
             eth_address_from_uncompressed_pubkey, evm_schnorr_ecdsa_inputs,
@@ -406,8 +406,6 @@ mod tests {
             "signatures_required must affect hash"
         );
 
-        let mut config_hash = base_job.api_config_hash;
-        config_hash[0] ^= 0xff;
         assert_ne!(
             compute_message_hash(&base_args, base_job.signatures_required),
             base,
