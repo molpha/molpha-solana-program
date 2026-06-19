@@ -10,7 +10,7 @@ import { getProtocolTreasury } from "../helpers/evm-submit-data-update";
 import molphaIdl from "../../target/idl/molpha.json";
 
 const LOCALNET_PROGRAM_ID = new PublicKey(
-  "MLPHd2Pv9D4WhGUyh3FJYGvd4rR9SMProkSNcXm7zh9"
+  "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
 );
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
