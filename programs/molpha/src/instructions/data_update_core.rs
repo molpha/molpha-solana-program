@@ -210,6 +210,127 @@ pub(crate) fn build_coalition_and_verify<'info>(
     Ok(())
 }
 
+/// Reconstruct the coalition key `Σ X_i` for the signers in `signers_bitmap`.
+///
+/// Mirrors the account-loading half of [`build_coalition_and_verify`]: reads one
+/// `RegistryIndex` per set bit from `remaining_accounts` (ascending bit order), applying the
+/// previous-version-after-remove index remap. Returns the compressed coalition pubkey.
+///
+/// Hard errors (wrong/missing/mis-ordered accounts) indicate a malformed dispute, not fraud.
+pub(crate) fn reconstruct_coalition_key<'info>(
+    registry: &RegistryState,
+    registry_version: u32,
+    signers_bitmap: &[u8; 32],
+    now: i64,
+    remaining_accounts: &[AccountInfo<'info>],
+    program_id: &Pubkey,
+) -> Result<[u8; 33]> {
+    let signers = bitmap_load(signers_bitmap);
+    let signer_count = signers.count_ones();
+    require!(signer_count > 0, MolphaError::InvalidSignersBitmap);
+
+    let is_current = registry_version == registry.current_version;
+    let is_previous_live =
+        registry_version == registry.previous_version && now <= registry.previous_expires_at;
+    require!(
+        is_current || is_previous_live,
+        MolphaError::InvalidRegistryVersion
+    );
+
+    require!(
+        remaining_accounts.len() == signer_count as usize,
+        MolphaError::MissingSignerAccount
+    );
+
+    let apply_remove_remap =
+        !is_current && registry.last_transition_type != RegistryTransitionType::Add;
+    if apply_remove_remap {
+        validate_remove_transition_for_previous(registry)?;
+    }
+
+    let mut coalition = CoalitionAccumulator::default();
+    let mut account_cursor = 0usize;
+
+    for_each_set_bit_u256(signers, |bit_pos| {
+        let account_info = remaining_accounts
+            .get(account_cursor)
+            .ok_or(error!(MolphaError::MissingSignerAccount))?;
+        require!(
+            account_info.owner == program_id,
+            MolphaError::MissingSignerAccount
+        );
+
+        let data = account_info.try_borrow_data()?;
+        let registry_index = RegistryIndex::try_deserialize(&mut &data[..])?;
+
+        account_cursor = account_cursor.saturating_add(1);
+
+        let expected_index = expected_registry_index(bit_pos as u32, registry, apply_remove_remap);
+        require!(
+            registry_index.index == expected_index,
+            MolphaError::InvalidNodeIndex
+        );
+
+        coalition.add_stored_xy(
+            &registry_index.secp256k1_pubkey_x,
+            &registry_index.secp256k1_pubkey_y,
+        )?;
+
+        Ok(())
+    })?;
+
+    require!(
+        account_cursor == remaining_accounts.len(),
+        MolphaError::MissingSignerAccount
+    );
+
+    coalition.compressed_pubkey()
+}
+
+/// Verify the committed aggregate Schnorr signature over `message_hash` against the coalition
+/// key formed by `signers_bitmap`.
+///
+/// Returns `Ok(true)` when the signature is valid (no fraud) and `Ok(false)` when it is invalid
+/// (fabricated / committed garbage → slashable). Malformed disputes (bad accounts) hard-error.
+pub(crate) fn verify_aggregate_over_hash<'info>(
+    registry: &RegistryState,
+    registry_version: u32,
+    signers_bitmap: &[u8; 32],
+    agg_sig_s: &[u8; 32],
+    commitment_addr: &[u8; 20],
+    message_hash: &[u8; 32],
+    now: i64,
+    remaining_accounts: &[AccountInfo<'info>],
+    program_id: &Pubkey,
+) -> Result<bool> {
+    if !secp256k1_scalar_is_valid_nonzero(agg_sig_s) {
+        return Ok(false);
+    }
+
+    let x_coalition = reconstruct_coalition_key(
+        registry,
+        registry_version,
+        signers_bitmap,
+        now,
+        remaining_accounts,
+        program_id,
+    )?;
+
+    let (recovery_id, ecdsa_signature, ecdsa_hash) =
+        match evm_schnorr_ecdsa_inputs(&x_coalition, message_hash, agg_sig_s, commitment_addr) {
+            Ok(v) => v,
+            Err(_) => return Ok(false),
+        };
+
+    let recovered = match secp256k1_recover(&ecdsa_hash, recovery_id, &ecdsa_signature) {
+        Ok(r) => r,
+        Err(_) => return Ok(false),
+    };
+    let recovered_addr = eth_address_from_uncompressed_pubkey(recovered.to_bytes());
+
+    Ok(recovered_addr == *commitment_addr)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,6 +462,8 @@ mod tests {
             decimals: 0,
             signatures_required: FIXTURE_SIGNATURES_REQUIRED,
             created_at: 0,
+            used_rounds: 0,
+            max_rounds: u64::MAX,
             bump: 0,
         }
     }
@@ -388,10 +511,7 @@ mod tests {
     fn compute_message_hash_is_sensitive_to_each_field() {
         let base_args = fixture_args();
         let base_job = fixture_job();
-        let base = compute_message_hash(
-            &base_args,
-            base_job.signatures_required,
-        );
+        let base = compute_message_hash(&base_args, base_job.signatures_required);
 
         let mut a = fixture_args();
         a.registry_version += 1;
@@ -487,8 +607,7 @@ mod tests {
     fn evm_message_hash_and_schnorr_recovery_matches_fixture() {
         let args = fixture_args();
         let job = fixture_job();
-        let message_hash =
-            compute_message_hash(&args, job.signatures_required);
+        let message_hash = compute_message_hash(&args, job.signatures_required);
         let x_coalition = fixture_coalition_compressed();
 
         let (recovery_id, ecdsa_sig, ecdsa_hash) = crate::utils::schnorr::evm_schnorr_ecdsa_inputs(
@@ -515,8 +634,7 @@ mod tests {
     fn tampered_s_fails_commitment_check() {
         let args = fixture_args();
         let job = fixture_job();
-        let message_hash =
-            compute_message_hash(&args, job.signatures_required);
+        let message_hash = compute_message_hash(&args, job.signatures_required);
         let x_coalition = fixture_coalition_compressed();
 
         let mut bad_s = FIXTURE_S;
