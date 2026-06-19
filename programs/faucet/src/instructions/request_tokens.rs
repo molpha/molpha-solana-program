@@ -6,7 +6,7 @@ use anchor_spl::{
     token_interface::{mint_to, Mint, MintTo, TokenAccount, TokenInterface},
 };
 
-pub fn handler(ctx: Context<RequestTokens>) -> Result<()> {
+pub(crate) fn handler(ctx: Context<RequestTokens>) -> Result<()> {
     let faucet_config = &ctx.accounts.faucet_config;
     let clock = Clock::get()?;
 

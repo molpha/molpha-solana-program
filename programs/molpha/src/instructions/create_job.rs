@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     error::MolphaError,
     events::JobCreated,
-    state::{Feed, Job, Plan, ProtocolConfig, Subscription},
+    state::{Feed, Job, JobInitParams, Plan, ProtocolConfig, Subscription},
     utils::registry::derive_job_id,
 };
 
@@ -27,15 +27,15 @@ pub fn create_job(ctx: Context<CreateJob>, args: CreateJobArgs, job_id: [u8; 32]
         MolphaError::SignaturesExceedPlanMax
     );
 
-    ctx.accounts.job.init(
+    ctx.accounts.job.init(&JobInitParams {
         job_id,
-        ctx.accounts.owner.key(),
-        args.api_config_hash,
-        args.decimals,
-        args.signatures_required,
-        clock.unix_timestamp,
-        ctx.bumps.job,
-    );
+        owner: ctx.accounts.owner.key(),
+        api_config_hash: args.api_config_hash,
+        decimals: args.decimals,
+        signatures_required: args.signatures_required,
+        created_at: clock.unix_timestamp,
+        bump: ctx.bumps.job,
+    });
 
     ctx.accounts.subscription.job_count = ctx
         .accounts

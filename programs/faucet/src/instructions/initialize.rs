@@ -2,7 +2,7 @@ use crate::state::FaucetConfig;
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenInterface};
 
-pub fn handler(
+pub(crate) fn handler(
     ctx: Context<Initialize>,
     amount_per_request: u64,
     cooldown_seconds: u64,
