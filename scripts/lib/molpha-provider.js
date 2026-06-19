@@ -93,7 +93,10 @@ function resolveConnectionOptions(opts = {}) {
     "localnet";
 
   const rpcUrl =
-    opts.rpc ?? (opts.cluster ? DEFAULT_RPCS[cluster] : null) ?? envRpc ?? DEFAULT_RPCS[cluster];
+    opts.rpc ??
+    (opts.cluster ? DEFAULT_RPCS[cluster] : null) ??
+    envRpc ??
+    DEFAULT_RPCS[cluster];
 
   const programIdFromToml = readProgramIdFromAnchorToml(cluster);
 

@@ -63,7 +63,9 @@ function loadPayerKeypair() {
   const walletPath =
     process.env.ANCHOR_WALLET ||
     path.join(os.homedir(), ".config", "solana", "id.json");
-  const secretKey = Uint8Array.from(JSON.parse(fs.readFileSync(walletPath, "utf8")));
+  const secretKey = Uint8Array.from(
+    JSON.parse(fs.readFileSync(walletPath, "utf8"))
+  );
   return Keypair.fromSecretKey(secretKey);
 }
 
@@ -113,7 +115,10 @@ function startLocalValidator(programId, accountDir) {
     "--account-dir",
     path.resolve(accountDir),
   ];
-  console.log("starting validator:", ["solana-test-validator", ...args].join(" "));
+  console.log(
+    "starting validator:",
+    ["solana-test-validator", ...args].join(" ")
+  );
   const child = spawn("solana-test-validator", args, {
     detached: true,
     stdio: ["ignore", logFd, logFd],
@@ -121,7 +126,12 @@ function startLocalValidator(programId, accountDir) {
   child.unref();
 }
 
-async function bootstrapValidatorForSignerCount(program, programId, payer, signerCount) {
+async function bootstrapValidatorForSignerCount(
+  program,
+  programId,
+  payer,
+  signerCount
+) {
   const signerMaterial = generateSignerMaterial(NODE_COUNT);
 
   const accountDir = await writeAccountDir(
@@ -174,7 +184,9 @@ async function simulateIx(connection, payer, ix) {
   });
   if (sim.value.err) {
     throw new Error(
-      `simulation failed: ${JSON.stringify(sim.value.err)}\nlogs:\n${(sim.value.logs || []).join("\n")}`
+      `simulation failed: ${JSON.stringify(sim.value.err)}\nlogs:\n${(
+        sim.value.logs || []
+      ).join("\n")}`
     );
   }
   if (typeof sim.value.unitsConsumed !== "number") {
@@ -183,7 +195,13 @@ async function simulateIx(connection, payer, ix) {
   return sim.value.unitsConsumed;
 }
 
-async function measureForSignerCount(connection, program, programId, payer, signerCount) {
+async function measureForSignerCount(
+  connection,
+  program,
+  programId,
+  payer,
+  signerCount
+) {
   const configHash = benchConfigHash(signerCount);
   const jobId = deriveJobId(payer.publicKey, configHash);
 
@@ -302,7 +320,13 @@ async function main() {
     for (const n of SIGNER_COUNTS) {
       const signerMaterial =
         n === 8 ? { compressedPubkeys: [] } : generateSignerMaterial(n);
-      const dir = await writeAccountDir(program, programId, payer, n, signerMaterial);
+      const dir = await writeAccountDir(
+        program,
+        programId,
+        payer,
+        n,
+        signerMaterial
+      );
       console.log("wrote accounts", { signerCount: n, dir });
     }
     console.log(

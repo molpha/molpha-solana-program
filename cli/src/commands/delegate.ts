@@ -4,7 +4,9 @@ import { findJobPda } from "../lib/pdas";
 import { hexToBytes, parsePublicKey, writeJson } from "../lib/utils";
 
 export function registerDelegateCommands(program: Command): void {
-  const delegate = program.command("delegate").description("Manage job delegates");
+  const delegate = program
+    .command("delegate")
+    .description("Manage job delegates");
 
   delegate
     .command("add")

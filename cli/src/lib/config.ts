@@ -30,23 +30,30 @@ const DEFAULT_RPCS: Record<MolphaCluster, string> = {
   mainnet: "https://api.mainnet-beta.solana.com",
 };
 
-export function resolveCliOptions(options: CliGlobalOptions): ResolvedCliOptions {
+export function resolveCliOptions(
+  options: CliGlobalOptions
+): ResolvedCliOptions {
   const anchorTomlPath = resolveFromCwd("Anchor.toml");
   const cluster = options.cluster ?? inferCluster(options.rpc);
   const anchorProgramId = readProgramIdFromAnchorToml(anchorTomlPath, cluster);
   const programId = options.programId ?? anchorProgramId;
 
   if (!programId) {
-    throw new Error(`Could not resolve Molpha program id for cluster '${cluster}' from Anchor.toml`);
+    throw new Error(
+      `Could not resolve Molpha program id for cluster '${cluster}' from Anchor.toml`
+    );
   }
 
   return {
     cluster,
-    rpcUrl: options.rpc ?? process.env.ANCHOR_PROVIDER_URL ?? DEFAULT_RPCS[cluster],
+    rpcUrl:
+      options.rpc ?? process.env.ANCHOR_PROVIDER_URL ?? DEFAULT_RPCS[cluster],
     walletPath: resolveFromCwd(options.wallet ?? defaultWalletPath()),
     programId,
     commitment: options.commitment ?? "confirmed",
-    idlPath: resolveFromCwd(options.idl ?? path.join("target", "idl", "molpha.json")),
+    idlPath: resolveFromCwd(
+      options.idl ?? path.join("target", "idl", "molpha.json")
+    ),
     anchorTomlPath,
   };
 }
@@ -104,7 +111,9 @@ export function readProgramIdFromAnchorToml(
 export function ensureIdlPresent(idlPath: string): void {
   if (!fs.existsSync(idlPath)) {
     throw new Error(
-      `IDL not found at ${expandHome(idlPath)}. Run 'anchor build' or pass --idl explicitly.`
+      `IDL not found at ${expandHome(
+        idlPath
+      )}. Run 'anchor build' or pass --idl explicitly.`
     );
   }
 }

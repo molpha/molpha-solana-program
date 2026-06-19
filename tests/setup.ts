@@ -1,7 +1,12 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program, BN, AnchorError, Wallet } from "@coral-xyz/anchor";
 import { Molpha } from "../target/types/molpha";
-import { Keypair, SystemProgram, PublicKey, ComputeBudgetProgram } from "@solana/web3.js";
+import {
+  Keypair,
+  SystemProgram,
+  PublicKey,
+  ComputeBudgetProgram,
+} from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
@@ -313,7 +318,7 @@ export async function registerNodeWithDeposit(
   ctx: TestContext,
   nodePubkey: PublicKey,
   evmPubkey: Buffer,
-  url: string = "https://example.com/node",
+  url: string = "https://example.com/node"
 ): Promise<PublicKey> {
   const [nodePDA] = PublicKey.findProgramAddressSync(
     [Buffer.from("node"), nodePubkey.toBuffer()],

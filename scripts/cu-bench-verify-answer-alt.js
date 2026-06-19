@@ -1,6 +1,11 @@
 /* eslint-disable no-console */
 const anchor = require("@coral-xyz/anchor");
-const { PublicKey, Keypair, SystemProgram, ComputeBudgetProgram } = require("@solana/web3.js");
+const {
+  PublicKey,
+  Keypair,
+  SystemProgram,
+  ComputeBudgetProgram,
+} = require("@solana/web3.js");
 const {
   AddressLookupTableProgram,
   TransactionMessage,
@@ -21,7 +26,9 @@ const fs = require("fs");
 const path = require("path");
 
 // Must match `programs/molpha/src/instructions/data_update_core.rs`.
-const MESSAGE_PREFIX = Buffer.from(keccak_256(Buffer.from("MOLPHA_MESSAGE_V1")));
+const MESSAGE_PREFIX = Buffer.from(
+  keccak_256(Buffer.from("MOLPHA_MESSAGE_V1"))
+);
 
 const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
@@ -71,7 +78,8 @@ function modN(x) {
 
 function bytes32FromBigintBE(x) {
   let v = x;
-  if (v < 0n) v = (v % SECP256K1_ORDER_N + SECP256K1_ORDER_N) % SECP256K1_ORDER_N;
+  if (v < 0n)
+    v = ((v % SECP256K1_ORDER_N) + SECP256K1_ORDER_N) % SECP256K1_ORDER_N;
   v %= SECP256K1_ORDER_N;
   const hex = v.toString(16).padStart(64, "0");
   return Buffer.from(hex, "hex");
@@ -87,7 +95,11 @@ function commitmentAddrFromPoint(R) {
   return digest.subarray(12, 32); // last 20 bytes
 }
 
-function schnorrSignForVerifier({ coalitionPubkeyCompressed, messageHash, coalitionPrivkey }) {
+function schnorrSignForVerifier({
+  coalitionPubkeyCompressed,
+  messageHash,
+  coalitionPrivkey,
+}) {
   const px = coalitionPubkeyCompressed.subarray(1, 33);
   const recoveryId = coalitionPubkeyCompressed[0] & 1; // 0/1
 
@@ -135,11 +147,14 @@ function loadIdl() {
 }
 
 async function main() {
-  const providerUrl = process.env.ANCHOR_PROVIDER_URL || "http://127.0.0.1:8899";
+  const providerUrl =
+    process.env.ANCHOR_PROVIDER_URL || "http://127.0.0.1:8899";
   const walletPath =
     process.env.ANCHOR_WALLET ||
     path.join(require("os").homedir(), ".config", "solana", "id.json");
-  const secretKey = Uint8Array.from(JSON.parse(fs.readFileSync(walletPath, "utf8")));
+  const secretKey = Uint8Array.from(
+    JSON.parse(fs.readFileSync(walletPath, "utf8"))
+  );
   const payerKeypair = Keypair.fromSecretKey(secretKey);
   const wallet = new anchor.Wallet(payerKeypair);
   const connection = new anchor.web3.Connection(providerUrl, {
@@ -179,7 +194,10 @@ async function main() {
 
   // This bench assumes a fresh local validator (`solana-test-validator --reset`)
   // so node indexes start from 1 and the signer bitmap (first N nodes) matches.
-  const existingCfg = await provider.connection.getAccountInfo(protocolConfigPda, "processed");
+  const existingCfg = await provider.connection.getAccountInfo(
+    protocolConfigPda,
+    "processed"
+  );
   if (existingCfg) {
     throw new Error(
       "protocol_config already exists. Please restart your local validator with `solana-test-validator --reset`, then `anchor deploy`, then rerun."
@@ -227,9 +245,16 @@ async function main() {
   } catch (e) {
     initErr = e;
   }
-  const cfgInfo = await provider.connection.getAccountInfo(protocolConfigPda, "processed");
+  const cfgInfo = await provider.connection.getAccountInfo(
+    protocolConfigPda,
+    "processed"
+  );
   if (!cfgInfo) {
-    throw new Error(`protocol_config not initialized; initialize() failed: ${initErr?.message ?? initErr}`);
+    throw new Error(
+      `protocol_config not initialized; initialize() failed: ${
+        initErr?.message ?? initErr
+      }`
+    );
   }
 
   // Ensure the program's token ATA exists (create_feed requires it initialized).
@@ -277,7 +302,11 @@ async function main() {
       [Buffer.from("node"), nodePubkey.toBuffer()],
       programId
     );
-    const nodeSecurityDepositAccount = getAssociatedTokenAddressSync(mint, nodePda, true);
+    const nodeSecurityDepositAccount = getAssociatedTokenAddressSync(
+      mint,
+      nodePda,
+      true
+    );
 
     try {
       await program.methods
@@ -313,7 +342,12 @@ async function main() {
     // Create a dedicated data source + feed with threshold == signerCount.
     const dataSourceName = `cu-alt-real-ds-${signerCount}-${Date.now()}`;
     const [dataSourcePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("data_source"), payer.publicKey.toBuffer(), toSeed(dataSourceName), Buffer.from([0])],
+      [
+        Buffer.from("data_source"),
+        payer.publicKey.toBuffer(),
+        toSeed(dataSourceName),
+        Buffer.from([0]),
+      ],
       programId
     );
     try {
@@ -334,7 +368,12 @@ async function main() {
     const feedName = `cu-alt-real-feed-${signerCount}-${Date.now()}`;
     const jobId = bytes32FromAscii(`cu-alt-real-job-${signerCount}`);
     const [feedPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("feed"), payer.publicKey.toBuffer(), toSeed(feedName), Buffer.from([0])],
+      [
+        Buffer.from("feed"),
+        payer.publicKey.toBuffer(),
+        toSeed(feedName),
+        Buffer.from([0]),
+      ],
       programId
     );
 
@@ -392,7 +431,9 @@ async function main() {
     let coalitionSk = 0n;
     for (let i = 0; i < signerCount; i++) {
       coalitionSk = modN(coalitionSk + privKeys[i]);
-      coalitionPoint = coalitionPoint.add(secp256k1.Point.BASE.multiply(privKeys[i]));
+      coalitionPoint = coalitionPoint.add(
+        secp256k1.Point.BASE.multiply(privKeys[i])
+      );
     }
     const coalitionCompressed = Buffer.from(coalitionPoint.toRawBytes(true)); // 33
 
@@ -435,11 +476,12 @@ async function main() {
 
     // --- Create & extend a REAL ALT on the validator ---
     const recentSlot = await provider.connection.getSlot("processed");
-    const [createLutIx, lutAddress] = AddressLookupTableProgram.createLookupTable({
-      authority: payer.publicKey,
-      payer: payer.publicKey,
-      recentSlot,
-    });
+    const [createLutIx, lutAddress] =
+      AddressLookupTableProgram.createLookupTable({
+        authority: payer.publicKey,
+        payer: payer.publicKey,
+        recentSlot,
+      });
     const extendLutIx = AddressLookupTableProgram.extendLookupTable({
       authority: payer.publicKey,
       payer: payer.publicKey,
@@ -448,7 +490,9 @@ async function main() {
     });
 
     {
-      const blockhash = await provider.connection.getLatestBlockhash("processed");
+      const blockhash = await provider.connection.getLatestBlockhash(
+        "processed"
+      );
       const tx = new anchor.web3.Transaction().add(createLutIx, extendLutIx);
       tx.feePayer = payer.publicKey;
       tx.recentBlockhash = blockhash.blockhash;
@@ -471,7 +515,8 @@ async function main() {
       await new Promise((r) => setTimeout(r, 200));
     }
     lutResp = await provider.connection.getAddressLookupTable(lutAddress);
-    if (!lutResp.value) throw new Error("failed to fetch lookup table account (after wait)");
+    if (!lutResp.value)
+      throw new Error("failed to fetch lookup table account (after wait)");
 
     const verifyIx = await program.methods
       .verifyAnswer(args)
@@ -482,7 +527,9 @@ async function main() {
       .remainingAccounts(remainingAccounts)
       .instruction();
 
-    const { blockhash } = await provider.connection.getLatestBlockhash("processed");
+    const { blockhash } = await provider.connection.getLatestBlockhash(
+      "processed"
+    );
     const v0Message = new TransactionMessage({
       payerKey: payer.publicKey,
       recentBlockhash: blockhash,
@@ -501,9 +548,9 @@ async function main() {
     });
     if (sim.value.err) {
       throw new Error(
-        `simulation failed: ${JSON.stringify(sim.value.err)}\nlogs:\n${(sim.value.logs || []).join(
-          "\n"
-        )}`
+        `simulation failed: ${JSON.stringify(sim.value.err)}\nlogs:\n${(
+          sim.value.logs || []
+        ).join("\n")}`
       );
     }
     if (typeof sim.value.unitsConsumed !== "number") {
@@ -527,4 +574,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-

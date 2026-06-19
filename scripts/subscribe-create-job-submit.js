@@ -45,7 +45,10 @@ const {
   SystemProgram,
   ComputeBudgetProgram,
 } = require("@solana/web3.js");
-const { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } = require("@solana/spl-token");
+const {
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+} = require("@solana/spl-token");
 const { keccak_256 } = require("@noble/hashes/sha3");
 const { createProvider } = require("./lib/molpha-provider");
 const {
@@ -91,21 +94,28 @@ function parseArgs(argv) {
     if (arg === "--cluster" || arg === "-c") opts.cluster = argv[++i];
     else if (arg === "--rpc") opts.rpc = argv[++i];
     else if (arg === "--wallet" || arg === "-w") opts.wallet = argv[++i];
-    else if (arg === "--nodes" || arg === "-n") opts.nodes = path.resolve(argv[++i]);
+    else if (arg === "--nodes" || arg === "-n")
+      opts.nodes = path.resolve(argv[++i]);
     else if (arg === "--plan-id") opts.planId = parseInt(argv[++i], 10);
-    else if (arg === "--signatures-required") opts.signaturesRequired = parseInt(argv[++i], 10);
+    else if (arg === "--signatures-required")
+      opts.signaturesRequired = parseInt(argv[++i], 10);
     else if (arg === "--decimals") opts.decimals = parseInt(argv[++i], 10);
     else if (arg === "--seed") opts.seed = argv[++i];
     else if (arg === "--config-hash") opts.configHash = argv[++i];
     else if (arg === "--value") opts.value = argv[++i];
-    else if (arg === "--canonical-timestamp") opts.canonicalTimestamp = parseInt(argv[++i], 10);
-    else if (arg === "--output" || arg === "-o") opts.output = path.resolve(argv[++i]);
+    else if (arg === "--canonical-timestamp")
+      opts.canonicalTimestamp = parseInt(argv[++i], 10);
+    else if (arg === "--output" || arg === "-o")
+      opts.output = path.resolve(argv[++i]);
     else if (arg === "--skip-subscribe") opts.skipSubscribe = true;
     else if (arg === "--skip-create-job") opts.skipCreateJob = true;
     else if (arg === "--skip-submit") opts.skipSubmit = true;
-    else if (arg === "--compute-unit-limit") opts.computeUnitLimit = parseInt(argv[++i], 10);
+    else if (arg === "--compute-unit-limit")
+      opts.computeUnitLimit = parseInt(argv[++i], 10);
     else if (arg === "--help" || arg === "-h") {
-      console.log(fs.readFileSync(__filename, "utf8").split("\n").slice(0, 35).join("\n"));
+      console.log(
+        fs.readFileSync(__filename, "utf8").split("\n").slice(0, 35).join("\n")
+      );
       process.exit(0);
     } else {
       console.error(`Unknown argument: ${arg}`);
@@ -145,7 +155,9 @@ function hexToBuffer32(hex, label) {
 }
 
 function labeledBytes32(seed, label) {
-  return Buffer.from(keccak_256(Buffer.concat([Buffer.from(seed), Buffer.from(label)])));
+  return Buffer.from(
+    keccak_256(Buffer.concat([Buffer.from(seed), Buffer.from(label)]))
+  );
 }
 
 function buildPayload(opts) {
@@ -153,7 +165,9 @@ function buildPayload(opts) {
   const configHash = opts.configHash
     ? hexToBuffer32(opts.configHash, "config hash")
     : labeledBytes32(seed, "apiConfigHash");
-  const value = opts.value ? hexToBuffer32(opts.value, "value") : labeledBytes32(seed, "feedValue");
+  const value = opts.value
+    ? hexToBuffer32(opts.value, "value")
+    : labeledBytes32(seed, "feedValue");
   const canonicalTimestamp =
     opts.canonicalTimestamp ?? Math.floor(Date.now() / 1000);
   return { seed, configHash, value, canonicalTimestamp };
@@ -209,12 +223,18 @@ async function main() {
     programId
   );
 
-  const protocolConfig = await program.account.protocolConfig.fetch(protocolConfigPda);
-  const registryState = await program.account.registryState.fetch(registryStatePda);
+  const protocolConfig = await program.account.protocolConfig.fetch(
+    protocolConfigPda
+  );
+  const registryState = await program.account.registryState.fetch(
+    registryStatePda
+  );
   const plan = await fetchOptionalAccount(program, "plan", planPda);
   if (!plan) {
     throw new Error(
-      `Plan ${PLAN_NAMES[opts.planId]} (id ${opts.planId}) not found at ${planPda.toBase58()}. Add it first (molpha plan add).`
+      `Plan ${PLAN_NAMES[opts.planId]} (id ${
+        opts.planId
+      }) not found at ${planPda.toBase58()}. Add it first (molpha plan add).`
     );
   }
   if (!plan.isActive) {
@@ -223,11 +243,12 @@ async function main() {
 
   const nodeCount = Number(registryState.currentNodeCount);
   if (nodeCount === 0) {
-    throw new Error("Registry has no nodes; run generate-and-register-nodes.js first");
+    throw new Error(
+      "Registry has no nodes; run generate-and-register-nodes.js first"
+    );
   }
 
-  const signaturesRequired =
-    opts.signaturesRequired ?? Math.min(3, nodeCount);
+  const signaturesRequired = opts.signaturesRequired ?? Math.min(3, nodeCount);
   if (signaturesRequired < 1 || signaturesRequired > nodeCount) {
     throw new Error(
       `--signatures-required must be between 1 and registered node count (${nodeCount})`
@@ -239,17 +260,31 @@ async function main() {
     );
   }
 
-  const signerMaterial = signerMaterialFromManifestNodes(manifest.nodes, nodeCount);
+  const signerMaterial = signerMaterialFromManifestNodes(
+    manifest.nodes,
+    nodeCount
+  );
   const payload = buildPayload(opts);
   const jobId = deriveJobId(owner, payload.configHash);
-  const [jobPda] = PublicKey.findProgramAddressSync([JOB_SEED, jobId], programId);
-  const [feedPda] = PublicKey.findProgramAddressSync([FEED_SEED, jobId], programId);
+  const [jobPda] = PublicKey.findProgramAddressSync(
+    [JOB_SEED, jobId],
+    programId
+  );
+  const [feedPda] = PublicKey.findProgramAddressSync(
+    [FEED_SEED, jobId],
+    programId
+  );
 
-  const ownerUsdc = getAssociatedTokenAddressSync(protocolConfig.usdcMint, owner);
+  const ownerUsdc = getAssociatedTokenAddressSync(
+    protocolConfig.usdcMint,
+    owner
+  );
 
   console.log(`Program: ${programId.toBase58()}`);
   console.log(`Owner: ${owner.toBase58()}`);
-  console.log(`Registry nodes: ${nodeCount} (version ${registryState.currentVersion})`);
+  console.log(
+    `Registry nodes: ${nodeCount} (version ${registryState.currentVersion})`
+  );
   console.log(`Plan: ${PLAN_NAMES[opts.planId]} @ ${planPda.toBase58()}`);
   console.log(`Signatures required: ${signaturesRequired}`);
   console.log(`Job id: 0x${jobId.toString("hex")}`);
@@ -276,10 +311,19 @@ async function main() {
   };
 
   if (!opts.skipSubscribe) {
-    const existingSub = await fetchOptionalAccount(program, "subscription", subscriptionPda);
+    const existingSub = await fetchOptionalAccount(
+      program,
+      "subscription",
+      subscriptionPda
+    );
     if (existingSub && existingSub.validUntil > Math.floor(Date.now() / 1000)) {
-      console.log(`⏭️  Active subscription already exists until ${existingSub.validUntil}`);
-      result.steps.subscribe = { skipped: true, subscription: subscriptionPda.toBase58() };
+      console.log(
+        `⏭️  Active subscription already exists until ${existingSub.validUntil}`
+      );
+      result.steps.subscribe = {
+        skipped: true,
+        subscription: subscriptionPda.toBase58(),
+      };
     } else {
       console.log("📋 Subscribing...");
       const sig = await program.methods
@@ -297,14 +341,21 @@ async function main() {
         })
         .rpc();
       console.log(`   ✅ subscribe: ${sig}`);
-      result.steps.subscribe = { signature: sig, subscription: subscriptionPda.toBase58() };
+      result.steps.subscribe = {
+        signature: sig,
+        subscription: subscriptionPda.toBase58(),
+      };
     }
   }
 
-  const subscription = await program.account.subscription.fetch(subscriptionPda);
+  const subscription = await program.account.subscription.fetch(
+    subscriptionPda
+  );
   const nowSecs = Math.floor(Date.now() / 1000);
   if (Number(subscription.validUntil) <= nowSecs) {
-    throw new Error("Subscription is missing or expired; run without --skip-subscribe");
+    throw new Error(
+      "Subscription is missing or expired; run without --skip-subscribe"
+    );
   }
 
   const subscribedPlanId = planTypeId(subscription.planType);
@@ -317,7 +368,11 @@ async function main() {
     const existingJob = await fetchOptionalAccount(program, "job", jobPda);
     if (existingJob) {
       console.log(`⏭️  Job already exists at ${jobPda.toBase58()}`);
-      result.steps.createJob = { skipped: true, job: jobPda.toBase58(), feed: feedPda.toBase58() };
+      result.steps.createJob = {
+        skipped: true,
+        job: jobPda.toBase58(),
+        feed: feedPda.toBase58(),
+      };
     } else {
       console.log("🛠️  Creating job + feed...");
       const sig = await program.methods
@@ -373,7 +428,11 @@ async function main() {
     );
 
     console.log("📤 Submitting data update...");
-    console.log(`   signers bitmap: 0x${Buffer.from(signed.signersBitmap).toString("hex")}`);
+    console.log(
+      `   signers bitmap: 0x${Buffer.from(signed.signersBitmap).toString(
+        "hex"
+      )}`
+    );
     console.log(`   canonical timestamp: ${ts}`);
 
     const sig = await program.methods
@@ -385,13 +444,17 @@ async function main() {
       })
       .remainingAccounts(remaining)
       .preInstructions([
-        ComputeBudgetProgram.setComputeUnitLimit({ units: opts.computeUnitLimit }),
+        ComputeBudgetProgram.setComputeUnitLimit({
+          units: opts.computeUnitLimit,
+        }),
       ])
       .rpc();
 
     const feedAfter = await program.account.feed.fetch(feedPda);
     console.log(`   ✅ submit_data_update: ${sig}`);
-    console.log(`   feed value: 0x${Buffer.from(feedAfter.value).toString("hex")}`);
+    console.log(
+      `   feed value: 0x${Buffer.from(feedAfter.value).toString("hex")}`
+    );
 
     result.steps.submit = {
       signature: sig,

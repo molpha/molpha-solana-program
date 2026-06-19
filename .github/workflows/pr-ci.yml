@@ -18,7 +18,7 @@ concurrency:
 env:
   NODE_VERSION: "20"
   ANCHOR_VERSION: "0.32.1"
-  SOLANA_VERSION: "1.18.26"
+  SOLANA_VERSION: "3.1.10"
 
 jobs:
   quality:
@@ -105,6 +105,11 @@ jobs:
 
       - name: Build CLI
         run: yarn build:cli
+
+      - name: Generate default Solana keypair
+        run: |
+          mkdir -p "$HOME/.config/solana"
+          solana-keygen new --no-bip39-passphrase --silent --outfile "$HOME/.config/solana/id.json"
 
       - name: Run tests
         run: yarn test

@@ -10,7 +10,12 @@ import {
   findProtocolConfigPda,
   findSubscriptionPda,
 } from "../lib/pdas";
-import { hexToBytes, parseInteger, parsePublicKey, writeJson } from "../lib/utils";
+import {
+  hexToBytes,
+  parseInteger,
+  parsePublicKey,
+  writeJson,
+} from "../lib/utils";
 
 export function registerJobCommands(program: Command): void {
   const job = program.command("job").description("Manage jobs");
@@ -23,16 +28,28 @@ export function registerJobCommands(program: Command): void {
     .requiredOption("--decimals <number>", "decimals")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const owner = options.owner ? parsePublicKey(options.owner, "owner") : ctx.wallet.publicKey;
+      const owner = options.owner
+        ? parsePublicKey(options.owner, "owner")
+        : ctx.wallet.publicKey;
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
       const [subscriptionPda] = findSubscriptionPda(ctx.programId, owner);
-      const subscription = await fetchAccountOrNull<any>(ctx.program, "subscription", subscriptionPda);
+      const subscription = await fetchAccountOrNull<any>(
+        ctx.program,
+        "subscription",
+        subscriptionPda
+      );
       if (!subscription) {
-        throw new Error(`Subscription not found at ${subscriptionPda.toBase58()}`);
+        throw new Error(
+          `Subscription not found at ${subscriptionPda.toBase58()}`
+        );
       }
 
       const [planPda] = findPlanPda(ctx.programId, Number(subscription.planId));
-      const apiConfigHash = hexToBytes(options.apiConfigHash, 32, "api config hash");
+      const apiConfigHash = hexToBytes(
+        options.apiConfigHash,
+        32,
+        "api config hash"
+      );
       const jobId = deriveJobId(owner, apiConfigHash);
       const [jobPda] = findJobPda(ctx.programId, jobId);
       const [feedPda] = findFeedPda(ctx.programId, jobId);

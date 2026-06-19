@@ -19,7 +19,9 @@ import { VerifyAnswerEvmFixture } from "./e2e-fixture-export";
 import { TestContext } from "../setup";
 
 const NODE_ID_PREFIX = Buffer.from("MOLPHA_NODE_ID_V1");
-const MESSAGE_PREFIX = Buffer.from(keccak_256(Buffer.from("MOLPHA_MESSAGE_V1")));
+const MESSAGE_PREFIX = Buffer.from(
+  keccak_256(Buffer.from("MOLPHA_MESSAGE_V1"))
+);
 
 const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
@@ -42,7 +44,9 @@ const DERIVE_GROUP_BITMAP_MAX_ROUNDS = 65_536;
 const ACCOUNT_LAMPORTS = 10_000_000;
 
 export const EVM_FIXTURE_JOB_ID = hexToBytes(evmFixture.dataUpdate.jobId);
-export const EVM_FIXTURE_CONFIG_HASH = hexToBytes(evmFixture.dataUpdate.configHash);
+export const EVM_FIXTURE_CONFIG_HASH = hexToBytes(
+  evmFixture.dataUpdate.configHash
+);
 export const EVM_FIXTURE_VALUE = hexToBytes(evmFixture.dataUpdate.value);
 export const EVM_FIXTURE_NODE_PUBKEYS = evmFixture.nodePubkeys.map((h) =>
   hexToBytes(h)
@@ -63,9 +67,10 @@ function uint256BE(n: number | bigint): Uint8Array {
   return buf;
 }
 
-export function decompressSecp256k1(
-  compressed: Uint8Array
-): { x: Uint8Array; y: Uint8Array } {
+export function decompressSecp256k1(compressed: Uint8Array): {
+  x: Uint8Array;
+  y: Uint8Array;
+} {
   const point = Point.fromHex(Buffer.from(compressed).toString("hex"));
   const uncompressed = point.toRawBytes(false);
   return {
@@ -119,7 +124,7 @@ function bigintFromBytesBE(bytes: Uint8Array): bigint {
 function bytes32FromBigintBE(x: bigint): Uint8Array {
   let v = x;
   if (v < 0n) {
-    v = (v % SECP256K1_ORDER_N + SECP256K1_ORDER_N) % SECP256K1_ORDER_N;
+    v = ((v % SECP256K1_ORDER_N) + SECP256K1_ORDER_N) % SECP256K1_ORDER_N;
   }
   v %= SECP256K1_ORDER_N;
   return Uint8Array.from(Buffer.from(v.toString(16).padStart(64, "0"), "hex"));
@@ -299,7 +304,10 @@ export function deriveNodeId(
  * Uses Node `crypto.createECDH('secp256k1')` so compressed points match libsecp256k1 on-chain.
  */
 export function generateE2eSignerMaterial(signerCount = 8): E2eSignerMaterial {
-  return generateE2eSignerMaterialFromSeed("molpha-e2e-integration-sk", signerCount);
+  return generateE2eSignerMaterialFromSeed(
+    "molpha-e2e-integration-sk",
+    signerCount
+  );
 }
 
 export function generateE2eSignerMaterialFromSeed(
@@ -318,7 +326,9 @@ export function generateE2eSignerMaterialFromSeed(
     );
     const ecdh = crypto.createECDH("secp256k1");
     ecdh.setPrivateKey(Buffer.from(skSeed));
-    const compressed = new Uint8Array(ecdh.getPublicKey(undefined, "compressed"));
+    const compressed = new Uint8Array(
+      ecdh.getPublicKey(undefined, "compressed")
+    );
     privKeys.push(modN(bigintFromBytesBE(ecdh.getPrivateKey())));
     compressedPubkeys.push(compressed);
   }
@@ -345,7 +355,9 @@ export function evmSignersBitmapNumber(signerCount: number): number {
 }
 
 /** EVM `uint256` bitmap integer from a 32-byte big-endian bitmap. */
-export function evmSignersBitmapNumberFromBytes(signersBitmap: Uint8Array): number {
+export function evmSignersBitmapNumberFromBytes(
+  signersBitmap: Uint8Array
+): number {
   const n = bigintFromBytesBE(signersBitmap);
   if (n > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw new Error("signersBitmap exceeds JS safe integer");
@@ -440,7 +452,9 @@ export function assertE2eFixtureIntegrity(fixture: LoadedE2eFixture): void {
   const material = signerMaterialFromFixture(fixture);
   for (let i = 0; i < signerCount; i++) {
     const derived = Point.BASE.multiply(material.privKeys[i]).toRawBytes(true);
-    if (!Buffer.from(derived).equals(Buffer.from(material.compressedPubkeys[i]))) {
+    if (
+      !Buffer.from(derived).equals(Buffer.from(material.compressedPubkeys[i]))
+    ) {
       throw new Error(`secret key ${i} does not match nodePubkeys[${i}]`);
     }
   }
@@ -548,14 +562,20 @@ export function coalitionCompressedFromFixture(
   let coalitionPoint = Point.ZERO;
   for (let i = 0; i < signerCount; i++) {
     coalitionPoint = coalitionPoint.add(
-      Point.fromHex(Buffer.from(hexToBytes(fixture.nodePubkeys[i])).toString("hex"))
+      Point.fromHex(
+        Buffer.from(hexToBytes(fixture.nodePubkeys[i])).toString("hex")
+      )
     );
   }
   return coalitionPoint.toRawBytes(true);
 }
 
-export function computeFixtureMessageHash(fixture: LoadedE2eFixture): Uint8Array {
-  const signersBitmap = uint256BE(BigInt(fixture.schnorrSignature.signersBitmap));
+export function computeFixtureMessageHash(
+  fixture: LoadedE2eFixture
+): Uint8Array {
+  const signersBitmap = uint256BE(
+    BigInt(fixture.schnorrSignature.signersBitmap)
+  );
   return computeMessageHash({
     jobId: hexToBytes(fixture.dataUpdate.jobId),
     registryVersion: fixture.dataUpdate.registryVersion,
@@ -571,7 +591,9 @@ export function verifyFixtureSchnorrSignature(fixture: LoadedE2eFixture): void {
   const material = fixture.secretKeys?.length
     ? signerMaterialFromFixture(fixture)
     : signerMaterialForVerifyAnswerEvm();
-  const signersBitmap = uint256BE(BigInt(fixture.schnorrSignature.signersBitmap));
+  const signersBitmap = uint256BE(
+    BigInt(fixture.schnorrSignature.signersBitmap)
+  );
   const signed = signE2eDataUpdate(
     fixture.dataUpdate.registryVersion,
     material,
@@ -612,7 +634,9 @@ export function verifyFixtureSchnorrSignature(fixture: LoadedE2eFixture): void {
 
 /** Anchor `submitDataUpdate` / `verifyDataUpdate` args from an e2e JSON fixture. */
 export function buildSubmitArgsFromE2eFixture(fixture: LoadedE2eFixture) {
-  const signersBitmap = uint256BE(BigInt(fixture.schnorrSignature.signersBitmap));
+  const signersBitmap = uint256BE(
+    BigInt(fixture.schnorrSignature.signersBitmap)
+  );
   const material = fixture.secretKeys?.length
     ? signerMaterialFromFixture(fixture)
     : signerMaterialForVerifyAnswerEvm();
@@ -766,7 +790,7 @@ export const VERIFY_DATA_UPDATE_RETURN_LEN = 72;
 /** Pack expected return data: `value[32] | timestamp_be[8] | round_id[32]`. */
 export function expectedVerifyDataUpdateReturnBytes(
   value: Uint8Array,
-  canonicalTimestamp: number,
+  canonicalTimestamp: number
 ): Uint8Array {
   const out = new Uint8Array(VERIFY_DATA_UPDATE_RETURN_LEN);
   out.set(value.subarray(0, 32), 0);
@@ -792,11 +816,15 @@ export async function executeVerifyDataUpdateReturnData(
       registryState: accounts.registryStatePda,
     })
     .remainingAccounts(
-      signerRemainingAccounts(program.programId, signed.submitArgs.signersBitmap)
+      signerRemainingAccounts(
+        program.programId,
+        signed.submitArgs.signersBitmap
+      )
     )
     .instruction();
 
-  const [blockhash] = await ctx.provider.context.banksClient.getLatestBlockhash();
+  const [blockhash] =
+    await ctx.provider.context.banksClient.getLatestBlockhash();
   const tx = new Transaction().add(
     ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
     verifyIx
@@ -805,7 +833,9 @@ export async function executeVerifyDataUpdateReturnData(
   tx.recentBlockhash = blockhash;
   tx.sign(ctx.authority.payer);
 
-  const result = await ctx.provider.context.banksClient.tryProcessTransaction(tx);
+  const result = await ctx.provider.context.banksClient.tryProcessTransaction(
+    tx
+  );
   if (result.result !== null) {
     const logs = result.meta?.logMessages?.join("\n") ?? "";
     throw new Error(`verify_data_update failed: ${result.result}\n${logs}`);
@@ -1063,7 +1093,12 @@ export async function createEvmFixtureJobViaInstruction(
     subscriptionPda: PublicKey;
   }
 ): Promise<{ jobPda: PublicKey; feedPda: PublicKey; jobId: Uint8Array }> {
-  return createJobViaInstruction(ctx, program, accounts, EVM_FIXTURE_CONFIG_HASH);
+  return createJobViaInstruction(
+    ctx,
+    program,
+    accounts,
+    EVM_FIXTURE_CONFIG_HASH
+  );
 }
 
 export function deriveJobId(
@@ -1087,7 +1122,10 @@ export function findJobPda(programId: PublicKey, jobId: Uint8Array): PublicKey {
   )[0];
 }
 
-export function findFeedPda(programId: PublicKey, jobId: Uint8Array): PublicKey {
+export function findFeedPda(
+  programId: PublicKey,
+  jobId: Uint8Array
+): PublicKey {
   return PublicKey.findProgramAddressSync(
     [FEED_SEED, Buffer.from(jobId)],
     programId

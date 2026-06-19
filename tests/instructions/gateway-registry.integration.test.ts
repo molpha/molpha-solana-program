@@ -10,7 +10,7 @@ import { getProtocolTreasury } from "../helpers/evm-submit-data-update";
 import molphaIdl from "../../target/idl/molpha.json";
 
 const LOCALNET_PROGRAM_ID = new PublicKey(
-  "MLPHd2Pv9D4WhGUyh3FJYGvd4rR9SMProkSNcXm7zh9"
+  "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
 );
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
@@ -62,7 +62,10 @@ async function initializeProtocol(ctx: TestContext): Promise<{
     [REGISTRY_STATE_SEED],
     program.programId
   );
-  const treasury = getProtocolTreasury(protocolConfigPda, ctx.underlyingTokenMint);
+  const treasury = getProtocolTreasury(
+    protocolConfigPda,
+    ctx.underlyingTokenMint
+  );
 
   await program.methods
     .initialize({
@@ -127,7 +130,9 @@ describe("gateway registry", () => {
       })
       .rpc();
 
-    const closed = await ctx.provider.context.banksClient.getAccount(gatewayPda);
+    const closed = await ctx.provider.context.banksClient.getAccount(
+      gatewayPda
+    );
     assert.isNull(closed);
   });
 
@@ -218,4 +223,3 @@ describe("gateway registry", () => {
     }
   });
 });
-
