@@ -1060,6 +1060,7 @@ dependencies = [
  "solana-keccak-hasher 3.1.0",
  "solana-sdk-ids",
  "solana-secp256k1-recover 3.1.1",
+ "solana-sha256-hasher",
  "spl-token 4.0.2",
 ]
 
@@ -1819,9 +1820,9 @@ dependencies = [
 
 [[package]]
 name = "solana-hash"
-version = "4.3.0"
+version = "4.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1b113239362cee7093bfb250467138f079a2a03673181dc15bff6ccd677912d"
+checksum = "8064ea1d591ec791be95245058ca40f4f5345d390c200069d0f79bbf55bfae55"
 dependencies = [
  "five8 1.0.0",
 ]
@@ -1894,7 +1895,7 @@ checksum = "ed1c0d16d6fdeba12291a1f068cdf0d479d9bff1141bf44afd7aa9d485f65ef8"
 dependencies = [
  "sha3",
  "solana-define-syscall 4.0.1",
- "solana-hash 4.3.0",
+ "solana-hash 4.2.0",
 ]
 
 [[package]]
