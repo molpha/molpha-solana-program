@@ -11,6 +11,10 @@ pub struct Job {
     pub decimals: u8,
     pub signatures_required: u8,
     pub created_at: i64,
+    /// Rounds settled against this job (v0.2 §4.2).
+    pub used_rounds: u64,
+    /// Round quota; `u64::MAX` means unlimited (gated by subscription validity).
+    pub max_rounds: u64,
     pub bump: u8,
 }
 
@@ -37,6 +41,8 @@ impl Job {
         self.decimals = decimals;
         self.created_at = created_at;
         self.signatures_required = signatures_required;
+        self.used_rounds = 0;
+        self.max_rounds = u64::MAX;
         self.bump = bump;
     }
 
