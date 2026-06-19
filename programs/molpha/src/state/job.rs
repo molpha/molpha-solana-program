@@ -28,6 +28,16 @@ pub struct JobInitParams {
     pub bump: u8,
 }
 
+pub struct JobInitParams {
+    pub job_id: [u8; 32],
+    pub owner: Pubkey,
+    pub api_config_hash: [u8; 32],
+    pub decimals: u8,
+    pub signatures_required: u8,
+    pub created_at: i64,
+    pub bump: u8,
+}
+
 impl Job {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_job";
     pub const MAX_DELEGATES: usize = 5;
