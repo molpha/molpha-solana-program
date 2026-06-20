@@ -4,9 +4,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::{
     error::MolphaError,
     events::NodeRegistered,
-    state::{
-        Node, NodeStatus, ProtocolConfig, RegistryIndex, RegistryState, RegistryTransitionType,
-    },
+    state::{Node, ProtocolConfig, RegistryIndex, RegistryState},
     utils::registry::verify_pop_stub,
 };
 
@@ -72,32 +70,26 @@ pub fn register_node(
         args.security_deposit,
     )?;
 
-    let node = &mut ctx.accounts.node;
-    node.owner = ctx.accounts.node_owner.key();
-    node.current_index = args.new_index;
-    node.status = NodeStatus::Active;
-    node.locked_amount = args.security_deposit;
-    node.pending_rewards = 0;
-    node.registered_at = now;
-    node.deactivated_at = 0;
-    node.withdrawable_at = 0;
-    node.bump = ctx.bumps.node;
+    let node_key = ctx.accounts.node.key();
+    ctx.accounts.node.init(
+        ctx.accounts.node_owner.key(),
+        args.new_index,
+        args.ip,
+        args.port,
+        args.security_deposit,
+        now,
+        ctx.bumps.node,
+    );
 
-    let index = &mut ctx.accounts.registry_index;
-    index.index = args.new_index;
-    index.node = ctx.accounts.node.key();
-    index.secp256k1_pubkey_x = args.pub_key_x;
-    index.secp256k1_pubkey_y = args.pub_key_y;
-    index.bump = ctx.bumps.registry_index;
+    ctx.accounts.registry_index.init(
+        args.new_index,
+        node_key,
+        args.pub_key_x,
+        args.pub_key_y,
+        ctx.bumps.registry_index,
+    );
 
-    let current_version = registry.current_version;
-    registry.previous_version = current_version;
-    registry.previous_node_count = registry.current_node_count;
-    registry.previous_expires_at = now.saturating_add(registry.grace_secs);
-    registry.current_version = current_version.saturating_add(1);
-    registry.current_node_count = registry.current_node_count.saturating_add(1);
-    registry.last_transition_type = RegistryTransitionType::Add;
-    registry.clear_remove_transition_metadata();
+    registry.record_add_transition(now);
 
     emit!(NodeRegistered {
         node_id,

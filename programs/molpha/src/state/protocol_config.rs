@@ -22,6 +22,16 @@ pub struct ProtocolConfig {
     pub receipt_submitter_bonus: u64,
     pub protocol_fee_bps: u16,
     pub max_receipt_delay_slots: u64,
+    /// Fixed protocol fee per settled round (v0.2 §4.2 / §6).
+    pub protocol_fee: u64,
+    /// Slots a settled round must wait before `finalize_round` can run (dispute window).
+    pub dispute_window_slots: u64,
+    /// Minimum USDC bond a gateway must post to settle receipts.
+    pub gateway_bond_min: u64,
+    /// Challenger reward, in bps of the slashed bond, on a successful dispute.
+    pub challenger_bounty_bps: u16,
+    /// Monotonic counter assigning `gateway_index` to bonded gateways.
+    pub gateway_count: u32,
     pub registry_cooldown_secs: i64,
     /// Grace period after activation during which the previous registry version remains valid.
     pub previous_grace_secs: i64,

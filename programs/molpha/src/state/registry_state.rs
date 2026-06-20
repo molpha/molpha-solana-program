@@ -48,6 +48,19 @@ impl RegistryState {
         self.bump = bump;
     }
 
+    /// Record an "add node" transition, rolling the current version into the
+    /// previous (grace) version and incrementing the live node count.
+    pub fn record_add_transition(&mut self, now: i64) {
+        let current_version = self.current_version;
+        self.previous_version = current_version;
+        self.previous_node_count = self.current_node_count;
+        self.previous_expires_at = now.saturating_add(self.grace_secs);
+        self.current_version = current_version.saturating_add(1);
+        self.current_node_count = self.current_node_count.saturating_add(1);
+        self.last_transition_type = RegistryTransitionType::Add;
+        self.clear_remove_transition_metadata();
+    }
+
     pub fn is_accepted_registry_version(&self, version: u32, now: i64) -> bool {
         version == self.current_version
             || (version == self.previous_version && now <= self.previous_expires_at)

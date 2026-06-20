@@ -70,7 +70,6 @@ programs/
 │       ├── events.rs
 │       ├── error.rs
 │       └── lib.rs
-└── faucet/                       # Test USDC faucet (localnet / devnet)
 ```
 
 ```
@@ -163,7 +162,6 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 | Program | ID |
 |---------|-----|
 | **Molpha** | `MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8` |
-| **Faucet** | `AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ` |
 
 ## Documentation
 
@@ -185,7 +183,6 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 ### Deployment & project notes
 
 - [Devnet Deployment](DEVNET_DEPLOYMENT.md)
-- [Faucet README](FAUCET_README.md)
 - [Migration Guide](MIGRATION_GUIDE.md)
 - [Scripts README](scripts/README.md)
 
@@ -197,7 +194,6 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 | `yarn register-nodes` | `scripts/generate-and-register-nodes.js` |
 | `yarn job-flow` | Subscribe → create job → submit update |
 | `yarn cu:data-update:bankrun` | CU benchmark (bankrun) |
-| `yarn setup-test-faucet` | Local test USDC faucet |
 
 Key scripts under `scripts/`: `initialize.js`, `generate-and-register-nodes.js`, `subscribe-create-job-submit.js`, `oracle-client.ts`, `pda-helpers.js`, and CU bench utilities.
 

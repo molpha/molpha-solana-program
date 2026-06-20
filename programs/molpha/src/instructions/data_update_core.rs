@@ -464,6 +464,7 @@ mod tests {
             created_at: 0,
             used_rounds: 0,
             max_rounds: u64::MAX,
+            last_request_timestamp: 0,
             bump: 0,
         }
     }

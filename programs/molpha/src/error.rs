@@ -106,4 +106,53 @@ pub enum MolphaError {
     SubscriptionNotActive,
     #[msg("subscription job_count >= plan.max_jobs")]
     JobLimitReached,
+
+    // ---- Receipt settlement (v0.2). Numeric codes are sequential from the macro; the
+    //      spec's 62xx values are illustrative. Names match the spec §9. ----
+    #[msg("consumer Ed25519 signature missing or invalid")]
+    ConsumerSigInvalid,
+    #[msg("request_auth.timestamp must be strictly greater than job.last_request_timestamp")]
+    TimestampNotIncreasing,
+    #[msg("re-derived selection bitmap does not match the gateway receipt")]
+    SelectionBitmapMismatch,
+    #[msg("popcount(signers_bitmap) < signatures_required")]
+    QuorumBelowThreshold,
+    #[msg("args.job_id != job.job_id")]
+    AggSigJobMismatch,
+    #[msg("gateway Ed25519 signature missing or invalid")]
+    GatewaySigInvalid,
+    #[msg("gateway not registered or bonded below gateway_bond_min")]
+    GatewayNotBonded,
+    #[msg("(job_id, timestamp) receipt already recorded")]
+    ReceiptAlreadyRecorded,
+    #[msg("subscription inactive or round quota exhausted")]
+    SubscriptionInactiveOrExhausted,
+    #[msg("supplied signature does not match committed agg_sig_hash")]
+    DisputeAggSigMismatch,
+    #[msg("dispute window has closed; round is finalized")]
+    DisputeWindowClosed,
+    #[msg("dispute failed: the committed signature verifies (no fraud)")]
+    DisputeSignatureValid,
+    #[msg("gateway_index does not match the bonded gateway")]
+    GatewayIndexMismatch,
+    #[msg("gateway authority already registered")]
+    GatewayAlreadyRegistered,
+    #[msg("bond amount below gateway_bond_min")]
+    InsufficientBond,
+    #[msg("agg_sig.signers_bitmap does not match credited_bitmap")]
+    CreditedBitmapMismatch,
+    #[msg("round still inside dispute window; cannot finalize")]
+    RoundNotFinalizable,
+    #[msg("round already finalized")]
+    RoundAlreadyFinalized,
+    #[msg("round was voided by a successful dispute")]
+    RoundVoided,
+    #[msg("no claimable rewards")]
+    NothingToClaim,
+    #[msg("instructions sysvar account is invalid")]
+    InvalidInstructionsSysvar,
+    #[msg("consumer authority is not the job owner or a delegate")]
+    UnauthorisedConsumer,
+    #[msg("mismatched or missing credited node account")]
+    InvalidCreditNodeAccount,
 }

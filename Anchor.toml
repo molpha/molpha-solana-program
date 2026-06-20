@@ -6,11 +6,9 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-faucet = "AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ"
 molpha = "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
 
 [programs.localnet]
-faucet = "AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ"
 molpha = "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
 
 [registry]
@@ -21,5 +19,4 @@ cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-setup-faucet = "yarn setup-test-faucet"
 test = "cp target/deploy/molpha.so tests/fixtures && RUST_LOG= yarn jest --runInBand --verbose --forceExit"

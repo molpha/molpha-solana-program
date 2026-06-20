@@ -9,7 +9,7 @@ pub mod state;
 pub mod utils;
 
 use instructions::*;
-use state::PlanType;
+use state::{AggregatedSig, PlanType};
 
 declare_id!("MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8");
 
@@ -35,14 +35,6 @@ pub mod molpha {
 
     pub fn finalize_registry_transition(ctx: Context<FinalizeRegistryTransition>) -> Result<()> {
         instructions::finalize_registry_transition(ctx)
-    }
-
-    pub fn add_gateway(ctx: Context<AddGateway>, args: AddGatewayArgs) -> Result<()> {
-        instructions::add_gateway(ctx, args)
-    }
-
-    pub fn remove_gateway(ctx: Context<RemoveGateway>, args: RemoveGatewayArgs) -> Result<()> {
-        instructions::remove_gateway(ctx, args)
     }
 
     pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
@@ -95,5 +87,41 @@ pub mod molpha {
         args: SubmitDataUpdateArgs,
     ) -> Result<()> {
         instructions::verify_data_update(ctx, args)
+    }
+
+    pub fn register_gateway(
+        ctx: Context<RegisterGateway>,
+        args: RegisterGatewayArgs,
+    ) -> Result<()> {
+        instructions::register_gateway(ctx, args)
+    }
+
+    pub fn settle_round_receipt<'info>(
+        ctx: Context<'_, '_, 'info, 'info, SettleRoundReceipt<'info>>,
+        args: SettleRoundArgs,
+    ) -> Result<()> {
+        instructions::settle_round_receipt(ctx, args)
+    }
+
+    pub fn finalize_round<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FinalizeRound<'info>>,
+    ) -> Result<()> {
+        instructions::finalize_round(ctx)
+    }
+
+    pub fn dispute_round<'info>(
+        ctx: Context<'_, '_, 'info, 'info, DisputeRound<'info>>,
+        agg_sig: AggregatedSig,
+        args: DisputeRoundArgs,
+    ) -> Result<()> {
+        instructions::dispute_round(ctx, agg_sig, args)
+    }
+
+    pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
+        instructions::claim_node_rewards(ctx)
+    }
+
+    pub fn claim_gateway_rewards(ctx: Context<ClaimGatewayRewards>) -> Result<()> {
+        instructions::claim_gateway_rewards(ctx)
     }
 }
