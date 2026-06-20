@@ -78,11 +78,13 @@ pub fn hash_agg_sig(agg_sig: &AggregatedSig) -> [u8; 32] {
 }
 
 /// `H(GatewayReceipt)` — domain-separated SHA-256 over the receipt body plus the on-chain
-/// request/response bindings (`H(RequestAuth)` and `sha256(AggregatedSig)`).
+/// request/response bindings (`H(RequestAuth)`, `sha256(AggregatedSig)`, and the committed
+/// data-update message hash used for dispute-time aggregate verification).
 pub fn hash_gateway_receipt(
     receipt: &GatewayReceipt,
     request_auth_hash: &[u8; 32],
     agg_sig_hash: &[u8; 32],
+    data_update_message_hash: &[u8; 32],
 ) -> [u8; 32] {
     let body = receipt
         .try_to_vec()
@@ -92,6 +94,7 @@ pub fn hash_gateway_receipt(
         &body,
         request_auth_hash.as_ref(),
         agg_sig_hash.as_ref(),
+        data_update_message_hash.as_ref(),
     ])
     .to_bytes()
 }
@@ -138,9 +141,10 @@ mod tests {
         let receipt = fixture_gateway_receipt();
         let req = hash_request_auth(&fixture_request_auth());
         let agg = hash_agg_sig(&fixture_agg_sig());
+        let data_update_message_hash = [0x99; 32];
         assert_eq!(
-            hash_gateway_receipt(&receipt, &req, &agg),
-            hash_gateway_receipt(&receipt, &req, &agg)
+            hash_gateway_receipt(&receipt, &req, &agg, &data_update_message_hash),
+            hash_gateway_receipt(&receipt, &req, &agg, &data_update_message_hash)
         );
     }
 

@@ -18,12 +18,7 @@ use solana_keccak_hasher::hashv as keccak_hashv;
 use crate::{
     error::MolphaError,
     events::RoundDisputed,
-    instructions::{
-        data_update_core::{
-            compute_message_hash, verify_aggregate_over_hash, SELECTION_SEED_PREFIX,
-        },
-        submit_data_update::SubmitDataUpdateArgs,
-    },
+    instructions::data_update_core::{verify_aggregate_over_hash, SELECTION_SEED_PREFIX},
     state::{
         hash_agg_sig, AggregatedSig, Gateway, Job, ProtocolConfig, RegistryState,
         RoundReceiptRecord,
@@ -31,16 +26,9 @@ use crate::{
     utils::bitmap::{derive_group_bitmap, effective_selection_size},
 };
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct DisputeRoundArgs {
-    pub value: [u8; 32],
-    pub canonical_timestamp: i64,
-}
-
 pub fn dispute_round<'info>(
     ctx: Context<'_, '_, '_, 'info, DisputeRound<'info>>,
     agg_sig: AggregatedSig,
-    args: DisputeRoundArgs,
 ) -> Result<()> {
     let record = &ctx.accounts.round_record;
 
@@ -92,26 +80,13 @@ pub fn dispute_round<'info>(
     let is_valid_sig = if selection_mismatch {
         false
     } else {
-        let message_hash = compute_message_hash(
-            &SubmitDataUpdateArgs {
-                job_id: record.job_id,
-                signatures_required: record.signatures_required,
-                registry_version: record.registry_version,
-                signers_bitmap: record.credited_bitmap,
-                value: args.value,
-                canonical_timestamp: args.canonical_timestamp,
-                agg_sig_s: agg_sig.s,
-                commitment_addr: agg_sig.commitment_addr,
-            },
-            record.signatures_required,
-        );
         verify_aggregate_over_hash(
             &ctx.accounts.registry_state,
             record.registry_version,
             &agg_sig.signers_bitmap,
             &agg_sig.s,
             &agg_sig.commitment_addr,
-            &message_hash,
+            &record.data_update_message_hash,
             clock.unix_timestamp,
             ctx.remaining_accounts,
             ctx.program_id,

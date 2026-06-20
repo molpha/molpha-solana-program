@@ -3,9 +3,9 @@ use anchor_lang::prelude::*;
 /// Per-round settlement record (one per `(job_id, timestamp)`).
 ///
 /// Created optimistically by `settle_round_receipt` without verifying the committed
-/// `AggregatedSig`. The signature is consulted only on dispute (`dispute_round`). Credits
-/// become withdrawable once `finalized == true` (after the dispute window) via
-/// `finalize_round`.
+/// `AggregatedSig`. Settlement also commits the exact data-update message hash used for any
+/// future dispute verification. Credits become withdrawable once `finalized == true`
+/// (after the dispute window) via `finalize_round`.
 #[account]
 #[derive(InitSpace)]
 pub struct RoundReceiptRecord {
@@ -18,6 +18,8 @@ pub struct RoundReceiptRecord {
     pub credited_bitmap: [u8; 32],
     /// `= sha256(AggregatedSig)`; the commitment used by the dispute path.
     pub agg_sig_hash: [u8; 32],
+    /// Committed `compute_message_hash(..)` used for dispute-time aggregate verification.
+    pub data_update_message_hash: [u8; 32],
     pub gateway_index: u32,
     /// The bonded gateway account credited / slashable for this round.
     pub gateway: Pubkey,

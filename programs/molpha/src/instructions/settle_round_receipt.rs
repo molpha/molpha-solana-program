@@ -1,8 +1,10 @@
 //! `settle_round_receipt` — optimistic happy path (no Schnorr verify).
 //!
 //! Verifies two cheap Ed25519 signatures (consumer + gateway), stores the committed
-//! `AggregatedSig` *without verifying it*, and credits the participation set embedded in that
-//! signature (`agg_sig.signers_bitmap`). Schnorr verification runs only on `dispute_round`.
+//! `AggregatedSig` *without verifying it*, and stores the committed data-update message hash
+//! that dispute-time Schnorr verification must use. Credits are applied to the participation set
+//! embedded in that signature (`agg_sig.signers_bitmap`). Schnorr verification runs only on
+//! `dispute_round`.
 //!
 //! The v0.2 spec batches several rounds (`Vec<SettleEntry>`) into one transaction. Because the
 //! per-round cost is flat (§8), this is implemented as a single-round instruction; clients pack
@@ -12,6 +14,9 @@
 use crate::{
     error::MolphaError,
     events::RoundSettled,
+    instructions::{
+        data_update_core::compute_message_hash, submit_data_update::SubmitDataUpdateArgs,
+    },
     state::{
         hash_agg_sig, hash_gateway_receipt, hash_request_auth_fields, AggregatedSig, Delegate,
         Gateway, GatewayReceipt, Job, Node, ProtocolConfig, RegistryIndex, RegistryState,
@@ -30,6 +35,8 @@ pub struct SettleRoundArgs {
     pub timestamp: u64,
     pub agg_sig: AggregatedSig,
     pub gateway_receipt: GatewayReceipt,
+    /// Feed payload value signed by the aggregate Schnorr coalition.
+    pub value: [u8; 32],
     /// Consumer Ed25519 key that signed `H(RequestAuth)` (job owner or a registered delegate).
     pub consumer_authority: Pubkey,
 }
@@ -43,6 +50,7 @@ pub fn settle_round_receipt<'info>(
         timestamp,
         agg_sig,
         gateway_receipt,
+        value,
         consumer_authority,
     } = &args;
 
@@ -74,7 +82,6 @@ pub fn settle_round_receipt<'info>(
         *timestamp > job.last_request_timestamp,
         MolphaError::TimestampNotIncreasing
     );
-
     // 3. Consumer authorization.
     let is_owner = *consumer_authority == job.owner;
     if is_owner {
@@ -146,8 +153,25 @@ pub fn settle_round_receipt<'info>(
     );
 
     let agg_sig_hash = hash_agg_sig(agg_sig);
-    let gateway_receipt_hash =
-        hash_gateway_receipt(gateway_receipt, &request_auth_hash, &agg_sig_hash);
+    let data_update_message_hash = compute_message_hash(
+        &SubmitDataUpdateArgs {
+            job_id: *job_id,
+            signatures_required: job.signatures_required,
+            registry_version: gateway_receipt.registry_version,
+            signers_bitmap: agg_sig.signers_bitmap,
+            value: *value,
+            canonical_timestamp: *timestamp as i64,
+            agg_sig_s: agg_sig.s,
+            commitment_addr: agg_sig.commitment_addr,
+        },
+        job.signatures_required,
+    );
+    let gateway_receipt_hash = hash_gateway_receipt(
+        gateway_receipt,
+        &request_auth_hash,
+        &agg_sig_hash,
+        &data_update_message_hash,
+    );
     require!(
         verify_ed25519_signature(
             &ctx.accounts.instructions_sysvar,
@@ -225,6 +249,7 @@ pub fn settle_round_receipt<'info>(
     record.signatures_required = job.signatures_required;
     record.credited_bitmap = agg_sig.signers_bitmap;
     record.agg_sig_hash = agg_sig_hash;
+    record.data_update_message_hash = data_update_message_hash;
     record.gateway_index = gateway_receipt.gateway_index;
     record.gateway = ctx.accounts.gateway.key();
     record.registry_version = gateway_receipt.registry_version;

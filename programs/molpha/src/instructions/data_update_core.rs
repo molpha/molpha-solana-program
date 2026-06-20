@@ -292,6 +292,7 @@ pub(crate) fn reconstruct_coalition_key<'info>(
 ///
 /// Returns `Ok(true)` when the signature is valid (no fraud) and `Ok(false)` when it is invalid
 /// (fabricated / committed garbage → slashable). Malformed disputes (bad accounts) hard-error.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn verify_aggregate_over_hash<'info>(
     registry: &RegistryState,
     registry_version: u32,

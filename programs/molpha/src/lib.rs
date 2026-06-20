@@ -112,9 +112,8 @@ pub mod molpha {
     pub fn dispute_round<'info>(
         ctx: Context<'_, '_, 'info, 'info, DisputeRound<'info>>,
         agg_sig: AggregatedSig,
-        args: DisputeRoundArgs,
     ) -> Result<()> {
-        instructions::dispute_round(ctx, agg_sig, args)
+        instructions::dispute_round(ctx, agg_sig)
     }
 
     pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {

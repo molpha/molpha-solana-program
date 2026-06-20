@@ -49,6 +49,9 @@ const { createProvider } = require("./lib/molpha-provider");
 
 const DOMAIN_REQAUTH = Buffer.from("MOLPHA_REQAUTH_V1", "utf8");
 const DOMAIN_GWRCPT = Buffer.from("MOLPHA_GWRCPT_V1", "utf8");
+const MESSAGE_PREFIX = Buffer.from(
+  keccak_256(Buffer.from("MOLPHA_MESSAGE_V1", "utf8"))
+);
 const JOB_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1", "utf8");
 const NODE_ID_PREFIX = Buffer.from("MOLPHA_NODE_ID_V1", "utf8");
 
@@ -135,6 +138,18 @@ function u64le(value) {
   return out;
 }
 
+function u32be(value) {
+  const out = Buffer.alloc(4);
+  out.writeUInt32BE(value >>> 0, 0);
+  return out;
+}
+
+function i64AsU64be(value) {
+  const out = Buffer.alloc(8);
+  out.writeBigUInt64BE(BigInt.asUintN(64, BigInt(value)), 0);
+  return out;
+}
+
 function sha256(parts) {
   const h = crypto.createHash("sha256");
   for (const p of parts) {
@@ -194,13 +209,47 @@ function hashAggregatedSig(aggSig) {
   return sha256([body]);
 }
 
-function hashGatewayReceipt(gatewayReceipt, requestAuthHash, aggSigHash) {
+function computeDataUpdateMessageHash({
+  jobId,
+  registryVersion,
+  signaturesRequired,
+  signersBitmap,
+  value,
+  timestamp,
+}) {
+  return Buffer.from(
+    keccak_256(
+      Buffer.concat([
+        MESSAGE_PREFIX,
+        Buffer.from(jobId),
+        u32be(registryVersion),
+        u32be(signaturesRequired),
+        Buffer.from(signersBitmap),
+        Buffer.from(value),
+        i64AsU64be(timestamp),
+      ])
+    )
+  );
+}
+
+function hashGatewayReceipt(
+  gatewayReceipt,
+  requestAuthHash,
+  aggSigHash,
+  dataUpdateMessageHash
+) {
   const body = Buffer.concat([
     u32le(gatewayReceipt.registryVersion),
     Buffer.from(gatewayReceipt.selectionBitmap),
     u32le(gatewayReceipt.gatewayIndex),
   ]);
-  return sha256([DOMAIN_GWRCPT, body, requestAuthHash, aggSigHash]);
+  return sha256([
+    DOMAIN_GWRCPT,
+    body,
+    requestAuthHash,
+    aggSigHash,
+    dataUpdateMessageHash,
+  ]);
 }
 
 function walletKeypairFromPath(walletPath) {
@@ -619,6 +668,7 @@ async function bootstrapState({
     gatewayAuthority,
     gatewayIndex: Number(gateway.index),
     registryVersion: Number(registryState.currentVersion),
+    signaturesRequired: 1,
     jobId,
     nodePdasByIndex,
     registryIndexPdasByIndex,
@@ -663,6 +713,7 @@ async function simulateSettleRound({
 }) {
   const bitmap = bitmapForFirstN(signerCount);
   const timestamp = Math.floor(Date.now() / 1000) + signerCount;
+  const value = crypto.randomBytes(32);
 
   const aggSig = {
     s: crypto.randomBytes(32),
@@ -680,10 +731,19 @@ async function simulateSettleRound({
 
   const requestAuthHash = hashRequestAuth(setupState.jobId, timestamp);
   const aggSigHash = hashAggregatedSig(aggSig);
+  const dataUpdateMessageHash = computeDataUpdateMessageHash({
+    jobId: setupState.jobId,
+    registryVersion: gatewayReceipt.registryVersion,
+    signaturesRequired: setupState.signaturesRequired,
+    signersBitmap: aggSig.signersBitmap,
+    value,
+    timestamp,
+  });
   const gatewayReceiptHash = hashGatewayReceipt(
     gatewayReceipt,
     requestAuthHash,
-    aggSigHash
+    aggSigHash,
+    dataUpdateMessageHash
   );
 
   const consumerSigIx = Ed25519Program.createInstructionWithPrivateKey({
@@ -715,6 +775,7 @@ async function simulateSettleRound({
       selectionBitmap: Array.from(gatewayReceipt.selectionBitmap),
       gatewayIndex: gatewayReceipt.gatewayIndex,
     },
+    value: Array.from(value),
     consumerAuthority: payer.publicKey,
   };
 
