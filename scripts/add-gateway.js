@@ -116,7 +116,9 @@ function parseEndpoint(positional) {
     };
   }
 
-  throw new Error("Too many arguments; use <IP> <PORT> [BOND_AMOUNT] or <IP:PORT> [BOND_AMOUNT]");
+  throw new Error(
+    "Too many arguments; use <IP> <PORT> [BOND_AMOUNT] or <IP:PORT> [BOND_AMOUNT]"
+  );
 }
 
 function findGatewayPda(programId, authority) {

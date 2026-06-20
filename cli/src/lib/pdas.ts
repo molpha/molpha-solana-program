@@ -9,6 +9,7 @@ export const PLAN_SEED = Buffer.from("molpha_plan");
 export const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 export const JOB_SEED = Buffer.from("molpha_job");
 export const FEED_SEED = Buffer.from("molpha_feed");
+export const DELEGATE_SEED = Buffer.from("molpha_delegate");
 export const VIRTUAL_INDEX = 0xffffffff;
 
 export function findProtocolConfigPda(
@@ -85,6 +86,17 @@ export function findFeedPda(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [FEED_SEED, Buffer.from(jobId)],
+    programId
+  );
+}
+
+export function findDelegatePda(
+  programId: PublicKey,
+  owner: PublicKey,
+  delegate: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [DELEGATE_SEED, owner.toBuffer(), delegate.toBuffer()],
     programId
   );
 }

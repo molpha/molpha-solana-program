@@ -6,3 +6,4 @@ test-ledger
 ref
 docs
 scripts/.cu-bench-localnet-accounts
+cli/dist

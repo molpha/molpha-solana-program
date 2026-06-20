@@ -92,8 +92,9 @@ async function initializeProtocol(ctx: TestContext): Promise<{
 describe("gateway registry", () => {
   it("allows a gateway authority to register with endpoint and bond", async () => {
     const ctx = await setupTestContext();
-    const { program, protocolConfigPda, treasury } =
-      await initializeProtocol(ctx);
+    const { program, protocolConfigPda, treasury } = await initializeProtocol(
+      ctx
+    );
 
     const gatewayAuthority = Keypair.generate();
     const authorityUsdc = await fundNodeOwnerInBankrun(
@@ -105,7 +106,10 @@ describe("gateway registry", () => {
 
     const ip = [10, 0, 0, 1];
     const port = 8080;
-    const gatewayPda = findGatewayPda(program.programId, gatewayAuthority.publicKey);
+    const gatewayPda = findGatewayPda(
+      program.programId,
+      gatewayAuthority.publicKey
+    );
 
     await program.methods
       .registerGateway({
@@ -140,8 +144,9 @@ describe("gateway registry", () => {
 
   it("rejects registration below the minimum bond", async () => {
     const ctx = await setupTestContext();
-    const { program, protocolConfigPda, treasury } =
-      await initializeProtocol(ctx);
+    const { program, protocolConfigPda, treasury } = await initializeProtocol(
+      ctx
+    );
 
     const gatewayAuthority = Keypair.generate();
     const authorityUsdc = await fundNodeOwnerInBankrun(
@@ -149,7 +154,10 @@ describe("gateway registry", () => {
       gatewayAuthority,
       ctx.underlyingTokenMint
     );
-    const gatewayPda = findGatewayPda(program.programId, gatewayAuthority.publicKey);
+    const gatewayPda = findGatewayPda(
+      program.programId,
+      gatewayAuthority.publicKey
+    );
 
     try {
       await program.methods
@@ -178,8 +186,9 @@ describe("gateway registry", () => {
 
   it("rejects duplicate gateway registration", async () => {
     const ctx = await setupTestContext();
-    const { program, protocolConfigPda, treasury } =
-      await initializeProtocol(ctx);
+    const { program, protocolConfigPda, treasury } = await initializeProtocol(
+      ctx
+    );
 
     const gatewayAuthority = Keypair.generate();
     const authorityUsdc = await fundNodeOwnerInBankrun(
@@ -187,7 +196,10 @@ describe("gateway registry", () => {
       gatewayAuthority,
       ctx.underlyingTokenMint
     );
-    const gatewayPda = findGatewayPda(program.programId, gatewayAuthority.publicKey);
+    const gatewayPda = findGatewayPda(
+      program.programId,
+      gatewayAuthority.publicKey
+    );
     const args = {
       ip: [10, 0, 0, 3],
       port: 8082,

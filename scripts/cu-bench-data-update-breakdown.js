@@ -184,12 +184,13 @@ async function seedBenchAccounts(
   await setProgramAccount(context, program, jobPda, "job", {
     jobId: Array.from(FIXTURE_JOB_ID),
     owner: payer.publicKey,
-    delegates: Array(5).fill(PublicKey.default),
-    delegateCount: 0,
     apiConfigHash: Array.from(FIXTURE_CONFIG_HASH),
     decimals: 8,
     signaturesRequired: sigReq,
     createdAt: new anchor.BN(0),
+    usedRounds: new anchor.BN(0),
+    maxRounds: new anchor.BN("18446744073709551615"),
+    lastRequestTimestamp: new anchor.BN(0),
     bump: jobBump,
   });
 

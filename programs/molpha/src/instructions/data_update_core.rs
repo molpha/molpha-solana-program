@@ -456,8 +456,6 @@ mod tests {
         Job {
             job_id: FIXTURE_JOB_ID,
             owner: Pubkey::default(),
-            delegates: [Pubkey::default(); Job::MAX_DELEGATES],
-            delegate_count: 0,
             api_config_hash: FIXTURE_CONFIG_HASH,
             decimals: 0,
             signatures_required: FIXTURE_SIGNATURES_REQUIRED,

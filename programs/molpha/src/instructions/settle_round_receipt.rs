@@ -13,8 +13,8 @@ use crate::{
     error::MolphaError,
     events::RoundSettled,
     state::{
-        hash_agg_sig, hash_gateway_receipt, hash_request_auth_fields, AggregatedSig, Gateway,
-        GatewayReceipt, Job, Node, ProtocolConfig, RegistryIndex, RegistryState,
+        hash_agg_sig, hash_gateway_receipt, hash_request_auth_fields, AggregatedSig, Delegate,
+        Gateway, GatewayReceipt, Job, Node, ProtocolConfig, RegistryIndex, RegistryState,
         RoundReceiptRecord, Subscription,
     },
     utils::{
@@ -77,10 +77,42 @@ pub fn settle_round_receipt<'info>(
 
     // 3. Consumer authorization.
     let is_owner = *consumer_authority == job.owner;
-    require!(
-        is_owner || job.has_delegate(consumer_authority),
-        MolphaError::UnauthorisedConsumer
-    );
+    if is_owner {
+        require!(
+            ctx.accounts.consumer_delegate.is_none(),
+            MolphaError::UnexpectedDelegateAccount
+        );
+    } else {
+        let delegate_ai = ctx
+            .accounts
+            .consumer_delegate
+            .as_ref()
+            .ok_or(MolphaError::DelegateAccountRequired)?;
+        let (expected_pda, _bump) = Pubkey::find_program_address(
+            &[
+                Delegate::SEED_PREFIX,
+                job.owner.as_ref(),
+                consumer_authority.as_ref(),
+            ],
+            ctx.program_id,
+        );
+        require_keys_eq!(
+            delegate_ai.key(),
+            expected_pda,
+            MolphaError::UnauthorisedConsumer
+        );
+
+        let mut data = delegate_ai.try_borrow_mut_data()?;
+        let mut delegate = Delegate::try_deserialize(&mut &data[..])?;
+        require_keys_eq!(delegate.owner, job.owner, MolphaError::UnauthorisedConsumer);
+        require_keys_eq!(
+            delegate.delegate,
+            *consumer_authority,
+            MolphaError::UnauthorisedConsumer
+        );
+        delegate.try_consume_data_request()?;
+        delegate.try_serialize(&mut &mut data[..])?;
+    }
     let request_auth_hash = hash_request_auth_fields(job_id, *timestamp);
     require!(
         verify_ed25519_signature(
@@ -248,6 +280,10 @@ pub struct SettleRoundReceipt<'info> {
         constraint = subscription.is_active() @ MolphaError::SubscriptionInactiveOrExhausted,
     )]
     pub subscription: Account<'info, Subscription>,
+
+    /// Required when `consumer_authority != job.owner`; enforces delegate request quota.
+    #[account(mut)]
+    pub consumer_delegate: Option<UncheckedAccount<'info>>,
 
     #[account(mut)]
     pub gateway: Account<'info, Gateway>,

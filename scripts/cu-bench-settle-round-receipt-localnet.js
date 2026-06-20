@@ -113,7 +113,10 @@ function parseArgs(argv) {
       throw new Error(`Invalid signer count: ${n}`);
     }
   }
-  if (!Number.isInteger(opts.computeUnitLimit) || opts.computeUnitLimit < 200_000) {
+  if (
+    !Number.isInteger(opts.computeUnitLimit) ||
+    opts.computeUnitLimit < 200_000
+  ) {
     throw new Error("--compute-unit-limit must be an integer >= 200000");
   }
 
@@ -201,7 +204,9 @@ function hashGatewayReceipt(gatewayReceipt, requestAuthHash, aggSigHash) {
 }
 
 function walletKeypairFromPath(walletPath) {
-  const secret = Uint8Array.from(JSON.parse(fs.readFileSync(walletPath, "utf8")));
+  const secret = Uint8Array.from(
+    JSON.parse(fs.readFileSync(walletPath, "utf8"))
+  );
   return Keypair.fromSecretKey(secret);
 }
 
@@ -323,7 +328,10 @@ async function bootstrapState({
     programId
   );
 
-  const existingProtocol = await connection.getAccountInfo(protocolConfigPda, "processed");
+  const existingProtocol = await connection.getAccountInfo(
+    protocolConfigPda,
+    "processed"
+  );
   if (existingProtocol) {
     throw new Error(
       `Protocol already initialized at ${protocolConfigPda.toBase58()}. ` +
@@ -372,7 +380,9 @@ async function bootstrapState({
     })
     .rpc({ commitment: "processed" });
 
-  const protocolConfig = await program.account.protocolConfig.fetch(protocolConfigPda);
+  const protocolConfig = await program.account.protocolConfig.fetch(
+    protocolConfigPda
+  );
   const treasury = new PublicKey(protocolConfig.treasury);
 
   // Create and fund payer USDC ATA.
@@ -427,8 +437,14 @@ async function bootstrapState({
   // Create a job with signatures_required = 1 so we can test multiple credited counts.
   const apiConfigHash = crypto.randomBytes(32);
   const jobId = deriveJobId(payer.publicKey, apiConfigHash);
-  const [jobPda] = PublicKey.findProgramAddressSync([JOB_SEED, jobId], programId);
-  const [feedPda] = PublicKey.findProgramAddressSync([FEED_SEED, jobId], programId);
+  const [jobPda] = PublicKey.findProgramAddressSync(
+    [JOB_SEED, jobId],
+    programId
+  );
+  const [feedPda] = PublicKey.findProgramAddressSync(
+    [FEED_SEED, jobId],
+    programId
+  );
 
   await program.methods
     .createJob(
@@ -440,12 +456,14 @@ async function bootstrapState({
       Array.from(jobId)
     )
     .accountsPartial({
-      owner: payer.publicKey,
+      creator: payer.publicKey,
+      jobOwner: payer.publicKey,
       protocolConfig: protocolConfigPda,
       plan: planPda,
       job: jobPda,
       subscription: subscriptionPda,
       feed: feedPda,
+      delegate: null,
       systemProgram: SystemProgram.programId,
     })
     .rpc({ commitment: "processed" });
@@ -528,7 +546,9 @@ async function bootstrapState({
     );
 
     const secpPrivate = secpUtils.randomPrivateKey();
-    const secpCompressed = Buffer.from(secp256k1.getPublicKey(secpPrivate, true));
+    const secpCompressed = Buffer.from(
+      secp256k1.getPublicKey(secpPrivate, true)
+    );
     const secpPoint = Point.fromHex(secpCompressed.toString("hex"));
     const uncompressed = Buffer.from(secpPoint.toRawBytes(false));
     const pubKeyX = uncompressed.subarray(1, 33);
@@ -576,7 +596,9 @@ async function bootstrapState({
     registryIndexPdasByIndex.set(index, registryIndexPda);
   }
 
-  const registryState = await program.account.registryState.fetch(registryStatePda);
+  const registryState = await program.account.registryState.fetch(
+    registryStatePda
+  );
   const lookupAddresses = [];
   for (let index = 0; index < maxSigners; index++) {
     lookupAddresses.push(registryIndexPdasByIndex.get(index));
@@ -604,7 +626,11 @@ async function bootstrapState({
   };
 }
 
-function remainingAccountsForBitmap(bitmap, registryIndexPdasByIndex, nodePdasByIndex) {
+function remainingAccountsForBitmap(
+  bitmap,
+  registryIndexPdasByIndex,
+  nodePdasByIndex
+) {
   const remaining = [];
   for (let bit = 0; bit < 256; bit++) {
     if (!bitmapBitSet(bitmap, bit)) continue;
@@ -700,6 +726,7 @@ async function simulateSettleRound({
       registryState: setupState.registryStatePda,
       job: setupState.jobPda,
       subscription: setupState.subscriptionPda,
+      consumerDelegate: null,
       gateway: setupState.gatewayPda,
       roundRecord: roundRecordPda,
       instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
@@ -714,7 +741,9 @@ async function simulateSettleRound({
     )
     .instruction();
 
-  const { blockhash } = await provider.connection.getLatestBlockhash("processed");
+  const { blockhash } = await provider.connection.getLatestBlockhash(
+    "processed"
+  );
   const v0Message = new TransactionMessage({
     payerKey: payer.publicKey,
     recentBlockhash: blockhash,
@@ -787,10 +816,15 @@ async function main() {
     );
   }
 
-  const programInfo = await provider.connection.getAccountInfo(programId, "processed");
+  const programInfo = await provider.connection.getAccountInfo(
+    programId,
+    "processed"
+  );
   if (!programInfo || !programInfo.executable) {
     throw new Error(
-      `Program ${programId.toBase58()} is not deployed on ${provider.connection.rpcEndpoint}.`
+      `Program ${programId.toBase58()} is not deployed on ${
+        provider.connection.rpcEndpoint
+      }.`
     );
   }
 

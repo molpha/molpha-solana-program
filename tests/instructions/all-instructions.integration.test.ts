@@ -25,6 +25,7 @@ const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
+const DELEGATE_SEED = Buffer.from("molpha_delegate");
 const REGISTRY_INDEX_SEED = Buffer.from("molpha_registry_index");
 
 const JOB_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
@@ -39,6 +40,17 @@ function deriveJobId(owner: PublicKey, apiConfigHash: Uint8Array): Uint8Array {
   return keccak_256(
     Buffer.concat([JOB_ID_PREFIX, owner.toBuffer(), Buffer.from(apiConfigHash)])
   );
+}
+
+function findDelegatePda(
+  programId: PublicKey,
+  owner: PublicKey,
+  delegate: PublicKey
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [DELEGATE_SEED, owner.toBuffer(), delegate.toBuffer()],
+    programId
+  )[0];
 }
 
 async function advanceClock(ctx: TestContext, seconds: number): Promise<void> {
@@ -215,50 +227,67 @@ describe("Molpha instruction coverage integration", () => {
         Array.from(jobId)
       )
       .accountsPartial({
-        owner: ctx.authority.publicKey,
+        creator: ctx.authority.publicKey,
+        jobOwner: ctx.authority.publicKey,
         protocolConfig: protocolConfigPda,
         plan: planPda,
         job: jobPda,
         subscription: subscriptionPda,
         feed: feedPda,
+        delegate: null,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
 
     const createdJob = await program.account.job.fetch(jobPda);
-    assert.equal(createdJob.delegateCount, 0);
+    assert.equal(
+      createdJob.owner.toBase58(),
+      ctx.authority.publicKey.toBase58()
+    );
     const createdFeed = await program.account.feed.fetch(feedPda);
     assert.equal(createdFeed.canonicalTimestamp.toString(), "0");
 
     // 5) add_delegate + remove_delegate
     const delegate = PublicKey.unique();
+    const delegatePda = findDelegatePda(
+      program.programId,
+      ctx.authority.publicKey,
+      delegate
+    );
     await program.methods
       .addDelegate({
-        jobId: Array.from(jobId),
         delegate,
+        maxJobsCreated: 2,
+        maxDataRequests: new BN(10),
       })
       .accountsPartial({
         owner: ctx.authority.publicKey,
-        job: jobPda,
+        delegateAccount: delegatePda,
+        systemProgram: SystemProgram.programId,
       })
       .rpc();
 
-    let jobAfterAdd = await program.account.job.fetch(jobPda);
-    assert.equal(jobAfterAdd.delegateCount, 1);
+    let delegateAccount = await program.account.delegate.fetch(delegatePda);
+    assert.equal(delegateAccount.jobsCreated, 0);
+    assert.equal(delegateAccount.maxJobsCreated, 2);
+    assert.equal(delegateAccount.maxDataRequests.toString(), "10");
 
     await program.methods
       .removeDelegate({
-        jobId: Array.from(jobId),
         delegate,
       })
       .accountsPartial({
         owner: ctx.authority.publicKey,
-        job: jobPda,
+        delegateAccount: delegatePda,
       })
       .rpc();
 
-    const jobAfterRemove = await program.account.job.fetch(jobPda);
-    assert.equal(jobAfterRemove.delegateCount, 0);
+    try {
+      await program.account.delegate.fetch(delegatePda);
+      assert.fail("expected delegate account to be closed");
+    } catch (error: any) {
+      assert.ok(String(error));
+    }
 
     // 6) submit_data_update + verify_data_update (failure-path coverage)
     const badJobId = Uint8Array.from(Buffer.alloc(32, 4));

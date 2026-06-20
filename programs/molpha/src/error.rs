@@ -72,11 +72,21 @@ pub enum MolphaError {
     PlanNotActive,
     #[msg("invalid plan quorum or signer parameters")]
     InvalidPlanParams,
-    #[msg("delegate_count >= 5")]
-    DelegateLimitReached,
-    #[msg("remove_delegate target not in active delegate slots")]
+    #[msg("invalid delegate limit parameters")]
+    InvalidDelegateLimits,
+    #[msg("delegate cannot be the owner")]
+    DelegateCannotBeOwner,
+    #[msg("delegate account required for non-owner action")]
+    DelegateAccountRequired,
+    #[msg("delegate account must not be supplied for owner action")]
+    UnexpectedDelegateAccount,
+    #[msg("delegate jobs_created >= max_jobs_created")]
+    DelegateJobLimitReached,
+    #[msg("delegate data_requests_used >= max_data_requests")]
+    DelegateDataRequestLimitReached,
+    #[msg("remove_delegate target not found")]
     DelegateNotFound,
-    #[msg("delegate pubkey already present in active delegate slots")]
+    #[msg("delegate PDA already exists for this owner/delegate pair")]
     DelegateAlreadyPresent,
     #[msg("job.owner does not match signer")]
     UnauthorisedJobOwner,

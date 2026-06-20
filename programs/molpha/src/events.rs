@@ -106,6 +106,7 @@ pub struct GatewayRegistered {
 pub struct JobCreated {
     pub job_id: [u8; 32],
     pub owner: Pubkey,
+    pub creator: Pubkey,
     pub plan_type: u8,
     pub signatures_required: u8,
     pub created_at: i64,
@@ -113,16 +114,18 @@ pub struct JobCreated {
 
 #[event]
 pub struct DelegateAdded {
-    pub job_id: [u8; 32],
+    pub owner: Pubkey,
     pub delegate: Pubkey,
-    pub delegate_count: u8,
+    pub max_jobs_created: u32,
+    pub max_data_requests: u64,
 }
 
 #[event]
 pub struct DelegateRemoved {
-    pub job_id: [u8; 32],
+    pub owner: Pubkey,
     pub delegate: Pubkey,
-    pub delegate_count: u8,
+    pub jobs_created: u32,
+    pub data_requests_used: u64,
 }
 
 #[event]
