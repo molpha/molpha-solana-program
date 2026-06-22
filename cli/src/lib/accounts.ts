@@ -164,6 +164,31 @@ export function toAccountMetaList(addresses: PublicKey[]): AccountMeta[] {
   }));
 }
 
+/** Node-only remaining accounts for `finalize_round` in ascending credited-bit order. */
+export function finalizeRoundNodeAccounts(
+  creditedBitmap: Buffer,
+  nodePdaByBit: Map<number, PublicKey>
+): AccountMeta[] {
+  const accounts: AccountMeta[] = [];
+  for (let bit = 0; bit < 256; bit++) {
+    const byteIndex = 31 - (bit >> 3);
+    const bitMask = 1 << (bit & 7);
+    if ((creditedBitmap[byteIndex] & bitMask) === 0) {
+      continue;
+    }
+    const nodePda = nodePdaByBit.get(bit);
+    if (!nodePda) {
+      throw new Error(`Missing node PDA for credited bit ${bit}`);
+    }
+    accounts.push({
+      pubkey: nodePda,
+      isSigner: false,
+      isWritable: true,
+    });
+  }
+  return accounts;
+}
+
 export function bnToNumber(value: BN | number): number {
   return typeof value === "number" ? value : value.toNumber();
 }

@@ -69,6 +69,12 @@ pub fn hash_request_auth_fields(job_id: &[u8; 32], timestamp: u64) -> [u8; 32] {
     })
 }
 
+/// `sha256(node_0 || node_1 || ...)` — credited node pubkeys in ascending bit order.
+pub fn hash_credited_nodes(node_keys: &[Pubkey]) -> [u8; 32] {
+    let refs: Vec<&[u8]> = node_keys.iter().map(|k| k.as_ref()).collect();
+    sha256_hashv(&refs).to_bytes()
+}
+
 /// `sha256(AggregatedSig)` — the commitment stored in `RoundReceiptRecord`.
 pub fn hash_agg_sig(agg_sig: &AggregatedSig) -> [u8; 32] {
     let body = agg_sig
@@ -174,6 +180,15 @@ mod tests {
         let mut a = fixture_agg_sig();
         a.signers_bitmap[0] ^= 0x01;
         assert_ne!(hash_agg_sig(&a), base);
+    }
+
+    #[test]
+    fn hash_credited_nodes_is_order_sensitive() {
+        let a = Pubkey::new_unique();
+        let b = Pubkey::new_unique();
+        assert_eq!(hash_credited_nodes(&[a, b]), hash_credited_nodes(&[a, b]));
+        assert_ne!(hash_credited_nodes(&[a, b]), hash_credited_nodes(&[b, a]));
+        assert_ne!(hash_credited_nodes(&[a]), hash_credited_nodes(&[a, b]));
     }
 
     #[test]

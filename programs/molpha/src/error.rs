@@ -165,4 +165,6 @@ pub enum MolphaError {
     UnauthorisedConsumer,
     #[msg("mismatched or missing credited node account")]
     InvalidCreditNodeAccount,
+    #[msg("supplied credited node accounts do not match settlement commitment")]
+    CreditedNodesMismatch,
 }
