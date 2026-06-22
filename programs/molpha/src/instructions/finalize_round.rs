@@ -4,30 +4,22 @@
 //! moves each credited node's `reward_per_signature` (and the gateway's `gateway_fee`) from
 //! `pending_rewards` to `claimable_rewards`, after which `claim_*_rewards` may withdraw it.
 //!
-//! Credited nodes are re-identified through their `RegistryIndex` accounts (applying the
-//! previous-version-after-remove remap), so finalization must occur while the round's registry
-//! version is still current or in grace — consistent with the rest of the protocol.
+//! Credited nodes are verified against `RoundReceiptRecord.credited_nodes_hash`, committed at
+//! settlement, so finalization does not depend on the live registry grace window.
 
 use anchor_lang::prelude::*;
 
 use crate::{
     error::MolphaError,
     events::RoundFinalized,
-    state::{
-        Gateway, Node, ProtocolConfig, RegistryIndex, RegistryState, RegistryTransitionType,
-        RoundReceiptRecord,
-    },
-    utils::{
-        account_layout::{expected_registry_index, validate_remove_transition_for_previous},
-        bitmap::{bitmap_load, for_each_set_bit_u256},
-    },
+    state::{hash_credited_nodes, Gateway, Node, ProtocolConfig, RoundReceiptRecord},
+    utils::bitmap::{bitmap_load, for_each_set_bit_u256},
 };
 
 pub fn finalize_round<'info>(
     ctx: Context<'_, '_, 'info, 'info, FinalizeRound<'info>>,
 ) -> Result<()> {
     let config = &ctx.accounts.protocol_config;
-    let registry = &ctx.accounts.registry_state;
     let record = &ctx.accounts.round_record;
 
     require!(!record.voided, MolphaError::RoundVoided);
@@ -40,61 +32,27 @@ pub fn finalize_round<'info>(
         MolphaError::RoundNotFinalizable
     );
 
-    let now_ts = clock.unix_timestamp;
-    let is_current = record.registry_version == registry.current_version;
-    let is_previous_live = record.registry_version == registry.previous_version
-        && now_ts <= registry.previous_expires_at;
-    require!(
-        is_current || is_previous_live,
-        MolphaError::InvalidRegistryVersion
-    );
-    let apply_remove_remap =
-        !is_current && registry.last_transition_type != RegistryTransitionType::Add;
-    if apply_remove_remap {
-        validate_remove_transition_for_previous(registry)?;
-    }
-
     let credited = bitmap_load(&record.credited_bitmap);
     let credited_count = credited.count_ones();
     require!(
-        ctx.remaining_accounts.len() == credited_count as usize * 2,
+        ctx.remaining_accounts.len() == credited_count as usize,
         MolphaError::InvalidCreditNodeAccount
     );
 
     let reward = record.reward_per_signature;
     let program_id = ctx.program_id;
 
+    let mut credited_node_keys: Vec<Pubkey> = Vec::with_capacity(credited_count as usize);
     let mut cursor = 0usize;
-    for_each_set_bit_u256(credited, |bit_pos| {
-        let registry_index_ai = ctx
+    for_each_set_bit_u256(credited, |_bit_pos| -> Result<()> {
+        let node_ai = ctx
             .remaining_accounts
             .get(cursor)
             .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-        let node_ai = ctx
-            .remaining_accounts
-            .get(cursor + 1)
-            .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-        cursor += 2;
-
-        require!(
-            registry_index_ai.owner == program_id,
-            MolphaError::InvalidCreditNodeAccount
-        );
-        let registry_index = {
-            let data = registry_index_ai.try_borrow_data()?;
-            RegistryIndex::try_deserialize(&mut &data[..])?
-        };
-        let expected_index = expected_registry_index(bit_pos as u32, registry, apply_remove_remap);
-        require!(
-            registry_index.index == expected_index,
-            MolphaError::InvalidNodeIndex
-        );
+        cursor += 1;
 
         let mut node: Account<Node> = Account::try_from(node_ai)?;
-        require!(
-            node.key() == registry_index.node,
-            MolphaError::InvalidCreditNodeAccount
-        );
+        credited_node_keys.push(node.key());
         node.pending_rewards = node
             .pending_rewards
             .checked_sub(reward)
@@ -107,6 +65,11 @@ pub fn finalize_round<'info>(
 
         Ok(())
     })?;
+
+    require!(
+        hash_credited_nodes(&credited_node_keys) == record.credited_nodes_hash,
+        MolphaError::CreditedNodesMismatch
+    );
 
     let gateway_fee = record.gateway_fee;
     let gateway = &mut ctx.accounts.gateway;
@@ -141,12 +104,6 @@ pub struct FinalizeRound<'info> {
         bump = protocol_config.bump,
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
-
-    #[account(
-        seeds = [RegistryState::SEED_PREFIX],
-        bump = registry_state.bump,
-    )]
-    pub registry_state: Account<'info, RegistryState>,
 
     #[account(
         mut,

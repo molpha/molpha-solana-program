@@ -16,6 +16,8 @@ pub struct RoundReceiptRecord {
     pub signatures_required: u8,
     /// `= agg_sig.signers_bitmap` (the credited set).
     pub credited_bitmap: [u8; 32],
+    /// `sha256(node_0 || node_1 || ...)` in ascending credited-bit order at settlement.
+    pub credited_nodes_hash: [u8; 32],
     /// `= sha256(AggregatedSig)`; the commitment used by the dispute path.
     pub agg_sig_hash: [u8; 32],
     /// Committed `compute_message_hash(..)` used for dispute-time aggregate verification.

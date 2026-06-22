@@ -18,9 +18,9 @@ use crate::{
         data_update_core::compute_message_hash, submit_data_update::SubmitDataUpdateArgs,
     },
     state::{
-        hash_agg_sig, hash_gateway_receipt, hash_request_auth_fields, AggregatedSig, Delegate,
-        Gateway, GatewayReceipt, Job, Node, ProtocolConfig, RegistryIndex, RegistryState,
-        RoundReceiptRecord, Subscription,
+        hash_agg_sig, hash_credited_nodes, hash_gateway_receipt, hash_request_auth_fields,
+        AggregatedSig, Delegate, Gateway, GatewayReceipt, Job, Node, ProtocolConfig, RegistryIndex,
+        RegistryState, RoundReceiptRecord, Subscription,
     },
     utils::{
         bitmap::{bitmap_is_subset_u256, bitmap_load, for_each_set_bit_u256},
@@ -192,6 +192,7 @@ pub fn settle_round_receipt<'info>(
     );
 
     let mut cursor = 0usize;
+    let mut credited_node_keys: Vec<Pubkey> = Vec::with_capacity(credited_count as usize);
     for_each_set_bit_u256(credited, |bit_pos| {
         let registry_index_ai = ctx
             .remaining_accounts
@@ -222,6 +223,7 @@ pub fn settle_round_receipt<'info>(
             node.key() == registry_index.node,
             MolphaError::InvalidCreditNodeAccount
         );
+        credited_node_keys.push(node.key());
         node.pending_rewards = node
             .pending_rewards
             .checked_add(reward_per_signature)
@@ -248,6 +250,7 @@ pub fn settle_round_receipt<'info>(
     record.selection_bitmap = gateway_receipt.selection_bitmap;
     record.signatures_required = job.signatures_required;
     record.credited_bitmap = agg_sig.signers_bitmap;
+    record.credited_nodes_hash = hash_credited_nodes(&credited_node_keys);
     record.agg_sig_hash = agg_sig_hash;
     record.data_update_message_hash = data_update_message_hash;
     record.gateway_index = gateway_receipt.gateway_index;
