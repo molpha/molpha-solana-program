@@ -1,19 +1,25 @@
+pub mod delegate;
 pub mod feed;
 pub mod gateway;
 pub mod job;
 pub mod node;
 pub mod plan;
 pub mod protocol_config;
+pub mod receipt;
 pub mod registry_index;
 pub mod registry_state;
+pub mod round_receipt;
 pub mod subscription;
 
+pub use delegate::*;
 pub use feed::*;
 pub use gateway::*;
 pub use job::*;
 pub use node::*;
 pub use plan::*;
 pub use protocol_config::*;
+pub use receipt::*;
 pub use registry_index::*;
 pub use registry_state::*;
+pub use round_receipt::*;
 pub use subscription::*;

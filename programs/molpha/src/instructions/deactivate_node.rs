@@ -52,12 +52,13 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
     let mut moved_node = Pubkey::default();
     let mut moved_old_index = VIRTUAL_INDEX;
 
-    let virtual_index = &mut ctx.accounts.virtual_registry_index;
-    virtual_index.index = VIRTUAL_INDEX;
-    virtual_index.node = removed_index_account.node;
-    virtual_index.secp256k1_pubkey_x = removed_index_account.secp256k1_pubkey_x;
-    virtual_index.secp256k1_pubkey_y = removed_index_account.secp256k1_pubkey_y;
-    virtual_index.bump = ctx.bumps.virtual_registry_index;
+    ctx.accounts.virtual_registry_index.init(
+        VIRTUAL_INDEX,
+        removed_index_account.node,
+        removed_index_account.secp256k1_pubkey_x,
+        removed_index_account.secp256k1_pubkey_y,
+        ctx.bumps.virtual_registry_index,
+    );
 
     if removed_index == last_index {
         removed_index_account.close(ctx.accounts.rent_receiver.to_account_info())?;

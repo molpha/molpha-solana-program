@@ -385,12 +385,14 @@ async function main() {
           Array.from(jobId)
         )
         .accountsPartial({
-          owner,
+          creator: owner,
+          jobOwner: owner,
           protocolConfig: protocolConfigPda,
           plan: subscribedPlanPda,
           job: jobPda,
           subscription: subscriptionPda,
           feed: feedPda,
+          delegate: null,
           systemProgram: SystemProgram.programId,
         })
         .rpc();

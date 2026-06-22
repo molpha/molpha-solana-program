@@ -19,6 +19,7 @@ env:
   NODE_VERSION: "20"
   ANCHOR_VERSION: "0.32.1"
   SOLANA_VERSION: "3.1.10"
+  RUST_VERSION: "1.91.0"
 
 jobs:
   quality:
@@ -32,6 +33,7 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
@@ -66,6 +68,8 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -79,22 +83,30 @@ jobs:
       - name: Install JS dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Install Solana CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v${SOLANA_VERSION}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-
       - name: Install Anchor via AVM
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          "$HOME/.cargo/bin/cargo" install --git https://github.com/coral-xyz/anchor avm --locked --force
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           avm install "${ANCHOR_VERSION}"
           avm use "${ANCHOR_VERSION}"
           echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
 
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Install SBF platform-tools
+        run: |
+          cargo-build-sbf --force-tools-install --install-only
+          cargo-build-sbf --version
+          command -v cargo-build-sbf
+
       - name: Toolchain versions
         run: |
           rustc --version
+          cargo --version
+          command -v cargo
           node --version
           yarn --version
           solana --version

@@ -93,22 +93,20 @@ pub struct SubscriptionVaultWithdrawn {
 }
 
 #[event]
-pub struct GatewayAdded {
+pub struct GatewayRegistered {
+    pub authority: Pubkey,
+    pub index: u32,
     pub ip: [u8; 4],
     pub port: u16,
+    pub bond: u64,
     pub registered_at: i64,
-}
-
-#[event]
-pub struct GatewayRemoved {
-    pub ip: [u8; 4],
-    pub port: u16,
 }
 
 #[event]
 pub struct JobCreated {
     pub job_id: [u8; 32],
     pub owner: Pubkey,
+    pub creator: Pubkey,
     pub plan_type: u8,
     pub signatures_required: u8,
     pub created_at: i64,
@@ -116,16 +114,18 @@ pub struct JobCreated {
 
 #[event]
 pub struct DelegateAdded {
-    pub job_id: [u8; 32],
+    pub owner: Pubkey,
     pub delegate: Pubkey,
-    pub delegate_count: u8,
+    pub max_jobs_created: u32,
+    pub max_data_requests: u64,
 }
 
 #[event]
 pub struct DelegateRemoved {
-    pub job_id: [u8; 32],
+    pub owner: Pubkey,
     pub delegate: Pubkey,
-    pub delegate_count: u8,
+    pub jobs_created: u32,
+    pub data_requests_used: u64,
 }
 
 #[event]
@@ -136,4 +136,40 @@ pub struct FeedUpdated {
     pub value: [u8; 32],
     pub signers_bitmap: [u8; 32],
     pub last_updated_slot: u64,
+}
+
+#[event]
+pub struct RoundSettled {
+    pub job_id: [u8; 32],
+    pub timestamp: u64,
+    pub gateway_index: u32,
+    pub credited_bitmap: [u8; 32],
+    pub credited_count: u32,
+    pub reward_per_signature: u64,
+    pub gateway_fee: u64,
+    pub recorded_slot: u64,
+}
+
+#[event]
+pub struct RoundFinalized {
+    pub job_id: [u8; 32],
+    pub timestamp: u64,
+    pub credited_count: u32,
+    pub finalized_slot: u64,
+}
+
+#[event]
+pub struct RoundDisputed {
+    pub job_id: [u8; 32],
+    pub timestamp: u64,
+    pub gateway: Pubkey,
+    pub slashed_bond: u64,
+    pub challenger_bounty: u64,
+}
+
+#[event]
+pub struct RewardsClaimed {
+    pub beneficiary: Pubkey,
+    pub destination: Pubkey,
+    pub amount: u64,
 }

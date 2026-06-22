@@ -1,39 +1,31 @@
 use anchor_lang::prelude::*;
 
-use crate::{error::MolphaError, events::DelegateRemoved, state::Job};
+use crate::{error::MolphaError, events::DelegateRemoved, state::Delegate};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct RemoveDelegateArgs {
-    pub job_id: [u8; 32],
     pub delegate: Pubkey,
 }
 
 pub fn remove_delegate(ctx: Context<RemoveDelegate>, args: RemoveDelegateArgs) -> Result<()> {
-    let job = &mut ctx.accounts.job;
+    let delegate_account = &ctx.accounts.delegate_account;
 
     require_keys_eq!(
-        job.owner,
+        delegate_account.owner,
         ctx.accounts.owner.key(),
         MolphaError::UnauthorisedJobOwner
     );
-
-    let active = job.delegate_count as usize;
-    let pos = job.delegates[..active]
-        .iter()
-        .position(|d| *d == args.delegate)
-        .ok_or(MolphaError::DelegateNotFound)?;
-
-    let last = active - 1;
-    if pos != last {
-        job.delegates[pos] = job.delegates[last];
-    }
-    job.delegates[last] = Pubkey::default();
-    job.delegate_count -= 1;
+    require_keys_eq!(
+        delegate_account.delegate,
+        args.delegate,
+        MolphaError::DelegateNotFound
+    );
 
     emit!(DelegateRemoved {
-        job_id: job.job_id,
+        owner: ctx.accounts.owner.key(),
         delegate: args.delegate,
-        delegate_count: job.delegate_count,
+        jobs_created: delegate_account.jobs_created,
+        data_requests_used: delegate_account.data_requests_used,
     });
 
     Ok(())
@@ -42,12 +34,18 @@ pub fn remove_delegate(ctx: Context<RemoveDelegate>, args: RemoveDelegateArgs) -
 #[derive(Accounts)]
 #[instruction(args: RemoveDelegateArgs)]
 pub struct RemoveDelegate<'info> {
+    #[account(mut)]
     pub owner: Signer<'info>,
 
     #[account(
         mut,
-        seeds = [Job::SEED_PREFIX, args.job_id.as_ref()],
-        bump = job.bump,
+        close = owner,
+        seeds = [
+            Delegate::SEED_PREFIX,
+            owner.key().as_ref(),
+            args.delegate.as_ref(),
+        ],
+        bump = delegate_account.bump,
     )]
-    pub job: Account<'info, Job>,
+    pub delegate_account: Account<'info, Delegate>,
 }

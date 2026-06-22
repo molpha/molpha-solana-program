@@ -647,12 +647,13 @@ async function buildBenchAccountSet(
   const jobData = await encodeAccount(program, "job", {
     jobId: Array.from(jobId),
     owner: payer.publicKey,
-    delegates: Array(5).fill(PublicKey.default),
-    delegateCount: 0,
     apiConfigHash: Array.from(configHash),
     decimals: 8,
     signaturesRequired: signerCount,
     createdAt: new anchor.BN(0),
+    usedRounds: new anchor.BN(0),
+    maxRounds: new anchor.BN("18446744073709551615"),
+    lastRequestTimestamp: new anchor.BN(0),
     bump: jobBump,
   });
   accounts.push({ pubkey: jobPda, data: jobData, owner: programId });

@@ -1071,12 +1071,14 @@ export async function createJobViaInstruction(
       Array.from(jobId)
     )
     .accountsPartial({
-      owner: ctx.authority.publicKey,
+      creator: ctx.authority.publicKey,
+      jobOwner: ctx.authority.publicKey,
       protocolConfig: accounts.protocolConfigPda,
       plan: accounts.planPda,
       job: jobPda,
       subscription: accounts.subscriptionPda,
       feed: feedPda,
+      delegate: null,
       systemProgram: SystemProgram.programId,
     })
     .rpc();
@@ -1327,12 +1329,13 @@ export async function seedEvmJobAndFeed(
   await setProgramAccount(ctx, program, jobPda, "job", {
     jobId: Array.from(EVM_FIXTURE_JOB_ID),
     owner,
-    delegates: Array(5).fill(PublicKey.default),
-    delegateCount: 0,
     apiConfigHash: Array.from(EVM_FIXTURE_CONFIG_HASH),
     decimals: 8,
     signaturesRequired,
     createdAt: new BN(0),
+    usedRounds: new BN(0),
+    maxRounds: new BN("18446744073709551615"),
+    lastRequestTimestamp: new BN(0),
     bump: jobBump,
   });
 

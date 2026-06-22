@@ -132,11 +132,10 @@ node scripts/manage-nodes.js batch-register sample-nodes.json
 # 1. Check protocol config for security deposit requirement
 node scripts/read-protocol-config.js
 
-# 2. Check operator's token balance
-node scripts/faucet-cli.js balance -m <TOKEN_MINT> -u <OPERATOR_PUBKEY>
+# 2. Check operator's token balance against the security deposit
+node scripts/check-balance.js
 
-# 3. Request tokens from faucet if needed (on testnet/devnet)
-node scripts/faucet-cli.js request -m <TOKEN_MINT> -u ./operator-keypair.json
+# 3. Transfer underlying tokens to your wallet if needed (localnet setup handles this)
 
 # 4. Register node
 node scripts/add-node.js <NODE_PUBKEY>
@@ -202,7 +201,6 @@ The setup script creates:
 
 4. **Oracle System**
    - ProtocolConfig initialized with authority and security deposit requirements
-   - Token faucet for test tokens
    - 3 oracle nodes registered with security deposits
    - Personal feed subscription funded with tokens
 
@@ -515,7 +513,7 @@ node scripts/initialize.js <TOKEN_MINT>
 node scripts/read-protocol-config.js
 
 # 3. Ensure operator has tokens for security deposit
-node scripts/faucet-cli.js request -m <TOKEN_MINT> -u ./operator-keypair.json
+node scripts/check-balance.js
 
 # 4. Register nodes with security deposits
 node scripts/add-node.js <NODE_PUBKEY>
@@ -541,167 +539,3 @@ node scripts/read-subscriptions.js
 # 8. Extend feed subscriptions
 node scripts/subscribe.js <FEED_ADDRESS> 30
 ```
-
----
-
-# Token Faucet Scripts
-
-This directory also contains comprehensive scripts for managing and interacting with the Solana Token Faucet program.
-
-## Faucet Scripts Overview
-
-### Core Utilities (`faucet-utils.js`)
-Provides the foundational functions for faucet operations:
-- Initialize new faucets with token mints
-- Request tokens from existing faucets
-- Query faucet information and user cooldowns
-- Manage token mint keypairs
-
-### CLI Tool (`faucet-cli.js`)
-Full-featured command-line interface for faucet operations:
-
-```bash
-# Initialize a new faucet
-node scripts/faucet-cli.js init -a ./authority-keypair.json --save-mint ./mint-keypair.json
-
-# Request tokens
-node scripts/faucet-cli.js request -m <MINT_PUBKEY> -u ./user-keypair.json
-
-# Check faucet information
-node scripts/faucet-cli.js info -m <MINT_PUBKEY>
-
-# Check user cooldown status
-node scripts/faucet-cli.js cooldown -m <MINT_PUBKEY> -u <USER_PUBKEY>
-
-# Check token balance
-node scripts/faucet-cli.js balance -m <MINT_PUBKEY> -u <USER_PUBKEY>
-```
-
-### Shell Wrapper (`faucet`)
-Convenient shell wrapper with colored output:
-
-```bash
-# Same commands as above, but with better UX
-./scripts/faucet init -a ~/.config/solana/id.json --save-mint ./mint.json
-./scripts/faucet request -m <MINT_PUBKEY> -u ~/.config/solana/id.json
-./scripts/faucet info -m <MINT_PUBKEY>
-./scripts/faucet cooldown -m <MINT_PUBKEY> -u <USER_PUBKEY>
-./scripts/faucet balance -m <MINT_PUBKEY> -u <USER_PUBKEY>
-```
-
-### Quick Setup (`setup-test-faucet.js`)
-Rapidly creates a test faucet with sensible defaults:
-
-```bash
-# Create a test faucet with 1-minute cooldown
-node scripts/setup-test-faucet.js
-```
-
-### Demo Script (`faucet-demo.js`)
-Complete workflow demonstration showing:
-- Faucet initialization
-- Multiple user interactions
-- Cooldown mechanism
-- Balance tracking
-
-```bash
-# Run the full demo
-node scripts/faucet-demo.js
-```
-
-## Faucet Usage Examples
-
-### 1. Initialize a Custom Faucet
-
-```bash
-# Create a faucet with custom parameters
-node scripts/faucet-cli.js init \
-  -a ./my-authority.json \
-  --amount 5000 \
-  --cooldown 1800 \
-  --decimals 9 \
-  --name "My Test Token" \
-  --symbol "MTT" \
-  --save-mint ./my-token-mint.json
-```
-
-### 2. Request Tokens
-
-```bash
-# Request tokens for a user
-node scripts/faucet-cli.js request \
-  -m 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F \
-  -u ./user-keypair.json
-```
-
-### 3. Monitor Faucet Status
-
-```bash
-# Check faucet configuration
-node scripts/faucet-cli.js info -m 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F
-
-# Check if user can request tokens
-node scripts/faucet-cli.js cooldown \
-  -m 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F \
-  -u 9K9FknHzW7j8a88yKTrzxKfDrxnV2QLqSR58ETAVdc8P
-
-# Check user's token balance
-node scripts/faucet-cli.js balance \
-  -m 7eb72Es6Z88LBzjTcypvi9uJXjy3FzNGc97X3DfhGZ7F \
-  -u 9K9FknHzW7j8a88yKTrzxKfDrxnV2QLqSR58ETAVdc8P
-```
-
-## Faucet Features
-
-### 🔑 **Mint Authority**
-- The faucet acts as the mint authority for created tokens
-- Mints tokens directly to users on request
-- No pre-funding required
-
-### ⏰ **Cooldown System**
-- Configurable cooldown periods between requests
-- Per-user tracking using PDAs
-- Prevents abuse while allowing legitimate testing
-
-### 🎛️ **Flexible Configuration**
-- Customizable token amounts per request
-- Configurable token decimals
-- Custom token names and symbols
-- Adjustable cooldown periods
-
-### 📊 **Comprehensive Monitoring**
-- Real-time faucet status checking
-- User cooldown tracking
-- Token balance queries
-- Transaction history
-
-## Integration with Oracle Testing
-
-The faucet is designed to work seamlessly with the Molpha Oracle system:
-
-1. **Create Test Tokens**: Use the faucet to create tokens for testing subscription payments
-2. **Fund Test Users**: Distribute tokens to users for testing oracle subscriptions
-3. **Automated Testing**: Scripts can programmatically request tokens for test scenarios
-
-### Example Oracle Integration
-
-```bash
-# 1. Create a test token for oracle payments
-node scripts/faucet-cli.js init -a ./authority.json --save-mint ./oracle-token.json
-
-# 2. Fund a test user for oracle subscription
-node scripts/faucet-cli.js request -m <TOKEN_MINT> -u ./test-user.json
-
-# 3. Use the funded user to create oracle feeds and subscriptions
-# (using the oracle scripts with the token from the faucet)
-```
-
-## Faucet Program Architecture
-
-The faucet program uses:
-- **FaucetConfig PDA**: Stores faucet configuration and acts as mint authority
-- **UserCooldown PDA**: Tracks individual user cooldown periods
-- **Associated Token Accounts**: For user token storage
-- **Direct Minting**: No pre-funding required, mints on demand
-
-This architecture provides a robust, scalable solution for test token distribution in Solana development environments. 

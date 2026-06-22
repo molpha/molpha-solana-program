@@ -368,6 +368,7 @@ mod tests {
             port: 9_000,
             locked_amount: 2,
             pending_rewards: 3,
+            claimable_rewards: 0,
             registered_at: 4,
             deactivated_at: 5,
             withdrawable_at: 6,

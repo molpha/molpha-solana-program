@@ -143,9 +143,7 @@ async function main() {
         `Missing: ${(securityDeposit - tokenBalance).toString()} tokens`
       );
       console.error("");
-      console.error("💡 To get tokens:");
-      console.error("1. Use the faucet: node scripts/faucet.js");
-      console.error("2. Or transfer tokens to your account");
+      console.error("💡 To get tokens: transfer tokens to your account");
       process.exit(1);
     }
 
