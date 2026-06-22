@@ -19,7 +19,7 @@ env:
   NODE_VERSION: "20"
   ANCHOR_VERSION: "0.32.1"
   SOLANA_VERSION: "3.1.10"
-  RUST_VERSION: "1.89.0"
+  RUST_VERSION: "1.91.0"
 
 jobs:
   quality:
