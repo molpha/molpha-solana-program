@@ -397,14 +397,13 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     canonicalTimestamp: FIXTURE_CANONICAL_TIMESTAMP,
   });
 
-  const { protocolConfigPda, registryStatePda, jobPda, feedPda } =
-    await seedBenchAccounts(
-      provider.context,
-      program,
-      payer,
-      signerCount,
-      signerMaterial
-    );
+  const { registryStatePda, jobPda, feedPda } = await seedBenchAccounts(
+    provider.context,
+    program,
+    payer,
+    signerCount,
+    signerMaterial
+  );
 
   const args = buildSubmitArgs(signerCount, signatureMaterial, FIXTURE_JOB_ID);
   const signersBitmapBuf = signatureMaterial.signersBitmap;
@@ -422,12 +421,17 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     .instruction();
 
   const submitIx = await program.methods
-    .submitDataUpdate(args)
+    .submitDataUpdate(args, null)
     .accountsPartial({
       submitter: payer.publicKey,
-      protocolConfig: protocolConfigPda,
+      jobOwner: null,
+      plan: null,
+      subscription: null,
+      delegate: null,
+      job: jobPda,
       registryState: registryStatePda,
       feed: feedPda,
+      systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(remainingAccounts)
     .instruction();

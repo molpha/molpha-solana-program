@@ -1,5 +1,5 @@
 /**
- * MVP happy path: register → subscribe → create_job → submit_data_update →
+ * MVP happy path: register → subscribe → submit_data_update (lazy job init) →
  * verify_data_update on the current registry, with return-data checks.
  */
 import * as anchor from "@coral-xyz/anchor";
@@ -14,9 +14,11 @@ import { Clock } from "solana-bankrun";
 import { setupTestContext, TestContext } from "../setup";
 import { generateE2eScenario } from "../helpers/e2e-fixture-export";
 import {
-  createJobViaInstruction,
+  deriveJobId,
   executeVerifyDataUpdateReturnData,
   expectedVerifyDataUpdateReturnBytes,
+  findFeedPda,
+  findJobPda,
   generateE2eSignerMaterialFromSeed,
   getProtocolTreasury,
   registerNodesForE2e,
@@ -159,12 +161,9 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
       })
       .rpc();
 
-    const { jobPda, feedPda, jobId } = await createJobViaInstruction(
-      ctx,
-      program,
-      { protocolConfigPda, planPda, subscriptionPda },
-      scenario.configHash
-    );
+    const jobId = deriveJobId(ctx.authority.publicKey, scenario.configHash);
+    const jobPda = findJobPda(program.programId, jobId);
+    const feedPda = findFeedPda(program.programId, jobId);
 
     const signed = signE2eDataUpdate(
       registry.currentVersion,
@@ -184,12 +183,20 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
     );
 
     await program.methods
-      .submitDataUpdate(signed.submitArgs)
+      .submitDataUpdate(signed.submitArgs, {
+        apiConfigHash: Array.from(scenario.configHash),
+        decimals: 8,
+      })
       .accountsPartial({
         submitter: ctx.authority.publicKey,
+        jobOwner: ctx.authority.publicKey,
+        plan: planPda,
+        subscription: subscriptionPda,
+        delegate: null,
         registryState: registryStatePda,
         job: jobPda,
         feed: feedPda,
+        systemProgram: SystemProgram.programId,
       })
       .remainingAccounts(remaining)
       .preInstructions([
@@ -198,6 +205,11 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
         }),
       ])
       .rpc();
+
+    const job = await program.account.job.fetch(jobPda);
+    assert.deepEqual(Array.from(job.jobId), Array.from(jobId));
+    assert.equal(job.owner.toBase58(), ctx.authority.publicKey.toBase58());
+    assert.equal(job.signaturesRequired, SIGNER_COUNT);
 
     const feed = await program.account.feed.fetch(feedPda);
     assert.deepEqual(Array.from(feed.value), Array.from(scenario.value));

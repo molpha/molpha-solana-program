@@ -309,12 +309,20 @@ describe("Molpha instruction coverage integration", () => {
 
     try {
       await program.methods
-        .submitDataUpdate(dataUpdateArgs)
+        .submitDataUpdate(dataUpdateArgs, {
+          apiConfigHash: Array.from(apiConfigHash),
+          decimals: 8,
+        })
         .accountsPartial({
           submitter: ctx.authority.publicKey,
+          jobOwner: null,
+          plan: null,
+          subscription: null,
+          delegate: null,
           registryState: registryStatePda,
           job: jobPda,
           feed: feedPda,
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
       assert.fail(

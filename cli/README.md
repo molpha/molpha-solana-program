@@ -82,7 +82,7 @@ yarn molpha plan add \
 yarn molpha subscription subscribe --plan-id 1 --rounds 5 --owner-usdc <OWNER_USDC_ATA>
 ```
 
-Register a node, create a job, and submit data:
+Register a node and submit data. The first submit initializes the job/feed if needed:
 
 ```bash
 yarn molpha registry register \
@@ -91,14 +91,11 @@ yarn molpha registry register \
   --owner-usdc <OWNER_USDC_ATA> \
   --security-deposit 1000000
 
-yarn molpha job create \
-  --api-config-hash <32_BYTE_HEX> \
-  --decimals 8
-
 yarn molpha data submit \
   --job-id <JOB_ID_HEX> \
   --registry-version 1 \
   --config-hash <32_BYTE_HEX> \
+  --decimals 8 \
   --value <32_BYTE_HEX> \
   --canonical-timestamp 1700000123 \
   --signer-count 1 \

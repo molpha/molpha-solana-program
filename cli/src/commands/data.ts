@@ -1,5 +1,10 @@
 import { BN } from "@coral-xyz/anchor";
-import { ComputeBudgetProgram, PublicKey, Transaction } from "@solana/web3.js";
+import {
+  ComputeBudgetProgram,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+} from "@solana/web3.js";
 import { Command } from "commander";
 import {
   accountJson,
@@ -11,9 +16,11 @@ import { getCliContext, getGlobalOptions } from "../lib/client";
 import { resolveCliOptions } from "../lib/config";
 import {
   findFeedPda,
+  findDelegatePda,
   findJobPda,
-  findProtocolConfigPda,
+  findPlanPda,
   findRegistryStatePda,
+  findSubscriptionPda,
 } from "../lib/pdas";
 import {
   buildBitmapFromFlag,
@@ -34,6 +41,8 @@ import {
 
 type SubmitArgsShape = {
   jobId: number[] | string;
+  apiConfigHash?: number[] | string;
+  configHash?: number[] | string;
   registryVersion: number | string;
   signaturesRequired: number | string;
   signersBitmap: number[] | string;
@@ -61,6 +70,8 @@ export function registerDataCommands(program: Command): void {
     .option("--signer-count <number>", "number of signers to include", "8")
     .option("--signers-bitmap <hex>", "explicit 32-byte signers bitmap")
     .option("--signatures-required <number>", "override signatures required")
+    .option("--decimals <number>", "feed decimals for lazy job init", "8")
+    .option("--job-owner <pubkey>", "job owner for lazy job init")
     .option(
       "--signer-seed <string>",
       "deterministic signer seed",
@@ -96,7 +107,6 @@ export function registerDataCommands(program: Command): void {
     .option("--compute-unit-limit <number>", "compute unit limit", "1400000")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
       const [registryStatePda] = findRegistryStatePda(ctx.programId);
       const registryState = await fetchAccountOrNull<any>(
         ctx.program,
@@ -108,14 +118,34 @@ export function registerDataCommands(program: Command): void {
       }
 
       const submitArgs = resolveSubmitArgs(options, ctx.programId);
-      const [jobPda] = findJobPda(
-        ctx.programId,
-        bytesFromField(submitArgs.jobId, 32, "job id")
+      const jobId = bytesFromField(submitArgs.jobId, 32, "job id");
+      const [jobPda] = findJobPda(ctx.programId, jobId);
+      const [feedPda] = findFeedPda(ctx.programId, jobId);
+      const existingJob = await fetchAccountOrNull<any>(
+        ctx.program,
+        "job",
+        jobPda
       );
-      const [feedPda] = findFeedPda(
-        ctx.programId,
-        bytesFromField(submitArgs.jobId, 32, "job id")
+      const jobOwner = resolveJobOwner(
+        options,
+        existingJob,
+        ctx.wallet.publicKey
       );
+      const [subscriptionPda] = findSubscriptionPda(ctx.programId, jobOwner);
+      const subscription = await fetchAccountOrNull<any>(
+        ctx.program,
+        "subscription",
+        subscriptionPda
+      );
+      const planPda = subscription
+        ? findPlanPda(ctx.programId, planTypeId(subscription.planType))[0]
+        : null;
+      const jobInit = resolveJobInitArgs(options, existingJob);
+      if (jobInit && !subscription) {
+        throw new Error(
+          `No subscription found for lazy job init owner ${jobOwner.toBase58()}`
+        );
+      }
       const { remainingTransition } = await resolveTransitionForRegistryVersion(
         ctx.program,
         registryState,
@@ -128,12 +158,24 @@ export function registerDataCommands(program: Command): void {
       );
 
       const signature = await (ctx.program.methods as any)
-        .submitDataUpdate(submitArgs)
+        .submitDataUpdate(submitArgs, jobInit)
         .accountsPartial({
           submitter: ctx.wallet.publicKey,
-          protocolConfig: protocolConfigPda,
+          jobOwner: jobInit ? jobOwner : null,
+          plan: jobInit ? planPda : null,
+          subscription: jobInit ? subscriptionPda : null,
+          delegate:
+            jobInit && !jobOwner.equals(ctx.wallet.publicKey)
+              ? findDelegatePda(
+                  ctx.programId,
+                  jobOwner,
+                  ctx.wallet.publicKey
+                )[0]
+              : null,
           registryState: registryStatePda,
+          job: jobPda,
           feed: feedPda,
+          systemProgram: SystemProgram.programId,
         })
         .remainingAccounts(remaining)
         .preInstructions([
@@ -325,6 +367,65 @@ function resolveSubmitArgs(
     return buildSubmitArgsFromFixture(loadVerifyFixture(options.fixture));
   }
   return buildSignedPayload(options, programId).payload.submitArgs;
+}
+
+function resolveJobOwner(
+  options: Record<string, string | undefined>,
+  existingJob: any | null,
+  defaultOwner: PublicKey
+): PublicKey {
+  if (options.jobOwner) {
+    return new PublicKey(options.jobOwner);
+  }
+  if (existingJob?.owner) {
+    return existingJob.owner;
+  }
+  return defaultOwner;
+}
+
+function resolveJobInitArgs(
+  options: Record<string, string | undefined>,
+  existingJob: any | null
+) {
+  if (existingJob) {
+    return null;
+  }
+
+  let configHash: Uint8Array | null = null;
+  if (options.configHash) {
+    configHash = hexToBytes(options.configHash, 32, "config hash");
+  } else if (options.fixture) {
+    const fixture = loadVerifyFixture(options.fixture);
+    configHash = hexToBytes(fixture.dataUpdate.configHash, 32, "config hash");
+  } else if (options.args) {
+    const raw = readJsonFile<SubmitArgsShape>(options.args);
+    const rawConfigHash = raw.apiConfigHash ?? raw.configHash;
+    if (rawConfigHash) {
+      configHash = bytesFromField(rawConfigHash, 32, "config hash");
+    }
+  }
+
+  if (!configHash) {
+    throw new Error(
+      "Missing --config-hash for lazy job init; pass --config-hash or submit after the job exists"
+    );
+  }
+
+  return {
+    apiConfigHash: Array.from(configHash),
+    decimals: parseInteger(options.decimals ?? "8", "decimals"),
+  };
+}
+
+function planTypeId(planType: Record<string, object> | number): number {
+  if (typeof planType === "number") {
+    return planType;
+  }
+  if ("basic" in planType) return 0;
+  if ("standard" in planType) return 1;
+  if ("professional" in planType) return 2;
+  if ("enterprise" in planType) return 3;
+  throw new Error(`Unknown plan type: ${JSON.stringify(planType)}`);
 }
 
 function normalizeSubmitArgs(value: SubmitArgsShape) {

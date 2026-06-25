@@ -27,7 +27,7 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 
 - Admin-defined **plans** (`add_plan`, `update_plan`) with per-round pricing and signer limits
 - **Subscribe** / **extend_subscription** in USDC
-- **create_job** binds a `job_id` to a feed and API config hash
+- Jobs are bound to a `job_id`, feed, and API config hash; `submit_data_update` initializes the job/feed on first submit, while `create_job` remains available for explicit pre-creation.
 
 ### Data publication
 
@@ -118,7 +118,7 @@ yarn build:cli
 yarn molpha --help
 ```
 
-See [`cli/README.md`](cli/README.md) for command groups and an end-to-end example (`init` → plan → subscribe → job → submit).
+See [`cli/README.md`](cli/README.md) for command groups and an end-to-end example (`init` → plan → subscribe → submit).
 
 **Deploy (devnet):**
 
@@ -192,7 +192,7 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 |---------|---------|
 | `yarn molpha` | Operator CLI (after `yarn build:cli`) |
 | `yarn register-nodes` | `scripts/generate-and-register-nodes.js` |
-| `yarn job-flow` | Subscribe → create job → submit update |
+| `yarn job-flow` | Subscribe → submit update (lazy job/feed init) |
 | `yarn cu:data-update:bankrun` | CU benchmark (bankrun) |
 
 Key scripts under `scripts/`: `initialize.js`, `generate-and-register-nodes.js`, `subscribe-create-job-submit.js`, `oracle-client.ts`, `pda-helpers.js`, and CU bench utilities.
@@ -202,11 +202,11 @@ Key scripts under `scripts/`: `initialize.js`, `generate-and-register-nodes.js`,
 ### Data flow (current on-chain path)
 
 ```
-Job owner subscribes → create_job (feed PDA)
+Job owner subscribes
         ↓
 Off-chain coalition signs (secp256k1 / Schnorr, EVM-compatible message)
         ↓
-submit_data_update → verify bitmap + signature → update Feed
+submit_data_update → init job/feed if needed → verify bitmap + signature → update Feed
         ↓
 Consumers read Feed account OR CPI verify_data_update (no write, return data)
 ```

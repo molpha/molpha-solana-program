@@ -78,8 +78,9 @@ pub mod molpha {
     pub fn submit_data_update(
         ctx: Context<SubmitDataUpdate>,
         args: SubmitDataUpdateArgs,
+        job_init: Option<SubmitJobInitArgs>,
     ) -> Result<()> {
-        instructions::submit_data_update(ctx, args)
+        instructions::submit_data_update(ctx, args, job_init)
     }
 
     pub fn verify_data_update(
