@@ -158,9 +158,16 @@ function sha256(parts) {
   return h.digest();
 }
 
-function deriveJobId(owner, apiConfigHash) {
+function deriveJobId(owner, apiConfigHash, signaturesRequired) {
   return Buffer.from(
-    keccak_256(Buffer.concat([JOB_ID_PREFIX, owner.toBuffer(), apiConfigHash]))
+    keccak_256(
+      Buffer.concat([
+        JOB_ID_PREFIX,
+        owner.toBuffer(),
+        apiConfigHash,
+        Buffer.from([signaturesRequired]),
+      ])
+    )
   );
 }
 
@@ -485,7 +492,7 @@ async function bootstrapState({
 
   // Create a job with signatures_required = 1 so we can test multiple credited counts.
   const apiConfigHash = crypto.randomBytes(32);
-  const jobId = deriveJobId(payer.publicKey, apiConfigHash);
+  const jobId = deriveJobId(payer.publicKey, apiConfigHash, 1);
   const [jobPda] = PublicKey.findProgramAddressSync(
     [JOB_SEED, jobId],
     programId
@@ -780,11 +787,13 @@ async function simulateSettleRound({
   };
 
   const settleIx = await program.methods
-    .settleRoundReceipt(settleArgs)
+    .settleRoundReceipt(settleArgs, null)
     .accountsPartial({
       payer: payer.publicKey,
+      jobOwner: null,
       protocolConfig: setupState.protocolConfigPda,
       registryState: setupState.registryStatePda,
+      plan: null,
       job: setupState.jobPda,
       subscription: setupState.subscriptionPda,
       consumerDelegate: null,

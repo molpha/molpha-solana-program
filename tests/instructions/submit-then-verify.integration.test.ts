@@ -161,7 +161,11 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
       })
       .rpc();
 
-    const jobId = deriveJobId(ctx.authority.publicKey, scenario.configHash);
+    const jobId = deriveJobId(
+      ctx.authority.publicKey,
+      scenario.configHash,
+      SIGNER_COUNT
+    );
     const jobPda = findJobPda(program.programId, jobId);
     const feedPda = findFeedPda(program.programId, jobId);
 

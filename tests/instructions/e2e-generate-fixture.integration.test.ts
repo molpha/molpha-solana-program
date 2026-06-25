@@ -173,7 +173,11 @@ describe("e2e generate verify-answer-evm fixture", () => {
       })
       .rpc();
 
-    const jobId = deriveJobId(ctx.authority.publicKey, scenario.configHash);
+    const jobId = deriveJobId(
+      ctx.authority.publicKey,
+      scenario.configHash,
+      SIGNATURES_REQUIRED
+    );
     const jobPda = findJobPda(program.programId, jobId);
     const feedPda = findFeedPda(program.programId, jobId);
 

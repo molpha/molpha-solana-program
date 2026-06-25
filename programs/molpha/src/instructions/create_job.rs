@@ -27,7 +27,8 @@ pub fn create_job(ctx: Context<CreateJob>, args: CreateJobArgs, job_id: [u8; 32]
 
     let clock = Clock::get()?;
 
-    let expected_job_id = derive_job_id(&job_owner, &args.api_config_hash);
+    let expected_job_id =
+        derive_job_id(&job_owner, &args.api_config_hash, args.signatures_required);
     require!(job_id == expected_job_id, MolphaError::InvalidJobId);
 
     require!(

@@ -36,9 +36,18 @@ function hexToBytes(hex: string): Uint8Array {
   return Uint8Array.from(Buffer.from(clean, "hex"));
 }
 
-function deriveJobId(owner: PublicKey, apiConfigHash: Uint8Array): Uint8Array {
+function deriveJobId(
+  owner: PublicKey,
+  apiConfigHash: Uint8Array,
+  signaturesRequired: number
+): Uint8Array {
   return keccak_256(
-    Buffer.concat([JOB_ID_PREFIX, owner.toBuffer(), Buffer.from(apiConfigHash)])
+    Buffer.concat([
+      JOB_ID_PREFIX,
+      owner.toBuffer(),
+      Buffer.from(apiConfigHash),
+      Buffer.from([signaturesRequired]),
+    ])
   );
 }
 
@@ -207,7 +216,7 @@ describe("Molpha instruction coverage integration", () => {
 
     // 4) create_job
     const apiConfigHash = Uint8Array.from(Buffer.alloc(32, 7));
-    const jobId = deriveJobId(ctx.authority.publicKey, apiConfigHash);
+    const jobId = deriveJobId(ctx.authority.publicKey, apiConfigHash, 1);
     const [jobPda] = PublicKey.findProgramAddressSync(
       [JOB_SEED, Buffer.from(jobId)],
       program.programId

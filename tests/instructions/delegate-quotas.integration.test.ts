@@ -18,9 +18,18 @@ const FEED_SEED = Buffer.from("molpha_feed");
 const DELEGATE_SEED = Buffer.from("molpha_delegate");
 const JOB_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
 
-function deriveJobId(owner: PublicKey, apiConfigHash: Uint8Array): Uint8Array {
+function deriveJobId(
+  owner: PublicKey,
+  apiConfigHash: Uint8Array,
+  signaturesRequired: number
+): Uint8Array {
   return keccak_256(
-    Buffer.concat([JOB_ID_PREFIX, owner.toBuffer(), Buffer.from(apiConfigHash)])
+    Buffer.concat([
+      JOB_ID_PREFIX,
+      owner.toBuffer(),
+      Buffer.from(apiConfigHash),
+      Buffer.from([signaturesRequired]),
+    ])
   );
 }
 
@@ -167,7 +176,7 @@ describe("delegate quotas", () => {
       .rpc();
 
     const apiConfigHash = Uint8Array.from(Buffer.alloc(32, 9));
-    const jobId = deriveJobId(owner, apiConfigHash);
+    const jobId = deriveJobId(owner, apiConfigHash, 1);
     const [jobPda] = PublicKey.findProgramAddressSync(
       [JOB_SEED, Buffer.from(jobId)],
       program.programId
@@ -204,7 +213,7 @@ describe("delegate quotas", () => {
     assert.equal(delegateAccount.jobsCreated, 1);
 
     const secondConfigHash = Uint8Array.from(Buffer.alloc(32, 10));
-    const secondJobId = deriveJobId(owner, secondConfigHash);
+    const secondJobId = deriveJobId(owner, secondConfigHash, 1);
     const [secondJobPda] = PublicKey.findProgramAddressSync(
       [JOB_SEED, Buffer.from(secondJobId)],
       program.programId
@@ -254,7 +263,7 @@ describe("delegate quotas", () => {
     });
 
     const apiConfigHash = Uint8Array.from(Buffer.alloc(32, 11));
-    const jobId = deriveJobId(owner, apiConfigHash);
+    const jobId = deriveJobId(owner, apiConfigHash, 1);
     const [jobPda] = PublicKey.findProgramAddressSync(
       [JOB_SEED, Buffer.from(jobId)],
       program.programId

@@ -100,8 +100,9 @@ pub mod molpha {
     pub fn settle_round_receipt<'info>(
         ctx: Context<'_, '_, 'info, 'info, SettleRoundReceipt<'info>>,
         args: SettleRoundArgs,
+        job_init: Option<SettleJobInitArgs>,
     ) -> Result<()> {
-        instructions::settle_round_receipt(ctx, args)
+        instructions::settle_round_receipt(ctx, args, job_init)
     }
 
     pub fn finalize_round<'info>(

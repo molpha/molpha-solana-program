@@ -160,7 +160,11 @@ async function ensureProgramDeployed(connection, programId) {
 }
 
 async function benchAccountsPresent(connection, programId, payer, signerCount) {
-  const jobId = deriveJobId(payer.publicKey, benchConfigHash(signerCount));
+  const jobId = deriveJobId(
+    payer.publicKey,
+    benchConfigHash(signerCount),
+    signerCount
+  );
   const [jobPda] = anchor.web3.PublicKey.findProgramAddressSync(
     [Buffer.from("molpha_job"), jobId],
     programId
@@ -204,7 +208,7 @@ async function measureForSignerCount(
   signerCount
 ) {
   const configHash = benchConfigHash(signerCount);
-  const jobId = deriveJobId(payer.publicKey, configHash);
+  const jobId = deriveJobId(payer.publicKey, configHash, signerCount);
 
   const signerMaterial = generateSignerMaterial(NODE_COUNT);
 

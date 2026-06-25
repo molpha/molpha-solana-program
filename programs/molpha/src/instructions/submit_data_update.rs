@@ -134,7 +134,11 @@ fn init_job_if_needed(
         .ok_or(MolphaError::SubscriptionNotActive)?;
     let creator = accounts.submitter.key();
 
-    let expected_job_id = derive_job_id(&job_owner, &job_init.api_config_hash);
+    let expected_job_id = derive_job_id(
+        &job_owner,
+        &job_init.api_config_hash,
+        args.signatures_required,
+    );
     require!(args.job_id == expected_job_id, MolphaError::InvalidJobId);
 
     let (expected_subscription, _) =
@@ -231,6 +235,8 @@ fn validate_existing_job(
         job.job_id == args.job_id,
         MolphaError::DataUpdateJobMismatch
     );
+    let expected_job_id = derive_job_id(&job.owner, &job.api_config_hash, job.signatures_required);
+    require!(job.job_id == expected_job_id, MolphaError::InvalidJobId);
     require!(
         job.signatures_required == args.signatures_required,
         MolphaError::DataUpdateConfigMismatch
@@ -299,7 +305,7 @@ mod tests {
     use super::SubmitDataUpdateArgs;
     use anchor_lang::{AnchorDeserialize, AnchorSerialize};
 
-    const ARGS_SERIALIZED_LEN: usize = 224;
+    const ARGS_SERIALIZED_LEN: usize = 161;
 
     fn fixture_args() -> SubmitDataUpdateArgs {
         SubmitDataUpdateArgs {

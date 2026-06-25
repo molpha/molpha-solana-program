@@ -188,8 +188,6 @@ async function seedBenchAccounts(
     decimals: 8,
     signaturesRequired: sigReq,
     createdAt: new anchor.BN(0),
-    usedRounds: new anchor.BN(0),
-    maxRounds: new anchor.BN("18446744073709551615"),
     lastRequestTimestamp: new anchor.BN(0),
     bump: jobBump,
   });

@@ -53,7 +53,11 @@ export function registerJobCommands(program: Command): void {
         32,
         "api config hash"
       );
-      const jobId = deriveJobId(jobOwner, apiConfigHash);
+      const signaturesRequired = parseInteger(
+        options.signaturesRequired,
+        "signatures required"
+      );
+      const jobId = deriveJobId(jobOwner, apiConfigHash, signaturesRequired);
       const [jobPda] = findJobPda(ctx.programId, jobId);
       const [feedPda] = findFeedPda(ctx.programId, jobId);
 
@@ -78,10 +82,7 @@ export function registerJobCommands(program: Command): void {
         .createJob(
           {
             apiConfigHash: Array.from(apiConfigHash),
-            signaturesRequired: parseInteger(
-              options.signaturesRequired,
-              "signatures required"
-            ),
+            signaturesRequired,
             decimals: parseInteger(options.decimals, "decimals"),
           },
           Array.from(jobId)

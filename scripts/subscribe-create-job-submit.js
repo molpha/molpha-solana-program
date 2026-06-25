@@ -266,7 +266,7 @@ async function main() {
     nodeCount
   );
   const payload = buildPayload(opts);
-  const jobId = deriveJobId(owner, payload.configHash);
+  const jobId = deriveJobId(owner, payload.configHash, signaturesRequired);
   const [jobPda] = PublicKey.findProgramAddressSync(
     [JOB_SEED, jobId],
     programId

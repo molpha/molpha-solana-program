@@ -461,8 +461,6 @@ mod tests {
             decimals: 0,
             signatures_required: FIXTURE_SIGNATURES_REQUIRED,
             created_at: 0,
-            used_rounds: 0,
-            max_rounds: u64::MAX,
             last_request_timestamp: 0,
             bump: 0,
         }
@@ -527,12 +525,6 @@ mod tests {
             compute_message_hash(&base_args, j.signatures_required),
             base,
             "signatures_required must affect hash"
-        );
-
-        assert_ne!(
-            compute_message_hash(&base_args, base_job.signatures_required),
-            base,
-            "api_config_hash must affect hash"
         );
 
         let mut a = fixture_args();
