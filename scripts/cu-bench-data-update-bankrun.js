@@ -259,8 +259,10 @@ async function seedBenchAccounts(
     [JOB_SEED, FIXTURE_JOB_ID],
     program.programId
   );
+  const canonicalTimestampLe = Buffer.alloc(8);
+  canonicalTimestampLe.writeBigInt64LE(BigInt(FIXTURE_CANONICAL_TIMESTAMP));
   const [feedPda, feedBump] = PublicKey.findProgramAddressSync(
-    [FEED_SEED, FIXTURE_JOB_ID],
+    [FEED_SEED, FIXTURE_JOB_ID, canonicalTimestampLe],
     program.programId
   );
 
@@ -419,14 +421,9 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     .instruction();
 
   const submitIx = await program.methods
-    .submitDataUpdate(args, null)
+    .submitDataUpdate(args)
     .accountsPartial({
       submitter: payer.publicKey,
-      jobOwner: null,
-      plan: null,
-      subscription: null,
-      delegate: null,
-      job: jobPda,
       registryState: registryStatePda,
       feed: feedPda,
       systemProgram: SystemProgram.programId,

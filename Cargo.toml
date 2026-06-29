@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "programs/molpha",
+    "crates/molpha-verifier",
 ]
 exclude = [
     "programs/molpha-solana",

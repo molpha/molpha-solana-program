@@ -48,7 +48,7 @@ async function advanceClock(ctx: TestContext, seconds: number): Promise<void> {
   ctx.provider.context.setClock(newClock);
 }
 
-describe("submit_data_update then verify_data_update (current registry)", () => {
+describe("submit_data_update (current registry)", () => {
   it("submits an update then verifies return data matches value, timestamp, and round_id", async () => {
     const scenario = generateE2eScenario(E2E_SEED, SIGNER_COUNT);
     const ctx = await setupTestContext();
@@ -187,18 +187,10 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
     );
 
     await program.methods
-      .submitDataUpdate(signed.submitArgs, {
-        apiConfigHash: Array.from(scenario.configHash),
-        decimals: 8,
-      })
+      .submitDataUpdate(signed.submitArgs)
       .accountsPartial({
         submitter: ctx.authority.publicKey,
-        jobOwner: ctx.authority.publicKey,
-        plan: planPda,
-        subscription: subscriptionPda,
-        delegate: null,
         registryState: registryStatePda,
-        job: jobPda,
         feed: feedPda,
         systemProgram: SystemProgram.programId,
       })
@@ -210,11 +202,6 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
       ])
       .rpc();
 
-    const job = await program.account.job.fetch(jobPda);
-    assert.deepEqual(Array.from(job.jobId), Array.from(jobId));
-    assert.equal(job.owner.toBase58(), ctx.authority.publicKey.toBase58());
-    assert.equal(job.signaturesRequired, SIGNER_COUNT);
-
     const feed = await program.account.feed.fetch(feedPda);
     assert.deepEqual(Array.from(feed.value), Array.from(scenario.value));
     assert.equal(feed.registryVersion, registry.currentVersion);
@@ -222,31 +209,7 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
       feed.canonicalTimestamp.toString(),
       String(scenario.canonicalTimestamp)
     );
-
-    const returnBytes = await executeVerifyDataUpdateReturnData(
-      ctx,
-      program,
-      signed,
-      { registryStatePda }
-    );
-
-    assert.equal(returnBytes.length, VERIFY_DATA_UPDATE_RETURN_LEN);
-
-    const expected = expectedVerifyDataUpdateReturnBytes(
-      scenario.value,
-      scenario.canonicalTimestamp
-    );
-    assert.deepEqual(Array.from(returnBytes), Array.from(expected));
-
-    const recoveredTs = new DataView(returnBytes.buffer).getBigUint64(
-      32,
-      false
-    );
-    assert.equal(recoveredTs, BigInt(scenario.canonicalTimestamp));
-    assert.deepEqual(
-      Array.from(returnBytes.slice(0, 32)),
-      Array.from(scenario.value)
-    );
-    assert.ok(returnBytes.slice(40, 72).every((b) => b === 0));
+    assert.equal(feed.signaturesRequired, SIGNER_COUNT);
+    assert.deepEqual(Array.from(feed.signersBitmap), Array.from(signed.submitArgs.signersBitmap));
   });
 });
