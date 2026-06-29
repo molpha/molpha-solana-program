@@ -38,6 +38,7 @@ impl Feed {
         self.job_id = params.job_id;
         self.value = params.value;
         self.canonical_timestamp = params.canonical_timestamp;
+        self.signatures_required = params.signatures_required;
         self.registry_version = params.registry_version;
         self.signers_bitmap = params.signers_bitmap;
         self.bump = params.bump;
@@ -46,7 +47,6 @@ impl Feed {
     pub fn update(&mut self, params: &FeedUpdateParams) {
         self.value = params.value;
         self.canonical_timestamp = params.canonical_timestamp;
-        self.signatures_required = params.signatures_required;
         self.registry_version = params.registry_version;
         self.signers_bitmap = params.signers_bitmap;
         self.bump = params.bump;

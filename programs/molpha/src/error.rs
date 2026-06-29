@@ -190,6 +190,5 @@ pub(crate) fn map_data_update_err(error: DataUpdateError) -> anchor_lang::error:
         DataUpdateError::InvalidTransitionAccount => {
             error!(MolphaError::InvalidTransitionAccount)
         }
-        DataUpdateError::AnchorError(error) => error,
     }
 }

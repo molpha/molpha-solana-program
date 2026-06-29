@@ -7,3 +7,4 @@ ref
 docs
 scripts/.cu-bench-localnet-accounts
 cli/dist
+fixtures

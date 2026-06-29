@@ -262,7 +262,7 @@ async function seedBenchAccounts(
   const canonicalTimestampLe = Buffer.alloc(8);
   canonicalTimestampLe.writeBigInt64LE(BigInt(FIXTURE_CANONICAL_TIMESTAMP));
   const [feedPda, feedBump] = PublicKey.findProgramAddressSync(
-    [FEED_SEED, FIXTURE_JOB_ID, canonicalTimestampLe],
+    [FEED_SEED, FIXTURE_JOB_ID],
     program.programId
   );
 
@@ -412,14 +412,6 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     signersBitmapBuf
   );
 
-  const verifyIx = await program.methods
-    .verifyDataUpdate(args)
-    .accountsPartial({
-      registryState: registryStatePda,
-    })
-    .remainingAccounts(remainingAccounts)
-    .instruction();
-
   const submitIx = await program.methods
     .submitDataUpdate(args)
     .accountsPartial({
@@ -431,7 +423,6 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     .remainingAccounts(remainingAccounts)
     .instruction();
 
-  const verifyCu = await simulateIx(provider, payer, verifyIx);
   let submitCu;
   try {
     submitCu = await simulateIx(provider, payer, submitIx);
@@ -446,7 +437,7 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     }
   }
 
-  return { verifyCu, submitCu };
+  return { submitCu };
 }
 
 async function main() {

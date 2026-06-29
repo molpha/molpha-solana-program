@@ -1,8 +1,8 @@
 //! Error type for DataUpdate verification.
 //!
-//! Pure verification errors are mapped by downstream programs at the call boundary. The
-//! on-chain resolver additionally preserves Anchor account-borrow/deserialization errors so
-//! their runtime codes are not changed by crossing the crate boundary.
+//! These are pure verification errors, mapped by downstream programs at the call boundary.
+//! Account-borrow/deserialization errors are produced and handled by the caller (which owns the
+//! framework-specific account I/O) and never cross the crate boundary.
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DataUpdateError {
@@ -31,12 +31,4 @@ pub enum DataUpdateError {
     InvalidNodeIndex,
     /// Previous-version remove remapping was requested without valid transition metadata.
     InvalidTransitionAccount,
-    /// Preserve an Anchor account error (for example a discriminator mismatch) unchanged.
-    AnchorError(anchor_lang::error::Error),
-}
-
-impl From<anchor_lang::error::Error> for DataUpdateError {
-    fn from(error: anchor_lang::error::Error) -> Self {
-        Self::AnchorError(error)
-    }
 }

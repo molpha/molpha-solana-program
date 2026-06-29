@@ -3,7 +3,9 @@ use anchor_lang::prelude::*;
 use crate::{
     error::map_data_update_err,
     events::FeedUpdated,
-    state::{Feed, FeedInitParams, FeedUpdateParams, RegistryState},
+    state::{
+        collect_registry_index_entries, Feed, FeedInitParams, FeedUpdateParams, RegistryState,
+    },
 };
 use molpha_verifier::DataUpdate;
 
@@ -21,23 +23,27 @@ pub struct SubmitDataUpdateArgs {
     pub signers_bitmap: [u8; 32],
 }
 
-// impl From<&SubmitDataUpdateArgs> for molpha_verifier::DataUpdate {
-//     fn from(args: &SubmitDataUpdateArgs) -> Self {
-//         Self {
-//             job_id: args.job_id,
-//             registry_version: args.registry_version,
-//             value: args.value,
-//             canonical_timestamp: args.canonical_timestamp,
-//             signatures_required: args.signatures_required,
-//             agg_sig_s: args.agg_sig_s,
-//             commitment_addr: args.commitment_addr,
-//             signers_bitmap: args.signers_bitmap,
-//         }
-//     }
-// }
+impl From<&SubmitDataUpdateArgs> for DataUpdate {
+    fn from(args: &SubmitDataUpdateArgs) -> Self {
+        Self {
+            job_id: args.job_id,
+            registry_version: args.registry_version,
+            value: args.value,
+            canonical_timestamp: args.canonical_timestamp,
+            signatures_required: args.signatures_required,
+            agg_sig_s: args.agg_sig_s,
+            commitment_addr: args.commitment_addr,
+            signers_bitmap: args.signers_bitmap,
+        }
+    }
+}
 
-pub fn submit_data_update(ctx: Context<SubmitDataUpdate>, args: DataUpdate) -> Result<()> {
+pub fn submit_data_update(
+    ctx: Context<SubmitDataUpdate>,
+    args: SubmitDataUpdateArgs,
+) -> Result<()> {
     let clock = Clock::get()?;
+    let payload: DataUpdate = (&args).into();
     let feed = &mut ctx.accounts.feed;
     let registry = &ctx.accounts.registry_state;
     let now = clock.unix_timestamp;
@@ -63,14 +69,13 @@ pub fn submit_data_update(ctx: Context<SubmitDataUpdate>, args: DataUpdate) -> R
         });
     }
 
-    molpha_verifier::verify_data_update_from_accounts(
-        &args,
-        registry,
-        args.signatures_required,
+    let entries = collect_registry_index_entries(ctx.remaining_accounts, ctx.program_id)?;
+    molpha_verifier::verify_data_update_resolved(
+        &payload,
+        &registry.view(),
         registry.redundancy_buffer,
         now,
-        ctx.remaining_accounts,
-        ctx.program_id,
+        &entries,
     )
     .map_err(map_data_update_err)?;
 

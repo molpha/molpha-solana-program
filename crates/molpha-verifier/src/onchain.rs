@@ -1,15 +1,20 @@
-use anchor_lang::prelude::{AccountDeserialize, AccountInfo, Pubkey};
+//! Signer resolution and high-level verification over already-parsed registry data.
+//!
+//! These helpers are framework-agnostic: the caller is responsible for reading its registry
+//! accounts (owner checks, deserialization) and passing the plain [`RegistryView`] and
+//! [`RegistryIndexEntry`] slice. All Anchor / framework coupling stays in the downstream program.
 
 use crate::{
     bitmap::{bitmap_load, for_each_set_bit_u256},
     secp256k1_scalar_is_valid_nonzero, verify_aggregate_over_hash, verify_data_update, DataUpdate,
-    DataUpdateError, RegistryIndex, RegistryState, RegistryTransitionType, SignerXy, VIRTUAL_INDEX,
+    DataUpdateError, RegistryIndexEntry, RegistryTransitionType, RegistryView, SignerXy,
+    VIRTUAL_INDEX,
 };
 
 #[inline(always)]
 pub fn expected_registry_index(
     bit_pos: u32,
-    registry: &RegistryState,
+    registry: &RegistryView,
     apply_remove_remap: bool,
 ) -> u32 {
     if !apply_remove_remap {
@@ -28,7 +33,7 @@ pub fn expected_registry_index(
 
 #[inline(always)]
 pub fn validate_remove_transition_for_previous(
-    registry: &RegistryState,
+    registry: &RegistryView,
 ) -> Result<(), DataUpdateError> {
     if registry.is_remove_transition() {
         Ok(())
@@ -37,13 +42,18 @@ pub fn validate_remove_transition_for_previous(
     }
 }
 
-pub fn resolve_ordered_signers<'info>(
-    accounts: &[AccountInfo<'info>],
-    registry: &RegistryState,
+/// Pair each set bit of `signers_bitmap` with its registry entry (in `entries` order), validate the
+/// node indices (applying remove-transition remapping for a live previous version), and return the
+/// effective node count plus the signer pubkeys in ascending bitmap-bit order.
+///
+/// `entries` must contain exactly one entry per set bit, in the same order the caller iterated its
+/// signer accounts, and each entry must already be owner-checked against the program.
+pub fn resolve_ordered_signers(
+    entries: &[RegistryIndexEntry],
+    registry: &RegistryView,
     registry_version: u32,
     signers_bitmap: &[u8; 32],
     now: i64,
-    program_id: &Pubkey,
 ) -> Result<(u32, Vec<SignerXy>), DataUpdateError> {
     let signers = bitmap_load(signers_bitmap);
     let signer_count = signers.count_ones();
@@ -61,7 +71,7 @@ pub fn resolve_ordered_signers<'info>(
         registry.previous_node_count
     };
 
-    if accounts.len() != signer_count as usize {
+    if entries.len() != signer_count as usize {
         return Err(DataUpdateError::MissingSignerAccount);
     }
 
@@ -72,85 +82,61 @@ pub fn resolve_ordered_signers<'info>(
     }
 
     let mut ordered = Vec::with_capacity(signer_count as usize);
-    let mut account_cursor = 0usize;
+    let mut entry_cursor = 0usize;
     for_each_set_bit_u256(signers, |bit_pos| {
-        let account_info = accounts
-            .get(account_cursor)
+        let entry = entries
+            .get(entry_cursor)
             .ok_or(DataUpdateError::MissingSignerAccount)?;
-        if account_info.owner != program_id {
-            return Err(DataUpdateError::MissingSignerAccount);
-        }
-
-        let (index, x, y) = {
-            let data = account_info
-                .try_borrow_data()
-                .map_err(anchor_lang::error::Error::from)?;
-            let registry_index = RegistryIndex::try_deserialize(&mut &data[..])?;
-            (
-                registry_index.index,
-                registry_index.secp256k1_pubkey_x,
-                registry_index.secp256k1_pubkey_y,
-            )
-        };
-        account_cursor = account_cursor.saturating_add(1);
+        entry_cursor = entry_cursor.saturating_add(1);
 
         let expected_index = expected_registry_index(bit_pos as u32, registry, apply_remove_remap);
-        if index != expected_index {
+        if entry.index != expected_index {
             return Err(DataUpdateError::InvalidNodeIndex);
         }
-        ordered.push((x, y));
+        ordered.push((entry.x, entry.y));
         Ok(())
     })?;
 
-    if account_cursor != accounts.len() {
+    if entry_cursor != entries.len() {
         return Err(DataUpdateError::MissingSignerAccount);
     }
     Ok((node_count, ordered))
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn verify_data_update_from_accounts<'info>(
+pub fn verify_data_update_resolved(
     payload: &DataUpdate,
-    registry: &RegistryState,
+    registry: &RegistryView,
     redundancy_buffer: u8,
     now: i64,
-    accounts: &[AccountInfo<'info>],
-    program_id: &Pubkey,
+    entries: &[RegistryIndexEntry],
 ) -> Result<(), DataUpdateError> {
     let (node_count, ordered) = resolve_ordered_signers(
-        accounts,
+        entries,
         registry,
         payload.registry_version,
         &payload.signers_bitmap,
         now,
-        program_id,
     )?;
     verify_data_update(payload, node_count, redundancy_buffer, &ordered)
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn verify_aggregate_over_hash_from_accounts<'info>(
-    registry: &RegistryState,
+pub fn verify_aggregate_over_hash_resolved(
+    registry: &RegistryView,
     registry_version: u32,
     signers_bitmap: &[u8; 32],
     agg_sig_s: &[u8; 32],
     commitment_addr: &[u8; 20],
     message_hash: &[u8; 32],
     now: i64,
-    accounts: &[AccountInfo<'info>],
-    program_id: &Pubkey,
+    entries: &[RegistryIndexEntry],
 ) -> Result<bool, DataUpdateError> {
     if !secp256k1_scalar_is_valid_nonzero(agg_sig_s) {
         return Ok(false);
     }
-    let (_, ordered) = resolve_ordered_signers(
-        accounts,
-        registry,
-        registry_version,
-        signers_bitmap,
-        now,
-        program_id,
-    )?;
+    let (_, ordered) =
+        resolve_ordered_signers(entries, registry, registry_version, signers_bitmap, now)?;
     verify_aggregate_over_hash(&ordered, agg_sig_s, commitment_addr, message_hash)
 }
 
@@ -158,10 +144,8 @@ pub fn verify_aggregate_over_hash_from_accounts<'info>(
 mod tests {
     use super::*;
 
-    fn remove_swap_registry() -> RegistryState {
-        RegistryState {
-            authority: Pubkey::default(),
-            redundancy_buffer: 0,
+    fn remove_swap_registry() -> RegistryView {
+        RegistryView {
             current_version: 2,
             previous_version: 1,
             previous_expires_at: 9_999,
@@ -169,11 +153,7 @@ mod tests {
             previous_node_count: 8,
             last_transition_type: RegistryTransitionType::RemoveSwap,
             removed_old_index: 1,
-            removed_node: Pubkey::new_from_array([0xAA; 32]),
             moved_old_index: 3,
-            moved_node: Pubkey::new_from_array([0xBB; 32]),
-            grace_secs: 0,
-            bump: 0,
         }
     }
 
@@ -191,7 +171,6 @@ mod tests {
         registry.last_transition_type = RegistryTransitionType::RemoveTail;
         registry.removed_old_index = 2;
         registry.moved_old_index = VIRTUAL_INDEX;
-        registry.moved_node = Pubkey::default();
         assert_eq!(expected_registry_index(2, &registry, true), VIRTUAL_INDEX);
         assert_eq!(expected_registry_index(0, &registry, true), 0);
     }

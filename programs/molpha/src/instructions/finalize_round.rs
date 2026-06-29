@@ -47,8 +47,9 @@ pub fn finalize_round<'info>(
     );
     let apply_remove_remap =
         !is_current && registry.last_transition_type != RegistryTransitionType::Add;
+    let registry_view = registry.view();
     if apply_remove_remap {
-        molpha_verifier::validate_remove_transition_for_previous(registry)
+        molpha_verifier::validate_remove_transition_for_previous(&registry_view)
             .map_err(map_data_update_err)?;
     }
 
@@ -82,8 +83,11 @@ pub fn finalize_round<'info>(
             let data = registry_index_ai.try_borrow_data()?;
             RegistryIndex::try_deserialize(&mut &data[..])?
         };
-        let expected_index =
-            molpha_verifier::expected_registry_index(bit_pos as u32, registry, apply_remove_remap);
+        let expected_index = molpha_verifier::expected_registry_index(
+            bit_pos as u32,
+            &registry_view,
+            apply_remove_remap,
+        );
         require!(
             registry_index.index == expected_index,
             MolphaError::InvalidNodeIndex

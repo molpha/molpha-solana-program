@@ -243,14 +243,6 @@ async function measureForSignerCount(
     signersBitmapBuf
   );
 
-  const verifyIx = await program.methods
-    .verifyDataUpdate(args)
-    .accountsPartial({
-      registryState: registryStatePda,
-    })
-    .remainingAccounts(remainingAccounts)
-    .instruction();
-
   const submitIx = await program.methods
     .submitDataUpdate(args, null)
     .accountsPartial({
@@ -267,7 +259,6 @@ async function measureForSignerCount(
     .remainingAccounts(remainingAccounts)
     .instruction();
 
-  const verifyCu = await simulateIx(connection, payer, verifyIx);
   const submitCu = await simulateIx(connection, payer, submitIx);
   return { verifyCu, submitCu };
 }

@@ -1,21 +1,17 @@
-//! Molpha on-chain registry state and DataUpdate aggregate-Schnorr verification.
+//! Molpha DataUpdate aggregate-Schnorr verification.
 //!
-//! Downstream Solana programs can verify a Molpha [`DataUpdate`] either from already-resolved
-//! signer pubkeys or directly from Molpha `RegistryIndex` accounts.
+//! A framework-agnostic library (no Anchor / Pinocchio dependency): the downstream program owns the
+//! registry account types and reads them, then passes plain data in. Verify a Molpha [`DataUpdate`]
+//! either from already-resolved signer pubkeys ([`verify_data_update`]) or from parsed registry
+//! entries plus a [`RegistryView`] ([`verify_data_update_resolved`]).
 //!
 //! # Usage
 //! ```ignore
 //! use molpha_verifier::{verify_data_update, DataUpdate};
 //!
 //! // `ordered_signers` are the signing nodes' (x, y) pubkeys in ascending signers_bitmap bit order.
-//! verify_data_update(&payload, node_count, signatures_required, redundancy_buffer, &ordered_signers)?;
+//! verify_data_update(&payload, node_count, redundancy_buffer, &ordered_signers)?;
 //! ```
-//!
-//! The registry account types are canonical here and re-exported by the Molpha program.
-
-use anchor_lang::prelude::*;
-
-declare_id!("MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8");
 
 pub mod bitmap;
 pub mod coalition;
