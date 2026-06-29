@@ -242,7 +242,6 @@ describe("Molpha instruction coverage integration", () => {
         plan: planPda,
         job: jobPda,
         subscription: subscriptionPda,
-        feed: feedPda,
         delegate: null,
         systemProgram: SystemProgram.programId,
       })
@@ -253,8 +252,6 @@ describe("Molpha instruction coverage integration", () => {
       createdJob.owner.toBase58(),
       ctx.authority.publicKey.toBase58()
     );
-    const createdFeed = await program.account.feed.fetch(feedPda);
-    assert.equal(createdFeed.canonicalTimestamp.toString(), "0");
 
     // 5) add_delegate + remove_delegate
     const delegate = PublicKey.unique();
@@ -318,18 +315,10 @@ describe("Molpha instruction coverage integration", () => {
 
     try {
       await program.methods
-        .submitDataUpdate(dataUpdateArgs, {
-          apiConfigHash: Array.from(apiConfigHash),
-          decimals: 8,
-        })
+        .submitDataUpdate(dataUpdateArgs)
         .accountsPartial({
           submitter: ctx.authority.publicKey,
-          jobOwner: null,
-          plan: null,
-          subscription: null,
-          delegate: null,
           registryState: registryStatePda,
-          job: jobPda,
           feed: feedPda,
           systemProgram: SystemProgram.programId,
         })
@@ -339,22 +328,6 @@ describe("Molpha instruction coverage integration", () => {
       );
     } catch (error: any) {
       assert.include(String(error), "InvalidAggregateSignature");
-    }
-
-    try {
-      await program.methods
-        .verifyDataUpdate(badDataUpdateArgs)
-        .accountsPartial({
-          registryState: registryStatePda,
-        })
-        .rpc();
-      assert.fail("verify_data_update should fail for invalid signature");
-    } catch (error: any) {
-      const err = String(error);
-      assert.ok(
-        err.includes("InvalidAggregateSignature"),
-        `expected invalid aggregate signature, got: ${err}`
-      );
     }
 
     // 7) register_node rejects when registry is at capacity

@@ -27,7 +27,7 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 
 - Admin-defined **plans** (`add_plan`, `update_plan`) with per-round pricing and signer limits
 - **Subscribe** / **extend_subscription** in USDC
-- Jobs are bound to a `job_id`, feed, and API config hash; `submit_data_update` initializes the job/feed on first submit, while `create_job` remains available for explicit pre-creation.
+- Jobs are bound to a `feed_id`, feed, and API config hash; `submit_data_update` initializes the job/feed on first submit, while `create_job` remains available for explicit pre-creation.
 
 ### Data publication
 
@@ -143,7 +143,7 @@ Use `ComputeBudgetProgram.setComputeUnitLimit` ≥ **550_000** for large coaliti
 ### Example: read feed via CLI
 
 ```bash
-yarn molpha account feed --job-id <64_hex_job_id>
+yarn molpha account feed --job-id <64_hex_feed_id>
 ```
 
 Off-chain signing and submission:
@@ -221,8 +221,8 @@ Consumers read Feed account OR CPI verify_data_update (no write, return data)
 | Node | `molpha_node` | node owner |
 | Plan | `molpha_plan` | plan type byte |
 | Subscription | `molpha_subscription` | subscriber owner |
-| Job | `molpha_job` | `job_id` (32 bytes) |
-| Feed | `molpha_feed` | `job_id` (32 bytes) |
+| Job | `molpha_job` | `feed_id` (32 bytes) |
+| Feed | `molpha_feed` | `feed_id` (32 bytes) |
 | Gateway | `molpha_gateway` | IP + port |
 
 Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_GUIDE.md#3-on-chain-accounts-and-pdas).

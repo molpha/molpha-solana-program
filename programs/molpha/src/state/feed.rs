@@ -4,12 +4,11 @@ use anchor_lang::prelude::*;
 #[derive(InitSpace)]
 pub struct Feed {
     pub job_id: [u8; 32],
-    pub registry_version: u32,
-    pub canonical_timestamp: i64,
     pub value: [u8; 32],
-    pub signers_bitmap: [u8; 32],
+    pub canonical_timestamp: i64,
     pub signatures_required: u8,
-    pub last_updated_slot: u64,
+    pub signers_bitmap: [u8; 32],
+    pub registry_version: u32,
     pub bump: u8,
 }
 
@@ -17,14 +16,22 @@ impl Feed {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_feed";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
-    pub fn init(&mut self, job_id: [u8; 32], bump: u8) {
+    pub fn init(
+        &mut self,
+        job_id: [u8; 32],
+        value: [u8; 32],
+        canonical_timestamp: i64,
+        signatures_required: u8,
+        registry_version: u32,
+        signers_bitmap: [u8; 32],
+        bump: u8,
+    ) {
         self.job_id = job_id;
-        self.registry_version = 0;
-        self.canonical_timestamp = 0;
-        self.value = [0u8; 32];
-        self.signers_bitmap = [0u8; 32];
-        self.signatures_required = 0;
-        self.last_updated_slot = 0;
+        self.value = value;
+        self.canonical_timestamp = canonical_timestamp;
+        self.signatures_required = signatures_required;
+        self.registry_version = registry_version;
+        self.signers_bitmap = signers_bitmap;
         self.bump = bump;
     }
 }

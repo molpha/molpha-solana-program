@@ -14,9 +14,6 @@
 use crate::{
     error::MolphaError,
     events::{JobCreated, RoundSettled},
-    instructions::{
-        data_update_core::compute_message_hash, submit_data_update::SubmitDataUpdateArgs,
-    },
     state::{
         hash_agg_sig, hash_gateway_receipt, hash_request_auth_fields, AggregatedSig, Delegate,
         Gateway, GatewayReceipt, Job, JobInitParams, Node, Plan, ProtocolConfig, RegistryIndex,
@@ -155,8 +152,8 @@ pub fn settle_round_receipt<'info>(
     );
 
     let agg_sig_hash = hash_agg_sig(agg_sig);
-    let data_update_message_hash = compute_message_hash(
-        &SubmitDataUpdateArgs {
+    let data_update_message_hash = molpha_verifier::compute_message_hash(
+        &molpha_verifier::DataUpdate {
             job_id: *job_id,
             signatures_required,
             registry_version: gateway_receipt.registry_version,
@@ -266,7 +263,6 @@ pub fn settle_round_receipt<'info>(
         emit!(JobCreated {
             job_id: *job_id,
             owner: created_job.owner,
-            creator: created_job.creator,
             plan_type: created_job.plan_type,
             signatures_required: created_job.signatures_required,
             created_at: created_job.created_at,
@@ -289,7 +285,6 @@ pub fn settle_round_receipt<'info>(
 
 struct CreatedJobEventData {
     owner: Pubkey,
-    creator: Pubkey,
     plan_type: u8,
     signatures_required: u8,
     created_at: i64,
@@ -357,7 +352,6 @@ fn init_job_if_needed(
 
     Ok(CreatedJobEventData {
         owner: job_owner,
-        creator: args.consumer_authority,
         plan_type: plan.plan_type as u8,
         signatures_required: job_init.signatures_required,
         created_at: clock.unix_timestamp,

@@ -106,7 +106,6 @@ pub struct GatewayRegistered {
 pub struct JobCreated {
     pub job_id: [u8; 32],
     pub owner: Pubkey,
-    pub creator: Pubkey,
     pub plan_type: u8,
     pub signatures_required: u8,
     pub created_at: i64,

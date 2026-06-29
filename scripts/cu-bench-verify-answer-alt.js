@@ -25,7 +25,7 @@ const { sha256 } = require("@noble/hashes/sha2");
 const fs = require("fs");
 const path = require("path");
 
-// Must match `programs/molpha/src/instructions/data_update_core.rs`.
+// Must match the constants and encoding in `crates/molpha-verifier`.
 const MESSAGE_PREFIX = Buffer.from(
   keccak_256(Buffer.from("MOLPHA_MESSAGE_V1"))
 );
