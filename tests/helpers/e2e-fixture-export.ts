@@ -140,7 +140,8 @@ export function defaultE2eFixtureOutputPath(seed: string): string {
 
 export function jobIdForOwner(
   owner: import("@solana/web3.js").PublicKey,
-  configHash: Uint8Array
+  configHash: Uint8Array,
+  signaturesRequired: number
 ) {
-  return deriveJobId(owner, configHash);
+  return deriveJobId(owner, configHash, signaturesRequired);
 }

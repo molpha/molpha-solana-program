@@ -310,9 +310,16 @@ function benchConfigHash(signerCount) {
   return b;
 }
 
-function deriveJobId(owner, apiConfigHash) {
+function deriveJobId(owner, apiConfigHash, signaturesRequired) {
   return Buffer.from(
-    keccak_256(Buffer.concat([JOB_ID_PREFIX, owner.toBuffer(), apiConfigHash]))
+    keccak_256(
+      Buffer.concat([
+        JOB_ID_PREFIX,
+        owner.toBuffer(),
+        apiConfigHash,
+        Buffer.from([signaturesRequired]),
+      ])
+    )
   );
 }
 
@@ -576,7 +583,7 @@ async function buildBenchAccountSet(
   signerMaterial
 ) {
   const configHash = benchConfigHash(signerCount);
-  const jobId = deriveJobId(payer.publicKey, configHash);
+  const jobId = deriveJobId(payer.publicKey, configHash, signerCount);
 
   const [protocolConfigPda, protocolBump] = PublicKey.findProgramAddressSync(
     [PROTOCOL_CONFIG_SEED],
@@ -651,8 +658,6 @@ async function buildBenchAccountSet(
     decimals: 8,
     signaturesRequired: signerCount,
     createdAt: new anchor.BN(0),
-    usedRounds: new anchor.BN(0),
-    maxRounds: new anchor.BN("18446744073709551615"),
     lastRequestTimestamp: new anchor.BN(0),
     bump: jobBump,
   });

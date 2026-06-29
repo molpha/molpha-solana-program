@@ -82,13 +82,6 @@ pub mod molpha {
         instructions::submit_data_update(ctx, args)
     }
 
-    pub fn verify_data_update(
-        ctx: Context<VerifyDataUpdate>,
-        args: SubmitDataUpdateArgs,
-    ) -> Result<()> {
-        instructions::verify_data_update(ctx, args)
-    }
-
     pub fn register_gateway(
         ctx: Context<RegisterGateway>,
         args: RegisterGatewayArgs,
@@ -99,8 +92,9 @@ pub mod molpha {
     pub fn settle_round_receipt<'info>(
         ctx: Context<'_, '_, 'info, 'info, SettleRoundReceipt<'info>>,
         args: SettleRoundArgs,
+        job_init: Option<SettleJobInitArgs>,
     ) -> Result<()> {
-        instructions::settle_round_receipt(ctx, args)
+        instructions::settle_round_receipt(ctx, args, job_init)
     }
 
     pub fn finalize_round<'info>(

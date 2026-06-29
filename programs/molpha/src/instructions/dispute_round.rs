@@ -13,17 +13,14 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use solana_keccak_hasher::hashv as keccak_hashv;
 
 use crate::{
-    error::MolphaError,
+    error::{map_data_update_err, MolphaError},
     events::RoundDisputed,
-    instructions::data_update_core::{verify_aggregate_over_hash, SELECTION_SEED_PREFIX},
     state::{
-        hash_agg_sig, AggregatedSig, Gateway, Job, ProtocolConfig, RegistryState,
-        RoundReceiptRecord,
+        collect_registry_index_entries, hash_agg_sig, AggregatedSig, Gateway, Job, ProtocolConfig,
+        RegistryState, RoundReceiptRecord,
     },
-    utils::bitmap::{derive_group_bitmap, effective_selection_size},
 };
 
 pub fn dispute_round<'info>(
@@ -59,20 +56,15 @@ pub fn dispute_round<'info>(
     } else {
         ctx.accounts.registry_state.previous_node_count
     };
-    let selection_size = effective_selection_size(
+    let expected_selection = molpha_verifier::derive_selection_bitmap(
+        &record.job_id,
+        record.registry_version,
+        record.timestamp as i64,
+        node_count,
         record.signatures_required,
         ctx.accounts.registry_state.redundancy_buffer,
-        node_count,
-    );
-    let timestamp_bytes = record.timestamp.to_be_bytes();
-    let selection_seed = keccak_hashv(&[
-        SELECTION_SEED_PREFIX.as_slice(),
-        record.job_id.as_ref(),
-        record.registry_version.to_be_bytes().as_ref(),
-        timestamp_bytes.as_ref(),
-    ])
-    .to_bytes();
-    let expected_selection = derive_group_bitmap(&selection_seed, node_count, selection_size)?;
+    )
+    .map_err(map_data_update_err)?;
     let selection_mismatch = expected_selection != record.selection_bitmap;
 
     // Only run coalition reconstruction / Schnorr verification after deterministic
@@ -80,17 +72,18 @@ pub fn dispute_round<'info>(
     let is_valid_sig = if selection_mismatch {
         false
     } else {
-        verify_aggregate_over_hash(
-            &ctx.accounts.registry_state,
+        let entries = collect_registry_index_entries(ctx.remaining_accounts, ctx.program_id)?;
+        molpha_verifier::verify_aggregate_over_hash_resolved(
+            &ctx.accounts.registry_state.view(),
             record.registry_version,
             &agg_sig.signers_bitmap,
             &agg_sig.s,
             &agg_sig.commitment_addr,
             &record.data_update_message_hash,
             clock.unix_timestamp,
-            ctx.remaining_accounts,
-            ctx.program_id,
-        )?
+            &entries,
+        )
+        .map_err(map_data_update_err)?
     };
 
     // No fraud iff both deterministic selection and aggregate signature are valid.

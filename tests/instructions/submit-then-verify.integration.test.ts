@@ -1,5 +1,5 @@
 /**
- * MVP happy path: register → subscribe → create_job → submit_data_update →
+ * MVP happy path: register → subscribe → submit_data_update (lazy job init) →
  * verify_data_update on the current registry, with return-data checks.
  */
 import * as anchor from "@coral-xyz/anchor";
@@ -14,9 +14,11 @@ import { Clock } from "solana-bankrun";
 import { setupTestContext, TestContext } from "../setup";
 import { generateE2eScenario } from "../helpers/e2e-fixture-export";
 import {
-  createJobViaInstruction,
+  deriveJobId,
   executeVerifyDataUpdateReturnData,
   expectedVerifyDataUpdateReturnBytes,
+  findFeedPda,
+  findJobPda,
   generateE2eSignerMaterialFromSeed,
   getProtocolTreasury,
   registerNodesForE2e,
@@ -46,7 +48,7 @@ async function advanceClock(ctx: TestContext, seconds: number): Promise<void> {
   ctx.provider.context.setClock(newClock);
 }
 
-describe("submit_data_update then verify_data_update (current registry)", () => {
+describe("submit_data_update (current registry)", () => {
   it("submits an update then verifies return data matches value, timestamp, and round_id", async () => {
     const scenario = generateE2eScenario(E2E_SEED, SIGNER_COUNT);
     const ctx = await setupTestContext();
@@ -159,12 +161,13 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
       })
       .rpc();
 
-    const { jobPda, feedPda, jobId } = await createJobViaInstruction(
-      ctx,
-      program,
-      { protocolConfigPda, planPda, subscriptionPda },
-      scenario.configHash
+    const jobId = deriveJobId(
+      ctx.authority.publicKey,
+      scenario.configHash,
+      SIGNER_COUNT
     );
+    const jobPda = findJobPda(program.programId, jobId);
+    const feedPda = findFeedPda(program.programId, jobId);
 
     const signed = signE2eDataUpdate(
       registry.currentVersion,
@@ -188,8 +191,8 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
       .accountsPartial({
         submitter: ctx.authority.publicKey,
         registryState: registryStatePda,
-        job: jobPda,
         feed: feedPda,
+        systemProgram: SystemProgram.programId,
       })
       .remainingAccounts(remaining)
       .preInstructions([
@@ -206,31 +209,10 @@ describe("submit_data_update then verify_data_update (current registry)", () => 
       feed.canonicalTimestamp.toString(),
       String(scenario.canonicalTimestamp)
     );
-
-    const returnBytes = await executeVerifyDataUpdateReturnData(
-      ctx,
-      program,
-      signed,
-      { registryStatePda }
-    );
-
-    assert.equal(returnBytes.length, VERIFY_DATA_UPDATE_RETURN_LEN);
-
-    const expected = expectedVerifyDataUpdateReturnBytes(
-      scenario.value,
-      scenario.canonicalTimestamp
-    );
-    assert.deepEqual(Array.from(returnBytes), Array.from(expected));
-
-    const recoveredTs = new DataView(returnBytes.buffer).getBigUint64(
-      32,
-      false
-    );
-    assert.equal(recoveredTs, BigInt(scenario.canonicalTimestamp));
+    assert.equal(feed.signaturesRequired, SIGNER_COUNT);
     assert.deepEqual(
-      Array.from(returnBytes.slice(0, 32)),
-      Array.from(scenario.value)
+      Array.from(feed.signersBitmap),
+      Array.from(signed.submitArgs.signersBitmap)
     );
-    assert.ok(returnBytes.slice(40, 72).every((b) => b === 0));
   });
 });

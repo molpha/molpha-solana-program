@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-pub const VIRTUAL_INDEX: u32 = u32::MAX;
+pub use molpha_verifier::state::VIRTUAL_INDEX;
 
 #[account]
 #[derive(InitSpace)]

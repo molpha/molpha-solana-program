@@ -36,9 +36,18 @@ function hexToBytes(hex: string): Uint8Array {
   return Uint8Array.from(Buffer.from(clean, "hex"));
 }
 
-function deriveJobId(owner: PublicKey, apiConfigHash: Uint8Array): Uint8Array {
+function deriveJobId(
+  owner: PublicKey,
+  apiConfigHash: Uint8Array,
+  signaturesRequired: number
+): Uint8Array {
   return keccak_256(
-    Buffer.concat([JOB_ID_PREFIX, owner.toBuffer(), Buffer.from(apiConfigHash)])
+    Buffer.concat([
+      JOB_ID_PREFIX,
+      owner.toBuffer(),
+      Buffer.from(apiConfigHash),
+      Buffer.from([signaturesRequired]),
+    ])
   );
 }
 
@@ -207,7 +216,7 @@ describe("Molpha instruction coverage integration", () => {
 
     // 4) create_job
     const apiConfigHash = Uint8Array.from(Buffer.alloc(32, 7));
-    const jobId = deriveJobId(ctx.authority.publicKey, apiConfigHash);
+    const jobId = deriveJobId(ctx.authority.publicKey, apiConfigHash, 1);
     const [jobPda] = PublicKey.findProgramAddressSync(
       [JOB_SEED, Buffer.from(jobId)],
       program.programId
@@ -233,7 +242,6 @@ describe("Molpha instruction coverage integration", () => {
         plan: planPda,
         job: jobPda,
         subscription: subscriptionPda,
-        feed: feedPda,
         delegate: null,
         systemProgram: SystemProgram.programId,
       })
@@ -244,8 +252,6 @@ describe("Molpha instruction coverage integration", () => {
       createdJob.owner.toBase58(),
       ctx.authority.publicKey.toBase58()
     );
-    const createdFeed = await program.account.feed.fetch(feedPda);
-    assert.equal(createdFeed.canonicalTimestamp.toString(), "0");
 
     // 5) add_delegate + remove_delegate
     const delegate = PublicKey.unique();
@@ -313,8 +319,8 @@ describe("Molpha instruction coverage integration", () => {
         .accountsPartial({
           submitter: ctx.authority.publicKey,
           registryState: registryStatePda,
-          job: jobPda,
           feed: feedPda,
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
       assert.fail(
@@ -322,22 +328,6 @@ describe("Molpha instruction coverage integration", () => {
       );
     } catch (error: any) {
       assert.include(String(error), "InvalidAggregateSignature");
-    }
-
-    try {
-      await program.methods
-        .verifyDataUpdate(badDataUpdateArgs)
-        .accountsPartial({
-          registryState: registryStatePda,
-        })
-        .rpc();
-      assert.fail("verify_data_update should fail for invalid signature");
-    } catch (error: any) {
-      const err = String(error);
-      assert.ok(
-        err.includes("InvalidAggregateSignature"),
-        `expected invalid aggregate signature, got: ${err}`
-      );
     }
 
     // 7) register_node rejects when registry is at capacity

@@ -1057,7 +1057,11 @@ export async function createJobViaInstruction(
 ): Promise<{ jobPda: PublicKey; feedPda: PublicKey; jobId: Uint8Array }> {
   const decimals = opts?.decimals ?? 8;
   const signaturesRequired = opts?.signaturesRequired ?? 8;
-  const jobId = deriveJobId(ctx.authority.publicKey, apiConfigHash);
+  const jobId = deriveJobId(
+    ctx.authority.publicKey,
+    apiConfigHash,
+    signaturesRequired
+  );
   const jobPda = findJobPda(program.programId, jobId);
   const feedPda = findFeedPda(program.programId, jobId);
 
@@ -1105,16 +1109,26 @@ export async function createEvmFixtureJobViaInstruction(
 
 export function deriveJobId(
   owner: PublicKey,
-  apiConfigHash: Uint8Array
+  apiConfigHash: Uint8Array,
+  signaturesRequired: number
 ): Uint8Array {
   return keccak_256(
-    Buffer.concat([JOB_ID_PREFIX, owner.toBuffer(), Buffer.from(apiConfigHash)])
+    Buffer.concat([
+      JOB_ID_PREFIX,
+      owner.toBuffer(),
+      Buffer.from(apiConfigHash),
+      Buffer.from([signaturesRequired]),
+    ])
   );
 }
 
 /** On-chain job id for the EVM fixture config hash and a given owner. */
 export function deriveEvmFixtureJobId(owner: PublicKey): Uint8Array {
-  return deriveJobId(owner, EVM_FIXTURE_CONFIG_HASH);
+  return deriveJobId(
+    owner,
+    EVM_FIXTURE_CONFIG_HASH,
+    evmFixture.dataUpdate.signaturesRequired
+  );
 }
 
 export function findJobPda(programId: PublicKey, jobId: Uint8Array): PublicKey {
@@ -1333,8 +1347,6 @@ export async function seedEvmJobAndFeed(
     decimals: 8,
     signaturesRequired,
     createdAt: new BN(0),
-    usedRounds: new BN(0),
-    maxRounds: new BN("18446744073709551615"),
     lastRequestTimestamp: new BN(0),
     bump: jobBump,
   });

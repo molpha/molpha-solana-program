@@ -22,6 +22,7 @@
 const anchor = require("@coral-xyz/anchor");
 const {
   Keypair,
+  SystemProgram,
   Transaction,
   ComputeBudgetProgram,
 } = require("@solana/web3.js");
@@ -159,7 +160,11 @@ async function ensureProgramDeployed(connection, programId) {
 }
 
 async function benchAccountsPresent(connection, programId, payer, signerCount) {
-  const jobId = deriveJobId(payer.publicKey, benchConfigHash(signerCount));
+  const jobId = deriveJobId(
+    payer.publicKey,
+    benchConfigHash(signerCount),
+    signerCount
+  );
   const [jobPda] = anchor.web3.PublicKey.findProgramAddressSync(
     [Buffer.from("molpha_job"), jobId],
     programId
@@ -203,7 +208,7 @@ async function measureForSignerCount(
   signerCount
 ) {
   const configHash = benchConfigHash(signerCount);
-  const jobId = deriveJobId(payer.publicKey, configHash);
+  const jobId = deriveJobId(payer.publicKey, configHash, signerCount);
 
   const signerMaterial = generateSignerMaterial(NODE_COUNT);
 
@@ -230,10 +235,6 @@ async function measureForSignerCount(
     [Buffer.from("molpha_feed"), jobId],
     programId
   );
-  const [protocolConfigPda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("molpha_config")],
-    programId
-  );
 
   const args = buildSubmitArgs(signerCount, signatureMaterial, jobId);
   const signersBitmapBuf = signatureMaterial.signersBitmap;
@@ -242,26 +243,22 @@ async function measureForSignerCount(
     signersBitmapBuf
   );
 
-  const verifyIx = await program.methods
-    .verifyDataUpdate(args)
-    .accountsPartial({
-      registryState: registryStatePda,
-    })
-    .remainingAccounts(remainingAccounts)
-    .instruction();
-
   const submitIx = await program.methods
-    .submitDataUpdate(args)
+    .submitDataUpdate(args, null)
     .accountsPartial({
       submitter: payer.publicKey,
-      protocolConfig: protocolConfigPda,
+      jobOwner: null,
+      plan: null,
+      subscription: null,
+      delegate: null,
+      job: jobPda,
       registryState: registryStatePda,
       feed: feedPda,
+      systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(remainingAccounts)
     .instruction();
 
-  const verifyCu = await simulateIx(connection, payer, verifyIx);
   const submitCu = await simulateIx(connection, payer, submitIx);
   return { verifyCu, submitCu };
 }

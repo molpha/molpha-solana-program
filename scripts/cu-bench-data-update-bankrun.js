@@ -259,6 +259,8 @@ async function seedBenchAccounts(
     [JOB_SEED, FIXTURE_JOB_ID],
     program.programId
   );
+  const canonicalTimestampLe = Buffer.alloc(8);
+  canonicalTimestampLe.writeBigInt64LE(BigInt(FIXTURE_CANONICAL_TIMESTAMP));
   const [feedPda, feedBump] = PublicKey.findProgramAddressSync(
     [FEED_SEED, FIXTURE_JOB_ID],
     program.programId
@@ -314,8 +316,6 @@ async function seedBenchAccounts(
     decimals: 8,
     signaturesRequired: signerCount,
     createdAt: new anchor.BN(0),
-    usedRounds: new anchor.BN(0),
-    maxRounds: new anchor.BN("18446744073709551615"),
     lastRequestTimestamp: new anchor.BN(0),
     bump: jobBump,
   });
@@ -397,14 +397,13 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     canonicalTimestamp: FIXTURE_CANONICAL_TIMESTAMP,
   });
 
-  const { protocolConfigPda, registryStatePda, jobPda, feedPda } =
-    await seedBenchAccounts(
-      provider.context,
-      program,
-      payer,
-      signerCount,
-      signerMaterial
-    );
+  const { registryStatePda, jobPda, feedPda } = await seedBenchAccounts(
+    provider.context,
+    program,
+    payer,
+    signerCount,
+    signerMaterial
+  );
 
   const args = buildSubmitArgs(signerCount, signatureMaterial, FIXTURE_JOB_ID);
   const signersBitmapBuf = signatureMaterial.signersBitmap;
@@ -413,26 +412,17 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     signersBitmapBuf
   );
 
-  const verifyIx = await program.methods
-    .verifyDataUpdate(args)
-    .accountsPartial({
-      registryState: registryStatePda,
-    })
-    .remainingAccounts(remainingAccounts)
-    .instruction();
-
   const submitIx = await program.methods
     .submitDataUpdate(args)
     .accountsPartial({
       submitter: payer.publicKey,
-      protocolConfig: protocolConfigPda,
       registryState: registryStatePda,
       feed: feedPda,
+      systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(remainingAccounts)
     .instruction();
 
-  const verifyCu = await simulateIx(provider, payer, verifyIx);
   let submitCu;
   try {
     submitCu = await simulateIx(provider, payer, submitIx);
@@ -447,7 +437,7 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     }
   }
 
-  return { verifyCu, submitCu };
+  return { submitCu };
 }
 
 async function main() {

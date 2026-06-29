@@ -1,5 +1,5 @@
 /**
- * Full on-chain e2e: plan → nodes → subscription → job → submit_data_update.
+ * Full on-chain e2e: plan → nodes → subscription → submit_data_update.
  * Uses a seeded random payload (not verify-answer-evm.json) and writes a
  * compatible JSON fixture for EVM / CU benches / offline verification.
  *
@@ -25,7 +25,9 @@ import {
   writeVerifyAnswerEvmFixture,
 } from "../helpers/e2e-fixture-export";
 import {
-  createJobViaInstruction,
+  deriveJobId,
+  findFeedPda,
+  findJobPda,
   generateE2eSignerMaterialFromSeed,
   signerRemainingAccounts,
   getProtocolTreasury,
@@ -171,14 +173,13 @@ describe("e2e generate verify-answer-evm fixture", () => {
       })
       .rpc();
 
-    // create_job with random config hash
-    const { jobPda, feedPda, jobId } = await createJobViaInstruction(
-      ctx,
-      program,
-      { protocolConfigPda, planPda, subscriptionPda },
+    const jobId = deriveJobId(
+      ctx.authority.publicKey,
       scenario.configHash,
-      { signaturesRequired: SIGNATURES_REQUIRED }
+      SIGNATURES_REQUIRED
     );
+    const jobPda = findJobPda(program.programId, jobId);
+    const feedPda = findFeedPda(program.programId, jobId);
 
     const signed = signE2eDataUpdate(
       registry.currentVersion,
@@ -196,12 +197,20 @@ describe("e2e generate verify-answer-evm fixture", () => {
     );
 
     await program.methods
-      .submitDataUpdate(signed.submitArgs)
+      .submitDataUpdate(signed.submitArgs, {
+        apiConfigHash: Array.from(scenario.configHash),
+        decimals: 8,
+      })
       .accountsPartial({
         submitter: ctx.authority.publicKey,
+        jobOwner: ctx.authority.publicKey,
+        plan: planPda,
+        subscription: subscriptionPda,
+        delegate: null,
         registryState: registryStatePda,
         job: jobPda,
         feed: feedPda,
+        systemProgram: SystemProgram.programId,
       })
       .remainingAccounts(
         signerRemainingAccounts(

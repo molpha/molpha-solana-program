@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use molpha_verifier::DataUpdateError;
 
 #[error_code]
 pub enum MolphaError {
@@ -165,4 +166,29 @@ pub enum MolphaError {
     UnauthorisedConsumer,
     #[msg("mismatched or missing credited node account")]
     InvalidCreditNodeAccount,
+}
+
+pub(crate) fn map_data_update_err(error: DataUpdateError) -> anchor_lang::error::Error {
+    match error {
+        DataUpdateError::InvalidAggregateSignature => {
+            error!(MolphaError::InvalidAggregateSignature)
+        }
+        DataUpdateError::InvalidSignature => error!(MolphaError::InvalidSignature),
+        DataUpdateError::InsufficientSigners => error!(MolphaError::InsufficientSigners),
+        DataUpdateError::SignersNotSubsetOfSelection => {
+            error!(MolphaError::SignersNotSubsetOfSelection)
+        }
+        DataUpdateError::InvalidSignersBitmap => error!(MolphaError::InvalidSignersBitmap),
+        DataUpdateError::GroupBitmapDerivationFailed => {
+            error!(MolphaError::GroupBitmapDerivationFailed)
+        }
+        DataUpdateError::SignerCountMismatch | DataUpdateError::MissingSignerAccount => {
+            error!(MolphaError::MissingSignerAccount)
+        }
+        DataUpdateError::InvalidRegistryVersion => error!(MolphaError::InvalidRegistryVersion),
+        DataUpdateError::InvalidNodeIndex => error!(MolphaError::InvalidNodeIndex),
+        DataUpdateError::InvalidTransitionAccount => {
+            error!(MolphaError::InvalidTransitionAccount)
+        }
+    }
 }

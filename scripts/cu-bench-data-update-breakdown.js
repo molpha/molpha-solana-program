@@ -188,8 +188,6 @@ async function seedBenchAccounts(
     decimals: 8,
     signaturesRequired: sigReq,
     createdAt: new anchor.BN(0),
-    usedRounds: new anchor.BN(0),
-    maxRounds: new anchor.BN("18446744073709551615"),
     lastRequestTimestamp: new anchor.BN(0),
     bump: jobBump,
   });
@@ -212,64 +210,6 @@ async function seedBenchAccounts(
   );
 
   return { protocolConfigPda, registryStatePda, jobPda, feedPda };
-}
-
-async function simulateIx(provider, payer, ix) {
-  const [blockhash] = await provider.context.banksClient.getLatestBlockhash();
-  const tx = new Transaction();
-  tx.add(
-    ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT })
-  );
-  tx.add(ix);
-  tx.feePayer = payer.publicKey;
-  tx.recentBlockhash = blockhash;
-  tx.partialSign(payer);
-  const sim = await provider.context.banksClient.simulateTransaction(tx);
-  if (sim.result !== null) {
-    throw new Error(`sim failed: ${sim.result}`);
-  }
-  return Number(sim.meta.computeUnitsConsumed);
-}
-
-async function measureVerify(provider, program, payer, sigReq) {
-  const signerMaterial = generateSignerMaterial(NODE_COUNT);
-  const signatureMaterial = buildCoalitionSignature({
-    signerCount: sigReq,
-    privKeys: signerMaterial.privKeys,
-    compressedPubkeys: signerMaterial.compressedPubkeys,
-    jobId: FIXTURE_JOB_ID,
-    registryVersion: FIXTURE_REGISTRY_VERSION,
-    configHash: FIXTURE_CONFIG_HASH,
-    value: FIXTURE_VALUE,
-    canonicalTimestamp: FIXTURE_CANONICAL_TIMESTAMP,
-  });
-
-  const { protocolConfigPda, registryStatePda, jobPda } =
-    await seedBenchAccounts(
-      provider.context,
-      program,
-      payer,
-      sigReq,
-      signerMaterial
-    );
-
-  const args = buildSubmitArgs(sigReq, signatureMaterial, FIXTURE_JOB_ID);
-  const remainingAccounts = registryIndexRemainingAccounts(
-    program.programId,
-    signatureMaterial.signersBitmap
-  );
-
-  const verifyIx = await program.methods
-    .verifyDataUpdate(args)
-    .accountsPartial({
-      protocolConfig: protocolConfigPda,
-      registryState: registryStatePda,
-      job: jobPda,
-    })
-    .remainingAccounts(remainingAccounts)
-    .instruction();
-
-  return simulateIx(provider, payer, verifyIx);
 }
 
 function linearFit(points) {

@@ -11,6 +11,10 @@ pub struct Subscription {
     pub price: u64,
     pub valid_until: i64,
     pub job_count: u32,
+    /// Rounds settled against this subscription.
+    pub used_rounds: u64,
+    /// Round quota; `u64::MAX` means unlimited while the subscription is active.
+    pub max_rounds: u64,
     pub bump: u8,
 }
 
@@ -33,10 +37,24 @@ impl Subscription {
         self.price = monthly_price;
         self.valid_until = now.checked_add(Self::SECONDS_PER_MONTH).unwrap_or(i64::MAX);
         self.job_count = 0;
+        self.used_rounds = 0;
+        self.max_rounds = u64::MAX;
         self.bump = bump;
     }
 
     pub fn is_active(&self) -> bool {
         self.valid_until > Clock::get().map(|c| c.unix_timestamp).unwrap_or(0)
+    }
+
+    pub fn has_round_quota(&self) -> bool {
+        self.used_rounds < self.max_rounds
+    }
+
+    pub fn consume_round(&mut self) -> Result<()> {
+        self.used_rounds = self
+            .used_rounds
+            .checked_add(1)
+            .ok_or(crate::error::MolphaError::SubscriptionInactiveOrExhausted)?;
+        Ok(())
     }
 }

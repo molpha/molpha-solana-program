@@ -3,9 +3,8 @@
 /**
  * End-to-end devnet/localnet flow using registered nodes from generated-nodes.json:
  *   1. subscribe (monthly plan)
- *   2. create_job + feed
- *   3. sign coalition Schnorr update with manifest EVM keys
- *   4. submit_data_update
+ *   2. sign coalition Schnorr update with manifest EVM keys
+ *   3. submit_data_update (initializes job + feed if needed)
  *
  * Prerequisites:
  *   - anchor build -p molpha
@@ -30,7 +29,8 @@
  *   --canonical-timestamp <n>  unix seconds (default: now)
  *   --output <path>            write run summary JSON (default: ./job-submit-result.json)
  *   --skip-subscribe
- *   --skip-create-job
+ *   --create-job              optional pre-create instead of lazy submit init
+ *   --skip-create-job         accepted for compatibility; lazy init remains default
  *   --skip-submit
  *   --compute-unit-limit <n>   default: 1400000
  */
@@ -84,7 +84,7 @@ function parseArgs(argv) {
     canonicalTimestamp: null,
     output: DEFAULT_OUTPUT,
     skipSubscribe: false,
-    skipCreateJob: false,
+    skipCreateJob: true,
     skipSubmit: false,
     computeUnitLimit: 1_400_000,
   };
@@ -108,6 +108,7 @@ function parseArgs(argv) {
     else if (arg === "--output" || arg === "-o")
       opts.output = path.resolve(argv[++i]);
     else if (arg === "--skip-subscribe") opts.skipSubscribe = true;
+    else if (arg === "--create-job") opts.skipCreateJob = false;
     else if (arg === "--skip-create-job") opts.skipCreateJob = true;
     else if (arg === "--skip-submit") opts.skipSubmit = true;
     else if (arg === "--compute-unit-limit")
@@ -265,7 +266,7 @@ async function main() {
     nodeCount
   );
   const payload = buildPayload(opts);
-  const jobId = deriveJobId(owner, payload.configHash);
+  const jobId = deriveJobId(owner, payload.configHash, signaturesRequired);
   const [jobPda] = PublicKey.findProgramAddressSync(
     [JOB_SEED, jobId],
     programId
@@ -406,11 +407,11 @@ async function main() {
   }
 
   if (!opts.skipSubmit) {
-    const feedBefore = await program.account.feed.fetch(feedPda);
+    const feedBefore = await fetchOptionalAccount(program, "feed", feedPda);
     const ts =
-      payload.canonicalTimestamp > Number(feedBefore.canonicalTimestamp)
+      payload.canonicalTimestamp > Number(feedBefore?.canonicalTimestamp ?? 0)
         ? payload.canonicalTimestamp
-        : Number(feedBefore.canonicalTimestamp) + 1;
+        : Number(feedBefore?.canonicalTimestamp ?? 0) + 1;
 
     const registryVersion = Number(registryState.currentVersion);
     const signed = signDataUpdateForRegistry({
@@ -438,11 +439,20 @@ async function main() {
     console.log(`   canonical timestamp: ${ts}`);
 
     const sig = await program.methods
-      .submitDataUpdate(signed.submitArgs)
+      .submitDataUpdate(signed.submitArgs, {
+        apiConfigHash: Array.from(payload.configHash),
+        decimals: opts.decimals,
+      })
       .accountsPartial({
         submitter: owner,
+        jobOwner: owner,
+        plan: subscribedPlanPda,
+        subscription: subscriptionPda,
+        delegate: null,
         registryState: registryStatePda,
+        job: jobPda,
         feed: feedPda,
+        systemProgram: SystemProgram.programId,
       })
       .remainingAccounts(remaining)
       .preInstructions([

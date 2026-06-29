@@ -1,56 +1,83 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    error::MolphaError,
+    error::map_data_update_err,
     events::FeedUpdated,
-    instructions::data_update_core::build_coalition_and_verify,
-    state::{Feed, RegistryState},
+    state::{
+        collect_registry_index_entries, Feed, FeedInitParams, FeedUpdateParams, RegistryState,
+    },
 };
+use molpha_verifier::DataUpdate;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SubmitDataUpdateArgs {
     pub job_id: [u8; 32],
-    pub signatures_required: u8,
     pub registry_version: u32,
-    pub signers_bitmap: [u8; 32],
     pub value: [u8; 32],
     pub canonical_timestamp: i64,
+    pub signatures_required: u8,
+
     /// Schnorr signature R component
     pub agg_sig_s: [u8; 32],
     pub commitment_addr: [u8; 20],
+    pub signers_bitmap: [u8; 32],
+}
+
+impl From<&SubmitDataUpdateArgs> for DataUpdate {
+    fn from(args: &SubmitDataUpdateArgs) -> Self {
+        Self {
+            job_id: args.job_id,
+            registry_version: args.registry_version,
+            value: args.value,
+            canonical_timestamp: args.canonical_timestamp,
+            signatures_required: args.signatures_required,
+            agg_sig_s: args.agg_sig_s,
+            commitment_addr: args.commitment_addr,
+            signers_bitmap: args.signers_bitmap,
+        }
+    }
 }
 
 pub fn submit_data_update(
     ctx: Context<SubmitDataUpdate>,
     args: SubmitDataUpdateArgs,
 ) -> Result<()> {
+    let clock = Clock::get()?;
+    let payload: DataUpdate = (&args).into();
     let feed = &mut ctx.accounts.feed;
     let registry = &ctx.accounts.registry_state;
-
-    require!(
-        args.canonical_timestamp > feed.canonical_timestamp,
-        MolphaError::FeedNotNewer
-    );
-
-    let clock = Clock::get()?;
     let now = clock.unix_timestamp;
 
-    build_coalition_and_verify(
-        &args,
-        registry,
-        now,
-        ctx.remaining_accounts,
-        ctx.program_id,
-        args.signatures_required,
-        registry.redundancy_buffer,
-    )?;
+    // if feed is not initialized, initialize it
+    if feed.job_id == [0u8; 32] {
+        feed.init(&FeedInitParams {
+            job_id: args.job_id,
+            value: args.value,
+            canonical_timestamp: args.canonical_timestamp,
+            signatures_required: args.signatures_required,
+            registry_version: args.registry_version,
+            signers_bitmap: args.signers_bitmap,
+            bump: ctx.bumps.feed,
+        });
+    } else {
+        feed.update(&FeedUpdateParams {
+            value: args.value,
+            canonical_timestamp: args.canonical_timestamp,
+            registry_version: args.registry_version,
+            signers_bitmap: args.signers_bitmap,
+            bump: ctx.bumps.feed,
+        });
+    }
 
-    feed.value = args.value;
-    feed.canonical_timestamp = args.canonical_timestamp;
-    feed.registry_version = args.registry_version;
-    feed.signers_bitmap = args.signers_bitmap;
-    feed.signatures_required = args.signatures_required;
-    feed.last_updated_slot = clock.slot;
+    let entries = collect_registry_index_entries(ctx.remaining_accounts, ctx.program_id)?;
+    molpha_verifier::verify_data_update_resolved(
+        &payload,
+        &registry.view(),
+        registry.redundancy_buffer,
+        now,
+        &entries,
+    )
+    .map_err(map_data_update_err)?;
 
     emit!(FeedUpdated {
         job_id: args.job_id,
@@ -67,6 +94,7 @@ pub fn submit_data_update(
 #[derive(Accounts)]
 #[instruction(args: SubmitDataUpdateArgs)]
 pub struct SubmitDataUpdate<'info> {
+    #[account(mut)]
     pub submitter: Signer<'info>,
 
     #[account(
@@ -76,12 +104,18 @@ pub struct SubmitDataUpdate<'info> {
     pub registry_state: Account<'info, RegistryState>,
 
     #[account(
-        mut,
-        seeds = [Feed::SEED_PREFIX, args.job_id.as_ref()],
-        bump = feed.bump,
-        constraint = feed.job_id == args.job_id @ MolphaError::DataUpdateJobMismatch,
+        init_if_needed,
+        payer = submitter,
+        space = Feed::SPACE,
+        seeds = [
+            Feed::SEED_PREFIX,
+            args.job_id.as_ref()
+        ],
+        bump
     )]
     pub feed: Account<'info, Feed>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[cfg(test)]
@@ -89,7 +123,7 @@ mod tests {
     use super::SubmitDataUpdateArgs;
     use anchor_lang::{AnchorDeserialize, AnchorSerialize};
 
-    const ARGS_SERIALIZED_LEN: usize = 224;
+    const ARGS_SERIALIZED_LEN: usize = 161;
 
     fn fixture_args() -> SubmitDataUpdateArgs {
         SubmitDataUpdateArgs {
