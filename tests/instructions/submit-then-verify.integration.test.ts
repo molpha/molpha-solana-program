@@ -210,6 +210,9 @@ describe("submit_data_update (current registry)", () => {
       String(scenario.canonicalTimestamp)
     );
     assert.equal(feed.signaturesRequired, SIGNER_COUNT);
-    assert.deepEqual(Array.from(feed.signersBitmap), Array.from(signed.submitArgs.signersBitmap));
+    assert.deepEqual(
+      Array.from(feed.signersBitmap),
+      Array.from(signed.submitArgs.signersBitmap)
+    );
   });
 });

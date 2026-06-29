@@ -36,7 +36,6 @@ pub type SignerXy = ([u8; 32], [u8; 32]);
 pub fn verify_data_update(
     payload: &DataUpdate,
     node_count: u32,
-    signatures_required: u8,
     redundancy_buffer: u8,
     ordered_signers: &[SignerXy],
 ) -> Result<(), DataUpdateError> {
@@ -46,7 +45,7 @@ pub fn verify_data_update(
 
     let signers = bitmap_load(&payload.signers_bitmap);
     let signer_count = signers.count_ones();
-    if signer_count < u32::from(signatures_required) {
+    if signer_count < u32::from(payload.signatures_required) {
         return Err(DataUpdateError::InsufficientSigners);
     }
 
@@ -55,7 +54,7 @@ pub fn verify_data_update(
         payload.registry_version,
         payload.canonical_timestamp,
         node_count,
-        signatures_required,
+        payload.signatures_required,
         redundancy_buffer,
     )?;
     if !bitmap_is_subset_u256(signers, bitmap_load(&expected_selection)) {
@@ -67,7 +66,7 @@ pub fn verify_data_update(
     }
 
     let x_coalition = reconstruct_coalition_key(ordered_signers)?;
-    let message_hash = compute_message_hash(payload, signatures_required);
+    let message_hash = compute_message_hash(payload, payload.signatures_required);
 
     if recover_and_match(
         &x_coalition,
@@ -85,7 +84,6 @@ pub fn verify_data_update(
 pub fn verify_data_update_compressed(
     payload: &DataUpdate,
     node_count: u32,
-    signatures_required: u8,
     redundancy_buffer: u8,
     ordered_signers_compressed: &[[u8; 33]],
 ) -> Result<(), DataUpdateError> {
@@ -93,7 +91,6 @@ pub fn verify_data_update_compressed(
     verify_data_update(
         payload,
         node_count,
-        signatures_required,
         redundancy_buffer,
         &xy,
     )
@@ -340,7 +337,6 @@ mod tests {
         verify_data_update(
             &payload,
             8,
-            FIXTURE_SIGNATURES_REQUIRED,
             0,
             &fixture_signers_xy(),
         )
@@ -348,7 +344,6 @@ mod tests {
         verify_data_update_compressed(
             &payload,
             8,
-            FIXTURE_SIGNATURES_REQUIRED,
             0,
             &FIXTURE_PUBKEYS,
         )
@@ -362,7 +357,6 @@ mod tests {
         let res = verify_data_update(
             &payload,
             8,
-            FIXTURE_SIGNATURES_REQUIRED,
             0,
             &fixture_signers_xy(),
         );
@@ -375,7 +369,7 @@ mod tests {
         let mut signers = fixture_signers_xy();
         signers.pop();
         assert_eq!(
-            verify_data_update(&payload, 8, FIXTURE_SIGNATURES_REQUIRED, 0, &signers),
+            verify_data_update(&payload, 8, 0, &signers),
             Err(DataUpdateError::SignerCountMismatch)
         );
     }
@@ -384,7 +378,7 @@ mod tests {
     fn verify_aggregate_over_hash_roundtrip() {
         let payload = fixture_payload();
         let signers = fixture_signers_xy();
-        let message_hash = compute_message_hash(&payload, FIXTURE_SIGNATURES_REQUIRED);
+        let message_hash = compute_message_hash(&payload, payload.signatures_required);
         assert!(verify_aggregate_over_hash(
             &signers,
             &payload.agg_sig_s,

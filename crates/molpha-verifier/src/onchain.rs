@@ -112,7 +112,6 @@ pub fn resolve_ordered_signers<'info>(
 pub fn verify_data_update_from_accounts<'info>(
     payload: &DataUpdate,
     registry: &RegistryState,
-    signatures_required: u8,
     redundancy_buffer: u8,
     now: i64,
     accounts: &[AccountInfo<'info>],
@@ -129,7 +128,6 @@ pub fn verify_data_update_from_accounts<'info>(
     verify_data_update(
         payload,
         node_count,
-        signatures_required,
         redundancy_buffer,
         &ordered,
     )

@@ -1,9 +1,10 @@
 use anchor_lang::prelude::*;
 
+use molpha_verifier::DataUpdate;
 use crate::{
     error::map_data_update_err,
     events::FeedUpdated,
-    state::{Feed, FeedInitParams, RegistryState},
+    state::{Feed, FeedInitParams, FeedUpdateParams, RegistryState},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -20,24 +21,24 @@ pub struct SubmitDataUpdateArgs {
     pub signers_bitmap: [u8; 32],
 }
 
-impl From<&SubmitDataUpdateArgs> for molpha_verifier::DataUpdate {
-    fn from(args: &SubmitDataUpdateArgs) -> Self {
-        Self {
-            job_id: args.job_id,
-            registry_version: args.registry_version,
-            value: args.value,
-            canonical_timestamp: args.canonical_timestamp,
-            signatures_required: args.signatures_required,
-            agg_sig_s: args.agg_sig_s,
-            commitment_addr: args.commitment_addr,
-            signers_bitmap: args.signers_bitmap,
-        }
-    }
-}
+// impl From<&SubmitDataUpdateArgs> for molpha_verifier::DataUpdate {
+//     fn from(args: &SubmitDataUpdateArgs) -> Self {
+//         Self {
+//             job_id: args.job_id,
+//             registry_version: args.registry_version,
+//             value: args.value,
+//             canonical_timestamp: args.canonical_timestamp,
+//             signatures_required: args.signatures_required,
+//             agg_sig_s: args.agg_sig_s,
+//             commitment_addr: args.commitment_addr,
+//             signers_bitmap: args.signers_bitmap,
+//         }
+//     }
+// }
 
 pub fn submit_data_update(
     ctx: Context<SubmitDataUpdate>,
-    args: SubmitDataUpdateArgs,
+    args: DataUpdate,
 ) -> Result<()> {
     let clock = Clock::get()?;
     let feed = &mut ctx.accounts.feed;
@@ -55,10 +56,20 @@ pub fn submit_data_update(
             signers_bitmap: args.signers_bitmap,
             bump: ctx.bumps.feed,
         });
+    } else {
+        feed.update(
+            &FeedUpdateParams {
+                value: args.value,
+                canonical_timestamp: args.canonical_timestamp,
+                registry_version: args.registry_version,
+                signers_bitmap: args.signers_bitmap,
+                bump: ctx.bumps.feed,
+            }
+        );
     }
 
     molpha_verifier::verify_data_update_from_accounts(
-        &(&args).into(),
+        &args,
         registry,
         args.signatures_required,
         registry.redundancy_buffer,
