@@ -88,12 +88,7 @@ pub fn verify_data_update_compressed(
     ordered_signers_compressed: &[[u8; 33]],
 ) -> Result<(), DataUpdateError> {
     let xy = decompress_all(ordered_signers_compressed)?;
-    verify_data_update(
-        payload,
-        node_count,
-        redundancy_buffer,
-        &xy,
-    )
+    verify_data_update(payload, node_count, redundancy_buffer, &xy)
 }
 
 /// Reconstruct the coalition key `Σ X_i` from ordered signer pubkeys → compressed (33 bytes).
@@ -334,32 +329,17 @@ mod tests {
     fn verify_data_update_accepts_evm_fixture() {
         let payload = fixture_payload();
         // node_count == signatures_required == 8 → selection is the full set, signers ⊆ selection.
-        verify_data_update(
-            &payload,
-            8,
-            0,
-            &fixture_signers_xy(),
-        )
-        .expect("fixture DataUpdate must verify");
-        verify_data_update_compressed(
-            &payload,
-            8,
-            0,
-            &FIXTURE_PUBKEYS,
-        )
-        .expect("compressed variant must verify");
+        verify_data_update(&payload, 8, 0, &fixture_signers_xy())
+            .expect("fixture DataUpdate must verify");
+        verify_data_update_compressed(&payload, 8, 0, &FIXTURE_PUBKEYS)
+            .expect("compressed variant must verify");
     }
 
     #[test]
     fn tampered_s_fails_verification() {
         let mut payload = fixture_payload();
         payload.agg_sig_s[31] ^= 0x01;
-        let res = verify_data_update(
-            &payload,
-            8,
-            0,
-            &fixture_signers_xy(),
-        );
+        let res = verify_data_update(&payload, 8, 0, &fixture_signers_xy());
         assert_eq!(res, Err(DataUpdateError::InvalidAggregateSignature));
     }
 

@@ -125,12 +125,7 @@ pub fn verify_data_update_from_accounts<'info>(
         now,
         program_id,
     )?;
-    verify_data_update(
-        payload,
-        node_count,
-        redundancy_buffer,
-        &ordered,
-    )
+    verify_data_update(payload, node_count, redundancy_buffer, &ordered)
 }
 
 #[allow(clippy::too_many_arguments)]

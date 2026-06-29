@@ -1,11 +1,11 @@
 use anchor_lang::prelude::*;
 
-use molpha_verifier::DataUpdate;
 use crate::{
     error::map_data_update_err,
     events::FeedUpdated,
     state::{Feed, FeedInitParams, FeedUpdateParams, RegistryState},
 };
+use molpha_verifier::DataUpdate;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SubmitDataUpdateArgs {
@@ -36,10 +36,7 @@ pub struct SubmitDataUpdateArgs {
 //     }
 // }
 
-pub fn submit_data_update(
-    ctx: Context<SubmitDataUpdate>,
-    args: DataUpdate,
-) -> Result<()> {
+pub fn submit_data_update(ctx: Context<SubmitDataUpdate>, args: DataUpdate) -> Result<()> {
     let clock = Clock::get()?;
     let feed = &mut ctx.accounts.feed;
     let registry = &ctx.accounts.registry_state;
@@ -57,15 +54,13 @@ pub fn submit_data_update(
             bump: ctx.bumps.feed,
         });
     } else {
-        feed.update(
-            &FeedUpdateParams {
-                value: args.value,
-                canonical_timestamp: args.canonical_timestamp,
-                registry_version: args.registry_version,
-                signers_bitmap: args.signers_bitmap,
-                bump: ctx.bumps.feed,
-            }
-        );
+        feed.update(&FeedUpdateParams {
+            value: args.value,
+            canonical_timestamp: args.canonical_timestamp,
+            registry_version: args.registry_version,
+            signers_bitmap: args.signers_bitmap,
+            bump: ctx.bumps.feed,
+        });
     }
 
     molpha_verifier::verify_data_update_from_accounts(
