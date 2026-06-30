@@ -31,7 +31,6 @@ pub struct ProtocolConfig {
     /// Challenger reward, in bps of the slashed bond, on a successful dispute.
     pub challenger_bounty_bps: u16,
     /// Monotonic counter assigning `gateway_index` to bonded gateways.
-    pub gateway_count: u32,
     pub registry_cooldown_secs: i64,
     /// Grace period after activation during which the previous registry version remains valid.
     pub previous_grace_secs: i64,

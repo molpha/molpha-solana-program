@@ -18,9 +18,10 @@ use crate::{
     error::{map_data_update_err, MolphaError},
     events::RoundDisputed,
     state::{
-        collect_registry_index_entries, hash_agg_sig, AggregatedSig, Gateway, Job, ProtocolConfig,
+        collect_registry_index_entries, hash_agg_sig, AggregatedSig, Gateway, ProtocolConfig,
         RegistryState, RoundReceiptRecord,
     },
+    utils::bitmap::bitmap_is_subset,
 };
 
 pub fn dispute_round<'info>(
@@ -39,7 +40,7 @@ pub fn dispute_round<'info>(
         MolphaError::DisputeAggSigMismatch
     );
     require!(
-        agg_sig.signers_bitmap == record.credited_bitmap,
+        agg_sig.signers_bitmap == record.signers_bitmap,
         MolphaError::CreditedBitmapMismatch
     );
 
@@ -65,7 +66,7 @@ pub fn dispute_round<'info>(
         ctx.accounts.registry_state.redundancy_buffer,
     )
     .map_err(map_data_update_err)?;
-    let selection_mismatch = expected_selection != record.selection_bitmap;
+    let selection_mismatch = bitmap_is_subset(&expected_selection, &record.signers_bitmap);
 
     // Only run coalition reconstruction / Schnorr verification after deterministic
     // selection validation passes.
@@ -151,12 +152,6 @@ pub struct DisputeRound<'info> {
         bump = registry_state.bump,
     )]
     pub registry_state: Account<'info, RegistryState>,
-
-    #[account(
-        seeds = [Job::SEED_PREFIX, round_record.job_id.as_ref()],
-        bump = job.bump,
-    )]
-    pub job: Account<'info, Job>,
 
     #[account(
         mut,

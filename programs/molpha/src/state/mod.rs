@@ -1,7 +1,6 @@
 pub mod delegate;
 pub mod feed;
 pub mod gateway;
-pub mod job;
 pub mod node;
 pub mod plan;
 pub mod protocol_config;
@@ -14,7 +13,6 @@ pub mod subscription;
 pub use delegate::*;
 pub use feed::*;
 pub use gateway::*;
-pub use job::*;
 pub use node::*;
 pub use plan::*;
 pub use protocol_config::*;

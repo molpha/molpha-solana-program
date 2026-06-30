@@ -52,7 +52,6 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.dispute_window_slots = args.dispute_window_slots;
     protocol_config.gateway_bond_min = args.gateway_bond_min;
     protocol_config.challenger_bounty_bps = args.challenger_bounty_bps;
-    protocol_config.gateway_count = 0;
     protocol_config.registry_cooldown_secs = args.registry_cooldown_secs;
     protocol_config.previous_grace_secs = args.previous_grace_secs;
     protocol_config.max_node_count = args.max_node_count;

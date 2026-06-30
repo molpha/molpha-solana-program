@@ -53,7 +53,7 @@ pub fn finalize_round<'info>(
             .map_err(map_data_update_err)?;
     }
 
-    let credited = bitmap_load(&record.credited_bitmap);
+    let credited = bitmap_load(&record.signers_bitmap);
     let credited_count = credited.count_ones();
     require!(
         ctx.remaining_accounts.len() == credited_count as usize * 2,

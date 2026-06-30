@@ -45,14 +45,6 @@ pub mod molpha {
         instructions::update_plan(ctx, args)
     }
 
-    pub fn create_job(
-        ctx: Context<CreateJob>,
-        args: CreateJobArgs,
-        job_id: [u8; 32],
-    ) -> Result<()> {
-        instructions::create_job(ctx, args, job_id)
-    }
-
     pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
         instructions::subscribe(ctx, plan_type)
     }
@@ -92,9 +84,8 @@ pub mod molpha {
     pub fn settle_round_receipt<'info>(
         ctx: Context<'_, '_, 'info, 'info, SettleRoundReceipt<'info>>,
         args: SettleRoundArgs,
-        job_init: Option<SettleJobInitArgs>,
     ) -> Result<()> {
-        instructions::settle_round_receipt(ctx, args, job_init)
+        instructions::settle_round_receipt(ctx, args)
     }
 
     pub fn finalize_round<'info>(

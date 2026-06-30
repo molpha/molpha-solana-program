@@ -150,7 +150,7 @@ pub enum MolphaError {
     GatewayAlreadyRegistered,
     #[msg("bond amount below gateway_bond_min")]
     InsufficientBond,
-    #[msg("agg_sig.signers_bitmap does not match credited_bitmap")]
+    #[msg("agg_sig.signers_bitmap does not match signers_bitmap")]
     CreditedBitmapMismatch,
     #[msg("round still inside dispute window; cannot finalize")]
     RoundNotFinalizable,
