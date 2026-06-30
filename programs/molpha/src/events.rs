@@ -141,7 +141,7 @@ pub struct RoundSettled {
     pub gateway: Pubkey,
     pub job_id: [u8; 32],
     pub timestamp: u64,
-    pub credited_bitmap: [u8; 32],
+    pub signers_bitmap: [u8; 32],
     pub credited_count: u32,
     pub reward_per_signature: u64,
     pub gateway_fee: u64,

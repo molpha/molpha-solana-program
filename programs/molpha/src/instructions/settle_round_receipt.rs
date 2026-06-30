@@ -181,7 +181,7 @@ pub fn settle_round_receipt<'info>(
     record.job_id = *job_id;
     record.timestamp = *timestamp;
     record.signatures_required = *signatures_required;
-    record.credited_bitmap = agg_sig.signers_bitmap;
+    record.signers_bitmap = agg_sig.signers_bitmap;
     record.agg_sig_hash = agg_sig_hash;
     record.data_update_message_hash = data_update_message_hash;
     record.gateway = gateway.key();
@@ -197,7 +197,7 @@ pub fn settle_round_receipt<'info>(
         gateway: gateway.key(),
         job_id: *job_id,
         timestamp: *timestamp,
-        credited_bitmap: agg_sig.signers_bitmap,
+        signers_bitmap: agg_sig.signers_bitmap,
         credited_count,
         reward_per_signature,
         gateway_fee,
