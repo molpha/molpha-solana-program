@@ -42,17 +42,6 @@ pub struct AggregatedSig {
     pub signers_bitmap: [u8; 32],
 }
 
-/// Gateway bilateral envelope + bondable claim (Ed25519-signed by `gateway.authority`).
-///
-/// `H(RequestAuth)` and `sha256(AggregatedSig)` are recomputed on-chain at settlement and
-/// mixed into `hash_gateway_receipt` — they are not carried on the wire.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
-pub struct GatewayReceipt {
-    pub registry_version: u32,
-    pub selection_bitmap: [u8; 32],
-    pub gateway_index: u32,
-}
-
 /// `H(RequestAuth)` — domain-separated SHA-256 over the borsh encoding.
 pub fn hash_request_auth(request_auth: &RequestAuth) -> [u8; 32] {
     let body = request_auth
@@ -77,28 +66,6 @@ pub fn hash_agg_sig(agg_sig: &AggregatedSig) -> [u8; 32] {
     sha256_hashv(&[&body]).to_bytes()
 }
 
-/// `H(GatewayReceipt)` — domain-separated SHA-256 over the receipt body plus the on-chain
-/// request/response bindings (`H(RequestAuth)`, `sha256(AggregatedSig)`, and the committed
-/// data-update message hash used for dispute-time aggregate verification).
-pub fn hash_gateway_receipt(
-    receipt: &GatewayReceipt,
-    request_auth_hash: &[u8; 32],
-    agg_sig_hash: &[u8; 32],
-    data_update_message_hash: &[u8; 32],
-) -> [u8; 32] {
-    let body = receipt
-        .try_to_vec()
-        .expect("GatewayReceipt serialization is infallible");
-    sha256_hashv(&[
-        DOMAIN_GWRCPT,
-        &body,
-        request_auth_hash.as_ref(),
-        agg_sig_hash.as_ref(),
-        data_update_message_hash.as_ref(),
-    ])
-    .to_bytes()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,34 +85,6 @@ mod tests {
             commitment_addr: [0x55; 20],
             signers_bitmap: [0x66; 32],
         }
-    }
-
-    fn fixture_gateway_receipt() -> GatewayReceipt {
-        GatewayReceipt {
-            registry_version: 3,
-            selection_bitmap: [0x88; 32],
-            gateway_index: 2,
-        }
-    }
-
-    #[test]
-    fn hashes_are_deterministic() {
-        assert_eq!(
-            hash_request_auth(&fixture_request_auth()),
-            hash_request_auth(&fixture_request_auth())
-        );
-        assert_eq!(
-            hash_agg_sig(&fixture_agg_sig()),
-            hash_agg_sig(&fixture_agg_sig())
-        );
-        let receipt = fixture_gateway_receipt();
-        let req = hash_request_auth(&fixture_request_auth());
-        let agg = hash_agg_sig(&fixture_agg_sig());
-        let data_update_message_hash = [0x99; 32];
-        assert_eq!(
-            hash_gateway_receipt(&receipt, &req, &agg, &data_update_message_hash),
-            hash_gateway_receipt(&receipt, &req, &agg, &data_update_message_hash)
-        );
     }
 
     #[test]

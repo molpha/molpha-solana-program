@@ -18,7 +18,7 @@ use crate::{
     error::{map_data_update_err, MolphaError},
     events::RoundDisputed,
     state::{
-        collect_registry_index_entries, hash_agg_sig, AggregatedSig, Gateway, Job, ProtocolConfig,
+        collect_registry_index_entries, hash_agg_sig, AggregatedSig, Gateway, ProtocolConfig,
         RegistryState, RoundReceiptRecord,
     },
 };
@@ -151,12 +151,6 @@ pub struct DisputeRound<'info> {
         bump = registry_state.bump,
     )]
     pub registry_state: Account<'info, RegistryState>,
-
-    #[account(
-        seeds = [Job::SEED_PREFIX, round_record.job_id.as_ref()],
-        bump = job.bump,
-    )]
-    pub job: Account<'info, Job>,
 
     #[account(
         mut,

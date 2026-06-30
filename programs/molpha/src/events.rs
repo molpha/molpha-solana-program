@@ -95,7 +95,6 @@ pub struct SubscriptionVaultWithdrawn {
 #[event]
 pub struct GatewayRegistered {
     pub authority: Pubkey,
-    pub index: u32,
     pub ip: [u8; 4],
     pub port: u16,
     pub bond: u64,
@@ -139,9 +138,9 @@ pub struct FeedUpdated {
 
 #[event]
 pub struct RoundSettled {
+    pub gateway: Pubkey,
     pub job_id: [u8; 32],
     pub timestamp: u64,
-    pub gateway_index: u32,
     pub credited_bitmap: [u8; 32],
     pub credited_count: u32,
     pub reward_per_signature: u64,

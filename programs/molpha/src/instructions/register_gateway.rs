@@ -38,13 +38,9 @@ pub fn register_gateway(ctx: Context<RegisterGateway>, args: RegisterGatewayArgs
     )?;
 
     let now = Clock::get()?.unix_timestamp;
-    let config = &mut ctx.accounts.protocol_config;
-    let index = config.gateway_count;
-    config.gateway_count = config.gateway_count.saturating_add(1);
 
     let gateway = &mut ctx.accounts.gateway;
     gateway.authority = ctx.accounts.gateway_authority.key();
-    gateway.index = index;
     gateway.ip = args.ip;
     gateway.port = args.port;
     gateway.bond = args.bond_amount;
@@ -56,7 +52,6 @@ pub fn register_gateway(ctx: Context<RegisterGateway>, args: RegisterGatewayArgs
 
     emit!(GatewayRegistered {
         authority: gateway.authority,
-        index,
         ip: gateway.ip,
         port: gateway.port,
         bond: args.bond_amount,

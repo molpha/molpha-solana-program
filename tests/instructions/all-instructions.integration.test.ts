@@ -214,43 +214,11 @@ describe("Molpha instruction coverage integration", () => {
     const now = Number(clock.unixTimestamp);
     assert.isAbove(Number(subscription.validUntil), now + SECONDS_PER_MONTH);
 
-    // 4) create_job
     const apiConfigHash = Uint8Array.from(Buffer.alloc(32, 7));
     const jobId = deriveJobId(ctx.authority.publicKey, apiConfigHash, 1);
-    const [jobPda] = PublicKey.findProgramAddressSync(
-      [JOB_SEED, Buffer.from(jobId)],
-      program.programId
-    );
     const [feedPda] = PublicKey.findProgramAddressSync(
       [FEED_SEED, Buffer.from(jobId)],
       program.programId
-    );
-
-    await program.methods
-      .createJob(
-        {
-          apiConfigHash: Array.from(apiConfigHash),
-          signaturesRequired: 1,
-          decimals: 8,
-        },
-        Array.from(jobId)
-      )
-      .accountsPartial({
-        creator: ctx.authority.publicKey,
-        jobOwner: ctx.authority.publicKey,
-        protocolConfig: protocolConfigPda,
-        plan: planPda,
-        job: jobPda,
-        subscription: subscriptionPda,
-        delegate: null,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    const createdJob = await program.account.job.fetch(jobPda);
-    assert.equal(
-      createdJob.owner.toBase58(),
-      ctx.authority.publicKey.toBase58()
     );
 
     // 5) add_delegate + remove_delegate
