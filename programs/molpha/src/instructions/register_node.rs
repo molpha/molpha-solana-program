@@ -4,7 +4,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::{
     error::MolphaError,
     events::NodeRegistered,
-    state::{Node, ProtocolConfig, RegistryIndex, RegistryState},
+    state::{Node, NodeOperator, ProtocolConfig, RegistryState},
     utils::registry::verify_pop_stub,
 };
 
@@ -70,23 +70,23 @@ pub fn register_node(
         args.security_deposit,
     )?;
 
-    let node_key = ctx.accounts.node.key();
-    ctx.accounts.node.init(
-        ctx.accounts.node_owner.key(),
+    let owner_key = ctx.accounts.node_owner.key();
+    ctx.accounts.node_operator.init(
+        owner_key,
         args.new_index,
         args.ip,
         args.port,
         args.security_deposit,
         now,
-        ctx.bumps.node,
+        ctx.bumps.node_operator,
     );
 
-    ctx.accounts.registry_index.init(
+    ctx.accounts.node.init(
         args.new_index,
-        node_key,
+        owner_key,
         args.pub_key_x,
         args.pub_key_y,
-        ctx.bumps.registry_index,
+        ctx.bumps.node,
     );
 
     registry.record_add_transition(now);
@@ -129,23 +129,23 @@ pub struct RegisterNode<'info> {
     #[account(
         init,
         payer = node_owner,
-        space = Node::SPACE,
-        seeds = [Node::SEED_PREFIX, node_owner.key().as_ref()],
+        space = NodeOperator::SPACE,
+        seeds = [NodeOperator::SEED_PREFIX, node_owner.key().as_ref()],
         bump
     )]
-    pub node: Box<Account<'info, Node>>,
+    pub node_operator: Box<Account<'info, NodeOperator>>,
 
     #[account(
         init,
         payer = node_owner,
-        space = RegistryIndex::SPACE,
+        space = Node::SPACE,
         seeds = [
-            RegistryIndex::SEED_PREFIX,
+            Node::SEED_PREFIX,
             args.new_index.to_le_bytes().as_ref(),
         ],
         bump
     )]
-    pub registry_index: Box<Account<'info, RegistryIndex>>,
+    pub node: Box<Account<'info, Node>>,
 
     #[account(
         constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidOwnerUsdc

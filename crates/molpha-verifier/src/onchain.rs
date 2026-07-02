@@ -2,17 +2,17 @@
 //!
 //! These helpers are framework-agnostic: the caller is responsible for reading its registry
 //! accounts (owner checks, deserialization) and passing the plain [`RegistryView`] and
-//! [`RegistryIndexEntry`] slice. All Anchor / framework coupling stays in the downstream program.
+//! [`NodeEntry`] slice. All Anchor / framework coupling stays in the downstream program.
 
 use crate::{
     bitmap::{bitmap_load, for_each_set_bit_u256},
     secp256k1_scalar_is_valid_nonzero, verify_aggregate_over_hash, verify_data_update, DataUpdate,
-    DataUpdateError, RegistryIndexEntry, RegistryTransitionType, RegistryView, SignerXy,
+    DataUpdateError, NodeEntry, RegistryTransitionType, RegistryView, SignerXy,
     VIRTUAL_INDEX,
 };
 
 #[inline(always)]
-pub fn expected_registry_index(
+pub fn expected_node_index(
     bit_pos: u32,
     registry: &RegistryView,
     apply_remove_remap: bool,
@@ -49,7 +49,7 @@ pub fn validate_remove_transition_for_previous(
 /// `entries` must contain exactly one entry per set bit, in the same order the caller iterated its
 /// signer accounts, and each entry must already be owner-checked against the program.
 pub fn resolve_ordered_signers(
-    entries: &[RegistryIndexEntry],
+    entries: &[NodeEntry],
     registry: &RegistryView,
     registry_version: u32,
     signers_bitmap: &[u8; 32],
@@ -89,7 +89,7 @@ pub fn resolve_ordered_signers(
             .ok_or(DataUpdateError::MissingSignerAccount)?;
         entry_cursor = entry_cursor.saturating_add(1);
 
-        let expected_index = expected_registry_index(bit_pos as u32, registry, apply_remove_remap);
+        let expected_index = expected_node_index(bit_pos as u32, registry, apply_remove_remap);
         if entry.index != expected_index {
             return Err(DataUpdateError::InvalidNodeIndex);
         }
@@ -109,7 +109,7 @@ pub fn verify_data_update_resolved(
     registry: &RegistryView,
     redundancy_buffer: u8,
     now: i64,
-    entries: &[RegistryIndexEntry],
+    entries: &[NodeEntry],
 ) -> Result<(), DataUpdateError> {
     let (node_count, ordered) = resolve_ordered_signers(
         entries,
@@ -130,7 +130,7 @@ pub fn verify_aggregate_over_hash_resolved(
     commitment_addr: &[u8; 20],
     message_hash: &[u8; 32],
     now: i64,
-    entries: &[RegistryIndexEntry],
+    entries: &[NodeEntry],
 ) -> Result<bool, DataUpdateError> {
     if !secp256k1_scalar_is_valid_nonzero(agg_sig_s) {
         return Ok(false);
@@ -158,26 +158,26 @@ mod tests {
     }
 
     #[test]
-    fn expected_registry_index_remove_swap_remaps_removed_and_moved() {
+    fn expected_node_index_remove_swap_remaps_removed_and_moved() {
         let registry = remove_swap_registry();
-        assert_eq!(expected_registry_index(1, &registry, true), VIRTUAL_INDEX);
-        assert_eq!(expected_registry_index(3, &registry, true), 1);
-        assert_eq!(expected_registry_index(0, &registry, true), 0);
+        assert_eq!(expected_node_index(1, &registry, true), VIRTUAL_INDEX);
+        assert_eq!(expected_node_index(3, &registry, true), 1);
+        assert_eq!(expected_node_index(0, &registry, true), 0);
     }
 
     #[test]
-    fn expected_registry_index_remove_tail_remaps_removed_only() {
+    fn expected_node_index_remove_tail_remaps_removed_only() {
         let mut registry = remove_swap_registry();
         registry.last_transition_type = RegistryTransitionType::RemoveTail;
         registry.removed_old_index = 2;
         registry.moved_old_index = VIRTUAL_INDEX;
-        assert_eq!(expected_registry_index(2, &registry, true), VIRTUAL_INDEX);
-        assert_eq!(expected_registry_index(0, &registry, true), 0);
+        assert_eq!(expected_node_index(2, &registry, true), VIRTUAL_INDEX);
+        assert_eq!(expected_node_index(0, &registry, true), 0);
     }
 
     #[test]
-    fn expected_registry_index_without_remove_remap_is_identity() {
+    fn expected_node_index_without_remove_remap_is_identity() {
         let registry = remove_swap_registry();
-        assert_eq!(expected_registry_index(4, &registry, false), 4);
+        assert_eq!(expected_node_index(4, &registry, false), 4);
     }
 }

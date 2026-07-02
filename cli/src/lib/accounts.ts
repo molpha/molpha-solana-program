@@ -1,6 +1,6 @@
 import { BN, Program } from "@coral-xyz/anchor";
 import { AccountMeta, PublicKey } from "@solana/web3.js";
-import { findVirtualRegistryIndexPda } from "./pdas";
+import { findVirtualNodePda } from "./pdas";
 import { normalizeForJson } from "./utils";
 
 export type RegistryTransitionKind =
@@ -111,24 +111,22 @@ export async function finalizeTransitionAccounts(
   program: Program,
   registryState: any
 ): Promise<{
-  virtualRegistryIndex: PublicKey | null;
+  virtualNode: PublicKey | null;
 }> {
   const transitionKind = registryTransitionKind(
     registryState.lastTransitionType
   );
   if (transitionKind === "removeTail" || transitionKind === "removeSwap") {
-    const virtualRegistryIndex = findVirtualRegistryIndexPda(
-      program.programId
-    )[0];
+    const virtualNode = findVirtualNodePda(program.programId)[0];
     return {
-      virtualRegistryIndex: (await accountExists(program, virtualRegistryIndex))
-        ? virtualRegistryIndex
+      virtualNode: (await accountExists(program, virtualNode))
+        ? virtualNode
         : null,
     };
   }
 
   return {
-    virtualRegistryIndex: null,
+    virtualNode: null,
   };
 }
 

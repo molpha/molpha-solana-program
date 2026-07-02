@@ -16,7 +16,7 @@ use crate::{
     events::RoundSettled,
     state::{
         hash_agg_sig, hash_request_auth_fields, AggregatedSig, Delegate, Gateway, Node, Plan,
-        ProtocolConfig, RegistryIndex, RegistryState, RoundReceiptRecord, Subscription,
+        ProtocolConfig, RegistryState, RoundReceiptRecord, Subscription,
     },
     utils::{
         bitmap::{bitmap_load, for_each_set_bit_u256},
@@ -125,41 +125,26 @@ pub fn settle_round_receipt<'info>(
     let program_id = ctx.program_id;
 
     require!(
-        ctx.remaining_accounts.len() == credited_count as usize * 2,
+        ctx.remaining_accounts.len() == credited_count as usize,
         MolphaError::InvalidCreditNodeAccount
     );
 
     let mut cursor = 0usize;
     for_each_set_bit_u256(credited, |bit_pos| {
-        let registry_index_ai = ctx
+        let node_ai = ctx
             .remaining_accounts
             .get(cursor)
             .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-        let node_ai = ctx
-            .remaining_accounts
-            .get(cursor + 1)
-            .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-        cursor += 2;
+        cursor += 1;
 
         require!(
-            registry_index_ai.owner == program_id,
+            node_ai.owner == program_id,
             MolphaError::InvalidCreditNodeAccount
         );
-        let registry_index = {
-            let data = registry_index_ai.try_borrow_data()?;
-            RegistryIndex::try_deserialize(&mut &data[..])?
-        };
-        // Settlement is current-version-only, so the bit position is the slot index directly.
-        require!(
-            registry_index.index == bit_pos as u32,
-            MolphaError::InvalidNodeIndex
-        );
-
         let mut node: Account<Node> = Account::try_from(node_ai)?;
-        require!(
-            node.key() == registry_index.node,
-            MolphaError::InvalidCreditNodeAccount
-        );
+        // Settlement is current-version-only, so the bit position is the slot index directly.
+        require!(node.index == bit_pos as u32, MolphaError::InvalidNodeIndex);
+
         node.pending_rewards = node
             .pending_rewards
             .checked_add(reward_per_signature)

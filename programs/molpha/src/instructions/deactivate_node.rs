@@ -5,7 +5,7 @@ use crate::{
     error::MolphaError,
     events::NodeDeactivated,
     state::{
-        Node, NodeStatus, ProtocolConfig, RegistryIndex, RegistryState, RegistryTransitionType,
+        Node, NodeOperator, NodeStatus, ProtocolConfig, RegistryState, RegistryTransitionType,
         VIRTUAL_INDEX,
     },
 };
@@ -21,111 +21,132 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
         MolphaError::TransitionStillInGrace
     );
 
-    let removed_node = &mut ctx.accounts.removed_node;
+    let removed_operator = &mut ctx.accounts.removed_operator;
 
     require!(
-        removed_node.status == NodeStatus::Active,
+        removed_operator.status == NodeStatus::Active,
         MolphaError::NodeNotActive
     );
     require!(
-        ctx.accounts.authority.key() == removed_node.owner
+        ctx.accounts.authority.key() == removed_operator.owner
             || ctx.accounts.authority.key() == registry.authority,
         MolphaError::UnauthorizedNodeAuthority
     );
 
-    let removed_index = removed_node.current_index;
+    let removed_index = removed_operator.current_index;
     let last_index = registry.current_node_count.saturating_sub(1);
     require!(
         removed_index < registry.current_node_count,
         MolphaError::InvalidNodeIndex
     );
 
-    let removed_index_account = &mut ctx.accounts.removed_index_account;
+    let removed_node = &mut ctx.accounts.removed_node;
     require!(
-        removed_index_account.index == removed_index
-            && removed_index_account.node == removed_node.key(),
-        MolphaError::InvalidRegistryIndexAccount
+        removed_node.index == removed_index && removed_node.owner == removed_operator.owner,
+        MolphaError::InvalidNodeAccount
     );
+
+    // The deactivating node's identity *and* reward balances move to the virtual slot, so a
+    // grace-window `finalize_round` can still promote its in-flight pending rounds.
+    ctx.accounts.virtual_node.init(
+        VIRTUAL_INDEX,
+        removed_node.owner,
+        removed_node.secp256k1_pubkey_x,
+        removed_node.secp256k1_pubkey_y,
+        ctx.bumps.virtual_node,
+    );
+    ctx.accounts.virtual_node.pending_rewards = removed_node.pending_rewards;
+    ctx.accounts.virtual_node.claimable_rewards = removed_node.claimable_rewards;
 
     let old_version = registry.current_version;
     let transition_type;
     let mut moved_node = Pubkey::default();
     let mut moved_old_index = VIRTUAL_INDEX;
 
-    ctx.accounts.virtual_registry_index.init(
-        VIRTUAL_INDEX,
-        removed_index_account.node,
-        removed_index_account.secp256k1_pubkey_x,
-        removed_index_account.secp256k1_pubkey_y,
-        ctx.bumps.virtual_registry_index,
-    );
-
     if removed_index == last_index {
-        removed_index_account.close(ctx.accounts.rent_receiver.to_account_info())?;
+        // Tail removal: nothing shifts. Rewards already copied to the virtual slot above; close
+        // the freed slot account.
+        removed_node.close(ctx.accounts.rent_receiver.to_account_info())?;
         transition_type = RegistryTransitionType::RemoveTail;
     } else {
-        let last_index_info = &ctx.accounts.last_index_account;
+        // Swap removal: the last-slot node moves into the freed slot, carrying its rewards.
+        let last_node_info = &ctx.accounts.last_node;
         require!(
-            last_index_info.owner == ctx.program_id,
-            MolphaError::InvalidRegistryIndexAccount
+            last_node_info.owner == ctx.program_id,
+            MolphaError::InvalidNodeAccount
         );
-        let expected_last_index = Pubkey::find_program_address(
-            &[RegistryIndex::SEED_PREFIX, &last_index.to_le_bytes()],
+        let expected_last = Pubkey::find_program_address(
+            &[Node::SEED_PREFIX, &last_index.to_le_bytes()],
             ctx.program_id,
         )
         .0;
         require_keys_eq!(
-            last_index_info.key(),
-            expected_last_index,
-            MolphaError::InvalidRegistryIndexAccount
+            last_node_info.key(),
+            expected_last,
+            MolphaError::InvalidNodeAccount
         );
 
-        let (last_node, last_pubkey_x, last_pubkey_y) = {
-            let last_index_data = last_index_info.try_borrow_data()?;
-            let last_index_account = RegistryIndex::try_deserialize(&mut &last_index_data[..])
-                .map_err(|_| error!(MolphaError::InvalidRegistryIndexAccount))?;
+        let (moved_owner, moved_x, moved_y, moved_pending, moved_claimable) = {
+            let data = last_node_info.try_borrow_data()?;
+            let last_node = Node::try_deserialize(&mut &data[..])
+                .map_err(|_| error!(MolphaError::InvalidNodeAccount))?;
             require!(
-                last_index_account.index == last_index,
+                last_node.index == last_index,
                 MolphaError::InvalidNodeIndex
             );
             (
-                last_index_account.node,
-                last_index_account.secp256k1_pubkey_x,
-                last_index_account.secp256k1_pubkey_y,
+                last_node.owner,
+                last_node.secp256k1_pubkey_x,
+                last_node.secp256k1_pubkey_y,
+                last_node.pending_rewards,
+                last_node.claimable_rewards,
             )
         };
 
-        moved_node = last_node;
         moved_old_index = last_index;
 
-        require!(
-            ctx.accounts.moved_node.key() == moved_node,
+        // The supplied moved operator must be the one owning the last-slot node.
+        let expected_moved_operator = Pubkey::find_program_address(
+            &[NodeOperator::SEED_PREFIX, moved_owner.as_ref()],
+            ctx.program_id,
+        )
+        .0;
+        require_keys_eq!(
+            ctx.accounts.moved_operator.key(),
+            expected_moved_operator,
             MolphaError::MovedNodeMismatch
         );
+        moved_node = ctx.accounts.moved_operator.key();
 
-        removed_index_account.node = moved_node;
-        removed_index_account.secp256k1_pubkey_x = last_pubkey_x;
-        removed_index_account.secp256k1_pubkey_y = last_pubkey_y;
+        // Rewrite the freed slot to represent the moved node (identity + rewards). `index` stays
+        // `removed_index` — the slot it now occupies.
+        removed_node.owner = moved_owner;
+        removed_node.secp256k1_pubkey_x = moved_x;
+        removed_node.secp256k1_pubkey_y = moved_y;
+        removed_node.pending_rewards = moved_pending;
+        removed_node.claimable_rewards = moved_claimable;
 
         close_account_info(
-            last_index_info,
+            last_node_info,
             &ctx.accounts.rent_receiver.to_account_info(),
         )?;
+
+        // Point the moved operator at its new slot.
         {
-            let mut data = ctx.accounts.moved_node.try_borrow_mut_data()?;
-            let mut node = Node::try_deserialize(&mut &data[..])
+            let mut data = ctx.accounts.moved_operator.try_borrow_mut_data()?;
+            let mut operator = NodeOperator::try_deserialize(&mut &data[..])
                 .map_err(|_| error!(MolphaError::MovedNodeMismatch))?;
-            node.current_index = removed_index;
+            operator.current_index = removed_index;
             let mut writer: &mut [u8] = &mut data;
-            node.try_serialize(&mut writer)?;
+            operator.try_serialize(&mut writer)?;
         }
         transition_type = RegistryTransitionType::RemoveSwap;
     }
 
-    removed_node.current_index = VIRTUAL_INDEX;
-    removed_node.status = NodeStatus::Deactivated;
-    removed_node.deactivated_at = now;
-    removed_node.withdrawable_at = now.saturating_add(config.withdrawal_cooldown_secs);
+    removed_operator.current_index = VIRTUAL_INDEX;
+    removed_operator.status = NodeStatus::Deactivated;
+    removed_operator.deactivated_at = now;
+    removed_operator.withdrawable_at = now.saturating_add(config.withdrawal_cooldown_secs);
 
     registry.previous_version = old_version;
     registry.previous_node_count = registry.current_node_count;
@@ -134,12 +155,12 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
     registry.current_node_count = registry.current_node_count.saturating_sub(1);
     registry.last_transition_type = transition_type;
     registry.removed_old_index = removed_index;
-    registry.removed_node = removed_node.key();
+    registry.removed_node = removed_operator.key();
     registry.moved_old_index = moved_old_index;
     registry.moved_node = moved_node;
 
     emit!(NodeDeactivated {
-        owner: removed_node.owner,
+        owner: removed_operator.owner,
         removed_index,
         moved_node,
         moved_old_index_or_virtual: moved_old_index,
@@ -170,42 +191,42 @@ pub struct DeactivateNode<'info> {
 
     #[account(
         mut,
-        seeds = [Node::SEED_PREFIX, authority.key().as_ref()],
+        seeds = [NodeOperator::SEED_PREFIX, authority.key().as_ref()],
+        bump = removed_operator.bump,
+    )]
+    pub removed_operator: Account<'info, NodeOperator>,
+
+    #[account(
+        mut,
+        seeds = [
+            Node::SEED_PREFIX,
+            removed_operator.current_index.to_le_bytes().as_ref(),
+        ],
         bump = removed_node.bump,
     )]
     pub removed_node: Account<'info, Node>,
 
     #[account(
-        mut,
-        seeds = [
-            RegistryIndex::SEED_PREFIX,
-            removed_node.current_index.to_le_bytes().as_ref(),
-        ],
-        bump = removed_index_account.bump,
-    )]
-    pub removed_index_account: Account<'info, RegistryIndex>,
-
-    #[account(
         init,
         payer = authority,
-        space = RegistryIndex::SPACE,
+        space = Node::SPACE,
         seeds = [
-            RegistryIndex::SEED_PREFIX,
+            Node::SEED_PREFIX,
             VIRTUAL_INDEX.to_le_bytes().as_ref(),
         ],
         bump,
     )]
-    pub virtual_registry_index: Account<'info, RegistryIndex>,
+    pub virtual_node: Account<'info, Node>,
 
-    /// CHECK: swap-remove only; pass system program for tail removal.
+    /// CHECK: swap-remove only (the last-slot `Node`); pass system program for tail removal.
     #[account(mut)]
-    pub last_index_account: UncheckedAccount<'info>,
+    pub last_node: UncheckedAccount<'info>,
 
-    /// CHECK: swap-remove only; pass system program for tail removal.
+    /// CHECK: swap-remove only (the moved node's `NodeOperator`); pass system program for tail removal.
     #[account(mut)]
-    pub moved_node: UncheckedAccount<'info>,
+    pub moved_operator: UncheckedAccount<'info>,
 
-    /// CHECK: receives reclaimed rent from closed index accounts.
+    /// CHECK: receives reclaimed rent from closed slot accounts.
     #[account(mut)]
     pub rent_receiver: UncheckedAccount<'info>,
 
