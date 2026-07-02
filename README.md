@@ -38,7 +38,7 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 ### Tooling
 
 - TypeScript **CLI** (`yarn molpha`) for init, registry, plans, jobs, delegates, and data flows
-- Scripts for local setup, node generation, CU benchmarks, and end-to-end job submission
+- Scripts for node generation, CU benchmarks, and end-to-end job submission
 
 ## Program structure
 
@@ -74,7 +74,7 @@ programs/
 
 ```
 cli/                                # TypeScript operator CLI
-scripts/                            # Setup, registration, benchmarks, e2e flows
+scripts/                            # Benchmarks, batch registration, e2e flows
 tests/                              # Jest + bankrun instruction tests
 ```
 
@@ -195,7 +195,7 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 | `yarn job-flow` | Subscribe → submit update (lazy job/feed init) |
 | `yarn cu:data-update:bankrun` | CU benchmark (bankrun) |
 
-Key scripts under `scripts/`: `initialize.js`, `generate-and-register-nodes.js`, `subscribe-create-job-submit.js`, `oracle-client.ts`, `pda-helpers.js`, and CU bench utilities.
+Key scripts under `scripts/`: `generate-and-register-nodes.js`, `subscribe-create-job-submit.js`, `oracle-client.ts`, and CU bench utilities. Use `yarn molpha` for all on-chain operations.
 
 ## Architecture
 

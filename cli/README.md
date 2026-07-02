@@ -121,5 +121,5 @@ yarn molpha account feed --job-id <JOB_ID_HEX>
 
 - The CLI uses the current v0.3 seeds (`molpha_config`, `molpha_registry`, `molpha_job`, `molpha_feed`, etc.).
 - Subscription top-ups, node deposits, and admin withdrawals all use the same protocol treasury ATA.
-- Legacy `scripts/*.js` are still present, but `yarn molpha` is the canonical operator interface now.
+- Use `yarn molpha` for all on-chain operations (init, registry, plans, subscriptions, jobs, account reads).
 - `data sign`, `data submit`, and `data verify` can also consume fixtures with `--fixture`.

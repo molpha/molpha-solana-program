@@ -274,9 +274,9 @@ function main() {
     console.log("");
     console.log("1. Register node with compressed public key:");
     console.log(
-      `   node scripts/add-node.js <NODE_PUBKEY> 0x${keypair.publicKeyCompressed.toString(
+      `   yarn molpha registry register --secp-pubkey 0x${keypair.publicKeyCompressed.toString(
         "hex"
-      )}`
+      )} --registration-salt <32_BYTE_HEX> --owner-usdc <ATA> --security-deposit <amount>`
     );
     console.log("");
     console.log("2. Compress an existing uncompressed public key:");
