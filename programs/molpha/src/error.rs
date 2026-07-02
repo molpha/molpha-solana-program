@@ -9,11 +9,11 @@ pub enum MolphaError {
     PreviousRegistryExpired,
     #[msg("Signer index outside node_count(version)")]
     InvalidNodeIndex,
-    #[msg("RegistryIndex does not match expected index/node")]
-    InvalidRegistryIndexAccount,
+    #[msg("Node account does not match expected index/owner")]
+    InvalidNodeAccount,
     #[msg("Previous-after-remove verification requires remove-transition metadata")]
     InvalidTransitionAccount,
-    #[msg("moved_node.node_id does not match last_index_account.node_id")]
+    #[msg("moved_operator does not match the last-slot node's owner")]
     MovedNodeMismatch,
     #[msg("new_index must equal registry.current_node_count")]
     InvalidNewIndex,

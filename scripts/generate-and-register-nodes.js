@@ -6,7 +6,7 @@
  *
  * Prerequisites:
  *   - `anchor build` (target/idl/molpha.json)
- *   - Protocol initialized (`yarn molpha init` or scripts/initialize.js)
+ *   - Protocol initialized (`yarn molpha init`)
  *   - Admin wallet funded (ANCHOR_WALLET): SOL + USDC for node deposits
  *
  * Usage:

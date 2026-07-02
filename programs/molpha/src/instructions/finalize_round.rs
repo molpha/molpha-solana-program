@@ -4,7 +4,7 @@
 //! moves each credited node's `reward_per_signature` (and the gateway's `gateway_fee`) from
 //! `pending_rewards` to `claimable_rewards`, after which `claim_*_rewards` may withdraw it.
 //!
-//! Credited nodes are re-identified through their `RegistryIndex` accounts (applying the
+//! Credited nodes are re-identified through their slot `Node` accounts (applying the
 //! previous-version-after-remove remap), so finalization must occur while the round's registry
 //! version is still current or in grace — consistent with the rest of the protocol.
 
@@ -14,8 +14,7 @@ use crate::{
     error::{map_data_update_err, MolphaError},
     events::RoundFinalized,
     state::{
-        Gateway, Node, ProtocolConfig, RegistryIndex, RegistryState, RegistryTransitionType,
-        RoundReceiptRecord,
+        Gateway, Node, ProtocolConfig, RegistryState, RegistryTransitionType, RoundReceiptRecord,
     },
     utils::bitmap::{bitmap_load, for_each_set_bit_u256},
 };
@@ -56,7 +55,7 @@ pub fn finalize_round<'info>(
     let credited = bitmap_load(&record.signers_bitmap);
     let credited_count = credited.count_ones();
     require!(
-        ctx.remaining_accounts.len() == credited_count as usize * 2,
+        ctx.remaining_accounts.len() == credited_count as usize,
         MolphaError::InvalidCreditNodeAccount
     );
 
@@ -65,39 +64,24 @@ pub fn finalize_round<'info>(
 
     let mut cursor = 0usize;
     for_each_set_bit_u256(credited, |bit_pos| {
-        let registry_index_ai = ctx
+        let node_ai = ctx
             .remaining_accounts
             .get(cursor)
             .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-        let node_ai = ctx
-            .remaining_accounts
-            .get(cursor + 1)
-            .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-        cursor += 2;
+        cursor += 1;
 
         require!(
-            registry_index_ai.owner == program_id,
+            node_ai.owner == program_id,
             MolphaError::InvalidCreditNodeAccount
         );
-        let registry_index = {
-            let data = registry_index_ai.try_borrow_data()?;
-            RegistryIndex::try_deserialize(&mut &data[..])?
-        };
-        let expected_index = molpha_verifier::expected_registry_index(
+        let mut node: Account<Node> = Account::try_from(node_ai)?;
+        let expected_index = molpha_verifier::expected_node_index(
             bit_pos as u32,
             &registry_view,
             apply_remove_remap,
         );
-        require!(
-            registry_index.index == expected_index,
-            MolphaError::InvalidNodeIndex
-        );
+        require!(node.index == expected_index, MolphaError::InvalidNodeIndex);
 
-        let mut node: Account<Node> = Account::try_from(node_ai)?;
-        require!(
-            node.key() == registry_index.node,
-            MolphaError::InvalidCreditNodeAccount
-        );
         node.pending_rewards = node
             .pending_rewards
             .checked_sub(reward)

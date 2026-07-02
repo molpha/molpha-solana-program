@@ -3,9 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     error::map_data_update_err,
     events::FeedUpdated,
-    state::{
-        collect_registry_index_entries, Feed, FeedInitParams, FeedUpdateParams, RegistryState,
-    },
+    state::{collect_node_entries, Feed, FeedInitParams, FeedUpdateParams, RegistryState},
 };
 use molpha_verifier::DataUpdate;
 
@@ -69,7 +67,7 @@ pub fn submit_data_update(
         });
     }
 
-    let entries = collect_registry_index_entries(ctx.remaining_accounts, ctx.program_id)?;
+    let entries = collect_node_entries(ctx.remaining_accounts, ctx.program_id)?;
     molpha_verifier::verify_data_update_resolved(
         &payload,
         &registry.view(),

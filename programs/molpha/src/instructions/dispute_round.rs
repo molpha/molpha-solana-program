@@ -18,8 +18,8 @@ use crate::{
     error::{map_data_update_err, MolphaError},
     events::RoundDisputed,
     state::{
-        collect_registry_index_entries, hash_agg_sig, AggregatedSig, Gateway, ProtocolConfig,
-        RegistryState, RoundReceiptRecord,
+        collect_node_entries, hash_agg_sig, AggregatedSig, Gateway, ProtocolConfig, RegistryState,
+        RoundReceiptRecord,
     },
     utils::bitmap::bitmap_is_subset,
 };
@@ -73,7 +73,7 @@ pub fn dispute_round<'info>(
     let is_valid_sig = if selection_mismatch {
         false
     } else {
-        let entries = collect_registry_index_entries(ctx.remaining_accounts, ctx.program_id)?;
+        let entries = collect_node_entries(ctx.remaining_accounts, ctx.program_id)?;
         molpha_verifier::verify_aggregate_over_hash_resolved(
             &ctx.accounts.registry_state.view(),
             record.registry_version,

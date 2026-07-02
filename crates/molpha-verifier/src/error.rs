@@ -27,7 +27,7 @@ pub enum DataUpdateError {
     InvalidRegistryVersion,
     /// A signer account is missing, extra, or owned by another program.
     MissingSignerAccount,
-    /// A `RegistryIndex` account does not match its expected bitmap index.
+    /// A `Node` account does not match its expected bitmap index.
     InvalidNodeIndex,
     /// Previous-version remove remapping was requested without valid transition metadata.
     InvalidTransitionAccount,

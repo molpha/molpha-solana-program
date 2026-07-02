@@ -17,7 +17,7 @@ use crate::scalar::{
 };
 use crate::selection::derive_selection_bitmap;
 
-/// Stored secp256k1 affine coordinates `(x, y)`, big-endian — as kept in a `RegistryIndex`.
+/// Stored secp256k1 affine coordinates `(x, y)`, big-endian — as kept in a `Node`.
 pub type SignerXy = ([u8; 32], [u8; 32]);
 
 /// Verify a full `DataUpdate` payload against caller-supplied signer pubkeys.

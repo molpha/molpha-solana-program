@@ -27,8 +27,10 @@ const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
 );
 
-const REGISTRY_INDEX_SEED = Buffer.from("molpha_registry_index");
+/** Slot-keyed registry/workflow account (`Node`), seeded by `u32` index. */
 const NODE_SEED = Buffer.from("molpha_node");
+/** Owner-keyed management account (`NodeOperator`). */
+const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
 
 /** Matches `VIRTUAL_INDEX` in `programs/molpha/src/state/node.rs`. */
 export const VIRTUAL_INDEX = 0xffffffff;
@@ -882,16 +884,19 @@ const VALID_POP_SIG_S = Uint8Array.from(
   Buffer.concat([Buffer.alloc(31, 0), Buffer.from([1])])
 );
 
-/** Node PDA: `["molpha_node", node_owner]`. */
-export function findNodePdaByOwner(
+/** NodeOperator PDA (management): `["molpha_node_operator", owner]`. */
+export function findNodeOperatorPda(
   programId: PublicKey,
   nodeOwner: PublicKey
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [NODE_SEED, nodeOwner.toBuffer()],
+    [NODE_OPERATOR_SEED, nodeOwner.toBuffer()],
     programId
   )[0];
 }
+
+/** @deprecated Renamed to `findNodeOperatorPda`. */
+export const findNodePdaByOwner = findNodeOperatorPda;
 
 /** Fund a node-owner keypair and its USDC ATA in bankrun for `register_node`. */
 export async function fundNodeOwnerInBankrun(
@@ -998,13 +1003,8 @@ export async function registerNodesForE2e(
 
     const registrationSalt = Uint8Array.from(Buffer.alloc(32, index + 1));
     const nodeId = deriveNodeId(nodeOwner, secpCompressed, registrationSalt);
-    const nodePda = findNodePdaByOwner(program.programId, nodeOwner);
-    const indexBytes = Buffer.alloc(4);
-    indexBytes.writeUInt32LE(index);
-    const [registryIndexPda] = PublicKey.findProgramAddressSync(
-      [REGISTRY_INDEX_SEED, indexBytes],
-      program.programId
-    );
+    const operatorPda = findNodeOperatorPda(program.programId, nodeOwner);
+    const nodePda = findNodePda(program.programId, index);
 
     const registerNodeArgs = buildRegisterNodeArgs({
       newIndex: index,
@@ -1019,8 +1019,8 @@ export async function registerNodesForE2e(
         nodeOwner,
         protocolConfig: accounts.protocolConfigPda,
         registryState: accounts.registryStatePda,
+        nodeOperator: operatorPda,
         node: nodePda,
-        registryIndex: registryIndexPda,
         usdcMint: accounts.usdcMint,
         ownerUsdc,
         treasury: accounts.treasury,
@@ -1038,7 +1038,8 @@ export async function registerNodesForE2e(
       .accountsPartial({
         registryState: accounts.registryStatePda,
         rentReceiver: ctx.authority.publicKey,
-        virtualRegistryIndex: null,
+        virtualNode: null,
+        nodeOperator: null,
       })
       .rpc();
   }
@@ -1158,17 +1159,18 @@ export function findEvmFeedPda(programId: PublicKey): PublicKey {
   return findFeedPda(programId, EVM_FIXTURE_JOB_ID);
 }
 
-export function findRegistryIndexPda(
-  programId: PublicKey,
-  index: number
-): PublicKey {
+/** Slot-keyed `Node` PDA: `["molpha_node", u32Le(index)]`. */
+export function findNodePda(programId: PublicKey, index: number): PublicKey {
   const indexBytes = Buffer.alloc(4);
   indexBytes.writeUInt32LE(index);
   return PublicKey.findProgramAddressSync(
-    [REGISTRY_INDEX_SEED, indexBytes],
+    [NODE_SEED, indexBytes],
     programId
   )[0];
 }
+
+/** @deprecated Renamed to `findNodePda` (the slot-keyed `Node`). */
+export const findRegistryIndexPda = findNodePda;
 
 export function evmBitmapBitSet(
   signersBitmap: number[] | Uint8Array,
@@ -1307,17 +1309,19 @@ export async function seedEvmRegistryIndices(
   for (let index = 0; index < signerCount; index++) {
     const compressed = EVM_FIXTURE_NODE_PUBKEYS[index];
     const { x, y } = decompressSecp256k1(compressed);
-    const registryIndexPda = findRegistryIndexPda(program.programId, index);
+    const nodePda = findNodePda(program.programId, index);
     const bump = PublicKey.findProgramAddressSync(
-      [REGISTRY_INDEX_SEED, Buffer.from(new Uint8Array([index, 0, 0, 0]))],
+      [NODE_SEED, Buffer.from(new Uint8Array([index, 0, 0, 0]))],
       program.programId
     )[1];
 
-    await setProgramAccount(ctx, program, registryIndexPda, "registryIndex", {
+    await setProgramAccount(ctx, program, nodePda, "node", {
       index,
-      node: PublicKey.unique(),
+      owner: PublicKey.unique(),
       secp256K1PubkeyX: Array.from(x),
       secp256K1PubkeyY: Array.from(y),
+      pendingRewards: new BN(0),
+      claimableRewards: new BN(0),
       bump,
     });
   }
@@ -1415,35 +1419,39 @@ export async function seedEvmRemoveSwapGraceState(
 
   const movedCompressed = EVM_FIXTURE_NODE_PUBKEYS[movedOldIndex];
   const { x: movedX, y: movedY } = decompressSecp256k1(movedCompressed);
-  const gapPda = findRegistryIndexPda(program.programId, removedOldIndex);
+  const gapPda = findNodePda(program.programId, removedOldIndex);
   const gapIndexBytes = Buffer.alloc(4);
   gapIndexBytes.writeUInt32LE(removedOldIndex);
   const gapBump = PublicKey.findProgramAddressSync(
-    [REGISTRY_INDEX_SEED, gapIndexBytes],
+    [NODE_SEED, gapIndexBytes],
     program.programId
   )[1];
-  await setProgramAccount(ctx, program, gapPda, "registryIndex", {
+  await setProgramAccount(ctx, program, gapPda, "node", {
     index: removedOldIndex,
-    node: PublicKey.unique(),
+    owner: PublicKey.unique(),
     secp256K1PubkeyX: Array.from(movedX),
     secp256K1PubkeyY: Array.from(movedY),
+    pendingRewards: new BN(0),
+    claimableRewards: new BN(0),
     bump: gapBump,
   });
 
   const removedCompressed = EVM_FIXTURE_NODE_PUBKEYS[removedOldIndex];
   const { x: removedX, y: removedY } = decompressSecp256k1(removedCompressed);
-  const virtualPda = findRegistryIndexPda(program.programId, VIRTUAL_INDEX);
+  const virtualPda = findNodePda(program.programId, VIRTUAL_INDEX);
   const virtualIndexBytes = Buffer.alloc(4);
   virtualIndexBytes.writeUInt32LE(VIRTUAL_INDEX);
   const virtualBump = PublicKey.findProgramAddressSync(
-    [REGISTRY_INDEX_SEED, virtualIndexBytes],
+    [NODE_SEED, virtualIndexBytes],
     program.programId
   )[1];
-  await setProgramAccount(ctx, program, virtualPda, "registryIndex", {
+  await setProgramAccount(ctx, program, virtualPda, "node", {
     index: VIRTUAL_INDEX,
-    node: PublicKey.unique(),
+    owner: PublicKey.unique(),
     secp256K1PubkeyX: Array.from(removedX),
     secp256K1PubkeyY: Array.from(removedY),
+    pendingRewards: new BN(0),
+    claimableRewards: new BN(0),
     bump: virtualBump,
   });
 }

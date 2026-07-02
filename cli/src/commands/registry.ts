@@ -13,11 +13,11 @@ import {
 import { getCliContext } from "../lib/client";
 import { deriveNodeId } from "../lib/ids";
 import {
+  findNodeOperatorPda,
   findNodePda,
   findProtocolConfigPda,
-  findRegistryIndexPda,
   findRegistryStatePda,
-  findVirtualRegistryIndexPda,
+  findVirtualNodePda,
 } from "../lib/pdas";
 import { buildRegisterNodeArgs } from "../lib/signing/register-node";
 import {
@@ -95,8 +95,11 @@ export function registerRegistryCommands(program: Command): void {
         secpPubkey,
         registrationSalt
       );
-      const [nodeAccount] = findNodePda(ctx.programId, nodeId);
-      const [registryIndex] = findRegistryIndexPda(ctx.programId, newIndex);
+      const [nodeOperator] = findNodeOperatorPda(
+        ctx.programId,
+        nodeOwner.publicKey
+      );
+      const [node] = findNodePda(ctx.programId, newIndex);
       const ownerUsdc = options.ownerUsdc
         ? parsePublicKey(options.ownerUsdc, "owner USDC account")
         : getAssociatedTokenAddressSync(
@@ -129,8 +132,8 @@ export function registerRegistryCommands(program: Command): void {
           nodeOwner: nodeOwner.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
-          nodeAccount,
-          registryIndex,
+          nodeOperator,
+          node,
           usdcMint: protocolConfig.usdcMint,
           ownerUsdc,
           treasury: protocolConfig.treasury,
@@ -147,16 +150,15 @@ export function registerRegistryCommands(program: Command): void {
         signature,
         nodeOwner: nodeOwner.publicKey.toBase58(),
         nodeId: `0x${Buffer.from(nodeId).toString("hex")}`,
-        nodeAccount: nodeAccount.toBase58(),
-        registryIndex: registryIndex.toBase58(),
+        nodeOperator: nodeOperator.toBase58(),
+        node: node.toBase58(),
       });
     });
 
   registry
     .command("deactivate")
-    .description("Deactivate a node")
-    .requiredOption("--node-id <hex>", "32-byte node id")
-    .action(async (options, command: Command) => {
+    .description("Deactivate the signer's node")
+    .action(async (_options, command: Command) => {
       const ctx = await getCliContext(command);
       const [registryStatePda] = findRegistryStatePda(ctx.programId);
       const registryState = await fetchAccountOrNull<any>(
@@ -168,57 +170,56 @@ export function registerRegistryCommands(program: Command): void {
         throw new Error("Registry state is not initialized");
       }
 
-      const nodeId = hexToBytes(options.nodeId, 32, "node id");
-      const [removedNode] = findNodePda(ctx.programId, nodeId);
-      const removedNodeAccount = await fetchAccountOrNull<any>(
-        ctx.program,
-        "nodeAccount",
-        removedNode
+      // `removed_operator` is seeded by the signer (the program requires
+      // authority == operator.owner), so derive it from the wallet.
+      const [removedOperator] = findNodeOperatorPda(
+        ctx.programId,
+        ctx.wallet.publicKey
       );
-      if (!removedNodeAccount) {
-        throw new Error(`Node not found at ${removedNode.toBase58()}`);
+      const operatorAccount = await fetchAccountOrNull<any>(
+        ctx.program,
+        "nodeOperator",
+        removedOperator
+      );
+      if (!operatorAccount) {
+        throw new Error(
+          `Node operator not found at ${removedOperator.toBase58()}`
+        );
       }
 
-      const removedIndex = Number(removedNodeAccount.currentIndex);
-      const [removedIndexAccount] = findRegistryIndexPda(
-        ctx.programId,
-        removedIndex
-      );
-      const [virtualRegistryIndex] = findVirtualRegistryIndexPda(ctx.programId);
+      const removedIndex = Number(operatorAccount.currentIndex);
+      const [removedNode] = findNodePda(ctx.programId, removedIndex);
+      const [virtualNode] = findVirtualNodePda(ctx.programId);
       const lastIndex = Math.max(Number(registryState.currentNodeCount) - 1, 0);
 
-      let lastIndexAccount = removedIndexAccount;
-      let movedNode = removedNode;
+      let lastNode = removedNode;
+      let movedOperator = removedOperator;
       if (removedIndex !== lastIndex) {
-        lastIndexAccount = findRegistryIndexPda(ctx.programId, lastIndex)[0];
-        const lastIndexData = await fetchAccountOrNull<any>(
+        lastNode = findNodePda(ctx.programId, lastIndex)[0];
+        const lastNodeData = await fetchAccountOrNull<any>(
           ctx.program,
-          "registryIndexAccount",
-          lastIndexAccount
+          "node",
+          lastNode
         );
-        if (!lastIndexData) {
-          throw new Error(
-            `Last registry index not found at ${lastIndexAccount.toBase58()}`
-          );
+        if (!lastNodeData) {
+          throw new Error(`Last node not found at ${lastNode.toBase58()}`);
         }
-        movedNode = findNodePda(
+        movedOperator = findNodeOperatorPda(
           ctx.programId,
-          Uint8Array.from(lastIndexData.nodeId)
+          lastNodeData.owner
         )[0];
       }
 
       const signature = await (ctx.program.methods as any)
-        .deactivateNode({
-          removedNodeId: Array.from(nodeId),
-        })
+        .deactivateNode()
         .accountsPartial({
           authority: ctx.wallet.publicKey,
           registryState: registryStatePda,
+          removedOperator,
           removedNode,
-          removedIndexAccount,
-          virtualRegistryIndex,
-          lastIndexAccount,
-          movedNode,
+          virtualNode,
+          lastNode,
+          movedOperator,
           rentReceiver: ctx.wallet.publicKey,
           systemProgram: SystemProgram.programId,
         })
@@ -226,7 +227,7 @@ export function registerRegistryCommands(program: Command): void {
 
       writeJson({
         signature,
-        nodeId: `0x${Buffer.from(nodeId).toString("hex")}`,
+        removedOperator: removedOperator.toBase58(),
         removedNode: removedNode.toBase58(),
       });
     });
@@ -246,31 +247,43 @@ export function registerRegistryCommands(program: Command): void {
         throw new Error("Registry state is not initialized");
       }
 
-      const { virtualRegistryIndex } = await finalizeTransitionAccounts(
+      const { virtualNode } = await finalizeTransitionAccounts(
         ctx.program,
         registryState
       );
-      if (
-        virtualRegistryIndex &&
-        !(await accountExists(ctx.program, virtualRegistryIndex))
-      ) {
-        throw new Error(
-          `Virtual registry index not found at ${virtualRegistryIndex.toBase58()}`
+      if (virtualNode && !(await accountExists(ctx.program, virtualNode))) {
+        throw new Error(`Virtual node not found at ${virtualNode.toBase58()}`);
+      }
+
+      // The deactivated operator receives the virtual slot's residual rewards.
+      let nodeOperator = null;
+      if (virtualNode) {
+        const virtualNodeData = await fetchAccountOrNull<any>(
+          ctx.program,
+          "node",
+          virtualNode
         );
+        if (virtualNodeData) {
+          nodeOperator = findNodeOperatorPda(
+            ctx.programId,
+            virtualNodeData.owner
+          )[0];
+        }
       }
 
       const signature = await (ctx.program.methods as any)
         .finalizeRegistryTransition()
         .accountsPartial({
           registryState: registryStatePda,
-          virtualRegistryIndex,
+          virtualNode,
+          nodeOperator,
           rentReceiver: ctx.wallet.publicKey,
         })
         .rpc();
 
       writeJson({
         signature,
-        virtualRegistryIndex: virtualRegistryIndex?.toBase58() ?? null,
+        virtualNode: virtualNode?.toBase58() ?? null,
       });
     });
 }

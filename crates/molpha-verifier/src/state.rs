@@ -1,9 +1,9 @@
 //! Plain, framework-agnostic inputs to signer resolution.
 //!
-//! The canonical Molpha registry **account** types (`RegistryState`, `RegistryIndex`) live in the
+//! The canonical Molpha registry **account** types (`RegistryState`, `Node`) live in the
 //! downstream program — they are framework-specific (Anchor `#[account]`, Pinocchio, …). This crate
 //! only needs the handful of plain fields the resolver reads, so callers pass a [`RegistryView`] and
-//! a slice of already-parsed [`RegistryIndexEntry`]s.
+//! a slice of already-parsed [`NodeEntry`]s.
 
 /// Sentinel index for a removed/virtual registry slot (mirrors the program constant).
 pub const VIRTUAL_INDEX: u32 = u32::MAX;
@@ -47,9 +47,9 @@ impl RegistryView {
 /// A single signer's registry entry, already parsed and owner-checked by the caller.
 ///
 /// `x` / `y` are the node's secp256k1 public-key affine coordinates (big-endian), as stored in the
-/// program's `RegistryIndex` account.
+/// program's `Node` account.
 #[derive(Clone, Copy, Debug)]
-pub struct RegistryIndexEntry {
+pub struct NodeEntry {
     pub index: u32,
     pub x: [u8; 32],
     pub y: [u8; 32],

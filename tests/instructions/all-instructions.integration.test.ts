@@ -13,7 +13,8 @@ import {
   buildRegisterNodeArgs,
   deriveNodeId,
   EVM_FIXTURE_NODE_PUBKEYS,
-  findNodePdaByOwner,
+  findNodeOperatorPda,
+  findNodePda,
   fundNodeOwnerInBankrun,
   registerNodesForE2e,
   getProtocolTreasury,
@@ -26,7 +27,6 @@ const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
 const DELEGATE_SEED = Buffer.from("molpha_delegate");
-const REGISTRY_INDEX_SEED = Buffer.from("molpha_registry_index");
 
 const JOB_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
 const SECONDS_PER_MONTH = 30 * 24 * 60 * 60;
@@ -344,7 +344,7 @@ describe("Molpha instruction coverage integration", () => {
       extraCompressed,
       extraSalt
     );
-    const extraNodePda = findNodePdaByOwner(
+    const extraOperatorPda = findNodeOperatorPda(
       program.programId,
       capNodeOwner.publicKey
     );
@@ -353,12 +353,7 @@ describe("Molpha instruction coverage integration", () => {
       capNodeOwner,
       ctx.underlyingTokenMint
     );
-    const fullIndexBytes = Buffer.alloc(4);
-    fullIndexBytes.writeUInt32LE(8);
-    const [registryIndexPda] = PublicKey.findProgramAddressSync(
-      [REGISTRY_INDEX_SEED, fullIndexBytes],
-      program.programId
-    );
+    const extraNodePda = findNodePda(program.programId, 8);
 
     try {
       await program.methods
@@ -375,8 +370,8 @@ describe("Molpha instruction coverage integration", () => {
           nodeOwner: capNodeOwner.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
+          nodeOperator: extraOperatorPda,
           node: extraNodePda,
-          registryIndex: registryIndexPda,
           usdcMint: ctx.underlyingTokenMint,
           ownerUsdc: capOwnerUsdc,
           treasury,
@@ -410,7 +405,7 @@ describe("Molpha instruction coverage integration", () => {
         .rpc();
       assert.fail("deactivate_node should fail without registered node");
     } catch (error: any) {
-      assert.include(String(error), "Account");
+      assert.match(String(error), /account/i);
     }
 
     const registryAfterFlow = await program.account.registryState.fetch(

@@ -5,7 +5,7 @@ import * as secp256k1 from "@noble/secp256k1";
 import { Point } from "@noble/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
 import { RemoveTransitionInfo } from "../accounts";
-import { findRegistryIndexPda } from "../pdas";
+import { findNodePda } from "../pdas";
 import { bytesToHex, hexToBytes, parseBigIntString } from "../utils";
 import { VerifyDataUpdateFixture } from "./fixtures";
 
@@ -468,7 +468,7 @@ export function signerRemainingAccounts(
 
     const effectiveIndex = expectedRegistryIndex(bit, transition);
     remaining.push({
-      pubkey: findRegistryIndexPda(programId, effectiveIndex)[0],
+      pubkey: findNodePda(programId, effectiveIndex)[0],
       isSigner: false,
       isWritable: false,
     });

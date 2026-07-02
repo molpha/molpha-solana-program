@@ -3,8 +3,10 @@ import { u32Le } from "./utils";
 
 export const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 export const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
-export const REGISTRY_INDEX_SEED = Buffer.from("molpha_registry_index");
+/** Slot-keyed registry/workflow account (`Node`). */
 export const NODE_SEED = Buffer.from("molpha_node");
+/** Owner-keyed management account (`NodeOperator`). */
+export const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
 export const PLAN_SEED = Buffer.from("molpha_plan");
 export const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 export const JOB_SEED = Buffer.from("molpha_job");
@@ -24,28 +26,25 @@ export function findRegistryStatePda(
   return PublicKey.findProgramAddressSync([REGISTRY_STATE_SEED], programId);
 }
 
-export function findRegistryIndexPda(
+/** Slot-keyed `Node` account (the per-round workflow account). */
+export function findNodePda(
   programId: PublicKey,
   index: number
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [REGISTRY_INDEX_SEED, u32Le(index)],
-    programId
-  );
+  return PublicKey.findProgramAddressSync([NODE_SEED, u32Le(index)], programId);
 }
 
-export function findVirtualRegistryIndexPda(
-  programId: PublicKey
-): [PublicKey, number] {
-  return findRegistryIndexPda(programId, VIRTUAL_INDEX);
+export function findVirtualNodePda(programId: PublicKey): [PublicKey, number] {
+  return findNodePda(programId, VIRTUAL_INDEX);
 }
 
-export function findNodePda(
+/** Owner-keyed `NodeOperator` account (management/lifecycle). */
+export function findNodeOperatorPda(
   programId: PublicKey,
-  nodeId: Uint8Array
+  owner: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [NODE_SEED, Buffer.from(nodeId)],
+    [NODE_OPERATOR_SEED, owner.toBuffer()],
     programId
   );
 }

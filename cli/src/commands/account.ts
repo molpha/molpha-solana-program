@@ -4,10 +4,10 @@ import { getCliContext } from "../lib/client";
 import {
   findFeedPda,
   findJobPda,
+  findNodeOperatorPda,
   findNodePda,
   findPlanPda,
   findProtocolConfigPda,
-  findRegistryIndexPda,
   findRegistryStatePda,
   findSubscriptionPda,
 } from "../lib/pdas";
@@ -62,15 +62,34 @@ export function registerAccountCommands(program: Command): void {
 
   account
     .command("node")
-    .description("Fetch node account")
+    .description("Fetch slot-keyed node account")
     .option("--address <pubkey>", "node account address")
-    .option("--node-id <hex>", "32-byte node id")
+    .option("--index <number>", "registry slot index")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const address =
         options.address ??
-        findJobOrNodeAddress("node", ctx.programId, options.nodeId).toBase58();
-      await printNamedAccount(command, "nodeAccount", address);
+        findNodePda(
+          ctx.programId,
+          parseInteger(requireValue(options.index, "Missing --index"), "index")
+        )[0].toBase58();
+      await printNamedAccount(command, "node", address);
+    });
+
+  account
+    .command("node-operator")
+    .description("Fetch owner-keyed node operator account")
+    .option("--address <pubkey>", "node operator address")
+    .option("--owner <pubkey>", "node operator owner")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const address =
+        options.address ??
+        findNodeOperatorPda(
+          ctx.programId,
+          parsePublicKey(requireValue(options.owner, "Missing --owner"))
+        )[0].toBase58();
+      await printNamedAccount(command, "nodeOperator", address);
     });
 
   account
@@ -137,36 +156,17 @@ export function registerAccountCommands(program: Command): void {
         options.address ?? findFeedPda(ctx.programId, jobId)[0].toBase58();
       await printNamedAccount(command, "feed", address);
     });
-
-  account
-    .command("registry-index")
-    .description("Fetch registry index account")
-    .option("--address <pubkey>", "registry index address")
-    .option("--index <number>", "registry index")
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const address =
-        options.address ??
-        findRegistryIndexPda(
-          ctx.programId,
-          parseInteger(requireValue(options.index, "Missing --index"), "index")
-        )[0].toBase58();
-      await printNamedAccount(command, "registryIndexAccount", address);
-    });
 }
 
 function findJobOrNodeAddress(
-  kind: "job" | "node",
+  kind: "job",
   programId: ReturnType<typeof parsePublicKey>,
   idHex: string
 ) {
-  const label = kind === "job" ? "job" : "node";
   const bytes = hexToBytes(
-    requireValue(idHex, `Missing --${label}-id`),
+    requireValue(idHex, `Missing --${kind}-id`),
     32,
-    `${label} id`
+    `${kind} id`
   );
-  return kind === "job"
-    ? findJobPda(programId, bytes)[0]
-    : findNodePda(programId, bytes)[0];
+  return findJobPda(programId, bytes)[0];
 }
