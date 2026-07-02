@@ -90,10 +90,7 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
             let data = last_node_info.try_borrow_data()?;
             let last_node = Node::try_deserialize(&mut &data[..])
                 .map_err(|_| error!(MolphaError::InvalidNodeAccount))?;
-            require!(
-                last_node.index == last_index,
-                MolphaError::InvalidNodeIndex
-            );
+            require!(last_node.index == last_index, MolphaError::InvalidNodeIndex);
             (
                 last_node.owner,
                 last_node.secp256k1_pubkey_x,

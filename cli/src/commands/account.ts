@@ -163,6 +163,10 @@ function findJobOrNodeAddress(
   programId: ReturnType<typeof parsePublicKey>,
   idHex: string
 ) {
-  const bytes = hexToBytes(requireValue(idHex, `Missing --${kind}-id`), 32, `${kind} id`);
+  const bytes = hexToBytes(
+    requireValue(idHex, `Missing --${kind}-id`),
+    32,
+    `${kind} id`
+  );
   return findJobPda(programId, bytes)[0];
 }

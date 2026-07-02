@@ -1163,7 +1163,10 @@ export function findEvmFeedPda(programId: PublicKey): PublicKey {
 export function findNodePda(programId: PublicKey, index: number): PublicKey {
   const indexBytes = Buffer.alloc(4);
   indexBytes.writeUInt32LE(index);
-  return PublicKey.findProgramAddressSync([NODE_SEED, indexBytes], programId)[0];
+  return PublicKey.findProgramAddressSync(
+    [NODE_SEED, indexBytes],
+    programId
+  )[0];
 }
 
 /** @deprecated Renamed to `findNodePda` (the slot-keyed `Node`). */

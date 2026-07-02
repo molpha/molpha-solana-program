@@ -18,8 +18,8 @@ use crate::{
     error::{map_data_update_err, MolphaError},
     events::RoundDisputed,
     state::{
-        collect_node_entries, hash_agg_sig, AggregatedSig, Gateway, ProtocolConfig,
-        RegistryState, RoundReceiptRecord,
+        collect_node_entries, hash_agg_sig, AggregatedSig, Gateway, ProtocolConfig, RegistryState,
+        RoundReceiptRecord,
     },
     utils::bitmap::bitmap_is_subset,
 };

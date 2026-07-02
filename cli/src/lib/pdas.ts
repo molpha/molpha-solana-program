@@ -31,15 +31,10 @@ export function findNodePda(
   programId: PublicKey,
   index: number
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [NODE_SEED, u32Le(index)],
-    programId
-  );
+  return PublicKey.findProgramAddressSync([NODE_SEED, u32Le(index)], programId);
 }
 
-export function findVirtualNodePda(
-  programId: PublicKey
-): [PublicKey, number] {
+export function findVirtualNodePda(programId: PublicKey): [PublicKey, number] {
   return findNodePda(programId, VIRTUAL_INDEX);
 }
 

@@ -7,16 +7,11 @@
 use crate::{
     bitmap::{bitmap_load, for_each_set_bit_u256},
     secp256k1_scalar_is_valid_nonzero, verify_aggregate_over_hash, verify_data_update, DataUpdate,
-    DataUpdateError, NodeEntry, RegistryTransitionType, RegistryView, SignerXy,
-    VIRTUAL_INDEX,
+    DataUpdateError, NodeEntry, RegistryTransitionType, RegistryView, SignerXy, VIRTUAL_INDEX,
 };
 
 #[inline(always)]
-pub fn expected_node_index(
-    bit_pos: u32,
-    registry: &RegistryView,
-    apply_remove_remap: bool,
-) -> u32 {
+pub fn expected_node_index(bit_pos: u32, registry: &RegistryView, apply_remove_remap: bool) -> u32 {
     if !apply_remove_remap {
         return bit_pos;
     }
