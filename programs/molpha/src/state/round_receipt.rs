@@ -1,11 +1,23 @@
 use anchor_lang::prelude::*;
 
-/// Per-round settlement record (one per `(job_id, timestamp)`).
+/// Subscription round settled by `settle_round_receipt`; seed `["molpha_round", job_id, ts_le]`.
+pub const RECORD_KIND_SUBSCRIPTION: u8 = 0;
+/// Agent `FreshRound` settled by `settle_agent_round`; dispute-exposed like a subscription round.
+pub const RECORD_KIND_AGENT_FRESH: u8 = 1;
+/// Agent `CachedRead` settled by `settle_agent_round`; born finalized, never disputable.
+pub const RECORD_KIND_AGENT_CACHED: u8 = 2;
+
+/// Per-round settlement record.
 ///
-/// Created optimistically by `settle_round_receipt` without verifying the committed
-/// `AggregatedSig`. Settlement also commits the exact data-update message hash used for any
-/// future dispute verification. Credits become withdrawable once `finalized == true`
+/// One per `(job_id, timestamp)` for subscription rounds, one per `(agent, request_nonce)`
+/// for agent rounds (seed `AGENT_SEED_PREFIX`). Created optimistically without verifying the
+/// committed `AggregatedSig`. Settlement also commits the exact data-update message hash used
+/// for any future dispute verification. Credits become withdrawable once `finalized == true`
 /// (after the dispute window) via `finalize_round`.
+///
+/// `finalize_round` / `dispute_round` accept both variants: they validate the account by
+/// owner + discriminator and trust stored contents (only the two settle instructions can
+/// create records, and both write complete state).
 #[account]
 #[derive(InitSpace)]
 pub struct RoundReceiptRecord {
@@ -24,10 +36,25 @@ pub struct RoundReceiptRecord {
     pub finalized: bool,
     /// Successfully disputed — credits are voided and never finalize.
     pub voided: bool,
+    /// `RECORD_KIND_*` discriminant.
+    pub kind: u8,
+    /// Agent escrow PDA (`UsdcEscrow` rail) or gateway-assigned payer identity (`X402`).
+    /// `Pubkey::default()` for subscription rounds.
+    pub agent: Pubkey,
+    /// Agent replay nonce; 0 for subscription rounds.
+    pub request_nonce: u64,
+    /// `PaymentRail` as u8; 0 for subscription rounds.
+    pub rail: u8,
+    /// On-chain computed round price charged at settlement; 0 for subscription rounds.
+    pub price: u64,
+    /// External-rail settlement reference (e.g. `H(x402 settlement)`); zeroed otherwise.
+    pub payment_ref: [u8; 32],
     pub bump: u8,
 }
 
 impl RoundReceiptRecord {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_round";
+    /// Agent-round records: `[AGENT_SEED_PREFIX, agent, request_nonce_le]`.
+    pub const AGENT_SEED_PREFIX: &'static [u8] = b"molpha_agent_round";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 }

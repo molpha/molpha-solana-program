@@ -176,6 +176,13 @@ pub fn settle_round_receipt<'info>(
     record.recorded_slot = now_slot;
     record.finalized = false;
     record.voided = false;
+    // Agent-path fields (subscription defaults).
+    record.kind = crate::state::RECORD_KIND_SUBSCRIPTION;
+    record.agent = Pubkey::default();
+    record.request_nonce = 0;
+    record.rail = 0;
+    record.price = 0;
+    record.payment_ref = [0u8; 32];
     record.bump = ctx.bumps.round_record;
 
     emit!(RoundSettled {
@@ -222,7 +229,7 @@ fn authorize_consumer(
 }
 
 #[derive(Accounts)]
-#[instruction(args: SettleRoundArgs, job_init: Option<SettleJobInitArgs>)]
+#[instruction(args: SettleRoundArgs)]
 pub struct SettleRoundReceipt<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,

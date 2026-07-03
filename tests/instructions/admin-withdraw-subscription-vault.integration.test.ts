@@ -106,6 +106,12 @@ async function initializeProtocol(ctx: TestContext): Promise<{
       protocolFeeBps: 100,
       maxReceiptDelaySlots: new BN(256),
       usdcMint: ctx.underlyingTokenMint,
+      agentRoundBase: new BN(1_000),
+      agentRoundPerSig: new BN(15),
+      agentCachedReadPrice: new BN(100),
+      maxAgentPerRequestCap: new BN(1_000_000),
+      maxAgentEpochCap: new BN(10_000_000),
+      agentEpochLenSecs: new BN(86_400),
     })
     .accountsPartial({
       protocolConfig: protocolConfigPda,

@@ -1,3 +1,4 @@
+pub mod agent_escrow;
 pub mod delegate;
 pub mod feed;
 pub mod gateway;
@@ -10,6 +11,7 @@ pub mod registry_state;
 pub mod round_receipt;
 pub mod subscription;
 
+pub use agent_escrow::*;
 pub use delegate::*;
 pub use feed::*;
 pub use gateway::*;

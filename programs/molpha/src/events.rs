@@ -171,3 +171,68 @@ pub struct RewardsClaimed {
     pub destination: Pubkey,
     pub amount: u64,
 }
+
+#[event]
+pub struct AgentEscrowCreated {
+    pub agent: Pubkey,
+    pub owner: Pubkey,
+    pub authority: Pubkey,
+    pub agent_index: u64,
+    pub per_request_cap: u64,
+    pub epoch_cap: u64,
+    pub expires_at: i64,
+}
+
+#[event]
+pub struct AgentCreditsDeposited {
+    pub agent: Pubkey,
+    pub depositor: Pubkey,
+    pub amount: u64,
+    pub new_balance: u64,
+}
+
+#[event]
+pub struct AgentPolicyUpdated {
+    pub agent: Pubkey,
+    pub authority: Pubkey,
+    pub per_request_cap: u64,
+    pub epoch_cap: u64,
+    pub expires_at: i64,
+}
+
+#[event]
+pub struct AgentStatusChanged {
+    pub agent: Pubkey,
+    pub old_status: u8,
+    pub new_status: u8,
+    pub by: Pubkey,
+}
+
+#[event]
+pub struct AgentEscrowClosed {
+    pub agent: Pubkey,
+    pub owner: Pubkey,
+}
+
+#[event]
+pub struct GatewaySettlementDeposited {
+    pub gateway: Pubkey,
+    pub amount: u64,
+    pub new_balance: u64,
+}
+
+#[event]
+pub struct AgentRoundSettled {
+    pub agent: Pubkey,
+    pub request_nonce: u64,
+    pub request_kind: u8,
+    pub rail: u8,
+    pub price: u64,
+    pub payment_ref: [u8; 32],
+    pub job_id: [u8; 32],
+    pub timestamp: u64,
+    pub gateway: Pubkey,
+    pub signers_bitmap: [u8; 32],
+    pub credited_count: u32,
+    pub recorded_slot: u64,
+}

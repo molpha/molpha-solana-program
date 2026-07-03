@@ -14,6 +14,8 @@ use solana_sha256_hasher::hashv as sha256_hashv;
 pub const DOMAIN_REQAUTH: &[u8] = b"MOLPHA_REQAUTH_V1";
 /// Domain tag for `H(GatewayReceipt)` — the gateway's Ed25519-signed message.
 pub const DOMAIN_GWRCPT: &[u8] = b"MOLPHA_GWRCPT_V1";
+/// Domain tag for `H(AgentRequestAuth)` — the agent authority's Ed25519-signed message.
+pub const DOMAIN_AGENT_REQAUTH: &[u8] = b"MOLPHA_AGENT_REQAUTH_V1";
 
 /// Consumer demand authorization (Ed25519-signed by `consumer.authority`).
 ///
@@ -55,6 +57,50 @@ pub fn hash_request_auth_fields(job_id: &[u8; 32], timestamp: u64) -> [u8; 32] {
     hash_request_auth(&RequestAuth {
         job_id: *job_id,
         timestamp,
+    })
+}
+
+/// Agent demand authorization (Ed25519-signed by `AgentEscrow.authority`).
+///
+/// Signed off-chain when the agent requests service from the gateway; verified at
+/// `settle_agent_round` via instruction introspection. `max_price` is the agent's price
+/// ceiling — settlement rejects if the on-chain computed price exceeds it. Replay
+/// protection is `AgentEscrow.last_request_nonce` (strictly increasing) plus `init` dedup
+/// on the `(agent, request_nonce)` record PDA.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct AgentRequestAuth {
+    /// The `AgentEscrow` PDA address.
+    pub agent: Pubkey,
+    pub request_nonce: u64,
+    /// `AgentRequestKind` as u8.
+    pub request_kind: u8,
+    pub job_id: [u8; 32],
+    /// Max price (USDC atomic units) the agent authorizes for this request.
+    pub max_price: u64,
+}
+
+/// `H(AgentRequestAuth)` — domain-separated SHA-256 over the borsh encoding.
+pub fn hash_agent_request_auth(auth: &AgentRequestAuth) -> [u8; 32] {
+    let body = auth
+        .try_to_vec()
+        .expect("AgentRequestAuth serialization is infallible");
+    sha256_hashv(&[DOMAIN_AGENT_REQAUTH, &body]).to_bytes()
+}
+
+/// `H(AgentRequestAuth)` from instruction-level fields.
+pub fn hash_agent_request_auth_fields(
+    agent: &Pubkey,
+    request_nonce: u64,
+    request_kind: u8,
+    job_id: &[u8; 32],
+    max_price: u64,
+) -> [u8; 32] {
+    hash_agent_request_auth(&AgentRequestAuth {
+        agent: *agent,
+        request_nonce,
+        request_kind,
+        job_id: *job_id,
+        max_price,
     })
 }
 
@@ -120,5 +166,60 @@ mod tests {
         // A RequestAuth and GatewayReceipt that happen to share a borsh prefix must not
         // collide thanks to the domain tags.
         assert_ne!(DOMAIN_REQAUTH, DOMAIN_GWRCPT);
+        assert_ne!(DOMAIN_REQAUTH, DOMAIN_AGENT_REQAUTH);
+        assert_ne!(DOMAIN_GWRCPT, DOMAIN_AGENT_REQAUTH);
+    }
+
+    fn fixture_agent_request_auth() -> AgentRequestAuth {
+        AgentRequestAuth {
+            agent: Pubkey::new_from_array([0x22; 32]),
+            request_nonce: 7,
+            request_kind: 0,
+            job_id: [0x11; 32],
+            max_price: 5_000,
+        }
+    }
+
+    #[test]
+    fn hash_agent_request_auth_fields_matches_struct_hash() {
+        let auth = fixture_agent_request_auth();
+        assert_eq!(
+            hash_agent_request_auth_fields(
+                &auth.agent,
+                auth.request_nonce,
+                auth.request_kind,
+                &auth.job_id,
+                auth.max_price,
+            ),
+            hash_agent_request_auth(&auth)
+        );
+    }
+
+    #[test]
+    fn agent_request_auth_hash_is_field_sensitive() {
+        let base = hash_agent_request_auth(&fixture_agent_request_auth());
+        let mut a = fixture_agent_request_auth();
+        a.request_nonce += 1;
+        assert_ne!(hash_agent_request_auth(&a), base);
+        let mut b = fixture_agent_request_auth();
+        b.request_kind = 1;
+        assert_ne!(hash_agent_request_auth(&b), base);
+        let mut c = fixture_agent_request_auth();
+        c.max_price += 1;
+        assert_ne!(hash_agent_request_auth(&c), base);
+        let mut d = fixture_agent_request_auth();
+        d.job_id[0] ^= 0x01;
+        assert_ne!(hash_agent_request_auth(&d), base);
+        let mut e = fixture_agent_request_auth();
+        e.agent = Pubkey::new_from_array([0x23; 32]);
+        assert_ne!(hash_agent_request_auth(&e), base);
+    }
+
+    #[test]
+    fn agent_and_consumer_auth_domains_do_not_collide() {
+        // Same leading bytes in the borsh body must still hash differently across domains.
+        let consumer = hash_request_auth(&fixture_request_auth());
+        let agent = hash_agent_request_auth(&fixture_agent_request_auth());
+        assert_ne!(consumer, agent);
     }
 }

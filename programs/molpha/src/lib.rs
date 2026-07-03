@@ -108,4 +108,50 @@ pub mod molpha {
     pub fn claim_gateway_rewards(ctx: Context<ClaimGatewayRewards>) -> Result<()> {
         instructions::claim_gateway_rewards(ctx)
     }
+
+    // ---- Agent pay-per-request access (agent-access spec v1). ----
+
+    pub fn create_agent_escrow(
+        ctx: Context<CreateAgentEscrow>,
+        args: CreateAgentEscrowArgs,
+    ) -> Result<()> {
+        instructions::create_agent_escrow(ctx, args)
+    }
+
+    pub fn deposit_agent_credits(ctx: Context<DepositAgentCredits>, amount: u64) -> Result<()> {
+        instructions::deposit_agent_credits(ctx, amount)
+    }
+
+    pub fn update_agent_policy(
+        ctx: Context<UpdateAgentPolicy>,
+        args: UpdateAgentPolicyArgs,
+    ) -> Result<()> {
+        instructions::update_agent_policy(ctx, args)
+    }
+
+    pub fn set_agent_paused(ctx: Context<SetAgentPaused>, paused: bool) -> Result<()> {
+        instructions::set_agent_paused(ctx, paused)
+    }
+
+    pub fn set_agent_frozen(ctx: Context<SetAgentFrozen>, frozen: bool) -> Result<()> {
+        instructions::set_agent_frozen(ctx, frozen)
+    }
+
+    pub fn close_agent_escrow(ctx: Context<CloseAgentEscrow>) -> Result<()> {
+        instructions::close_agent_escrow(ctx)
+    }
+
+    pub fn deposit_gateway_settlement(
+        ctx: Context<DepositGatewaySettlement>,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::deposit_gateway_settlement(ctx, amount)
+    }
+
+    pub fn settle_agent_round<'info>(
+        ctx: Context<'_, '_, 'info, 'info, SettleAgentRound<'info>>,
+        args: SettleAgentRoundArgs,
+    ) -> Result<()> {
+        instructions::settle_agent_round(ctx, args)
+    }
 }

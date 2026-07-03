@@ -166,6 +166,46 @@ pub enum MolphaError {
     UnauthorisedConsumer,
     #[msg("mismatched or missing credited node account")]
     InvalidCreditNodeAccount,
+
+    // ---- Agent pay-per-request access (agent-access spec v1). ----
+    #[msg("agent escrow is not active")]
+    AgentNotActive,
+    #[msg("agent escrow has expired")]
+    AgentExpired,
+    #[msg("request_nonce must be strictly greater than last_request_nonce")]
+    AgentNonceNotIncreasing,
+    #[msg("agent authority Ed25519 signature missing or invalid")]
+    AgentSigInvalid,
+    #[msg("computed price exceeds the agent-signed max_price")]
+    MaxPriceExceeded,
+    #[msg("computed price exceeds the escrow per_request_cap")]
+    PerRequestCapExceeded,
+    #[msg("epoch_spent + price exceeds the escrow epoch_cap")]
+    EpochCapExceeded,
+    #[msg("agent escrow balance below computed price")]
+    InsufficientAgentCredits,
+    #[msg("gateway settlement_balance below computed price")]
+    GatewaySettlementUnderfunded,
+    #[msg("payment_ref is required for external-rail settlement")]
+    MissingPaymentRef,
+    #[msg("agent escrow account required for the UsdcEscrow rail")]
+    AgentEscrowRequired,
+    #[msg("agent escrow account must not be supplied for external rails")]
+    UnexpectedAgentEscrow,
+    #[msg("args.agent does not match the supplied agent escrow")]
+    AgentAccountMismatch,
+    #[msg("signer is not the agent escrow owner")]
+    UnauthorisedAgentOwner,
+    #[msg("signer is not the gateway authority")]
+    UnauthorisedGateway,
+    #[msg("agent cap parameters invalid or above protocol maximums")]
+    InvalidAgentCaps,
+    #[msg("agent escrow balance must be zero to close")]
+    AgentEscrowNotEmpty,
+    #[msg("credited signer count exceeds signatures_required + redundancy_buffer")]
+    CreditedExceedsSelection,
+    #[msg("amount must be greater than zero")]
+    InvalidAmount,
 }
 
 pub(crate) fn map_data_update_err(error: DataUpdateError) -> anchor_lang::error::Error {

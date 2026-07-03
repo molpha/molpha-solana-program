@@ -66,7 +66,11 @@ pub fn dispute_round<'info>(
         ctx.accounts.registry_state.redundancy_buffer,
     )
     .map_err(map_data_update_err)?;
-    let selection_mismatch = bitmap_is_subset(&expected_selection, &record.signers_bitmap);
+    // Fraudulent selection iff the credited set is NOT a subset of the deterministically
+    // derived selection. (Previously inverted — `expected ⊆ signers` — which declared
+    // fraud on any honest full-participation round where signers == selection, letting a
+    // challenger slash an honest gateway.)
+    let selection_mismatch = !bitmap_is_subset(&record.signers_bitmap, &expected_selection);
 
     // Only run coalition reconstruction / Schnorr verification after deterministic
     // selection validation passes.
@@ -145,44 +149,40 @@ pub struct DisputeRound<'info> {
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(
         seeds = [RegistryState::SEED_PREFIX],
         bump = registry_state.bump,
     )]
-    pub registry_state: Account<'info, RegistryState>,
+    pub registry_state: Box<Account<'info, RegistryState>>,
 
-    #[account(
-        mut,
-        seeds = [
-            RoundReceiptRecord::SEED_PREFIX,
-            round_record.job_id.as_ref(),
-            round_record.timestamp.to_le_bytes().as_ref(),
-        ],
-        bump = round_record.bump,
-    )]
-    pub round_record: Account<'info, RoundReceiptRecord>,
+    /// Subscription (`["molpha_round", job_id, ts]`) or agent
+    /// (`["molpha_agent_round", agent, nonce]`) settlement record. No seeds constraint:
+    /// owner + discriminator suffice — only the two settle instructions can create this
+    /// account type, and both write complete state, so stored contents are trusted.
+    #[account(mut)]
+    pub round_record: Box<Account<'info, RoundReceiptRecord>>,
 
     #[account(
         mut,
         constraint = gateway.key() == round_record.gateway @ MolphaError::GatewayIndexMismatch,
     )]
-    pub gateway: Account<'info, Gateway>,
+    pub gateway: Box<Account<'info, Gateway>>,
 
     #[account(
         mut,
         constraint = treasury.key() == protocol_config.treasury @ MolphaError::InvalidTreasury,
         constraint = treasury.owner == protocol_config.key() @ MolphaError::InvalidTreasuryOwner,
     )]
-    pub treasury: Account<'info, TokenAccount>,
+    pub treasury: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = challenger_usdc.mint == protocol_config.usdc_mint @ MolphaError::InvalidWithdrawDestination,
         constraint = challenger_usdc.owner == challenger.key() @ MolphaError::InvalidWithdrawDestination,
     )]
-    pub challenger_usdc: Account<'info, TokenAccount>,
+    pub challenger_usdc: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
 }

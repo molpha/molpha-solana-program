@@ -135,15 +135,11 @@ pub struct FinalizeRound<'info> {
     )]
     pub registry_state: Account<'info, RegistryState>,
 
-    #[account(
-        mut,
-        seeds = [
-            RoundReceiptRecord::SEED_PREFIX,
-            round_record.job_id.as_ref(),
-            round_record.timestamp.to_le_bytes().as_ref(),
-        ],
-        bump = round_record.bump,
-    )]
+    /// Subscription (`["molpha_round", job_id, ts]`) or agent
+    /// (`["molpha_agent_round", agent, nonce]`) settlement record. No seeds constraint:
+    /// owner + discriminator suffice — only the two settle instructions can create this
+    /// account type, and both write complete state, so stored contents are trusted.
+    #[account(mut)]
     pub round_record: Account<'info, RoundReceiptRecord>,
 
     #[account(
