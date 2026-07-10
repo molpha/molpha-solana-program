@@ -178,7 +178,7 @@ pub struct AgentEscrowCreated {
     pub owner: Pubkey,
     pub authority: Pubkey,
     pub agent_index: u64,
-    pub per_request_cap: u64,
+    pub max_signers: u8,
     pub epoch_cap: u64,
     pub expires_at: i64,
 }
@@ -195,7 +195,7 @@ pub struct AgentCreditsDeposited {
 pub struct AgentPolicyUpdated {
     pub agent: Pubkey,
     pub authority: Pubkey,
-    pub per_request_cap: u64,
+    pub max_signers: u8,
     pub epoch_cap: u64,
     pub expires_at: i64,
 }
@@ -225,7 +225,6 @@ pub struct GatewaySettlementDeposited {
 pub struct AgentRoundSettled {
     pub agent: Pubkey,
     pub request_nonce: u64,
-    pub request_kind: u8,
     pub rail: u8,
     pub price: u64,
     pub payment_ref: [u8; 32],

@@ -18,8 +18,7 @@ describe("agent escrow lifecycle", () => {
 
     // ---- create + deposit (happy path) ----
     const setup = await createFundedEscrow(ctx, proto, {
-      perRequestCap: 10_000,
-      epochCap: 100_000,
+      maxSigners: 4,
       depositAmount: 250_000,
     });
 
@@ -29,11 +28,14 @@ describe("agent escrow lifecycle", () => {
 
     let escrow = await proto.program.account.agentEscrow.fetch(setup.escrowPda);
     assert.equal(escrow.owner.toBase58(), setup.owner.publicKey.toBase58());
-    assert.equal(escrow.authority.toBase58(), setup.hotKey.publicKey.toBase58());
+    assert.equal(
+      escrow.authority.toBase58(),
+      setup.hotKey.publicKey.toBase58()
+    );
     assert.equal(escrow.balance.toNumber(), 250_000);
     assert.equal(escrow.spentTotal.toNumber(), 0);
-    assert.equal(escrow.perRequestCap.toNumber(), 10_000);
-    assert.equal(escrow.epochCap.toNumber(), 100_000);
+    assert.equal(escrow.maxSigners, 4);
+    assert.equal(escrow.epochSpent.toNumber(), 0);
     assert.equal(escrow.lastRequestNonce.toNumber(), 0);
     assert.deepEqual(escrow.status, { active: {} });
 
@@ -88,13 +90,13 @@ describe("agent escrow lifecycle", () => {
       assert.include(e.toString(), "InvalidAmount");
     }
 
-    // ---- policy update (owner-gated; caps re-validated) ----
+    // ---- policy update (owner-gated; cap re-validated) ----
     const newHotKey = Keypair.generate();
     await proto.program.methods
       .updateAgentPolicy({
         authority: newHotKey.publicKey,
-        perRequestCap: new BN(20_000),
-        epochCap: new BN(200_000),
+        maxSigners: 6,
+        epochCap: null,
         expiresAt: null,
       })
       .accountsPartial({
@@ -106,13 +108,13 @@ describe("agent escrow lifecycle", () => {
       .rpc();
     escrow = await proto.program.account.agentEscrow.fetch(setup.escrowPda);
     assert.equal(escrow.authority.toBase58(), newHotKey.publicKey.toBase58());
-    assert.equal(escrow.perRequestCap.toNumber(), 20_000);
+    assert.equal(escrow.maxSigners, 6);
 
     try {
       await proto.program.methods
         .updateAgentPolicy({
           authority: null,
-          perRequestCap: new BN(INIT.maxAgentPerRequestCap + 1),
+          maxSigners: 0,
           epochCap: null,
           expiresAt: null,
         })
@@ -133,7 +135,7 @@ describe("agent escrow lifecycle", () => {
       await proto.program.methods
         .updateAgentPolicy({
           authority: null,
-          perRequestCap: new BN(1),
+          maxSigners: 1,
           epochCap: null,
           expiresAt: null,
         })
@@ -277,7 +279,7 @@ describe("agent escrow lifecycle", () => {
     assert.isTrue(closed === null || closed.data.length === 0);
   });
 
-  it("rejects creation with caps above protocol maximums", async () => {
+  it("rejects creation with invalid caps", async () => {
     const ctx = await setupTestContext();
     const proto = await initializeProtocolForAgents(ctx);
     const owner = Keypair.generate();
@@ -293,8 +295,8 @@ describe("agent escrow lifecycle", () => {
         .createAgentEscrow({
           agentIndex: new BN(0),
           authority: Keypair.generate().publicKey,
-          perRequestCap: new BN(INIT.maxAgentPerRequestCap + 1),
-          epochCap: new BN(INIT.maxAgentEpochCap),
+          maxSigners: 0,
+          epochCap: new BN(INIT.epochCap),
           expiresAt: new BN(0),
         })
         .accountsPartial({

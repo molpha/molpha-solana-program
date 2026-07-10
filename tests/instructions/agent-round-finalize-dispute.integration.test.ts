@@ -133,7 +133,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       escrow,
       agent: escrow.escrowPda,
       requestNonce: n,
-      requestKind: "freshRound",
       rail: "usdcEscrow",
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
       jobId: JOB_ID,
@@ -228,59 +227,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     assert.isTrue(record.finalized);
   });
 
-  it("rejects finalize and dispute on a born-finalized CachedRead record", async () => {
-    const n = ++nonce;
-    await settleAgentRound({
-      proto,
-      gateway,
-      escrow,
-      agent: escrow.escrowPda,
-      requestNonce: n,
-      requestKind: "cachedRead",
-      rail: "usdcEscrow",
-      maxPrice: INIT.agentCachedReadPrice,
-      jobId: JOB_ID,
-      timestamp: ++ts,
-      signaturesRequired: 0,
-      registryVersion,
-    });
-    const recordPda = findAgentRoundPda(
-      proto.program.programId,
-      escrow.escrowPda,
-      n
-    );
-
-    try {
-      await proto.program.methods
-        .finalizeRound()
-        .accountsPartial({
-          caller: ctx.authority.publicKey,
-          protocolConfig: proto.protocolConfigPda,
-          registryState: proto.registryStatePda,
-          roundRecord: recordPda,
-          gateway: gateway.gatewayPda,
-        })
-        .rpc();
-      assert.fail("expected RoundAlreadyFinalized");
-    } catch (e: any) {
-      assert.include(e.toString(), "RoundAlreadyFinalized");
-    }
-
-    try {
-      await disputeRound({
-        roundRecord: recordPda,
-        gateway,
-        aggSig: zeroedAggSig(),
-        challenger: ctx.authority.payer,
-        challengerUsdc: ctx.userTokenAccount,
-        nodeBits: [],
-      });
-      assert.fail("expected DisputeWindowClosed");
-    } catch (e: any) {
-      assert.include(e.toString(), "DisputeWindowClosed");
-    }
-  });
-
   it("voids a fabricated agent round on dispute and slashes the gateway bond", async () => {
     const n = ++nonce;
     const t = ++ts;
@@ -303,7 +249,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       escrow,
       agent: escrow.escrowPda,
       requestNonce: n,
-      requestKind: "freshRound",
       rail: "usdcEscrow",
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
       jobId: JOB_ID,
@@ -392,7 +337,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       escrow,
       agent: escrow.escrowPda,
       requestNonce: n,
-      requestKind: "freshRound",
       rail: "usdcEscrow",
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
       jobId: JOB_ID,

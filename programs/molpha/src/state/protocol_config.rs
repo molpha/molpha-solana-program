@@ -43,7 +43,7 @@ pub struct ProtocolConfig {
     // Kept for layout stability until a config-update path is designed.
     pub timelock_expires_at: Option<i64>,
     pub pending_change: Option<ConfigChange>,
-    // ---- Agent pay-per-request pricing and caps (agent-access spec v1). ----
+    // ---- Agent pay-per-request pricing and policy (agent-access spec v1). ----
     /// Base price of an agent `FreshRound` request (USDC atomic units).
     pub agent_round_base: u64,
     /// Per-required-signature price component of a `FreshRound` request.
@@ -52,10 +52,6 @@ pub struct ProtocolConfig {
     pub agent_round_per_sig: u64,
     /// Flat price of an agent `CachedRead` request (gateway fee + protocol margin).
     pub agent_cached_read_price: u64,
-    /// Upper bound on `AgentEscrow.per_request_cap`.
-    pub max_agent_per_request_cap: u64,
-    /// Upper bound on `AgentEscrow.epoch_cap`.
-    pub max_agent_epoch_cap: u64,
     /// Length of the agent spend epoch (e.g. 86_400 for daily); must be > 0.
     pub agent_epoch_len_secs: i64,
     pub bump: u8,

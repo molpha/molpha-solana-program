@@ -28,7 +28,14 @@ type InitConfig = {
   receiptSubmitterBonus?: string;
   protocolFeeBps?: number;
   maxReceiptDelaySlots?: string;
+  protocolFee?: string;
+  disputeWindowSlots?: string;
+  gatewayBondMin?: string;
+  challengerBountyBps?: number;
   usdcMint?: string;
+  agentRoundBase?: string;
+  agentRoundPerSig?: string;
+  agentEpochLenSecs?: string;
 };
 
 export function registerInitCommand(program: Command): void {
@@ -50,7 +57,17 @@ export function registerInitCommand(program: Command): void {
     .option("--receipt-submitter-bonus <amount>", "receipt submitter bonus")
     .option("--protocol-fee-bps <bps>", "protocol fee in basis points")
     .option("--max-receipt-delay-slots <slots>", "max receipt delay")
+    .option("--protocol-fee <amount>", "fixed protocol fee per round")
+    .option("--dispute-window-slots <slots>", "settled round dispute window")
+    .option("--gateway-bond-min <amount>", "minimum gateway bond")
+    .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
     .option("--usdc-mint <pubkey>", "USDC mint")
+    .option("--agent-round-base <amount>", "base agent fresh-round price")
+    .option(
+      "--agent-round-per-sig <amount>",
+      "per-required-signature agent fresh-round price"
+    )
+    .option("--agent-epoch-len-secs <seconds>", "agent spend accounting epoch")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const config = options.config
@@ -149,9 +166,63 @@ export function registerInitCommand(program: Command): void {
           ),
           "max receipt delay"
         ),
+        protocolFee: bn(
+          requireValue(
+            optionOrConfig(options.protocolFee, config.protocolFee),
+            "Missing --protocol-fee"
+          ),
+          "protocol fee"
+        ),
+        disputeWindowSlots: bn(
+          requireValue(
+            optionOrConfig(
+              options.disputeWindowSlots,
+              config.disputeWindowSlots
+            ),
+            "Missing --dispute-window-slots"
+          ),
+          "dispute window"
+        ),
+        gatewayBondMin: bn(
+          requireValue(
+            optionOrConfig(options.gatewayBondMin, config.gatewayBondMin),
+            "Missing --gateway-bond-min"
+          ),
+          "gateway bond minimum"
+        ),
+        challengerBountyBps: Number(
+          requireValue(
+            optionOrConfig(
+              options.challengerBountyBps,
+              config.challengerBountyBps
+            ),
+            "Missing --challenger-bounty-bps"
+          )
+        ),
         usdcMint: parsePubkeyOption(
           optionOrConfig(options.usdcMint, config.usdcMint),
           "usdc mint"
+        ),
+        agentRoundBase: bn(
+          requireValue(
+            optionOrConfig(options.agentRoundBase, config.agentRoundBase),
+            "Missing --agent-round-base"
+          ),
+          "agent round base"
+        ),
+        agentRoundPerSig: bn(
+          requireValue(
+            optionOrConfig(options.agentRoundPerSig, config.agentRoundPerSig),
+            "Missing --agent-round-per-sig"
+          ),
+          "agent round per signature"
+        ),
+        agentEpochLenSecs: bn(
+          requireValue(
+            optionOrConfig(options.agentEpochLenSecs, config.agentEpochLenSecs),
+            "Missing --agent-epoch-len-secs"
+          ),
+          "agent epoch length"
         ),
       };
       const treasury = getAssociatedTokenAddressSync(

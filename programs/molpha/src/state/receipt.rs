@@ -72,8 +72,6 @@ pub struct AgentRequestAuth {
     /// The `AgentEscrow` PDA address.
     pub agent: Pubkey,
     pub request_nonce: u64,
-    /// `AgentRequestKind` as u8.
-    pub request_kind: u8,
     pub job_id: [u8; 32],
     /// Max price (USDC atomic units) the agent authorizes for this request.
     pub max_price: u64,
@@ -91,14 +89,12 @@ pub fn hash_agent_request_auth(auth: &AgentRequestAuth) -> [u8; 32] {
 pub fn hash_agent_request_auth_fields(
     agent: &Pubkey,
     request_nonce: u64,
-    request_kind: u8,
     job_id: &[u8; 32],
     max_price: u64,
 ) -> [u8; 32] {
     hash_agent_request_auth(&AgentRequestAuth {
         agent: *agent,
         request_nonce,
-        request_kind,
         job_id: *job_id,
         max_price,
     })
@@ -174,7 +170,6 @@ mod tests {
         AgentRequestAuth {
             agent: Pubkey::new_from_array([0x22; 32]),
             request_nonce: 7,
-            request_kind: 0,
             job_id: [0x11; 32],
             max_price: 5_000,
         }
@@ -187,7 +182,6 @@ mod tests {
             hash_agent_request_auth_fields(
                 &auth.agent,
                 auth.request_nonce,
-                auth.request_kind,
                 &auth.job_id,
                 auth.max_price,
             ),
@@ -202,17 +196,14 @@ mod tests {
         a.request_nonce += 1;
         assert_ne!(hash_agent_request_auth(&a), base);
         let mut b = fixture_agent_request_auth();
-        b.request_kind = 1;
+        b.max_price += 1;
         assert_ne!(hash_agent_request_auth(&b), base);
         let mut c = fixture_agent_request_auth();
-        c.max_price += 1;
+        c.job_id[0] ^= 0x01;
         assert_ne!(hash_agent_request_auth(&c), base);
         let mut d = fixture_agent_request_auth();
-        d.job_id[0] ^= 0x01;
+        d.agent = Pubkey::new_from_array([0x23; 32]);
         assert_ne!(hash_agent_request_auth(&d), base);
-        let mut e = fixture_agent_request_auth();
-        e.agent = Pubkey::new_from_array([0x23; 32]);
-        assert_ne!(hash_agent_request_auth(&e), base);
     }
 
     #[test]

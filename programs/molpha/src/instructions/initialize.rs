@@ -30,9 +30,6 @@ pub struct InitializeArgs {
     pub usdc_mint: Pubkey,
     pub agent_round_base: u64,
     pub agent_round_per_sig: u64,
-    pub agent_cached_read_price: u64,
-    pub max_agent_per_request_cap: u64,
-    pub max_agent_epoch_cap: u64,
     pub agent_epoch_len_secs: i64,
 }
 
@@ -69,9 +66,6 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.pending_change = None;
     protocol_config.agent_round_base = args.agent_round_base;
     protocol_config.agent_round_per_sig = args.agent_round_per_sig;
-    protocol_config.agent_cached_read_price = args.agent_cached_read_price;
-    protocol_config.max_agent_per_request_cap = args.max_agent_per_request_cap;
-    protocol_config.max_agent_epoch_cap = args.max_agent_epoch_cap;
     protocol_config.agent_epoch_len_secs = args.agent_epoch_len_secs;
     protocol_config.bump = ctx.bumps.protocol_config;
 
@@ -159,9 +153,6 @@ mod tests {
             usdc_mint: Pubkey::new_from_array([7; 32]),
             agent_round_base: 1_000,
             agent_round_per_sig: 15,
-            agent_cached_read_price: 100,
-            max_agent_per_request_cap: 1_000_000,
-            max_agent_epoch_cap: 10_000_000,
             agent_epoch_len_secs: 86_400,
         }
     }
@@ -190,12 +181,6 @@ mod tests {
         assert_eq!(decoded.usdc_mint, args.usdc_mint);
         assert_eq!(decoded.agent_round_base, args.agent_round_base);
         assert_eq!(decoded.agent_round_per_sig, args.agent_round_per_sig);
-        assert_eq!(decoded.agent_cached_read_price, args.agent_cached_read_price);
-        assert_eq!(
-            decoded.max_agent_per_request_cap,
-            args.max_agent_per_request_cap
-        );
-        assert_eq!(decoded.max_agent_epoch_cap, args.max_agent_epoch_cap);
         assert_eq!(decoded.agent_epoch_len_secs, args.agent_epoch_len_secs);
     }
 
@@ -203,8 +188,8 @@ mod tests {
     fn initialize_instruction_data_serializes_args() {
         let args = fixture_args();
         let data = crate::instruction::Initialize { args: args.clone() }.data();
-        // 137 (pre-agent fields) + 5 * u64 + 1 * i64 for the agent pricing/caps block.
-        assert_eq!(data.len(), 137 + 48);
+        // 137 (pre-agent fields) + 4 * u64 + 1 * i64 for the agent pricing/policy block.
+        assert_eq!(data.len(), 137 + 40);
 
         let decoded = InitializeArgs::try_from_slice(&data[8..]).expect("deserialize args");
         assert_eq!(decoded.usdc_mint, args.usdc_mint);

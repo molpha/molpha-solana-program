@@ -10,7 +10,7 @@ use crate::{
 pub struct UpdateAgentPolicyArgs {
     /// Rotate the hot runtime key.
     pub authority: Option<Pubkey>,
-    pub per_request_cap: Option<u64>,
+    pub max_signers: Option<u8>,
     pub epoch_cap: Option<u64>,
     pub expires_at: Option<i64>,
 }
@@ -19,7 +19,6 @@ pub fn update_agent_policy(
     ctx: Context<UpdateAgentPolicy>,
     args: UpdateAgentPolicyArgs,
 ) -> Result<()> {
-    let config = &ctx.accounts.protocol_config;
     let escrow = &mut ctx.accounts.agent_escrow;
     require!(
         escrow.status != AgentStatus::Frozen,
@@ -30,17 +29,14 @@ pub fn update_agent_policy(
         require!(authority != Pubkey::default(), MolphaError::InvalidAgentCaps);
         escrow.authority = authority;
     }
-    if let Some(per_request_cap) = args.per_request_cap {
-        escrow.per_request_cap = per_request_cap;
+    if let Some(max_signers) = args.max_signers {
+        escrow.max_signers = max_signers;
     }
     if let Some(epoch_cap) = args.epoch_cap {
         escrow.epoch_cap = epoch_cap;
     }
     require!(
-        escrow.per_request_cap > 0
-            && escrow.per_request_cap <= config.max_agent_per_request_cap
-            && escrow.epoch_cap >= escrow.per_request_cap
-            && escrow.epoch_cap <= config.max_agent_epoch_cap,
+        escrow.max_signers > 0 && escrow.epoch_cap > 0,
         MolphaError::InvalidAgentCaps
     );
     if let Some(expires_at) = args.expires_at {
@@ -55,7 +51,7 @@ pub fn update_agent_policy(
     emit!(AgentPolicyUpdated {
         agent: escrow.key(),
         authority: escrow.authority,
-        per_request_cap: escrow.per_request_cap,
+        max_signers: escrow.max_signers,
         epoch_cap: escrow.epoch_cap,
         expires_at: escrow.expires_at,
     });

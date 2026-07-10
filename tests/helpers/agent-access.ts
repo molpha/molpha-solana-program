@@ -52,10 +52,9 @@ export const INIT = {
   challengerBountyBps: 500,
   agentRoundBase: 1_000,
   agentRoundPerSig: 15,
-  agentCachedReadPrice: 100,
-  maxAgentPerRequestCap: 1_000_000,
-  maxAgentEpochCap: 10_000_000,
   agentEpochLenSecs: 86_400,
+  maxSigners: 8,
+  epochCap: 1_000_000,
 };
 
 export const REQUEST_KIND_FRESH = 0;
@@ -81,14 +80,12 @@ export function sha256(parts: Buffer[]): Buffer {
 export function hashAgentRequestAuth(params: {
   agent: PublicKey;
   requestNonce: number | bigint;
-  requestKind: number;
   jobId: Uint8Array;
   maxPrice: number | bigint;
 }): Buffer {
   const body = Buffer.concat([
     params.agent.toBuffer(),
     u64le(params.requestNonce),
-    Buffer.from([params.requestKind]),
     Buffer.from(params.jobId),
     u64le(params.maxPrice),
   ]);
@@ -195,9 +192,6 @@ export async function initializeProtocolForAgents(
       usdcMint: ctx.underlyingTokenMint,
       agentRoundBase: new BN(INIT.agentRoundBase),
       agentRoundPerSig: new BN(INIT.agentRoundPerSig),
-      agentCachedReadPrice: new BN(INIT.agentCachedReadPrice),
-      maxAgentPerRequestCap: new BN(INIT.maxAgentPerRequestCap),
-      maxAgentEpochCap: new BN(INIT.maxAgentEpochCap),
       agentEpochLenSecs: new BN(INIT.agentEpochLenSecs),
     })
     .accountsPartial({
@@ -279,7 +273,7 @@ export async function createFundedEscrow(
   proto: AgentProtocolContext,
   opts?: {
     agentIndex?: number;
-    perRequestCap?: number;
+    maxSigners?: number;
     epochCap?: number;
     expiresAt?: number;
     depositAmount?: number;
@@ -304,8 +298,8 @@ export async function createFundedEscrow(
     .createAgentEscrow({
       agentIndex: new BN(agentIndex),
       authority: hotKey.publicKey,
-      perRequestCap: new BN(opts?.perRequestCap ?? INIT.maxAgentPerRequestCap),
-      epochCap: new BN(opts?.epochCap ?? INIT.maxAgentEpochCap),
+      maxSigners: opts?.maxSigners ?? INIT.maxSigners,
+      epochCap: new BN(opts?.epochCap ?? INIT.epochCap),
       expiresAt: new BN(opts?.expiresAt ?? 0),
     })
     .accountsPartial({
@@ -363,7 +357,6 @@ export interface SettleAgentRoundParams {
   escrow?: AgentEscrowSetup;
   agent: PublicKey;
   requestNonce: number;
-  requestKind: "freshRound" | "cachedRead";
   rail: "usdcEscrow" | "x402";
   maxPrice: number;
   paymentRef?: Uint8Array;
@@ -382,10 +375,6 @@ export interface SettleAgentRoundParams {
 export async function settleAgentRound(
   params: SettleAgentRoundParams
 ): Promise<void> {
-  const kindU8 =
-    params.requestKind === "freshRound"
-      ? REQUEST_KIND_FRESH
-      : REQUEST_KIND_CACHED;
   const roundRecordPda = findAgentRoundPda(
     params.proto.program.programId,
     params.agent,
@@ -398,7 +387,6 @@ export async function settleAgentRound(
     const authHash = hashAgentRequestAuth({
       agent: params.agent,
       requestNonce: params.requestNonce,
-      requestKind: kindU8,
       jobId: params.jobId,
       maxPrice: params.maxPrice,
     });
@@ -414,7 +402,6 @@ export async function settleAgentRound(
     .settleAgentRound({
       agent: params.agent,
       requestNonce: new BN(params.requestNonce),
-      requestKind: { [params.requestKind]: {} },
       rail: { [params.rail]: {} },
       maxPrice: new BN(params.maxPrice),
       paymentRef: Array.from(params.paymentRef ?? new Uint8Array(32)),

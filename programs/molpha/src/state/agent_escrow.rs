@@ -44,7 +44,7 @@ pub enum AgentRequestKind {
 /// `AgentRequestAuth` messages. Deposited USDC is custodied in the protocol treasury —
 /// `balance` is internal accounting, exactly like subscription revenue and gateway bonds.
 ///
-/// The on-chain caps (`per_request_cap`, `epoch_cap`, `expires_at`) are the authoritative
+/// The on-chain caps (`max_signers`, `epoch_cap`, `expires_at`) are the authoritative
 /// backstop bounding a compromised hot key; per-request rate limiting and template/scope
 /// policy are enforced off-chain by the gateway (the "no on-chain preflight" contract).
 #[account]
@@ -60,8 +60,8 @@ pub struct AgentEscrow {
     /// Internal USDC accounting; principal custodied in the protocol treasury.
     pub balance: u64,
     pub spent_total: u64,
-    /// Settlement rejects any single request priced above this.
-    pub per_request_cap: u64,
+    /// Settlement rejects any request with `signatures_required` above this.
+    pub max_signers: u8,
     /// Max settled spend per epoch (`agent_epoch_len_secs`).
     pub epoch_cap: u64,
     pub epoch_spent: u64,
@@ -104,7 +104,7 @@ mod tests {
             status: AgentStatus::Active,
             balance: 1_000_000,
             spent_total: 0,
-            per_request_cap: 10_000,
+            max_signers: 8,
             epoch_cap: 100_000,
             epoch_spent: 40_000,
             epoch_id: 20_000,

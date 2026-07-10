@@ -178,8 +178,8 @@ pub enum MolphaError {
     AgentSigInvalid,
     #[msg("computed price exceeds the agent-signed max_price")]
     MaxPriceExceeded,
-    #[msg("computed price exceeds the escrow per_request_cap")]
-    PerRequestCapExceeded,
+    #[msg("signatures_required exceeds agent escrow max_signers")]
+    SignaturesExceedAgentMax,
     #[msg("epoch_spent + price exceeds the escrow epoch_cap")]
     EpochCapExceeded,
     #[msg("agent escrow balance below computed price")]
@@ -198,7 +198,7 @@ pub enum MolphaError {
     UnauthorisedAgentOwner,
     #[msg("signer is not the gateway authority")]
     UnauthorisedGateway,
-    #[msg("agent cap parameters invalid or above protocol maximums")]
+    #[msg("agent cap parameters invalid")]
     InvalidAgentCaps,
     #[msg("agent escrow balance must be zero to close")]
     AgentEscrowNotEmpty,

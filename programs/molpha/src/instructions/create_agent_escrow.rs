@@ -11,7 +11,7 @@ pub struct CreateAgentEscrowArgs {
     pub agent_index: u64,
     /// Hot runtime key that signs `AgentRequestAuth` messages.
     pub authority: Pubkey,
-    pub per_request_cap: u64,
+    pub max_signers: u8,
     pub epoch_cap: u64,
     /// 0 = never expires.
     pub expires_at: i64,
@@ -23,10 +23,7 @@ pub fn create_agent_escrow(
 ) -> Result<()> {
     let config = &ctx.accounts.protocol_config;
     require!(
-        args.per_request_cap > 0
-            && args.per_request_cap <= config.max_agent_per_request_cap
-            && args.epoch_cap >= args.per_request_cap
-            && args.epoch_cap <= config.max_agent_epoch_cap,
+        args.max_signers > 0 && args.epoch_cap > 0,
         MolphaError::InvalidAgentCaps
     );
     require!(
@@ -46,7 +43,7 @@ pub fn create_agent_escrow(
     escrow.status = AgentStatus::Active;
     escrow.balance = 0;
     escrow.spent_total = 0;
-    escrow.per_request_cap = args.per_request_cap;
+    escrow.max_signers = args.max_signers;
     escrow.epoch_cap = args.epoch_cap;
     escrow.epoch_spent = 0;
     escrow.epoch_id = now / config.agent_epoch_len_secs;
@@ -59,7 +56,7 @@ pub fn create_agent_escrow(
         owner: escrow.owner,
         authority: escrow.authority,
         agent_index: args.agent_index,
-        per_request_cap: args.per_request_cap,
+        max_signers: args.max_signers,
         epoch_cap: args.epoch_cap,
         expires_at: args.expires_at,
     });

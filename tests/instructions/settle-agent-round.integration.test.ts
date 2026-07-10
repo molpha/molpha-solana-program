@@ -62,8 +62,7 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
     registryVersion = registry.currentVersion;
     gateway = await registerBondedGateway(ctx, proto);
     escrow = await createFundedEscrow(ctx, proto, {
-      perRequestCap: 5_000,
-      epochCap: 100_000,
+      maxSigners: 5,
       depositAmount: 50_000,
     });
   }, 180_000);
@@ -78,7 +77,6 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
       escrow,
       agent: escrow.escrowPda,
       requestNonce: n,
-      requestKind: "freshRound" as const,
       rail: "usdcEscrow" as const,
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
       jobId: JOB_ID,
@@ -157,44 +155,6 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
     assert.equal(record.gateway.toBase58(), gateway.gatewayPda.toBase58());
   });
 
-  it("settles a CachedRead: gateway fee finalizes immediately, no node accounts", async () => {
-    const gatewayBefore = await proto.program.account.gateway.fetch(
-      gateway.gatewayPda
-    );
-    const params = baseParams({
-      requestKind: "cachedRead",
-      maxPrice: INIT.agentCachedReadPrice,
-      aggSig: zeroedAggSig(),
-      creditedNodePdas: [],
-    });
-    await settleAgentRound(params);
-
-    const gatewayAfter = await proto.program.account.gateway.fetch(
-      gateway.gatewayPda
-    );
-    assert.equal(
-      gatewayAfter.claimableRewards.toNumber() -
-        gatewayBefore.claimableRewards.toNumber(),
-      INIT.gatewayFee
-    );
-    // Pending untouched: CachedRead never enters the dispute stage.
-    assert.equal(
-      gatewayAfter.pendingRewards.toNumber(),
-      gatewayBefore.pendingRewards.toNumber()
-    );
-
-    const record = await proto.program.account.roundReceiptRecord.fetch(
-      findAgentRoundPda(
-        proto.program.programId,
-        escrow.escrowPda,
-        params.requestNonce
-      )
-    );
-    assert.equal(record.kind, 2); // RECORD_KIND_AGENT_CACHED
-    assert.equal(record.price.toNumber(), INIT.agentCachedReadPrice);
-    assert.isTrue(record.finalized);
-  });
-
   it("rejects replayed and non-increasing nonces", async () => {
     const params = baseParams();
     await settleAgentRound(params);
@@ -232,7 +192,7 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
     }
   });
 
-  it("enforces the agent-signed max_price and the owner per-request cap", async () => {
+  it("enforces the agent-signed max_price and the owner max_signers", async () => {
     try {
       await settleAgentRound(
         baseParams({ maxPrice: freshRoundPrice(SIGS_REQUIRED) - 1 })
@@ -244,26 +204,24 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
 
     const cappedEscrow = await createFundedEscrow(ctx, proto, {
       agentIndex: 10,
-      perRequestCap: 500, // below the 1030 FreshRound price
-      epochCap: 100_000,
+      maxSigners: SIGS_REQUIRED - 1,
       depositAmount: 50_000,
     });
     try {
       await settleAgentRound(
         baseParams({ escrow: cappedEscrow, agent: cappedEscrow.escrowPda })
       );
-      assert.fail("expected PerRequestCapExceeded");
+      assert.fail("expected SignaturesExceedAgentMax");
     } catch (e: any) {
-      assert.include(e.toString(), "PerRequestCapExceeded");
+      assert.include(e.toString(), "SignaturesExceedAgentMax");
     }
   });
 
-  it("enforces the epoch cap and lazily rolls the epoch window", async () => {
+  it("tracks epoch spend without capping and lazily rolls the epoch window", async () => {
     const price = freshRoundPrice(SIGS_REQUIRED);
     const epochEscrow = await createFundedEscrow(ctx, proto, {
       agentIndex: 11,
-      perRequestCap: 2_000,
-      epochCap: 2_000, // one round fits, two do not
+      maxSigners: 5,
       depositAmount: 50_000,
     });
 
@@ -275,18 +233,17 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
         requestNonce: ++n,
       })
     );
-    try {
-      await settleAgentRound(
-        baseParams({
-          escrow: epochEscrow,
-          agent: epochEscrow.escrowPda,
-          requestNonce: ++n,
-        })
-      );
-      assert.fail("expected EpochCapExceeded");
-    } catch (e: any) {
-      assert.include(e.toString(), "EpochCapExceeded");
-    }
+    await settleAgentRound(
+      baseParams({
+        escrow: epochEscrow,
+        agent: epochEscrow.escrowPda,
+        requestNonce: ++n,
+      })
+    );
+    let after = await proto.program.account.agentEscrow.fetch(
+      epochEscrow.escrowPda
+    );
+    assert.equal(after.epochSpent.toNumber(), price * 2);
 
     // Cross the epoch boundary: spend window resets lazily at settlement.
     await advanceClock(ctx, INIT.agentEpochLenSecs + 1);
@@ -297,7 +254,7 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
         requestNonce: ++n,
       })
     );
-    const after = await proto.program.account.agentEscrow.fetch(
+    after = await proto.program.account.agentEscrow.fetch(
       epochEscrow.escrowPda
     );
     assert.equal(after.epochSpent.toNumber(), price);

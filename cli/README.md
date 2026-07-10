@@ -60,6 +60,14 @@ yarn molpha --idl "/Users/vitaliikoval/dev/molpha-solana-program/target/idl/molp
   --receipt-submitter-bonus 5 \
   --protocol-fee-bps 100 \
   --max-receipt-delay-slots 256 \
+  --protocol-fee 0 \
+  --dispute-window-slots 256 \
+  --gateway-bond-min 500000000 \
+  --challenger-bounty-bps 500 \
+  --agent-round-base 1000 \
+  --agent-round-per-sig 15 \
+  --max-agent-per-request-cap 1000000 \
+  --agent-epoch-len-secs 86400 \
   --usdc-mint <MINT>
 ```
 

@@ -17,9 +17,9 @@ use crate::{
     error::MolphaError,
     events::AgentRoundSettled,
     state::{
-        hash_agent_request_auth_fields, hash_agg_sig, AgentEscrow, AgentRequestKind, AgentStatus,
-        AggregatedSig, Gateway, Node, PaymentRail, ProtocolConfig, RegistryState,
-        RoundReceiptRecord, RECORD_KIND_AGENT_CACHED, RECORD_KIND_AGENT_FRESH,
+        hash_agent_request_auth_fields, hash_agg_sig, AgentEscrow, AgentStatus, AggregatedSig,
+        Gateway, Node, PaymentRail, ProtocolConfig, RegistryState, RoundReceiptRecord,
+        RECORD_KIND_AGENT_FRESH,
     },
     utils::{
         bitmap::{bitmap_load, for_each_set_bit_u256},
@@ -34,7 +34,6 @@ pub struct SettleAgentRoundArgs {
     /// payer identity (audit + record-PDA namespace only; no on-chain account required).
     pub agent: Pubkey,
     pub request_nonce: u64,
-    pub request_kind: AgentRequestKind,
     pub rail: PaymentRail,
     /// Price ceiling from the agent's signed `AgentRequestAuth`.
     pub max_price: u64,
@@ -53,22 +52,15 @@ pub struct SettleAgentRoundArgs {
 
 /// Price from request-time parameters only (never the post-hoc bitmap popcount), so
 /// external rails requiring a locked price (x402 `exact`) stay applicable.
-pub fn compute_agent_price(
-    config: &ProtocolConfig,
-    request_kind: AgentRequestKind,
-    signatures_required: u8,
-) -> Result<u64> {
-    match request_kind {
-        AgentRequestKind::FreshRound => config
-            .agent_round_base
-            .checked_add(
-                (signatures_required as u64)
-                    .checked_mul(config.agent_round_per_sig)
-                    .ok_or(MolphaError::MaxPriceExceeded)?,
-            )
-            .ok_or_else(|| error!(MolphaError::MaxPriceExceeded)),
-        AgentRequestKind::CachedRead => Ok(config.agent_cached_read_price),
-    }
+pub fn compute_agent_price(config: &ProtocolConfig, signatures_required: u8) -> Result<u64> {
+    config
+        .agent_round_base
+        .checked_add(
+            (signatures_required as u64)
+                .checked_mul(config.agent_round_per_sig)
+                .ok_or(MolphaError::MaxPriceExceeded)?,
+        )
+        .ok_or_else(|| error!(MolphaError::MaxPriceExceeded))
 }
 
 pub fn settle_agent_round<'info>(
@@ -85,15 +77,11 @@ pub fn settle_agent_round<'info>(
     // 1. Gateway consent + bond — enforced by the account constraints (the tx signer is
     //    the gateway authority).
 
-    // 2. Registry — current-version-only for FreshRound settlement. CachedRead skips: the
-    //    cached payload may legitimately predate the current version, and no node
-    //    crediting depends on it (stored for audit).
-    if args.request_kind == AgentRequestKind::FreshRound {
-        require!(
-            args.registry_version == registry.current_version,
-            MolphaError::InvalidRegistryVersion
-        );
-    }
+    // 2. Registry — current-version-only for FreshRound settlement.
+    require!(
+        args.registry_version == registry.current_version,
+        MolphaError::InvalidRegistryVersion
+    );
 
     // 3-6. Rail shape, entitlement, replay, agent authorization.
     match args.rail {
@@ -128,7 +116,6 @@ pub fn settle_agent_round<'info>(
             let auth_hash = hash_agent_request_auth_fields(
                 &args.agent,
                 args.request_nonce,
-                args.request_kind as u8,
                 &args.job_id,
                 args.max_price,
             );
@@ -158,40 +145,26 @@ pub fn settle_agent_round<'info>(
 
     // 7. Kind shape — quorum bounds on the embedded bitmap (FreshRound only).
     let credited = bitmap_load(&args.agg_sig.signers_bitmap);
-    let credited_count = match args.request_kind {
-        AgentRequestKind::FreshRound => {
-            let count = credited.count_ones();
-            require!(
-                count >= u32::from(args.signatures_required),
-                MolphaError::QuorumBelowThreshold
-            );
-            // Cheap inflation bound: an honest selection never exceeds
-            // `signatures_required + redundancy_buffer`, so this blocks blatantly padded
-            // bitmaps at settlement instead of waiting for a dispute.
-            require!(
-                count
-                    <= u32::from(args.signatures_required)
-                        + u32::from(registry.redundancy_buffer),
-                MolphaError::CreditedExceedsSelection
-            );
-            require!(
-                ctx.remaining_accounts.len() == count as usize,
-                MolphaError::InvalidCreditNodeAccount
-            );
-            count
-        }
-        AgentRequestKind::CachedRead => {
-            require!(
-                ctx.remaining_accounts.is_empty(),
-                MolphaError::InvalidCreditNodeAccount
-            );
-            0
-        }
-    };
+    let count = credited.count_ones();
+    require!(
+        count >= u32::from(args.signatures_required),
+        MolphaError::QuorumBelowThreshold
+    );
+    // Cheap inflation bound: an honest selection never exceeds
+    // `signatures_required + redundancy_buffer`, so this blocks blatantly padded
+    // bitmaps at settlement instead of waiting for a dispute.
+    require!(
+        count <= u32::from(args.signatures_required) + u32::from(registry.redundancy_buffer),
+        MolphaError::CreditedExceedsSelection
+    );
+    require!(
+        ctx.remaining_accounts.len() == count as usize,
+        MolphaError::InvalidCreditNodeAccount
+    );
 
     // 8. Price — computed on-chain from protocol config + request-time parameters; bounded
-    //    by the agent-signed ceiling and (UsdcEscrow) the owner's caps.
-    let price = compute_agent_price(config, args.request_kind, args.signatures_required)?;
+    //    by the agent-signed ceiling and (UsdcEscrow) the owner's max_signers / epoch_cap.
+    let price = compute_agent_price(config, args.signatures_required)?;
     require!(price <= args.max_price, MolphaError::MaxPriceExceeded);
 
     // 9. Funding.
@@ -203,8 +176,8 @@ pub fn settle_agent_round<'info>(
                 .as_mut()
                 .ok_or(MolphaError::AgentEscrowRequired)?;
             require!(
-                price <= escrow.per_request_cap,
-                MolphaError::PerRequestCapExceeded
+                args.signatures_required <= escrow.max_signers,
+                MolphaError::SignaturesExceedAgentMax
             );
             escrow.roll_epoch(now_ts, config.agent_epoch_len_secs);
             let epoch_spent = escrow
@@ -238,83 +211,64 @@ pub fn settle_agent_round<'info>(
     let reward_per_signature;
     let agg_sig_hash;
     let data_update_message_hash;
-    match args.request_kind {
-        AgentRequestKind::FreshRound => {
-            reward_per_signature = config.reward_per_signature;
-            let program_id = ctx.program_id;
 
-            let mut cursor = 0usize;
-            for_each_set_bit_u256(credited, |bit_pos| {
-                let node_ai = ctx
-                    .remaining_accounts
-                    .get(cursor)
-                    .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-                cursor += 1;
+    reward_per_signature = config.reward_per_signature;
+    let program_id = ctx.program_id;
 
-                require!(
-                    node_ai.owner == program_id,
-                    MolphaError::InvalidCreditNodeAccount
-                );
-                let mut node: Account<Node> = Account::try_from(node_ai)?;
-                // Settlement is current-version-only, so the bit position is the slot
-                // index directly.
-                require!(node.index == bit_pos as u32, MolphaError::InvalidNodeIndex);
+    let mut cursor = 0usize;
+    for_each_set_bit_u256(credited, |bit_pos| {
+        let node_ai = ctx
+            .remaining_accounts
+            .get(cursor)
+            .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
+        cursor += 1;
 
-                node.pending_rewards = node
-                    .pending_rewards
-                    .checked_add(reward_per_signature)
-                    .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-                node.exit(program_id)?;
+        require!(
+            node_ai.owner == program_id,
+            MolphaError::InvalidCreditNodeAccount
+        );
+        let mut node: Account<Node> = Account::try_from(node_ai)?;
+        // Settlement is current-version-only, so the bit position is the slot
+        // index directly.
+        require!(node.index == bit_pos as u32, MolphaError::InvalidNodeIndex);
 
-                Ok(())
-            })?;
+        node.pending_rewards = node
+            .pending_rewards
+            .checked_add(reward_per_signature)
+            .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
+        node.exit(program_id)?;
 
-            let gateway = &mut ctx.accounts.gateway;
-            gateway.pending_rewards = gateway
-                .pending_rewards
-                .checked_add(config.gateway_fee)
-                .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
+        Ok(())
+    })?;
 
-            agg_sig_hash = hash_agg_sig(&args.agg_sig);
-            data_update_message_hash = molpha_verifier::compute_message_hash(
-                &molpha_verifier::DataUpdate {
-                    job_id: args.job_id,
-                    signatures_required: args.signatures_required,
-                    registry_version: args.registry_version,
-                    signers_bitmap: args.agg_sig.signers_bitmap,
-                    value: args.value,
-                    canonical_timestamp: args.timestamp as i64,
-                    agg_sig_s: args.agg_sig.s,
-                    commitment_addr: args.agg_sig.commitment_addr,
-                },
-                args.signatures_required,
-            );
-        }
-        AgentRequestKind::CachedRead => {
-            // No node work, no dispute stage: the gateway fee finalizes immediately.
-            reward_per_signature = 0;
-            let gateway = &mut ctx.accounts.gateway;
-            gateway.claimable_rewards = gateway
-                .claimable_rewards
-                .checked_add(config.gateway_fee)
-                .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-            agg_sig_hash = [0u8; 32];
-            data_update_message_hash = [0u8; 32];
-        }
-    }
+    let gateway = &mut ctx.accounts.gateway;
+    gateway.pending_rewards = gateway
+        .pending_rewards
+        .checked_add(config.gateway_fee)
+        .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
+
+    agg_sig_hash = hash_agg_sig(&args.agg_sig);
+    data_update_message_hash = molpha_verifier::compute_message_hash(
+        &molpha_verifier::DataUpdate {
+            job_id: args.job_id,
+            signatures_required: args.signatures_required,
+            registry_version: args.registry_version,
+            signers_bitmap: args.agg_sig.signers_bitmap,
+            value: args.value,
+            canonical_timestamp: args.timestamp as i64,
+            agg_sig_s: args.agg_sig.s,
+            commitment_addr: args.agg_sig.commitment_addr,
+        },
+        args.signatures_required,
+    );
 
     // 11. Record. The price surplus over node + gateway credits is protocol revenue,
     //     implicit in the treasury (identical to subscription revenue).
-    let is_cached = args.request_kind == AgentRequestKind::CachedRead;
     let record = &mut ctx.accounts.round_record;
     record.job_id = args.job_id;
     record.timestamp = args.timestamp;
     record.signatures_required = args.signatures_required;
-    record.signers_bitmap = if is_cached {
-        [0u8; 32]
-    } else {
-        args.agg_sig.signers_bitmap
-    };
+    record.signers_bitmap = args.agg_sig.signers_bitmap;
     record.agg_sig_hash = agg_sig_hash;
     record.data_update_message_hash = data_update_message_hash;
     record.gateway = ctx.accounts.gateway.key();
@@ -322,13 +276,9 @@ pub fn settle_agent_round<'info>(
     record.reward_per_signature = reward_per_signature;
     record.gateway_fee = config.gateway_fee;
     record.recorded_slot = now_slot;
-    record.finalized = is_cached;
+    record.finalized = false;
     record.voided = false;
-    record.kind = if is_cached {
-        RECORD_KIND_AGENT_CACHED
-    } else {
-        RECORD_KIND_AGENT_FRESH
-    };
+    record.kind = RECORD_KIND_AGENT_FRESH;
     record.agent = args.agent;
     record.request_nonce = args.request_nonce;
     record.rail = args.rail as u8;
@@ -340,7 +290,6 @@ pub fn settle_agent_round<'info>(
     emit!(AgentRoundSettled {
         agent: args.agent,
         request_nonce: args.request_nonce,
-        request_kind: args.request_kind as u8,
         rail: args.rail as u8,
         price,
         payment_ref: args.payment_ref,
@@ -348,7 +297,7 @@ pub fn settle_agent_round<'info>(
         timestamp: args.timestamp,
         gateway: ctx.accounts.gateway.key(),
         signers_bitmap: record.signers_bitmap,
-        credited_count,
+        credited_count: count,
         recorded_slot: now_slot,
     });
 

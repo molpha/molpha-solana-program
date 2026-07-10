@@ -69,7 +69,6 @@ describe("settle_agent_round (X402 rail) + gateway settlement balance", () => {
     gateway,
     agent: x402Agent,
     requestNonce: ++nonce,
-    requestKind: "freshRound" as const,
     rail: "x402" as const,
     maxPrice: freshRoundPrice(SIGS_REQUIRED),
     paymentRef: PAYMENT_REF,
@@ -140,33 +139,6 @@ describe("settle_agent_round (X402 rail) + gateway settlement balance", () => {
       Uint8Array.from(record.paymentRef),
       PAYMENT_REF
     );
-  });
-
-  it("settles an X402 CachedRead", async () => {
-    const before = await proto.program.account.gateway.fetch(gateway.gatewayPda);
-    const params = baseParams({
-      requestKind: "cachedRead",
-      maxPrice: INIT.agentCachedReadPrice,
-      aggSig: zeroedAggSig(),
-      creditedNodePdas: [],
-    });
-    await settleAgentRound(params);
-
-    const after = await proto.program.account.gateway.fetch(gateway.gatewayPda);
-    assert.equal(
-      before.settlementBalance.toNumber() - after.settlementBalance.toNumber(),
-      INIT.agentCachedReadPrice
-    );
-    assert.equal(
-      after.claimableRewards.toNumber() - before.claimableRewards.toNumber(),
-      INIT.gatewayFee
-    );
-
-    const record = await proto.program.account.roundReceiptRecord.fetch(
-      findAgentRoundPda(proto.program.programId, x402Agent, params.requestNonce)
-    );
-    assert.isTrue(record.finalized);
-    assert.equal(record.kind, 2); // RECORD_KIND_AGENT_CACHED
   });
 
   it("rejects a zero payment_ref on the X402 rail", async () => {
