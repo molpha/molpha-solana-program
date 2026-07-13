@@ -4,8 +4,6 @@ use anchor_lang::prelude::*;
 pub const RECORD_KIND_SUBSCRIPTION: u8 = 0;
 /// Agent `FreshRound` settled by `settle_agent_round`; dispute-exposed like a subscription round.
 pub const RECORD_KIND_AGENT_FRESH: u8 = 1;
-/// Agent `CachedRead` settled by `settle_agent_round`; born finalized, never disputable.
-pub const RECORD_KIND_AGENT_CACHED: u8 = 2;
 
 /// Per-round settlement record.
 ///

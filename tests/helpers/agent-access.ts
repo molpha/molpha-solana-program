@@ -58,7 +58,6 @@ export const INIT = {
 };
 
 export const REQUEST_KIND_FRESH = 0;
-export const REQUEST_KIND_CACHED = 1;
 
 export function freshRoundPrice(signaturesRequired: number): number {
   return INIT.agentRoundBase + signaturesRequired * INIT.agentRoundPerSig;
@@ -366,7 +365,7 @@ export interface SettleAgentRoundParams {
   registryVersion: number;
   aggSig?: ReturnType<typeof zeroedAggSig>;
   value?: Uint8Array;
-  /** Node PDAs for the credited bitmap, ascending bit order (FreshRound). */
+  /** Node PDAs for the credited bitmap, ascending bit order. */
   creditedNodePdas?: PublicKey[];
   /** Override the Ed25519 attestation (e.g. wrong key / missing sig tests). */
   ed25519Signer?: Keypair | null;

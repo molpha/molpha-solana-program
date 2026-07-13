@@ -28,16 +28,6 @@ pub enum PaymentRail {
     X402,
 }
 
-/// Priced request kinds (spec v1 §3). `OnchainSubmit` is a Phase 1.5 add-on.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
-pub enum AgentRequestKind {
-    /// Active pull: nodes fetch/compute/co-sign; nodes + gateway credited; dispute-exposed.
-    FreshRound,
-    /// Signed-result retrieval from gateway cache: no node work, gateway fee only,
-    /// record is born finalized.
-    CachedRead,
-}
-
 /// Agent entitlement + funding + policy, one account (spec v1 §4.1, minimal Phase-1 shape).
 ///
 /// `owner` (cold) controls funds and policy; `authority` (hot runtime key) only signs

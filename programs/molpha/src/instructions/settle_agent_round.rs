@@ -8,7 +8,7 @@
 //! `X402` debits the gateway's pre-funded `settlement_balance` (the agent already paid the
 //! gateway off-chain; `payment_ref` is recorded for audit). Reward crediting, finalize, and
 //! dispute are shared with the subscription path — `FreshRound` records are dispute-exposed
-//! identically; `CachedRead` records are born finalized (no node work, nothing to dispute).
+//! identically;
 //!
 //! Unlike `settle_round_receipt`, the transaction signer here **is** the gateway authority:
 //! that is the gateway's consent to dispute exposure and to `settlement_balance` debits.
@@ -40,13 +40,12 @@ pub struct SettleAgentRoundArgs {
     /// External-rail settlement reference; `[0; 32]` for `UsdcEscrow`, required for `X402`.
     pub payment_ref: [u8; 32],
     pub job_id: [u8; 32],
-    /// Canonical round timestamp (`FreshRound`) / serve timestamp (`CachedRead`).
+    /// Canonical round timestamp
     pub timestamp: u64,
     pub signatures_required: u8,
     pub registry_version: u32,
-    /// Zeroed by convention for `CachedRead` (ignored).
     pub agg_sig: AggregatedSig,
-    /// Feed payload value signed by the aggregate Schnorr coalition (`FreshRound`).
+    /// Feed payload value signed by the aggregate Schnorr coalition.
     pub value: [u8; 32],
 }
 

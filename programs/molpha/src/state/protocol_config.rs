@@ -50,8 +50,6 @@ pub struct ProtocolConfig {
     /// Solvency invariant (ops-enforced): `agent_round_per_sig >= reward_per_signature`
     /// and `agent_round_base >= redundancy_buffer * reward_per_signature + gateway_fee`.
     pub agent_round_per_sig: u64,
-    /// Flat price of an agent `CachedRead` request (gateway fee + protocol margin).
-    pub agent_cached_read_price: u64,
     /// Length of the agent spend epoch (e.g. 86_400 for daily); must be > 0.
     pub agent_epoch_len_secs: i64,
     pub bump: u8,
