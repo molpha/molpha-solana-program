@@ -141,13 +141,6 @@ pub mod molpha {
         instructions::close_agent_escrow(ctx)
     }
 
-    pub fn deposit_gateway_settlement(
-        ctx: Context<DepositGatewaySettlement>,
-        amount: u64,
-    ) -> Result<()> {
-        instructions::deposit_gateway_settlement(ctx, amount)
-    }
-
     pub fn settle_agent_round<'info>(
         ctx: Context<'_, '_, 'info, 'info, SettleAgentRound<'info>>,
         args: SettleAgentRoundArgs,

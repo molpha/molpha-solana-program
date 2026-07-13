@@ -8,8 +8,6 @@ use crate::{
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct UpdateAgentPolicyArgs {
-    /// Rotate the hot runtime key.
-    pub authority: Option<Pubkey>,
     pub max_signers: Option<u8>,
     pub epoch_cap: Option<u64>,
     pub expires_at: Option<i64>,
@@ -24,11 +22,14 @@ pub fn update_agent_policy(
         escrow.status != AgentStatus::Frozen,
         MolphaError::AgentNotActive
     );
+    // Policy only applies to owner-provisioned escrows. x402 escrows (`owner == authority`)
+    // carry caps 0 by design; the hot key cannot be rotated here because `authority` is now a
+    // PDA seed (rotate by creating a new escrow).
+    require!(
+        escrow.owner != escrow.authority,
+        MolphaError::UnauthorisedAgentOwner
+    );
 
-    if let Some(authority) = args.authority {
-        require!(authority != Pubkey::default(), MolphaError::InvalidAgentCaps);
-        escrow.authority = authority;
-    }
     if let Some(max_signers) = args.max_signers {
         escrow.max_signers = max_signers;
     }

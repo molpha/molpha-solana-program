@@ -14,11 +14,15 @@ import {
   createFundedEscrow,
   creditedNodePdasForBits,
   currentUnixTs,
+  findAgentEscrowPda,
   findAgentRoundPda,
+  findEscrowAta,
   findNodePda,
   freshRoundPrice,
+  fundAtaInBankrun,
   INIT,
   initializeProtocolForAgents,
+  readTokenAmount,
   registerBondedGateway,
   settleAgentRound,
   zeroedAggSig,
@@ -75,9 +79,7 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
       proto,
       gateway,
       escrow,
-      agent: escrow.escrowPda,
       requestNonce: n,
-      rail: "usdcEscrow" as const,
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
       feedId: FEED_ID,
       timestamp: t,
@@ -97,6 +99,8 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
     const escrowBefore = await proto.program.account.agentEscrow.fetch(
       escrow.escrowPda
     );
+    const escrowAtaBefore = await readTokenAmount(ctx, escrow.escrowAta);
+    const treasuryBefore = await readTokenAmount(ctx, proto.treasury);
     const gatewayBefore = await proto.program.account.gateway.fetch(
       gateway.gatewayPda
     );
@@ -110,10 +114,11 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
     const escrowAfter = await proto.program.account.agentEscrow.fetch(
       escrow.escrowPda
     );
-    assert.equal(
-      escrowBefore.balance.toNumber() - escrowAfter.balance.toNumber(),
-      price
-    );
+    // Real USDC moved escrow ATA -> treasury.
+    const escrowAtaAfter = await readTokenAmount(ctx, escrow.escrowAta);
+    const treasuryAfter = await readTokenAmount(ctx, proto.treasury);
+    assert.equal(escrowAtaBefore - escrowAtaAfter, BigInt(price));
+    assert.equal(treasuryAfter - treasuryBefore, BigInt(price));
     assert.equal(
       escrowAfter.spentTotal.toNumber() - escrowBefore.spentTotal.toNumber(),
       price
@@ -146,7 +151,6 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
       )
     );
     assert.equal(record.kind, 1); // RECORD_KIND_AGENT_FRESH
-    assert.equal(record.rail, 0); // UsdcEscrow
     assert.equal(record.price.toNumber(), price);
     assert.equal(record.agent.toBase58(), escrow.escrowPda.toBase58());
     assert.equal(record.requestNonce.toNumber(), params.requestNonce);
@@ -203,14 +207,11 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
     }
 
     const cappedEscrow = await createFundedEscrow(ctx, proto, {
-      agentIndex: 10,
       maxSigners: SIGS_REQUIRED - 1,
       depositAmount: 50_000,
     });
     try {
-      await settleAgentRound(
-        baseParams({ escrow: cappedEscrow, agent: cappedEscrow.escrowPda })
-      );
+      await settleAgentRound(baseParams({ escrow: cappedEscrow }));
       assert.fail("expected SignaturesExceedAgentMax");
     } catch (e: any) {
       assert.include(e.toString(), "SignaturesExceedAgentMax");
@@ -220,25 +221,16 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
   it("tracks epoch spend without capping and lazily rolls the epoch window", async () => {
     const price = freshRoundPrice(SIGS_REQUIRED);
     const epochEscrow = await createFundedEscrow(ctx, proto, {
-      agentIndex: 11,
       maxSigners: 5,
       depositAmount: 50_000,
     });
 
     let n = 100;
     await settleAgentRound(
-      baseParams({
-        escrow: epochEscrow,
-        agent: epochEscrow.escrowPda,
-        requestNonce: ++n,
-      })
+      baseParams({ escrow: epochEscrow, requestNonce: ++n })
     );
     await settleAgentRound(
-      baseParams({
-        escrow: epochEscrow,
-        agent: epochEscrow.escrowPda,
-        requestNonce: ++n,
-      })
+      baseParams({ escrow: epochEscrow, requestNonce: ++n })
     );
     let after = await proto.program.account.agentEscrow.fetch(
       epochEscrow.escrowPda
@@ -248,11 +240,7 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
     // Cross the epoch boundary: spend window resets lazily at settlement.
     await advanceClock(ctx, INIT.agentEpochLenSecs + 1);
     await settleAgentRound(
-      baseParams({
-        escrow: epochEscrow,
-        agent: epochEscrow.escrowPda,
-        requestNonce: ++n,
-      })
+      baseParams({ escrow: epochEscrow, requestNonce: ++n })
     );
     after = await proto.program.account.agentEscrow.fetch(
       epochEscrow.escrowPda
@@ -288,18 +276,13 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
     // Expired.
     const now = await currentUnixTs(ctx);
     const expiring = await createFundedEscrow(ctx, proto, {
-      agentIndex: 12,
       expiresAt: now + 5,
       depositAmount: 50_000,
     });
     await advanceClock(ctx, 6);
     try {
       await settleAgentRound(
-        baseParams({
-          escrow: expiring,
-          agent: expiring.escrowPda,
-          requestNonce: 200,
-        })
+        baseParams({ escrow: expiring, requestNonce: 200 })
       );
       assert.fail("expected AgentExpired");
     } catch (e: any) {
@@ -309,12 +292,11 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
 
   it("rejects insufficient escrow balance", async () => {
     const poor = await createFundedEscrow(ctx, proto, {
-      agentIndex: 13,
       depositAmount: 500, // below the 1030 FreshRound price
     });
     try {
       await settleAgentRound(
-        baseParams({ escrow: poor, agent: poor.escrowPda, requestNonce: 300 })
+        baseParams({ escrow: poor, requestNonce: 300 })
       );
       assert.fail("expected InsufficientAgentCredits");
     } catch (e: any) {
@@ -322,35 +304,35 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
     }
   });
 
-  it("rejects rail-shape violations", async () => {
-    // Escrow account omitted on the UsdcEscrow rail.
+  it("gateway cannot lazily create a privileged owner-provisioned escrow (owner != authority)", async () => {
+    // Fund an ATA at PDA[owner, authority] with owner != authority but with NO data account,
+    // then try to settle: lazy-init fires (owner == default) and must reject because only
+    // x402 escrows (owner == authority) may be created at settle.
+    const owner = Keypair.generate().publicKey;
+    const authority = Keypair.generate().publicKey;
+    const escrowPda = findAgentEscrowPda(
+      proto.program.programId,
+      owner,
+      authority
+    );
+    fundAtaInBankrun(
+      ctx,
+      findEscrowAta(proto.usdcMint, escrowPda),
+      proto.usdcMint,
+      escrowPda,
+      1_000_000
+    );
     try {
       await settleAgentRound(
-        baseParams({ escrow: undefined, ed25519Signer: null })
+        baseParams({
+          ownerAuthorityOverride: { owner, authority },
+          ed25519Signer: null,
+          requestNonce: 400,
+        })
       );
-      assert.fail("expected AgentEscrowRequired");
+      assert.fail("expected InvalidAgentCaps");
     } catch (e: any) {
-      assert.include(e.toString(), "AgentEscrowRequired");
-    }
-
-    // args.agent not matching the supplied escrow.
-    try {
-      await settleAgentRound(
-        baseParams({ agent: Keypair.generate().publicKey })
-      );
-      assert.fail("expected AgentAccountMismatch");
-    } catch (e: any) {
-      assert.include(e.toString(), "AgentAccountMismatch");
-    }
-
-    // Non-zero payment_ref on the UsdcEscrow rail.
-    try {
-      await settleAgentRound(
-        baseParams({ paymentRef: Uint8Array.from(Buffer.alloc(32, 7)) })
-      );
-      assert.fail("expected UnexpectedAgentEscrow");
-    } catch (e: any) {
-      assert.include(e.toString(), "UnexpectedAgentEscrow");
+      assert.include(e.toString(), "InvalidAgentCaps");
     }
   });
 

@@ -180,9 +180,7 @@ pub fn settle_round_receipt<'info>(
     record.kind = crate::state::RECORD_KIND_SUBSCRIPTION;
     record.agent = Pubkey::default();
     record.request_nonce = 0;
-    record.rail = 0;
     record.price = 0;
-    record.payment_ref = [0u8; 32];
     record.bump = ctx.bumps.round_record;
 
     emit!(RoundSettled {

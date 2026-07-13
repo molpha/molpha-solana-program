@@ -1,14 +1,19 @@
 import { BN } from "@coral-xyz/anchor";
 import { assert } from "chai";
-import { Keypair, SystemProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import { setupTestContext } from "../setup";
 import { fundNodeOwnerInBankrun } from "../helpers/evm-submit-data-update";
 import {
   createFundedEscrow,
   findAgentEscrowPda,
+  findEscrowAta,
   initializeProtocolForAgents,
   INIT,
+  readTokenAmount,
 } from "../helpers/agent-access";
 
 describe("agent escrow lifecycle", () => {
@@ -32,7 +37,7 @@ describe("agent escrow lifecycle", () => {
       escrow.authority.toBase58(),
       setup.hotKey.publicKey.toBase58()
     );
-    assert.equal(escrow.balance.toNumber(), 250_000);
+    assert.equal(await readTokenAmount(ctx, setup.escrowAta), BigInt(250_000));
     assert.equal(escrow.spentTotal.toNumber(), 0);
     assert.equal(escrow.maxSigners, 4);
     assert.equal(escrow.epochSpent.toNumber(), 0);
@@ -55,20 +60,20 @@ describe("agent escrow lifecycle", () => {
         agentEscrow: setup.escrowPda,
         usdcMint: ctx.underlyingTokenMint,
         depositorUsdc: sponsorUsdc,
-        treasury: proto.treasury,
+        escrowAta: setup.escrowAta,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .signers([sponsor])
       .rpc();
-    escrow = await proto.program.account.agentEscrow.fetch(setup.escrowPda);
-    assert.equal(escrow.balance.toNumber(), 350_000);
+    // Real USDC lands in the escrow ATA; the treasury is untouched by deposits now.
+    assert.equal(await readTokenAmount(ctx, setup.escrowAta), BigInt(350_000));
 
     const treasuryAfter = await ctx.provider.context.banksClient.getAccount(
       proto.treasury
     );
     const before = Buffer.from(treasuryBefore!.data).readBigUInt64LE(64);
     const after = Buffer.from(treasuryAfter!.data).readBigUInt64LE(64);
-    assert.equal(after - before, BigInt(100_000));
+    assert.equal(after - before, BigInt(0));
 
     // ---- zero deposit rejected ----
     try {
@@ -80,7 +85,7 @@ describe("agent escrow lifecycle", () => {
           agentEscrow: setup.escrowPda,
           usdcMint: ctx.underlyingTokenMint,
           depositorUsdc: sponsorUsdc,
-          treasury: proto.treasury,
+          escrowAta: setup.escrowAta,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .signers([sponsor])
@@ -90,11 +95,10 @@ describe("agent escrow lifecycle", () => {
       assert.include(e.toString(), "InvalidAmount");
     }
 
-    // ---- policy update (owner-gated; cap re-validated) ----
-    const newHotKey = Keypair.generate();
+    // ---- policy update (owner-gated; cap re-validated). `authority` is a PDA seed now, so
+    // it can no longer be rotated in place. ----
     await proto.program.methods
       .updateAgentPolicy({
-        authority: newHotKey.publicKey,
         maxSigners: 6,
         epochCap: null,
         expiresAt: null,
@@ -107,13 +111,12 @@ describe("agent escrow lifecycle", () => {
       .signers([setup.owner])
       .rpc();
     escrow = await proto.program.account.agentEscrow.fetch(setup.escrowPda);
-    assert.equal(escrow.authority.toBase58(), newHotKey.publicKey.toBase58());
+    assert.equal(escrow.authority.toBase58(), setup.hotKey.publicKey.toBase58());
     assert.equal(escrow.maxSigners, 6);
 
     try {
       await proto.program.methods
         .updateAgentPolicy({
-          authority: null,
           maxSigners: 0,
           epochCap: null,
           expiresAt: null,
@@ -134,7 +137,6 @@ describe("agent escrow lifecycle", () => {
     try {
       await proto.program.methods
         .updateAgentPolicy({
-          authority: null,
           maxSigners: 1,
           epochCap: null,
           expiresAt: null,
@@ -224,7 +226,7 @@ describe("agent escrow lifecycle", () => {
           agentEscrow: setup.escrowPda,
           usdcMint: ctx.underlyingTokenMint,
           depositorUsdc: sponsorUsdc,
-          treasury: proto.treasury,
+          escrowAta: setup.escrowAta,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .signers([sponsor])
@@ -253,6 +255,9 @@ describe("agent escrow lifecycle", () => {
         .accountsPartial({
           owner: setup.owner.publicKey,
           agentEscrow: setup.escrowPda,
+          escrowAta: setup.escrowAta,
+          usdcMint: ctx.underlyingTokenMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
         })
         .signers([setup.owner])
         .rpc();
@@ -262,7 +267,6 @@ describe("agent escrow lifecycle", () => {
     }
 
     const emptySetup = await createFundedEscrow(ctx, proto, {
-      agentIndex: 1,
       depositAmount: 0,
     });
     await proto.program.methods
@@ -270,6 +274,9 @@ describe("agent escrow lifecycle", () => {
       .accountsPartial({
         owner: emptySetup.owner.publicKey,
         agentEscrow: emptySetup.escrowPda,
+        escrowAta: emptySetup.escrowAta,
+        usdcMint: ctx.underlyingTokenMint,
+        tokenProgram: TOKEN_PROGRAM_ID,
       })
       .signers([emptySetup.owner])
       .rpc();
@@ -277,6 +284,10 @@ describe("agent escrow lifecycle", () => {
       emptySetup.escrowPda
     );
     assert.isTrue(closed === null || closed.data.length === 0);
+    const closedAta = await ctx.provider.context.banksClient.getAccount(
+      emptySetup.escrowAta
+    );
+    assert.isTrue(closedAta === null || closedAta.data.length === 0);
   });
 
   it("rejects creation with invalid caps", async () => {
@@ -284,18 +295,17 @@ describe("agent escrow lifecycle", () => {
     const proto = await initializeProtocolForAgents(ctx);
     const owner = Keypair.generate();
     await fundNodeOwnerInBankrun(ctx, owner, ctx.underlyingTokenMint);
-    const escrowPda = findAgentEscrowPda(
-      proto.program.programId,
-      owner.publicKey,
-      0
-    );
 
-    try {
-      await proto.program.methods
+    const createEscrow = (authority: PublicKey, maxSigners: number) => {
+      const escrowPda = findAgentEscrowPda(
+        proto.program.programId,
+        owner.publicKey,
+        authority
+      );
+      return proto.program.methods
         .createAgentEscrow({
-          agentIndex: new BN(0),
-          authority: Keypair.generate().publicKey,
-          maxSigners: 0,
+          authority,
+          maxSigners,
           epochCap: new BN(INIT.epochCap),
           expiresAt: new BN(0),
         })
@@ -303,10 +313,27 @@ describe("agent escrow lifecycle", () => {
           owner: owner.publicKey,
           protocolConfig: proto.protocolConfigPda,
           agentEscrow: escrowPda,
+          usdcMint: ctx.underlyingTokenMint,
+          escrowAta: findEscrowAta(ctx.underlyingTokenMint, escrowPda),
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([owner])
         .rpc();
+    };
+
+    // Zero caps rejected.
+    try {
+      await createEscrow(Keypair.generate().publicKey, 0);
+      assert.fail("expected InvalidAgentCaps");
+    } catch (e: any) {
+      assert.include(e.toString(), "InvalidAgentCaps");
+    }
+
+    // owner == authority rejected (reserved for x402-provisioned escrows).
+    try {
+      await createEscrow(owner.publicKey, 4);
       assert.fail("expected InvalidAgentCaps");
     } catch (e: any) {
       assert.include(e.toString(), "InvalidAgentCaps");

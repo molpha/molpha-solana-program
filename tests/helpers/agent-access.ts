@@ -17,6 +17,7 @@ import {
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { Clock } from "solana-bankrun";
 import * as crypto from "crypto";
@@ -91,15 +92,68 @@ export function hashAgentRequestAuth(params: {
   return sha256([DOMAIN_AGENT_REQAUTH, body]);
 }
 
+/** Escrow PDA — seeds ["molpha_agent", owner, authority]. */
 export function findAgentEscrowPda(
   programId: PublicKey,
   owner: PublicKey,
-  agentIndex: number
+  authority: PublicKey
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [AGENT_ESCROW_SEED, owner.toBuffer(), u64le(agentIndex)],
+    [AGENT_ESCROW_SEED, owner.toBuffer(), authority.toBuffer()],
     programId
   )[0];
+}
+
+/** x402-provisioned escrow PDA — owner == authority == payer. */
+export function findX402EscrowPda(
+  programId: PublicKey,
+  payer: PublicKey
+): PublicKey {
+  return findAgentEscrowPda(programId, payer, payer);
+}
+
+/** The escrow's own USDC ATA (real custody). The escrow PDA is off-curve. */
+export function findEscrowAta(
+  usdcMint: PublicKey,
+  escrowPda: PublicKey
+): PublicKey {
+  return getAssociatedTokenAddressSync(usdcMint, escrowPda, true);
+}
+
+/**
+ * Directly write a funded USDC token account at `ata` owned by `owner` (may be a PDA).
+ * Mirrors `fundNodeOwnerInBankrun`, but for an arbitrary ATA — used to simulate an x402
+ * `exact` payment landing in the escrow ATA before settlement.
+ */
+export function fundAtaInBankrun(
+  ctx: TestContext,
+  ata: PublicKey,
+  usdcMint: PublicKey,
+  owner: PublicKey,
+  amount: number | bigint
+): void {
+  const tokenData = Buffer.alloc(165);
+  usdcMint.toBuffer().copy(tokenData, 0);
+  owner.toBuffer().copy(tokenData, 32);
+  tokenData.writeBigUInt64LE(BigInt(amount), 64);
+  tokenData.writeUInt32LE(0, 72);
+  tokenData.writeUInt8(1, 108);
+  ctx.provider.context.setAccount(ata, {
+    lamports: 2_039_280,
+    owner: TOKEN_PROGRAM_ID,
+    executable: false,
+    data: tokenData,
+  });
+}
+
+/** Read an SPL token account's `amount` (bytes 64..72) from bankrun. */
+export async function readTokenAmount(
+  ctx: TestContext,
+  ata: PublicKey
+): Promise<bigint> {
+  const acct = await ctx.provider.context.banksClient.getAccount(ata);
+  if (!acct) return 0n;
+  return Buffer.from(acct.data).readBigUInt64LE(64);
 }
 
 export function findAgentRoundPda(
@@ -148,6 +202,7 @@ export interface AgentProtocolContext {
   protocolConfigPda: PublicKey;
   registryStatePda: PublicKey;
   treasury: PublicKey;
+  usdcMint: PublicKey;
 }
 
 export async function initializeProtocolForAgents(
@@ -205,7 +260,13 @@ export async function initializeProtocolForAgents(
     })
     .rpc();
 
-  return { program, protocolConfigPda, registryStatePda, treasury };
+  return {
+    program,
+    protocolConfigPda,
+    registryStatePda,
+    treasury,
+    usdcMint: ctx.underlyingTokenMint,
+  };
 }
 
 export interface BondedGateway {
@@ -264,6 +325,7 @@ export interface AgentEscrowSetup {
   owner: Keypair;
   hotKey: Keypair;
   escrowPda: PublicKey;
+  escrowAta: PublicKey;
   ownerUsdc: PublicKey;
 }
 
@@ -271,7 +333,6 @@ export async function createFundedEscrow(
   ctx: TestContext,
   proto: AgentProtocolContext,
   opts?: {
-    agentIndex?: number;
     maxSigners?: number;
     epochCap?: number;
     expiresAt?: number;
@@ -280,7 +341,8 @@ export async function createFundedEscrow(
 ): Promise<AgentEscrowSetup> {
   const owner = Keypair.generate();
   const hotKey = Keypair.generate();
-  const agentIndex = opts?.agentIndex ?? 0;
+  // Fresh owner + hot key per escrow — the [owner, authority] seed pair is the identity;
+  // owner != authority marks it owner-provisioned.
   const ownerUsdc = await fundNodeOwnerInBankrun(
     ctx,
     owner,
@@ -290,12 +352,12 @@ export async function createFundedEscrow(
   const escrowPda = findAgentEscrowPda(
     proto.program.programId,
     owner.publicKey,
-    agentIndex
+    hotKey.publicKey
   );
+  const escrowAta = findEscrowAta(ctx.underlyingTokenMint, escrowPda);
 
   await proto.program.methods
     .createAgentEscrow({
-      agentIndex: new BN(agentIndex),
       authority: hotKey.publicKey,
       maxSigners: opts?.maxSigners ?? INIT.maxSigners,
       epochCap: new BN(opts?.epochCap ?? INIT.epochCap),
@@ -305,6 +367,10 @@ export async function createFundedEscrow(
       owner: owner.publicKey,
       protocolConfig: proto.protocolConfigPda,
       agentEscrow: escrowPda,
+      usdcMint: ctx.underlyingTokenMint,
+      escrowAta,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
     .signers([owner])
@@ -320,14 +386,14 @@ export async function createFundedEscrow(
         agentEscrow: escrowPda,
         usdcMint: ctx.underlyingTokenMint,
         depositorUsdc: ownerUsdc,
-        treasury: proto.treasury,
+        escrowAta,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .signers([owner])
       .rpc();
   }
 
-  return { owner, hotKey, escrowPda, ownerUsdc };
+  return { owner, hotKey, escrowPda, escrowAta, ownerUsdc };
 }
 
 /** Bitmap (EVM u256 layout) with the given bit positions set. */
@@ -352,13 +418,16 @@ export function zeroedAggSig(signersBitmap?: Uint8Array) {
 export interface SettleAgentRoundParams {
   proto: AgentProtocolContext;
   gateway: BondedGateway;
-  // UsdcEscrow rail: the escrow + hot key that signs the AgentRequestAuth.
+  /**
+   * Owner-provisioned escrow (+ hot key that signs the `AgentRequestAuth`). Omit for the
+   * x402 path and pass `payer` instead — then owner == authority == payer and the escrow is
+   * lazily created by settle.
+   */
   escrow?: AgentEscrowSetup;
-  agent: PublicKey;
+  /** x402 payer identity (used when `escrow` is omitted). */
+  payer?: PublicKey;
   requestNonce: number;
-  rail: "usdcEscrow" | "x402";
   maxPrice: number;
-  paymentRef?: Uint8Array;
   feedId: Uint8Array;
   timestamp: number;
   signaturesRequired: number;
@@ -369,22 +438,39 @@ export interface SettleAgentRoundParams {
   creditedNodePdas?: PublicKey[];
   /** Override the Ed25519 attestation (e.g. wrong key / missing sig tests). */
   ed25519Signer?: Keypair | null;
+  /** Override the (owner, authority) args passed on-chain (mismatch tests). */
+  ownerAuthorityOverride?: { owner: PublicKey; authority: PublicKey };
 }
 
 export async function settleAgentRound(
   params: SettleAgentRoundParams
 ): Promise<void> {
+  const programId = params.proto.program.programId;
+  const ownerMode = !!params.escrow;
+
+  const owner =
+    params.ownerAuthorityOverride?.owner ??
+    (ownerMode ? params.escrow!.owner.publicKey : params.payer!);
+  const authority =
+    params.ownerAuthorityOverride?.authority ??
+    (ownerMode ? params.escrow!.hotKey.publicKey : params.payer!);
+
+  const escrowPda = findAgentEscrowPda(programId, owner, authority);
+  const escrowAta = findEscrowAta(params.proto.usdcMint, escrowPda);
+
   const roundRecordPda = findAgentRoundPda(
-    params.proto.program.programId,
-    params.agent,
+    programId,
+    escrowPda,
     params.requestNonce
   );
 
+  // Owner mode carries the off-chain hot-key attestation; x402 does not (the client's
+  // on-chain payment into the escrow ATA is the authorization).
   const preInstructions = [];
-  if (params.rail === "usdcEscrow" && params.ed25519Signer !== null) {
+  if (ownerMode && params.ed25519Signer !== null) {
     const signer = params.ed25519Signer ?? params.escrow!.hotKey;
     const authHash = hashAgentRequestAuth({
-      agent: params.agent,
+      agent: escrowPda,
       requestNonce: params.requestNonce,
       feedId: params.feedId,
       maxPrice: params.maxPrice,
@@ -399,11 +485,10 @@ export async function settleAgentRound(
 
   const builder = params.proto.program.methods
     .settleAgentRound({
-      agent: params.agent,
+      owner,
+      authority,
       requestNonce: new BN(params.requestNonce),
-      rail: { [params.rail]: {} },
       maxPrice: new BN(params.maxPrice),
-      paymentRef: Array.from(params.paymentRef ?? new Uint8Array(32)),
       feedId: Array.from(params.feedId),
       timestamp: new BN(params.timestamp),
       signaturesRequired: params.signaturesRequired,
@@ -416,7 +501,11 @@ export async function settleAgentRound(
       protocolConfig: params.proto.protocolConfigPda,
       registryState: params.proto.registryStatePda,
       gateway: params.gateway.gatewayPda,
-      agentEscrow: params.escrow?.escrowPda ?? null,
+      agentEscrow: escrowPda,
+      usdcMint: params.proto.usdcMint,
+      escrowAta,
+      treasury: params.proto.treasury,
+      tokenProgram: TOKEN_PROGRAM_ID,
       roundRecord: roundRecordPda,
       instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
       systemProgram: SystemProgram.programId,

@@ -17,11 +17,6 @@ pub struct Gateway {
     pub pending_rewards: u64,
     /// Finalized fees, withdrawable via `claim_gateway_rewards`.
     pub claimable_rewards: u64,
-    /// Pre-funded balance that finances agent rounds paid over external rails (x402):
-    /// the agent pays the gateway off-chain, and `settle_agent_round` debits the round
-    /// price from here. Topped up via `deposit_gateway_settlement`; custody is the
-    /// protocol treasury (internal accounting, like `bond`). Withdrawal is Phase 1.5.
-    pub settlement_balance: u64,
     pub slashed: bool,
     pub registered_at: i64,
     pub bump: u8,

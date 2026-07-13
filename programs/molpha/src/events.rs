@@ -177,7 +177,6 @@ pub struct AgentEscrowCreated {
     pub agent: Pubkey,
     pub owner: Pubkey,
     pub authority: Pubkey,
-    pub agent_index: u64,
     pub max_signers: u8,
     pub epoch_cap: u64,
     pub expires_at: i64,
@@ -188,6 +187,7 @@ pub struct AgentCreditsDeposited {
     pub agent: Pubkey,
     pub depositor: Pubkey,
     pub amount: u64,
+    /// Escrow ATA balance after the deposit.
     pub new_balance: u64,
 }
 
@@ -215,19 +215,10 @@ pub struct AgentEscrowClosed {
 }
 
 #[event]
-pub struct GatewaySettlementDeposited {
-    pub gateway: Pubkey,
-    pub amount: u64,
-    pub new_balance: u64,
-}
-
-#[event]
 pub struct AgentRoundSettled {
     pub agent: Pubkey,
     pub request_nonce: u64,
-    pub rail: u8,
     pub price: u64,
-    pub payment_ref: [u8; 32],
     pub feed_id: [u8; 32],
     pub timestamp: u64,
     pub gateway: Pubkey,

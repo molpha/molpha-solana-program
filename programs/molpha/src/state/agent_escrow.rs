@@ -15,40 +15,31 @@ pub enum AgentStatus {
     Frozen,
 }
 
-/// Funding source consulted by `settle_agent_round` (spec v1 §5).
-///
-/// Rail consumers (node crediting, finalize, dispute) never see the rail — it only decides
-/// where the round price is debited from at settlement.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
-pub enum PaymentRail {
-    /// Prepaid on-chain escrow; settlement debits `AgentEscrow.balance`.
-    UsdcEscrow,
-    /// Paid off-chain (HTTP 402) to the gateway; settlement debits
-    /// `Gateway.settlement_balance` and records `payment_ref` for audit.
-    X402,
-}
-
 /// Agent entitlement + funding + policy, one account (spec v1 §4.1, minimal Phase-1 shape).
 ///
 /// `owner` (cold) controls funds and policy; `authority` (hot runtime key) only signs
-/// `AgentRequestAuth` messages. Deposited USDC is custodied in the protocol treasury —
-/// `balance` is internal accounting, exactly like subscription revenue and gateway bonds.
+/// `AgentRequestAuth` messages. Funds are held as **real USDC in the escrow's own ATA**
+/// (`ATA(escrow_pda, usdc_mint)`); the escrow PDA signs the transfer to treasury at
+/// settlement. There is no internal balance counter — the ATA balance is authoritative.
 ///
 /// The on-chain caps (`max_signers`, `epoch_cap`, `expires_at`) are the authoritative
 /// backstop bounding a compromised hot key; per-request rate limiting and template/scope
 /// policy are enforced off-chain by the gateway (the "no on-chain preflight" contract).
+///
+/// x402-provisioned escrows set `owner == authority == payer` with all caps `0`, and are
+/// lazily created by `settle_agent_round` (the payer never signs a Molpha tx). The x402
+/// payment into the escrow ATA is the authorization; replay is guarded by the round-receipt
+/// PDA. `owner == authority` is the settlement-time discriminator that skips the
+/// `AgentRequestAuth` check and all caps.
 #[account]
 #[derive(InitSpace)]
 pub struct AgentEscrow {
-    /// Cold key: policy + funds control.
+    /// Cold key: policy + funds control. Also a seed component.
     pub owner: Pubkey,
-    /// Hot key: signs `AgentRequestAuth` only.
+    /// Hot key: signs `AgentRequestAuth` only. Also a seed component (so it cannot be rotated
+    /// in place). For x402 escrows `authority == owner == payer`.
     pub authority: Pubkey,
-    /// Seed component; an owner may hold many escrows.
-    pub agent_index: u64,
     pub status: AgentStatus,
-    /// Internal USDC accounting; principal custodied in the protocol treasury.
-    pub balance: u64,
     pub spent_total: u64,
     /// Settlement rejects any request with `signatures_required` above this.
     pub max_signers: u8,
@@ -90,9 +81,7 @@ mod tests {
         AgentEscrow {
             owner: Pubkey::new_from_array([1; 32]),
             authority: Pubkey::new_from_array([2; 32]),
-            agent_index: 0,
             status: AgentStatus::Active,
-            balance: 1_000_000,
             spent_total: 0,
             max_signers: 8,
             epoch_cap: 100_000,

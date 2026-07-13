@@ -7,9 +7,10 @@ use crate::{
     state::{AgentEscrow, AgentStatus, ProtocolConfig},
 };
 
-/// Permissionless funding: anyone may top up an agent escrow (owner, sponsor, the agent's
-/// own runtime wallet). USDC is custodied in the protocol treasury; `balance` is internal
-/// accounting, mirroring subscriptions and gateway bonds.
+/// Permissionless funding: anyone may top up an owner-provisioned agent escrow (owner,
+/// sponsor, the agent's own runtime wallet). USDC lands as real funds in the escrow's own
+/// ATA — the escrow PDA signs the transfer out to treasury at settlement. (x402-provisioned
+/// escrows have no data account and are funded by paying directly to their ATA.)
 pub fn deposit_agent_credits(ctx: Context<DepositAgentCredits>, amount: u64) -> Result<()> {
     require!(amount > 0, MolphaError::InvalidAmount);
     require!(
@@ -22,24 +23,20 @@ pub fn deposit_agent_credits(ctx: Context<DepositAgentCredits>, amount: u64) -> 
             ctx.accounts.token_program.to_account_info(),
             Transfer {
                 from: ctx.accounts.depositor_usdc.to_account_info(),
-                to: ctx.accounts.treasury.to_account_info(),
+                to: ctx.accounts.escrow_ata.to_account_info(),
                 authority: ctx.accounts.depositor.to_account_info(),
             },
         ),
         amount,
     )?;
 
-    let escrow = &mut ctx.accounts.agent_escrow;
-    escrow.balance = escrow
-        .balance
-        .checked_add(amount)
-        .ok_or(MolphaError::InvalidAmount)?;
+    ctx.accounts.escrow_ata.reload()?;
 
     emit!(AgentCreditsDeposited {
-        agent: escrow.key(),
+        agent: ctx.accounts.agent_escrow.key(),
         depositor: ctx.accounts.depositor.key(),
         amount,
-        new_balance: escrow.balance,
+        new_balance: ctx.accounts.escrow_ata.amount,
     });
 
     Ok(())
@@ -72,10 +69,10 @@ pub struct DepositAgentCredits<'info> {
 
     #[account(
         mut,
-        constraint = treasury.key() == protocol_config.treasury @ MolphaError::InvalidTreasury,
-        constraint = treasury.mint == usdc_mint.key() @ MolphaError::InvalidTreasury,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = agent_escrow,
     )]
-    pub treasury: Account<'info, TokenAccount>,
+    pub escrow_ata: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
 }

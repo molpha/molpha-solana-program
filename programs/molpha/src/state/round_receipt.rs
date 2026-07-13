@@ -36,17 +36,13 @@ pub struct RoundReceiptRecord {
     pub voided: bool,
     /// `RECORD_KIND_*` discriminant.
     pub kind: u8,
-    /// Agent escrow PDA (`UsdcEscrow` rail) or gateway-assigned payer identity (`X402`).
-    /// `Pubkey::default()` for subscription rounds.
+    /// Agent escrow PDA (owner-provisioned) or x402 payer identity (`PDA(["molpha_agent",
+    /// payer])`). `Pubkey::default()` for subscription rounds.
     pub agent: Pubkey,
     /// Agent replay nonce; 0 for subscription rounds.
     pub request_nonce: u64,
-    /// `PaymentRail` as u8; 0 for subscription rounds.
-    pub rail: u8,
     /// On-chain computed round price charged at settlement; 0 for subscription rounds.
     pub price: u64,
-    /// External-rail settlement reference (e.g. `H(x402 settlement)`); zeroed otherwise.
-    pub payment_ref: [u8; 32],
     pub bump: u8,
 }
 

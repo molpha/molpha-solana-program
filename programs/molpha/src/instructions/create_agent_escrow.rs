@@ -1,4 +1,8 @@
 use anchor_lang::prelude::*;
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{Mint, Token, TokenAccount},
+};
 
 use crate::{
     error::MolphaError,
@@ -8,8 +12,8 @@ use crate::{
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct CreateAgentEscrowArgs {
-    pub agent_index: u64,
-    /// Hot runtime key that signs `AgentRequestAuth` messages.
+    /// Hot runtime key that signs `AgentRequestAuth` messages. Also a seed component —
+    /// distinct from `owner` (cold/hot split), which is what marks this as owner-provisioned.
     pub authority: Pubkey,
     pub max_signers: u8,
     pub epoch_cap: u64,
@@ -26,8 +30,11 @@ pub fn create_agent_escrow(
         args.max_signers > 0 && args.epoch_cap > 0,
         MolphaError::InvalidAgentCaps
     );
+    // Owner-provisioned escrows require a cold/hot split. `owner == authority` is reserved for
+    // x402-provisioned escrows (lazily created at settlement with caps 0); enforcing the split
+    // here keeps the `owner == authority` settlement discriminator unambiguous.
     require!(
-        args.authority != Pubkey::default(),
+        args.authority != Pubkey::default() && args.authority != ctx.accounts.owner.key(),
         MolphaError::InvalidAgentCaps
     );
     let now = Clock::get()?.unix_timestamp;
@@ -39,9 +46,7 @@ pub fn create_agent_escrow(
     let escrow = &mut ctx.accounts.agent_escrow;
     escrow.owner = ctx.accounts.owner.key();
     escrow.authority = args.authority;
-    escrow.agent_index = args.agent_index;
     escrow.status = AgentStatus::Active;
-    escrow.balance = 0;
     escrow.spent_total = 0;
     escrow.max_signers = args.max_signers;
     escrow.epoch_cap = args.epoch_cap;
@@ -55,7 +60,6 @@ pub fn create_agent_escrow(
         agent: escrow.key(),
         owner: escrow.owner,
         authority: escrow.authority,
-        agent_index: args.agent_index,
         max_signers: args.max_signers,
         epoch_cap: args.epoch_cap,
         expires_at: args.expires_at,
@@ -83,11 +87,28 @@ pub struct CreateAgentEscrow<'info> {
         seeds = [
             AgentEscrow::SEED_PREFIX,
             owner.key().as_ref(),
-            args.agent_index.to_le_bytes().as_ref(),
+            args.authority.as_ref(),
         ],
         bump
     )]
     pub agent_escrow: Account<'info, AgentEscrow>,
 
+    #[account(
+        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidOwnerUsdc
+    )]
+    pub usdc_mint: Account<'info, Mint>,
+
+    /// The escrow's own USDC ATA — real custody. Owner pays rent.
+    #[account(
+        init,
+        payer = owner,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = agent_escrow,
+        associated_token::token_program = token_program,
+    )]
+    pub escrow_ata: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }

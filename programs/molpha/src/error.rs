@@ -182,16 +182,8 @@ pub enum MolphaError {
     SignaturesExceedAgentMax,
     #[msg("epoch_spent + price exceeds the escrow epoch_cap")]
     EpochCapExceeded,
-    #[msg("agent escrow balance below computed price")]
+    #[msg("escrow ATA balance below computed price")]
     InsufficientAgentCredits,
-    #[msg("gateway settlement_balance below computed price")]
-    GatewaySettlementUnderfunded,
-    #[msg("payment_ref is required for external-rail settlement")]
-    MissingPaymentRef,
-    #[msg("agent escrow account required for the UsdcEscrow rail")]
-    AgentEscrowRequired,
-    #[msg("agent escrow account must not be supplied for external rails")]
-    UnexpectedAgentEscrow,
     #[msg("args.agent does not match the supplied agent escrow")]
     AgentAccountMismatch,
     #[msg("signer is not the agent escrow owner")]
@@ -200,7 +192,7 @@ pub enum MolphaError {
     UnauthorisedGateway,
     #[msg("agent cap parameters invalid")]
     InvalidAgentCaps,
-    #[msg("agent escrow balance must be zero to close")]
+    #[msg("escrow ATA balance must be zero to close")]
     AgentEscrowNotEmpty,
     #[msg("credited signer count exceeds signatures_required + redundancy_buffer")]
     CreditedExceedsSelection,
