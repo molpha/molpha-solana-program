@@ -325,7 +325,11 @@ function buildSignedPayload(
     ),
     signerMaterial,
     signersBitmap ?? signerCount,
-    hexToBytes(requireValue(options.feedId, "Missing --feed-id"), 32, "feed id"),
+    hexToBytes(
+      requireValue(options.feedId, "Missing --feed-id"),
+      32,
+      "feed id"
+    ),
     {
       configHash: hexToBytes(
         requireValue(options.configHash, "Missing --config-hash"),

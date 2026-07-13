@@ -22,7 +22,7 @@ pub fn update_agent_policy(
         escrow.status != AgentStatus::Frozen,
         MolphaError::AgentNotActive
     );
-    // Policy only applies to owner-provisioned escrows. x402 escrows (`owner == authority`)
+    // Policy only applies to owner-provisioned escrows. self-funded escrows (`owner == authority`)
     // carry caps 0 by design; the hot key cannot be rotated here because `authority` is now a
     // PDA seed (rotate by creating a new escrow).
     require!(

@@ -26,9 +26,6 @@ pub fn finalize_round<'info>(
     let registry = &ctx.accounts.registry_state;
     let record = &ctx.accounts.round_record;
 
-    require!(!record.voided, MolphaError::RoundVoided);
-    require!(!record.finalized, MolphaError::RoundAlreadyFinalized);
-
     let clock = Clock::get()?;
     let now_slot = clock.slot;
     require!(
@@ -107,7 +104,6 @@ pub fn finalize_round<'info>(
         .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
 
     let record = &mut ctx.accounts.round_record;
-    record.finalized = true;
 
     emit!(RoundFinalized {
         feed_id: record.feed_id,
@@ -139,7 +135,10 @@ pub struct FinalizeRound<'info> {
     /// (`["molpha_agent_round", agent, nonce]`) settlement record. No seeds constraint:
     /// owner + discriminator suffice — only the two settle instructions can create this
     /// account type, and both write complete state, so stored contents are trusted.
-    #[account(mut)]
+    #[account(
+        mut,
+        close = caller,
+    )]
     pub round_record: Account<'info, RoundReceiptRecord>,
 
     #[account(

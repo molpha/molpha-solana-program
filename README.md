@@ -143,13 +143,13 @@ Use `ComputeBudgetProgram.setComputeUnitLimit` ≥ **550_000** for large coaliti
 ### Example: read feed via CLI
 
 ```bash
-yarn molpha account feed --job-id <64_hex_feed_id>
+yarn molpha account feed --feed-id <64_hex_feed_id>
 ```
 
 Off-chain signing and submission:
 
 ```bash
-yarn molpha data sign --job-id <hex> --registry-version 1 --value <hex> ...
+yarn molpha data sign --feed-id <hex> --registry-version 1 --value <hex> ...
 yarn molpha data submit ...
 ```
 

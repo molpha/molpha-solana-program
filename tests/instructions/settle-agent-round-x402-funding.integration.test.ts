@@ -100,7 +100,9 @@ describe("settle_agent_round (x402 funding of AgentEscrow)", () => {
 
     const ataBefore = await readTokenAmount(ctx, escrowAta());
     const treasuryBefore = await readTokenAmount(ctx, proto.treasury);
-    const gwBefore = await proto.program.account.gateway.fetch(gateway.gatewayPda);
+    const gwBefore = await proto.program.account.gateway.fetch(
+      gateway.gatewayPda
+    );
 
     const params = baseParams();
     await settleAgentRound(params);
@@ -110,7 +112,9 @@ describe("settle_agent_round (x402 funding of AgentEscrow)", () => {
     assert.equal(ataBefore - ataAfter, BigInt(price));
     assert.equal(treasuryAfter - treasuryBefore, BigInt(price));
 
-    const gwAfter = await proto.program.account.gateway.fetch(gateway.gatewayPda);
+    const gwAfter = await proto.program.account.gateway.fetch(
+      gateway.gatewayPda
+    );
     assert.equal(
       gwAfter.pendingRewards.toNumber() - gwBefore.pendingRewards.toNumber(),
       INIT.gatewayFee
@@ -124,12 +128,13 @@ describe("settle_agent_round (x402 funding of AgentEscrow)", () => {
     assert.equal(escrow.epochCap.toNumber(), 0);
 
     const record = await proto.program.account.roundReceiptRecord.fetch(
-      findAgentRoundPda(proto.program.programId, escrowPda(), params.requestNonce)
+      findAgentRoundPda(
+        proto.program.programId,
+        escrowPda(),
+        params.requestNonce
+      )
     );
-    assert.equal(record.kind, 1); // RECORD_KIND_AGENT_FRESH
     assert.equal(record.price.toNumber(), price);
-    assert.equal(record.agent.toBase58(), escrowPda().toBase58());
-    assert.equal(record.requestNonce.toNumber(), params.requestNonce);
   });
 
   it("blocks replay of the same (payer, request_nonce) via the record PDA", async () => {
@@ -150,7 +155,9 @@ describe("settle_agent_round (x402 funding of AgentEscrow)", () => {
     // Fund below the FreshRound price.
     fundAtaInBankrun(ctx, poorAta, proto.usdcMint, poorEscrow, 500);
     try {
-      await settleAgentRound(baseParams({ payer: poorPayer, requestNonce: 900 }));
+      await settleAgentRound(
+        baseParams({ payer: poorPayer, requestNonce: 900 })
+      );
       assert.fail("expected InsufficientAgentCredits");
     } catch (e: any) {
       assert.include(e.toString(), "InsufficientAgentCredits");

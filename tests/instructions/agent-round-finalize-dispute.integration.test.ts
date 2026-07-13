@@ -219,10 +219,13 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       INIT.gatewayFee
     );
 
-    const record = await proto.program.account.roundReceiptRecord.fetch(
-      recordPda
-    );
-    assert.isTrue(record.finalized);
+    // round record is closed by the finalize round instruction
+    try {
+      await proto.program.account.roundReceiptRecord.fetch(recordPda);
+      assert.fail("expected RoundReceiptRecordNotFound");
+    } catch (e: any) {
+      assert.include(e.toString(), "Could not find " + recordPda.toBase58());
+    }
   });
 
   it("voids a fabricated agent round on dispute and slashes the gateway bond", async () => {
@@ -277,10 +280,13 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       nodeBits: bits,
     });
 
-    const record = await proto.program.account.roundReceiptRecord.fetch(
-      recordPda
-    );
-    assert.isTrue(record.voided);
+    // round record is closed by the dispute round instruction
+    try {
+      await proto.program.account.roundReceiptRecord.fetch(recordPda);
+      assert.fail("expected RoundReceiptRecordNotFound");
+    } catch (e: any) {
+      assert.include(e.toString(), "Could not find " + recordPda.toBase58());
+    }
 
     const gw = await proto.program.account.gateway.fetch(
       victimGateway.gatewayPda
@@ -475,10 +481,15 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       ])
       .rpc();
 
-    const record = await proto.program.account.roundReceiptRecord.fetch(
-      roundRecordPda
-    );
-    assert.isTrue(record.finalized);
-    assert.equal(record.kind, 0); // RECORD_KIND_SUBSCRIPTION
+    // round record is closed by the finalize round instruction
+    try {
+      await proto.program.account.roundReceiptRecord.fetch(roundRecordPda);
+      assert.fail("expected RoundReceiptRecordNotFound");
+    } catch (e: any) {
+      assert.include(
+        e.toString(),
+        "Could not find " + roundRecordPda.toBase58()
+      );
+    }
   });
 });

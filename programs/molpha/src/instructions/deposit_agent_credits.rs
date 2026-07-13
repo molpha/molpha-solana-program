@@ -9,7 +9,7 @@ use crate::{
 
 /// Permissionless funding: anyone may top up an owner-provisioned agent escrow (owner,
 /// sponsor, the agent's own runtime wallet). USDC lands as real funds in the escrow's own
-/// ATA — the escrow PDA signs the transfer out to treasury at settlement. (x402-provisioned
+/// ATA — the escrow PDA signs the transfer out to treasury at settlement. (self-funded escrows have no data account and are funded by paying directly to their ATA.)
 /// escrows have no data account and are funded by paying directly to their ATA.)
 pub fn deposit_agent_credits(ctx: Context<DepositAgentCredits>, amount: u64) -> Result<()> {
     require!(amount > 0, MolphaError::InvalidAmount);

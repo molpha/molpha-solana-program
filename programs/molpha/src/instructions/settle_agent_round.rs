@@ -11,21 +11,18 @@
 //!   * **Owner-provisioned** (`owner != authority`): created by `create_agent_escrow`. The hot
 //!     `authority` key signed an `AgentRequestAuth` off-chain; on-chain caps (`max_signers`,
 //!     `epoch_cap`, `expires_at`, status) and the strictly-increasing nonce are enforced.
-//!   * **x402-provisioned** (`owner == authority == payer`): **lazily created here** (the payer
-//!     never signs a Molpha tx). Caps are 0; the client's x402 payment into the escrow ATA is
+//!   * **self-funded** (`owner == authority == payer`): **lazily created here** (the payer
+//!     never signs a Molpha tx). Caps are 0; the client's payment into the escrow ATA is
 //!     the authorization — no hot key, no caps — and replay is guarded by the round-receipt PDA
 //!     `init`. Only escrows with `owner == authority` may be lazily created, so the gateway can
 //!     never conjure a privileged owner-provisioned escrow.
-//!
-//! Unlike `settle_round_receipt`, the transaction signer here **is** the gateway authority:
-//! that is the gateway's consent to dispute exposure.
 
 use crate::{
     error::MolphaError,
     events::{AgentEscrowCreated, AgentRoundSettled},
     state::{
         hash_agent_request_auth_fields, hash_agg_sig, AgentEscrow, AgentStatus, AggregatedSig,
-        Gateway, Node, ProtocolConfig, RegistryState, RoundReceiptRecord, RECORD_KIND_AGENT_FRESH,
+        Gateway, Node, ProtocolConfig, RegistryState, RoundReceiptRecord,
     },
     utils::{
         bitmap::{bitmap_load, for_each_set_bit_u256},
@@ -37,7 +34,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleAgentRoundArgs {
-    /// Escrow `owner` — a seed of `agent_escrow`. For x402 escrows this equals `authority`
+    /// Escrow `owner` — a seed of `agent_escrow`. For self-funded escrows this equals `authority`
     /// (both are the payer); the pair drives the `init_if_needed` derivation.
     pub owner: Pubkey,
     /// Escrow `authority` — the other `agent_escrow` seed.
@@ -56,7 +53,7 @@ pub struct SettleAgentRoundArgs {
 }
 
 /// Price from request-time parameters only (never the post-hoc bitmap popcount), so
-/// external rails requiring a locked price (x402 `exact`) stay applicable.
+/// external rails requiring a locked price (self-funded `exact`) stay applicable.
 pub fn compute_agent_price(config: &ProtocolConfig, signatures_required: u8) -> Result<u64> {
     config
         .agent_round_base
@@ -82,79 +79,49 @@ pub fn settle_agent_round<'info>(
 
     let epoch_len = config.agent_epoch_len_secs;
 
-    // 1. Gateway consent + bond — enforced by the account constraints (the tx signer is
-    //    the gateway authority).
-
-    // 2. Registry — current-version-only for FreshRound settlement.
+    // Registry — current-version-only for FreshRound settlement.
     require!(
         args.registry_version == registry.current_version,
         MolphaError::InvalidRegistryVersion
     );
 
-    // 3. Lazy x402 provisioning. A freshly `init_if_needed`-created escrow is zeroed
-    //    (`owner == default`). Only x402 escrows (`owner == authority`) may be created here, so
-    //    the gateway can never conjure a privileged owner-provisioned escrow; caps are 0.
-    {
-        let escrow = &mut ctx.accounts.agent_escrow;
-        if escrow.owner == Pubkey::default() {
-            require!(
-                args.owner == args.authority && args.owner != Pubkey::default(),
-                MolphaError::InvalidAgentCaps
-            );
-            escrow.owner = args.owner;
-            escrow.authority = args.authority;
-            escrow.status = AgentStatus::Active;
-            escrow.spent_total = 0;
-            escrow.max_signers = 0;
-            escrow.epoch_cap = 0;
-            escrow.epoch_spent = 0;
-            escrow.epoch_id = 0;
-            escrow.expires_at = 0;
-            escrow.last_request_nonce = 0;
-            escrow.bump = ctx.bumps.agent_escrow;
-
-            emit!(AgentEscrowCreated {
-                agent: escrow.key(),
-                owner: escrow.owner,
-                authority: escrow.authority,
-                max_signers: 0,
-                epoch_cap: 0,
-                expires_at: 0,
-            });
-        }
-    }
-
-    let escrow_key = ctx.accounts.agent_escrow.key();
-    // `owner == authority` is the x402 discriminator: it skips the `AgentRequestAuth` check and
-    // all caps (the client's on-chain payment into the escrow ATA is the authorization).
-    let x402_mode = {
-        let escrow = &ctx.accounts.agent_escrow;
-        escrow.owner == escrow.authority
-    };
-
-    // 4. Entitlement (both modes).
-    {
-        let escrow = &ctx.accounts.agent_escrow;
+    let escrow = &mut ctx.accounts.agent_escrow;
+    // Lazy self-funded provisioning: if escrow account is not initialized, it means it is a self-funded escrow.
+    if escrow.owner == Pubkey::default() {
         require!(
-            escrow.status == AgentStatus::Active,
-            MolphaError::AgentNotActive
+            args.owner == args.authority && args.owner != Pubkey::default(),
+            MolphaError::InvalidAgentCaps
         );
-        require!(!escrow.is_expired(now_ts), MolphaError::AgentExpired);
+        escrow.init_self_funded(args.owner, args.authority, ctx.bumps.agent_escrow);
+
+        emit!(AgentEscrowCreated {
+            agent: escrow.key(),
+            owner: escrow.owner,
+            authority: escrow.authority,
+            max_signers: 0,
+            epoch_cap: 0,
+            expires_at: 0,
+        });
     }
 
-    // 5-6. Replay + authorization — owner-provisioned only. x402 relies on the record PDA
-    //      `init` for replay and on the client's on-chain payment as authorization.
-    if !x402_mode {
-        let escrow = &ctx.accounts.agent_escrow;
-        // Strictly increasing nonce (gaps allowed; the gateway orders the batch). The record
-        // PDA `init` on `(agent, request_nonce)` also dedups unconditionally.
+    require!(
+        escrow.status == AgentStatus::Active,
+        MolphaError::AgentNotActive
+    );
+
+    let price = compute_agent_price(config, args.signatures_required)?;
+    require!(price <= args.max_price, MolphaError::MaxPriceExceeded);
+
+    // Replay + authorization — owner-provisioned only. self-funded relies on the record PDA
+    // `init` for replay and on the client's on-chain payment as authorization.
+    if escrow.is_owner_provisioned() {
         require!(
             args.request_nonce > escrow.last_request_nonce,
             MolphaError::AgentNonceNotIncreasing
         );
-        // The hot key signed this exact request off-chain.
+
         let auth_hash = hash_agent_request_auth_fields(
-            &escrow_key,
+            &escrow.key(),
             args.request_nonce,
             &args.feed_id,
             args.max_price,
@@ -167,18 +134,30 @@ pub fn settle_agent_round<'info>(
             )?,
             MolphaError::AgentSigInvalid
         );
+        require!(
+            args.signatures_required <= escrow.max_signers,
+            MolphaError::SignaturesExceedAgentMax
+        );
+        escrow.roll_epoch(now_ts, epoch_len);
+        let epoch_spent = escrow
+            .epoch_spent
+            .checked_add(price)
+            .ok_or(MolphaError::EpochCapExceeded)?;
+        require!(
+            epoch_spent <= escrow.epoch_cap,
+            MolphaError::EpochCapExceeded
+        );
+        escrow.epoch_spent = epoch_spent;
+        escrow.last_request_nonce = args.request_nonce;
     }
 
-    // 7. Kind shape — quorum bounds on the embedded bitmap (FreshRound only).
+    // Quorum bounds on the embedded bitmap (FreshRound only).
     let credited = bitmap_load(&args.agg_sig.signers_bitmap);
     let count = credited.count_ones();
     require!(
         count >= u32::from(args.signatures_required),
         MolphaError::QuorumBelowThreshold
     );
-    // Cheap inflation bound: an honest selection never exceeds
-    // `signatures_required + redundancy_buffer`, so this blocks blatantly padded
-    // bitmaps at settlement instead of waiting for a dispute.
     require!(
         count <= u32::from(args.signatures_required) + u32::from(registry.redundancy_buffer),
         MolphaError::CreditedExceedsSelection
@@ -188,33 +167,10 @@ pub fn settle_agent_round<'info>(
         MolphaError::InvalidCreditNodeAccount
     );
 
-    // 8. Price — computed on-chain from protocol config + request-time parameters; bounded
-    //    by the agent-signed ceiling and (owner-provisioned) the owner's max_signers / epoch_cap.
-    let price = compute_agent_price(config, args.signatures_required)?;
-    require!(price <= args.max_price, MolphaError::MaxPriceExceeded);
-
-    // 9. Caps + accounting. x402 escrows carry no caps; `spent_total` is tracked for both.
-    {
-        let escrow = &mut ctx.accounts.agent_escrow;
-        if !x402_mode {
-            require!(
-                args.signatures_required <= escrow.max_signers,
-                MolphaError::SignaturesExceedAgentMax
-            );
-            escrow.roll_epoch(now_ts, epoch_len);
-            let epoch_spent = escrow
-                .epoch_spent
-                .checked_add(price)
-                .ok_or(MolphaError::EpochCapExceeded)?;
-            require!(epoch_spent <= escrow.epoch_cap, MolphaError::EpochCapExceeded);
-            escrow.epoch_spent = epoch_spent;
-            escrow.last_request_nonce = args.request_nonce;
-        }
-        escrow.spent_total = escrow
-            .spent_total
-            .checked_add(price)
-            .ok_or(MolphaError::EpochCapExceeded)?;
-    }
+    escrow.spent_total = escrow
+        .spent_total
+        .checked_add(price)
+        .ok_or(MolphaError::EpochCapExceeded)?;
 
     // 10. Funding — move `price` from the escrow's ATA into the treasury; the escrow PDA signs
     //     with `["molpha_agent", owner, authority, bump]`.
@@ -222,10 +178,7 @@ pub fn settle_agent_round<'info>(
         ctx.accounts.escrow_ata.amount >= price,
         MolphaError::InsufficientAgentCredits
     );
-    let (owner_key, authority_key, escrow_bump) = {
-        let escrow = &ctx.accounts.agent_escrow;
-        (escrow.owner, escrow.authority, escrow.bump)
-    };
+    let (owner_key, authority_key, escrow_bump) = { (escrow.owner, escrow.authority, escrow.bump) };
     let bump = [escrow_bump];
     let signer_seeds: &[&[u8]] = &[
         AgentEscrow::SEED_PREFIX,
@@ -239,7 +192,7 @@ pub fn settle_agent_round<'info>(
             Transfer {
                 from: ctx.accounts.escrow_ata.to_account_info(),
                 to: ctx.accounts.treasury.to_account_info(),
-                authority: ctx.accounts.agent_escrow.to_account_info(),
+                authority: escrow.to_account_info(),
             },
             &[signer_seeds],
         ),
@@ -314,17 +267,12 @@ pub fn settle_agent_round<'info>(
     record.reward_per_signature = reward_per_signature;
     record.gateway_fee = config.gateway_fee;
     record.recorded_slot = now_slot;
-    record.finalized = false;
-    record.voided = false;
-    record.kind = RECORD_KIND_AGENT_FRESH;
-    record.agent = escrow_key;
-    record.request_nonce = args.request_nonce;
     record.price = price;
     record.bump = ctx.bumps.round_record;
 
     // 13. Event.
     emit!(AgentRoundSettled {
-        agent: escrow_key,
+        agent: escrow.key(),
         request_nonce: args.request_nonce,
         price,
         feed_id: args.feed_id,
@@ -369,7 +317,7 @@ pub struct SettleAgentRound<'info> {
 
     /// The escrow, keyed `["molpha_agent", owner, authority]`. `init_if_needed`: an
     /// owner-provisioned escrow already exists (created by `create_agent_escrow`); an
-    /// x402 escrow (`args.owner == args.authority`) is lazily created here on first settle
+    /// self-funded escrow (`args.owner == args.authority`) is lazily created here on first settle
     /// (the handler enforces that only `owner == authority` escrows may be freshly created).
     /// It is also the authority over `escrow_ata` and signs the transfer to treasury.
     #[account(
@@ -391,7 +339,7 @@ pub struct SettleAgentRound<'info> {
     pub usdc_mint: Box<Account<'info, token::Mint>>,
 
     /// The escrow's USDC ATA — source of the settled `price`. Pinned to `agent_escrow`. Not
-    /// created here: owner escrows create it in `create_agent_escrow`; x402 clients create +
+    /// created here: owner escrows create it in `create_agent_escrow`; self-funded clients create +
     /// fund it off-chain before settlement.
     #[account(
         mut,

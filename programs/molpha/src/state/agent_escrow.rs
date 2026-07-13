@@ -26,8 +26,8 @@ pub enum AgentStatus {
 /// backstop bounding a compromised hot key; per-request rate limiting and template/scope
 /// policy are enforced off-chain by the gateway (the "no on-chain preflight" contract).
 ///
-/// x402-provisioned escrows set `owner == authority == payer` with all caps `0`, and are
-/// lazily created by `settle_agent_round` (the payer never signs a Molpha tx). The x402
+/// self-funded escrows set `owner == authority == payer` with all caps `0`, and are
+/// lazily created by `settle_agent_round` (the payer never signs a Molpha tx). The self-funded
 /// payment into the escrow ATA is the authorization; replay is guarded by the round-receipt
 /// PDA. `owner == authority` is the settlement-time discriminator that skips the
 /// `AgentRequestAuth` check and all caps.
@@ -37,7 +37,7 @@ pub struct AgentEscrow {
     /// Cold key: policy + funds control. Also a seed component.
     pub owner: Pubkey,
     /// Hot key: signs `AgentRequestAuth` only. Also a seed component (so it cannot be rotated
-    /// in place). For x402 escrows `authority == owner == payer`.
+    /// in place). For self-funded escrows `authority == owner == payer`.
     pub authority: Pubkey,
     pub status: AgentStatus,
     pub spent_total: u64,
@@ -59,8 +59,17 @@ impl AgentEscrow {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_agent";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
-    pub fn is_expired(&self, now: i64) -> bool {
-        self.expires_at != 0 && now >= self.expires_at
+    pub fn init_self_funded(&mut self, owner: Pubkey, authority: Pubkey, bump: u8) {
+        self.owner = owner;
+        self.authority = authority;
+        self.status = AgentStatus::Active;
+        self.spent_total = 0;
+        self.max_signers = 0;
+        self.epoch_cap = 0;
+        self.epoch_spent = 0;
+        self.epoch_id = 0;
+        self.last_request_nonce = 0;
+        self.bump = bump;
     }
 
     /// Reset the epoch spend window if `now` has crossed into a new epoch.
@@ -70,6 +79,14 @@ impl AgentEscrow {
             self.epoch_id = epoch_id;
             self.epoch_spent = 0;
         }
+    }
+
+    pub fn is_self_funded(&self) -> bool {
+        self.owner == self.authority
+    }
+
+    pub fn is_owner_provisioned(&self) -> bool {
+        self.owner != self.authority
     }
 }
 
@@ -104,14 +121,5 @@ mod tests {
         escrow.roll_epoch(20_001 * 86_400 + 10, 86_400);
         assert_eq!(escrow.epoch_id, 20_001);
         assert_eq!(escrow.epoch_spent, 0);
-    }
-
-    #[test]
-    fn expiry_semantics() {
-        let mut escrow = fixture_escrow();
-        assert!(!escrow.is_expired(i64::MAX)); // 0 = never
-        escrow.expires_at = 100;
-        assert!(!escrow.is_expired(99));
-        assert!(escrow.is_expired(100));
     }
 }

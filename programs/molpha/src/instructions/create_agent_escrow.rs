@@ -31,7 +31,7 @@ pub fn create_agent_escrow(
         MolphaError::InvalidAgentCaps
     );
     // Owner-provisioned escrows require a cold/hot split. `owner == authority` is reserved for
-    // x402-provisioned escrows (lazily created at settlement with caps 0); enforcing the split
+    // self-funded escrows (lazily created at settlement with caps 0); enforcing the split
     // here keeps the `owner == authority` settlement discriminator unambiguous.
     require!(
         args.authority != Pubkey::default() && args.authority != ctx.accounts.owner.key(),

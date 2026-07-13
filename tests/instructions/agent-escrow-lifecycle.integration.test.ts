@@ -111,7 +111,10 @@ describe("agent escrow lifecycle", () => {
       .signers([setup.owner])
       .rpc();
     escrow = await proto.program.account.agentEscrow.fetch(setup.escrowPda);
-    assert.equal(escrow.authority.toBase58(), setup.hotKey.publicKey.toBase58());
+    assert.equal(
+      escrow.authority.toBase58(),
+      setup.hotKey.publicKey.toBase58()
+    );
     assert.equal(escrow.maxSigners, 6);
 
     try {

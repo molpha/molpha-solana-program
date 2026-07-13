@@ -174,12 +174,6 @@ pub fn settle_round_receipt<'info>(
     record.reward_per_signature = reward_per_signature;
     record.gateway_fee = gateway_fee;
     record.recorded_slot = now_slot;
-    record.finalized = false;
-    record.voided = false;
-    // Agent-path fields (subscription defaults).
-    record.kind = crate::state::RECORD_KIND_SUBSCRIPTION;
-    record.agent = Pubkey::default();
-    record.request_nonce = 0;
     record.price = 0;
     record.bump = ctx.bumps.round_record;
 

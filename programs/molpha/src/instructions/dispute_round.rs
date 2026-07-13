@@ -30,10 +30,6 @@ pub fn dispute_round<'info>(
 ) -> Result<()> {
     let record = &ctx.accounts.round_record;
 
-    require!(!record.voided, MolphaError::RoundVoided);
-    // Disputes close once the round is finalized (the dispute window has passed).
-    require!(!record.finalized, MolphaError::DisputeWindowClosed);
-
     // Challenger must supply the exact committed signature.
     require!(
         hash_agg_sig(&agg_sig) == record.agg_sig_hash,
@@ -127,7 +123,6 @@ pub fn dispute_round<'info>(
     gateway.slashed = true;
 
     let record = &mut ctx.accounts.round_record;
-    record.voided = true;
 
     emit!(RoundDisputed {
         feed_id: record.feed_id,
@@ -161,7 +156,10 @@ pub struct DisputeRound<'info> {
     /// (`["molpha_agent_round", agent, nonce]`) settlement record. No seeds constraint:
     /// owner + discriminator suffice — only the two settle instructions can create this
     /// account type, and both write complete state, so stored contents are trusted.
-    #[account(mut)]
+    #[account(
+        mut,
+        close = challenger,
+    )]
     pub round_record: Box<Account<'info, RoundReceiptRecord>>,
 
     #[account(

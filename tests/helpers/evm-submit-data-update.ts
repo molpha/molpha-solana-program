@@ -1132,7 +1132,10 @@ export function deriveEvmFixtureFeedId(owner: PublicKey): Uint8Array {
   );
 }
 
-export function findJobPda(programId: PublicKey, feedId: Uint8Array): PublicKey {
+export function findJobPda(
+  programId: PublicKey,
+  feedId: Uint8Array
+): PublicKey {
   return PublicKey.findProgramAddressSync(
     [JOB_SEED, Buffer.from(feedId)],
     programId
