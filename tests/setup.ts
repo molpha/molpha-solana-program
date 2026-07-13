@@ -357,19 +357,19 @@ export async function registerNodeWithDeposit(
 
 // Helper function to create feed parameters
 export function createFeedParams(
-  jobId: string,
+  feedId: string,
   feedType: { public: {} } | { personal: {} }
 ) {
   // Convert hex string to byte array properly and pad to 32 bytes
-  const hexString = jobId.startsWith("0x") ? jobId.slice(2) : jobId;
+  const hexString = feedId.startsWith("0x") ? feedId.slice(2) : feedId;
 
   // Pad to 32 bytes (64 hex characters) if needed
   const paddedHexString = hexString.padStart(64, "0");
-  const paddedJobIdBytes = Array.from(Buffer.from(paddedHexString, "hex"));
+  const paddedFeedIdBytes = Array.from(Buffer.from(paddedHexString, "hex"));
 
   return {
-    name: jobId.slice(0, 32), // Truncate name to 32 characters for PDA generation
-    jobId: paddedJobIdBytes,
+    name: feedId.slice(0, 32), // Truncate name to 32 characters for PDA generation
+    feedId: paddedFeedIdBytes,
     feedType: feedType,
     minSignaturesThreshold: 2,
     frequency: new anchor.BN(300), // 5 minutes as BN

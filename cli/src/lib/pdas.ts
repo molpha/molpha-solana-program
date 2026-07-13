@@ -71,20 +71,20 @@ export function findSubscriptionPda(
 
 export function findJobPda(
   programId: PublicKey,
-  jobId: Uint8Array
+  feedId: Uint8Array
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [JOB_SEED, Buffer.from(jobId)],
+    [JOB_SEED, Buffer.from(feedId)],
     programId
   );
 }
 
 export function findFeedPda(
   programId: PublicKey,
-  jobId: Uint8Array
+  feedId: Uint8Array
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [FEED_SEED, Buffer.from(jobId)],
+    [FEED_SEED, Buffer.from(feedId)],
     programId
   );
 }

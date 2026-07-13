@@ -110,7 +110,7 @@ pub fn finalize_round<'info>(
     record.finalized = true;
 
     emit!(RoundFinalized {
-        job_id: record.job_id,
+        feed_id: record.feed_id,
         timestamp: record.timestamp,
         credited_count,
         finalized_slot: now_slot,
@@ -135,7 +135,7 @@ pub struct FinalizeRound<'info> {
     )]
     pub registry_state: Account<'info, RegistryState>,
 
-    /// Subscription (`["molpha_round", job_id, ts]`) or agent
+    /// Subscription (`["molpha_round", feed_id, ts]`) or agent
     /// (`["molpha_agent_round", agent, nonce]`) settlement record. No seeds constraint:
     /// owner + discriminator suffice — only the two settle instructions can create this
     /// account type, and both write complete state, so stored contents are trusted.

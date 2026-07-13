@@ -100,7 +100,7 @@ yarn molpha registry register \
   --security-deposit 1000000
 
 yarn molpha data submit \
-  --job-id <JOB_ID_HEX> \
+  --feed-id <FEED_ID_HEX> \
   --registry-version 1 \
   --config-hash <32_BYTE_HEX> \
   --decimals 8 \
@@ -114,7 +114,7 @@ Verify and inspect:
 
 ```bash
 yarn molpha data verify \
-  --job-id <JOB_ID_HEX> \
+  --feed-id <FEED_ID_HEX> \
   --registry-version 1 \
   --config-hash <32_BYTE_HEX> \
   --value <32_BYTE_HEX> \
@@ -122,7 +122,7 @@ yarn molpha data verify \
   --signer-count 1 \
   --signer-seed molpha-cli-e2e-signers
 
-yarn molpha account feed --job-id <JOB_ID_HEX>
+yarn molpha account feed --feed-id <FEED_ID_HEX>
 ```
 
 ## Notes

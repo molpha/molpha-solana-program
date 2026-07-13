@@ -39,7 +39,7 @@ pub struct SettleAgentRoundArgs {
     pub max_price: u64,
     /// External-rail settlement reference; `[0; 32]` for `UsdcEscrow`, required for `X402`.
     pub payment_ref: [u8; 32],
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     /// Canonical round timestamp
     pub timestamp: u64,
     pub signatures_required: u8,
@@ -115,7 +115,7 @@ pub fn settle_agent_round<'info>(
             let auth_hash = hash_agent_request_auth_fields(
                 &args.agent,
                 args.request_nonce,
-                &args.job_id,
+                &args.feed_id,
                 args.max_price,
             );
             require!(
@@ -249,7 +249,7 @@ pub fn settle_agent_round<'info>(
     agg_sig_hash = hash_agg_sig(&args.agg_sig);
     data_update_message_hash = molpha_verifier::compute_message_hash(
         &molpha_verifier::DataUpdate {
-            job_id: args.job_id,
+            feed_id: args.feed_id,
             signatures_required: args.signatures_required,
             registry_version: args.registry_version,
             signers_bitmap: args.agg_sig.signers_bitmap,
@@ -264,7 +264,7 @@ pub fn settle_agent_round<'info>(
     // 11. Record. The price surplus over node + gateway credits is protocol revenue,
     //     implicit in the treasury (identical to subscription revenue).
     let record = &mut ctx.accounts.round_record;
-    record.job_id = args.job_id;
+    record.feed_id = args.feed_id;
     record.timestamp = args.timestamp;
     record.signatures_required = args.signatures_required;
     record.signers_bitmap = args.agg_sig.signers_bitmap;
@@ -292,7 +292,7 @@ pub fn settle_agent_round<'info>(
         rail: args.rail as u8,
         price,
         payment_ref: args.payment_ref,
-        job_id: args.job_id,
+        feed_id: args.feed_id,
         timestamp: args.timestamp,
         gateway: ctx.accounts.gateway.key(),
         signers_bitmap: record.signers_bitmap,

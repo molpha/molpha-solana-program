@@ -26,7 +26,7 @@ import {
 
 const NODE_COUNT = 4;
 const SIGS_REQUIRED = 2;
-const JOB_ID = Uint8Array.from(Buffer.alloc(32, 0x42));
+const FEED_ID = Uint8Array.from(Buffer.alloc(32, 0x42));
 
 describe("settle_agent_round (UsdcEscrow rail)", () => {
   let ctx: TestContext;
@@ -79,7 +79,7 @@ describe("settle_agent_round (UsdcEscrow rail)", () => {
       requestNonce: n,
       rail: "usdcEscrow" as const,
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
-      jobId: JOB_ID,
+      feedId: FEED_ID,
       timestamp: t,
       signaturesRequired: SIGS_REQUIRED,
       registryVersion,

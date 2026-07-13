@@ -52,7 +52,7 @@ const DOMAIN_GWRCPT = Buffer.from("MOLPHA_GWRCPT_V1", "utf8");
 const MESSAGE_PREFIX = Buffer.from(
   keccak_256(Buffer.from("MOLPHA_MESSAGE_V1", "utf8"))
 );
-const JOB_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1", "utf8");
+const FEED_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1", "utf8");
 const NODE_ID_PREFIX = Buffer.from("MOLPHA_NODE_ID_V1", "utf8");
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
@@ -158,11 +158,11 @@ function sha256(parts) {
   return h.digest();
 }
 
-function deriveJobId(owner, apiConfigHash, signaturesRequired) {
+function deriveFeedId(owner, apiConfigHash, signaturesRequired) {
   return Buffer.from(
     keccak_256(
       Buffer.concat([
-        JOB_ID_PREFIX,
+        FEED_ID_PREFIX,
         owner.toBuffer(),
         apiConfigHash,
         Buffer.from([signaturesRequired]),
@@ -200,8 +200,8 @@ function bitmapBitSet(bitmap, bit) {
   return (bitmap[byteIndex] & bitMask) !== 0;
 }
 
-function hashRequestAuth(jobId, timestamp) {
-  const body = Buffer.concat([Buffer.from(jobId), u64le(timestamp)]);
+function hashRequestAuth(feedId, timestamp) {
+  const body = Buffer.concat([Buffer.from(feedId), u64le(timestamp)]);
   return sha256([DOMAIN_REQAUTH, body]);
 }
 
@@ -217,7 +217,7 @@ function hashAggregatedSig(aggSig) {
 }
 
 function computeDataUpdateMessageHash({
-  jobId,
+  feedId,
   registryVersion,
   signaturesRequired,
   signersBitmap,
@@ -228,7 +228,7 @@ function computeDataUpdateMessageHash({
     keccak_256(
       Buffer.concat([
         MESSAGE_PREFIX,
-        Buffer.from(jobId),
+        Buffer.from(feedId),
         u32be(registryVersion),
         u32be(signaturesRequired),
         Buffer.from(signersBitmap),
@@ -492,13 +492,13 @@ async function bootstrapState({
 
   // Create a job with signatures_required = 1 so we can test multiple credited counts.
   const apiConfigHash = crypto.randomBytes(32);
-  const jobId = deriveJobId(payer.publicKey, apiConfigHash, 1);
+  const feedId = deriveFeedId(payer.publicKey, apiConfigHash, 1);
   const [jobPda] = PublicKey.findProgramAddressSync(
-    [JOB_SEED, jobId],
+    [JOB_SEED, feedId],
     programId
   );
   const [feedPda] = PublicKey.findProgramAddressSync(
-    [FEED_SEED, jobId],
+    [FEED_SEED, feedId],
     programId
   );
 
@@ -509,7 +509,7 @@ async function bootstrapState({
         signaturesRequired: 1,
         decimals: 8,
       },
-      Array.from(jobId)
+      Array.from(feedId)
     )
     .accountsPartial({
       creator: payer.publicKey,
@@ -676,7 +676,7 @@ async function bootstrapState({
     gatewayIndex: Number(gateway.index),
     registryVersion: Number(registryState.currentVersion),
     signaturesRequired: 1,
-    jobId,
+    feedId,
     nodePdasByIndex,
     registryIndexPdasByIndex,
     lookupTableAccount,
@@ -736,10 +736,10 @@ async function simulateSettleRound({
     gatewayIndex: setupState.gatewayIndex,
   };
 
-  const requestAuthHash = hashRequestAuth(setupState.jobId, timestamp);
+  const requestAuthHash = hashRequestAuth(setupState.feedId, timestamp);
   const aggSigHash = hashAggregatedSig(aggSig);
   const dataUpdateMessageHash = computeDataUpdateMessageHash({
-    jobId: setupState.jobId,
+    feedId: setupState.feedId,
     registryVersion: gatewayReceipt.registryVersion,
     signaturesRequired: setupState.signaturesRequired,
     signersBitmap: aggSig.signersBitmap,
@@ -763,12 +763,12 @@ async function simulateSettleRound({
   });
 
   const [roundRecordPda] = PublicKey.findProgramAddressSync(
-    [ROUND_RECEIPT_SEED, setupState.jobId, u64le(timestamp)],
+    [ROUND_RECEIPT_SEED, setupState.feedId, u64le(timestamp)],
     program.programId
   );
 
   const settleArgs = {
-    jobId: Array.from(setupState.jobId),
+    feedId: Array.from(setupState.feedId),
     timestamp: new anchor.BN(timestamp),
     aggSig: {
       s: Array.from(aggSig.s),

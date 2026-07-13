@@ -79,13 +79,13 @@ export function sha256(parts: Buffer[]): Buffer {
 export function hashAgentRequestAuth(params: {
   agent: PublicKey;
   requestNonce: number | bigint;
-  jobId: Uint8Array;
+  feedId: Uint8Array;
   maxPrice: number | bigint;
 }): Buffer {
   const body = Buffer.concat([
     params.agent.toBuffer(),
     u64le(params.requestNonce),
-    Buffer.from(params.jobId),
+    Buffer.from(params.feedId),
     u64le(params.maxPrice),
   ]);
   return sha256([DOMAIN_AGENT_REQAUTH, body]);
@@ -359,7 +359,7 @@ export interface SettleAgentRoundParams {
   rail: "usdcEscrow" | "x402";
   maxPrice: number;
   paymentRef?: Uint8Array;
-  jobId: Uint8Array;
+  feedId: Uint8Array;
   timestamp: number;
   signaturesRequired: number;
   registryVersion: number;
@@ -386,7 +386,7 @@ export async function settleAgentRound(
     const authHash = hashAgentRequestAuth({
       agent: params.agent,
       requestNonce: params.requestNonce,
-      jobId: params.jobId,
+      feedId: params.feedId,
       maxPrice: params.maxPrice,
     });
     preInstructions.push(
@@ -404,7 +404,7 @@ export async function settleAgentRound(
       rail: { [params.rail]: {} },
       maxPrice: new BN(params.maxPrice),
       paymentRef: Array.from(params.paymentRef ?? new Uint8Array(32)),
-      jobId: Array.from(params.jobId),
+      feedId: Array.from(params.feedId),
       timestamp: new BN(params.timestamp),
       signaturesRequired: params.signaturesRequired,
       registryVersion: params.registryVersion,

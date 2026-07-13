@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 #[account]
 #[derive(InitSpace)]
 pub struct Feed {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub value: [u8; 32],
     pub canonical_timestamp: i64,
     pub signatures_required: u8,
@@ -13,7 +13,7 @@ pub struct Feed {
 }
 
 pub struct FeedInitParams {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub value: [u8; 32],
     pub canonical_timestamp: i64,
     pub signatures_required: u8,
@@ -35,7 +35,7 @@ impl Feed {
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
     pub fn init(&mut self, params: &FeedInitParams) {
-        self.job_id = params.job_id;
+        self.feed_id = params.feed_id;
         self.value = params.value;
         self.canonical_timestamp = params.canonical_timestamp;
         self.signatures_required = params.signatures_required;

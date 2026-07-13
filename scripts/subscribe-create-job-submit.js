@@ -52,7 +52,7 @@ const {
 const { keccak_256 } = require("@noble/hashes/sha3");
 const { createProvider } = require("./lib/molpha-provider");
 const {
-  deriveJobId,
+  deriveFeedId,
   registryIndexRemainingAccounts,
   signerMaterialFromManifestNodes,
   signDataUpdateForRegistry,
@@ -266,13 +266,13 @@ async function main() {
     nodeCount
   );
   const payload = buildPayload(opts);
-  const jobId = deriveJobId(owner, payload.configHash, signaturesRequired);
+  const feedId = deriveFeedId(owner, payload.configHash, signaturesRequired);
   const [jobPda] = PublicKey.findProgramAddressSync(
-    [JOB_SEED, jobId],
+    [JOB_SEED, feedId],
     programId
   );
   const [feedPda] = PublicKey.findProgramAddressSync(
-    [FEED_SEED, jobId],
+    [FEED_SEED, feedId],
     programId
   );
 
@@ -288,7 +288,7 @@ async function main() {
   );
   console.log(`Plan: ${PLAN_NAMES[opts.planId]} @ ${planPda.toBase58()}`);
   console.log(`Signatures required: ${signaturesRequired}`);
-  console.log(`Job id: 0x${jobId.toString("hex")}`);
+  console.log(`Feed id: 0x${feedId.toString("hex")}`);
   console.log("");
 
   const result = {
@@ -305,7 +305,7 @@ async function main() {
     configHash: `0x${payload.configHash.toString("hex")}`,
     value: `0x${payload.value.toString("hex")}`,
     canonicalTimestamp: payload.canonicalTimestamp,
-    jobId: `0x${jobId.toString("hex")}`,
+    feedId: `0x${feedId.toString("hex")}`,
     job: jobPda.toBase58(),
     feed: feedPda.toBase58(),
     steps: {},
@@ -383,7 +383,7 @@ async function main() {
             signaturesRequired,
             decimals: opts.decimals,
           },
-          Array.from(jobId)
+          Array.from(feedId)
         )
         .accountsPartial({
           creator: owner,
@@ -418,7 +418,7 @@ async function main() {
       registryVersion,
       signerMaterial,
       signaturesRequired,
-      jobId,
+      feedId,
       value: payload.value,
       canonicalTimestamp: ts,
       nodeCount,

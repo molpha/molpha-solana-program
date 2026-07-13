@@ -25,7 +25,7 @@ import {
   writeVerifyAnswerEvmFixture,
 } from "../helpers/e2e-fixture-export";
 import {
-  deriveJobId,
+  deriveFeedId,
   findFeedPda,
   findJobPda,
   generateE2eSignerMaterialFromSeed,
@@ -176,19 +176,19 @@ describe("e2e generate verify-answer-evm fixture", () => {
       })
       .rpc();
 
-    const jobId = deriveJobId(
+    const feedId = deriveFeedId(
       ctx.authority.publicKey,
       scenario.configHash,
       SIGNATURES_REQUIRED
     );
-    const jobPda = findJobPda(program.programId, jobId);
-    const feedPda = findFeedPda(program.programId, jobId);
+    const jobPda = findJobPda(program.programId, feedId);
+    const feedPda = findFeedPda(program.programId, feedId);
 
     const signed = signE2eDataUpdate(
       registry.currentVersion,
       signerMaterial,
       NODE_COUNT,
-      jobId,
+      feedId,
       {
         configHash: scenario.configHash,
         value: scenario.value,
@@ -247,7 +247,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
       nodePubkeys: signerMaterial.compressedPubkeys,
       nodePrivkeys: signerMaterial.privKeys,
       signaturesRequired: SIGNATURES_REQUIRED,
-      jobId,
+      feedId,
       dataUpdate: {
         configHash: scenario.configHash,
         value: scenario.value,
@@ -264,7 +264,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
         seed,
         outputPath,
         registryVersion: registry.currentVersion,
-        jobId: fixture.dataUpdate.jobId,
+        feedId: fixture.dataUpdate.feedId,
       })
     );
 

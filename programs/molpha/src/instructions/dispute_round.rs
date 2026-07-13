@@ -58,7 +58,7 @@ pub fn dispute_round<'info>(
         ctx.accounts.registry_state.previous_node_count
     };
     let expected_selection = molpha_verifier::derive_selection_bitmap(
-        &record.job_id,
+        &record.feed_id,
         record.registry_version,
         record.timestamp as i64,
         node_count,
@@ -130,7 +130,7 @@ pub fn dispute_round<'info>(
     record.voided = true;
 
     emit!(RoundDisputed {
-        job_id: record.job_id,
+        feed_id: record.feed_id,
         timestamp: record.timestamp,
         gateway: record.gateway,
         slashed_bond,
@@ -157,7 +157,7 @@ pub struct DisputeRound<'info> {
     )]
     pub registry_state: Box<Account<'info, RegistryState>>,
 
-    /// Subscription (`["molpha_round", job_id, ts]`) or agent
+    /// Subscription (`["molpha_round", feed_id, ts]`) or agent
     /// (`["molpha_agent_round", agent, nonce]`) settlement record. No seeds constraint:
     /// owner + discriminator suffice — only the two settle instructions can create this
     /// account type, and both write complete state, so stored contents are trusted.

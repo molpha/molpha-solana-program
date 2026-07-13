@@ -366,7 +366,7 @@ async function main() {
     } catch (_e) {}
 
     const feedName = `cu-alt-real-feed-${signerCount}-${Date.now()}`;
-    const jobId = bytes32FromAscii(`cu-alt-real-job-${signerCount}`);
+    const feedId = bytes32FromAscii(`cu-alt-real-job-${signerCount}`);
     const [feedPda] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("feed"),
@@ -381,7 +381,7 @@ async function main() {
       .createFeed(
         {
           name: feedName,
-          jobId: Array.from(jobId),
+          feedId: Array.from(feedId),
           feedType: { public: {} },
           minSignaturesThreshold: signerCount,
           frequency: new anchor.BN(300),
@@ -439,7 +439,7 @@ async function main() {
 
     const messageHash = keccakConcat([
       MESSAGE_PREFIX,
-      jobId,
+      feedId,
       u32be(registryVersion),
       u32be(signerCount),
       signersBitmap,
@@ -454,7 +454,7 @@ async function main() {
     });
 
     const args = {
-      jobId: Array.from(jobId),
+      feedId: Array.from(feedId),
       value: new anchor.BN(valueBytes32.readBigInt64BE(0).toString()),
       valueBytes32: Array.from(valueBytes32),
       timestamp: new anchor.BN(timestamp.toString()),

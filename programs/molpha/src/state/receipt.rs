@@ -19,17 +19,17 @@ pub const DOMAIN_AGENT_REQAUTH: &[u8] = b"MOLPHA_AGENT_REQAUTH_V1";
 
 /// Consumer demand authorization (Ed25519-signed by `consumer.authority`).
 ///
-/// The consumer signs only `(job_id, timestamp)`. Replay protection is enforced on-chain
+/// The consumer signs only `(feed_id, timestamp)`. Replay protection is enforced on-chain
 /// via `Job.last_request_timestamp` (strictly increasing per job).
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct RequestAuth {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub timestamp: u64,
 }
 
 /// The committed aggregate Schnorr signature. **Not verified on the happy path.**
 ///
-/// Round context (`job_id`, `timestamp`) is passed once at the instruction level in
+/// Round context (`feed_id`, `timestamp`) is passed once at the instruction level in
 /// `SettleRoundArgs`. The credited participation set is `signers_bitmap` — the gateway is
 /// bound to it via the on-chain `sha256(AggregatedSig)` mixed into `H(GatewayReceipt)`.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -52,10 +52,10 @@ pub fn hash_request_auth(request_auth: &RequestAuth) -> [u8; 32] {
     sha256_hashv(&[DOMAIN_REQAUTH, &body]).to_bytes()
 }
 
-/// `H(RequestAuth)` from the instruction-level `(job_id, timestamp)` pair.
-pub fn hash_request_auth_fields(job_id: &[u8; 32], timestamp: u64) -> [u8; 32] {
+/// `H(RequestAuth)` from the instruction-level `(feed_id, timestamp)` pair.
+pub fn hash_request_auth_fields(feed_id: &[u8; 32], timestamp: u64) -> [u8; 32] {
     hash_request_auth(&RequestAuth {
-        job_id: *job_id,
+        feed_id: *feed_id,
         timestamp,
     })
 }
@@ -72,7 +72,7 @@ pub struct AgentRequestAuth {
     /// The `AgentEscrow` PDA address.
     pub agent: Pubkey,
     pub request_nonce: u64,
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     /// Max price (USDC atomic units) the agent authorizes for this request.
     pub max_price: u64,
 }
@@ -89,13 +89,13 @@ pub fn hash_agent_request_auth(auth: &AgentRequestAuth) -> [u8; 32] {
 pub fn hash_agent_request_auth_fields(
     agent: &Pubkey,
     request_nonce: u64,
-    job_id: &[u8; 32],
+    feed_id: &[u8; 32],
     max_price: u64,
 ) -> [u8; 32] {
     hash_agent_request_auth(&AgentRequestAuth {
         agent: *agent,
         request_nonce,
-        job_id: *job_id,
+        feed_id: *feed_id,
         max_price,
     })
 }
@@ -114,7 +114,7 @@ mod tests {
 
     fn fixture_request_auth() -> RequestAuth {
         RequestAuth {
-            job_id: [0x11; 32],
+            feed_id: [0x11; 32],
             timestamp: 1_700_000_000,
         }
     }
@@ -133,7 +133,7 @@ mod tests {
     fn hash_request_auth_fields_matches_struct_hash() {
         let auth = fixture_request_auth();
         assert_eq!(
-            hash_request_auth_fields(&auth.job_id, auth.timestamp),
+            hash_request_auth_fields(&auth.feed_id, auth.timestamp),
             hash_request_auth(&auth)
         );
     }
@@ -145,7 +145,7 @@ mod tests {
         a.timestamp += 1;
         assert_ne!(hash_request_auth(&a), base);
         let mut b = fixture_request_auth();
-        b.job_id[0] ^= 0x01;
+        b.feed_id[0] ^= 0x01;
         assert_ne!(hash_request_auth(&b), base);
     }
 
@@ -170,7 +170,7 @@ mod tests {
         AgentRequestAuth {
             agent: Pubkey::new_from_array([0x22; 32]),
             request_nonce: 7,
-            job_id: [0x11; 32],
+            feed_id: [0x11; 32],
             max_price: 5_000,
         }
     }
@@ -182,7 +182,7 @@ mod tests {
             hash_agent_request_auth_fields(
                 &auth.agent,
                 auth.request_nonce,
-                &auth.job_id,
+                &auth.feed_id,
                 auth.max_price,
             ),
             hash_agent_request_auth(&auth)
@@ -199,7 +199,7 @@ mod tests {
         b.max_price += 1;
         assert_ne!(hash_agent_request_auth(&b), base);
         let mut c = fixture_agent_request_auth();
-        c.job_id[0] ^= 0x01;
+        c.feed_id[0] ^= 0x01;
         assert_ne!(hash_agent_request_auth(&c), base);
         let mut d = fixture_agent_request_auth();
         d.agent = Pubkey::new_from_array([0x23; 32]);

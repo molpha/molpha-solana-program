@@ -103,7 +103,7 @@ pub struct GatewayRegistered {
 
 #[event]
 pub struct JobCreated {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub owner: Pubkey,
     pub plan_type: u8,
     pub signatures_required: u8,
@@ -128,7 +128,7 @@ pub struct DelegateRemoved {
 
 #[event]
 pub struct FeedUpdated {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub registry_version: u32,
     pub canonical_timestamp: i64,
     pub value: [u8; 32],
@@ -139,7 +139,7 @@ pub struct FeedUpdated {
 #[event]
 pub struct RoundSettled {
     pub gateway: Pubkey,
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub timestamp: u64,
     pub signers_bitmap: [u8; 32],
     pub credited_count: u32,
@@ -150,7 +150,7 @@ pub struct RoundSettled {
 
 #[event]
 pub struct RoundFinalized {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub timestamp: u64,
     pub credited_count: u32,
     pub finalized_slot: u64,
@@ -158,7 +158,7 @@ pub struct RoundFinalized {
 
 #[event]
 pub struct RoundDisputed {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub timestamp: u64,
     pub gateway: Pubkey,
     pub slashed_bond: u64,
@@ -228,7 +228,7 @@ pub struct AgentRoundSettled {
     pub rail: u8,
     pub price: u64,
     pub payment_ref: [u8; 32],
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub timestamp: u64,
     pub gateway: Pubkey,
     pub signers_bitmap: [u8; 32],

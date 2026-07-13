@@ -39,7 +39,7 @@ import {
 
 const NODE_COUNT = 4;
 const SIGS_REQUIRED = 2;
-const JOB_ID = Uint8Array.from(Buffer.alloc(32, 0x66));
+const FEED_ID = Uint8Array.from(Buffer.alloc(32, 0x66));
 const DOMAIN_REQAUTH = Buffer.from("MOLPHA_REQAUTH_V1", "utf8");
 const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
@@ -135,7 +135,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       requestNonce: n,
       rail: "usdcEscrow",
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
-      jobId: JOB_ID,
+      feedId: FEED_ID,
       timestamp: t,
       signaturesRequired: SIGS_REQUIRED,
       registryVersion,
@@ -233,7 +233,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     // The credited set must be the deterministically derived selection so the dispute
     // reaches Schnorr verification (which then fails on the garbage signature).
     const selection = deriveSignersBitmapForJob(
-      JOB_ID,
+      FEED_ID,
       registryVersion,
       NODE_COUNT,
       SIGS_REQUIRED,
@@ -251,7 +251,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       requestNonce: n,
       rail: "usdcEscrow",
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
-      jobId: JOB_ID,
+      feedId: FEED_ID,
       timestamp: t,
       signaturesRequired: SIGS_REQUIRED,
       registryVersion,
@@ -312,7 +312,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       registryVersion,
       material,
       NODE_COUNT, // derive the selection bitmap for this job/timestamp
-      JOB_ID,
+      FEED_ID,
       {
         configHash: new Uint8Array(32),
         value,
@@ -339,7 +339,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       requestNonce: n,
       rail: "usdcEscrow",
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
-      jobId: JOB_ID,
+      feedId: FEED_ID,
       timestamp: t,
       signaturesRequired: SIGS_REQUIRED,
       registryVersion,
@@ -416,23 +416,23 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
 
     // Subscription settle: consumer Ed25519 attestation over H(RequestAuth).
     const t = ++ts;
-    const subJobId = Buffer.alloc(32, 0x77);
+    const subFeedId = Buffer.alloc(32, 0x77);
     const requestAuthHash = sha256([
       DOMAIN_REQAUTH,
-      Buffer.concat([subJobId, u64le(t)]),
+      Buffer.concat([subFeedId, u64le(t)]),
     ]);
     const consumerSigIx = Ed25519Program.createInstructionWithPrivateKey({
       privateKey: ctx.authority.payer.secretKey,
       message: requestAuthHash,
     });
     const [roundRecordPda] = PublicKey.findProgramAddressSync(
-      [ROUND_SEED, subJobId, u64le(t)],
+      [ROUND_SEED, subFeedId, u64le(t)],
       proto.program.programId
     );
 
     await proto.program.methods
       .settleRoundReceipt({
-        jobId: Array.from(subJobId),
+        feedId: Array.from(subFeedId),
         timestamp: new BN(t),
         signaturesRequired: 1,
         registryVersion,

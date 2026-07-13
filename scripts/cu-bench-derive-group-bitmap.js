@@ -25,7 +25,7 @@ const toml = require("toml");
 const {
   NODE_COUNT,
   COMPUTE_UNIT_LIMIT,
-  FIXTURE_JOB_ID,
+  FIXTURE_FEED_ID,
   FIXTURE_REGISTRY_VERSION,
   deriveSelectionSeed,
   effectiveSelectionSize,
@@ -162,7 +162,7 @@ async function main() {
       NODE_COUNT
     );
     const seed = deriveSelectionSeed(
-      FIXTURE_JOB_ID,
+      FIXTURE_FEED_ID,
       FIXTURE_REGISTRY_VERSION,
       FIXTURE_CANONICAL_TIMESTAMP
     );

@@ -28,7 +28,7 @@ const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
 const DELEGATE_SEED = Buffer.from("molpha_delegate");
 
-const JOB_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
+const FEED_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
 const SECONDS_PER_MONTH = 30 * 24 * 60 * 60;
 
 function hexToBytes(hex: string): Uint8Array {
@@ -36,14 +36,14 @@ function hexToBytes(hex: string): Uint8Array {
   return Uint8Array.from(Buffer.from(clean, "hex"));
 }
 
-function deriveJobId(
+function deriveFeedId(
   owner: PublicKey,
   apiConfigHash: Uint8Array,
   signaturesRequired: number
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
-      JOB_ID_PREFIX,
+      FEED_ID_PREFIX,
       owner.toBuffer(),
       Buffer.from(apiConfigHash),
       Buffer.from([signaturesRequired]),
@@ -218,9 +218,9 @@ describe("Molpha instruction coverage integration", () => {
     assert.isAbove(Number(subscription.validUntil), now + SECONDS_PER_MONTH);
 
     const apiConfigHash = Uint8Array.from(Buffer.alloc(32, 7));
-    const jobId = deriveJobId(ctx.authority.publicKey, apiConfigHash, 1);
+    const feedId = deriveFeedId(ctx.authority.publicKey, apiConfigHash, 1);
     const [feedPda] = PublicKey.findProgramAddressSync(
-      [FEED_SEED, Buffer.from(jobId)],
+      [FEED_SEED, Buffer.from(feedId)],
       program.programId
     );
 
@@ -267,9 +267,9 @@ describe("Molpha instruction coverage integration", () => {
     }
 
     // 6) submit_data_update + verify_data_update (failure-path coverage)
-    const badJobId = Uint8Array.from(Buffer.alloc(32, 4));
+    const badFeedId = Uint8Array.from(Buffer.alloc(32, 4));
     const dataUpdateArgs = {
-      jobId: Array.from(jobId),
+      feedId: Array.from(feedId),
       registryVersion: 0,
       signaturesRequired: 1,
       signersBitmap: Array.from(Buffer.alloc(32, 0)),
@@ -281,7 +281,7 @@ describe("Molpha instruction coverage integration", () => {
     };
     const badDataUpdateArgs = {
       ...dataUpdateArgs,
-      jobId: Array.from(badJobId),
+      feedId: Array.from(badFeedId),
     };
 
     try {

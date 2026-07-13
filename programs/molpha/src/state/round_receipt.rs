@@ -1,13 +1,13 @@
 use anchor_lang::prelude::*;
 
-/// Subscription round settled by `settle_round_receipt`; seed `["molpha_round", job_id, ts_le]`.
+/// Subscription round settled by `settle_round_receipt`; seed `["molpha_round", feed_id, ts_le]`.
 pub const RECORD_KIND_SUBSCRIPTION: u8 = 0;
 /// Agent `FreshRound` settled by `settle_agent_round`; dispute-exposed like a subscription round.
 pub const RECORD_KIND_AGENT_FRESH: u8 = 1;
 
 /// Per-round settlement record.
 ///
-/// One per `(job_id, timestamp)` for subscription rounds, one per `(agent, request_nonce)`
+/// One per `(feed_id, timestamp)` for subscription rounds, one per `(agent, request_nonce)`
 /// for agent rounds (seed `AGENT_SEED_PREFIX`). Created optimistically without verifying the
 /// committed `AggregatedSig`. Settlement also commits the exact data-update message hash used
 /// for any future dispute verification. Credits become withdrawable once `finalized == true`
@@ -19,7 +19,7 @@ pub const RECORD_KIND_AGENT_FRESH: u8 = 1;
 #[account]
 #[derive(InitSpace)]
 pub struct RoundReceiptRecord {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub timestamp: u64,
     pub signatures_required: u8,
     pub signers_bitmap: [u8; 32],

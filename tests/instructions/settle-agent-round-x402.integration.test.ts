@@ -26,7 +26,7 @@ import {
 
 const NODE_COUNT = 4;
 const SIGS_REQUIRED = 2;
-const JOB_ID = Uint8Array.from(Buffer.alloc(32, 0x24));
+const FEED_ID = Uint8Array.from(Buffer.alloc(32, 0x24));
 const PAYMENT_REF = Uint8Array.from(sha256([Buffer.from("x402-settlement-1")]));
 
 describe("settle_agent_round (X402 rail) + gateway settlement balance", () => {
@@ -72,7 +72,7 @@ describe("settle_agent_round (X402 rail) + gateway settlement balance", () => {
     rail: "x402" as const,
     maxPrice: freshRoundPrice(SIGS_REQUIRED),
     paymentRef: PAYMENT_REF,
-    jobId: JOB_ID,
+    feedId: FEED_ID,
     timestamp: ++ts,
     signaturesRequired: SIGS_REQUIRED,
     registryVersion,

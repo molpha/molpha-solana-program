@@ -40,7 +40,7 @@ import {
 } from "../lib/utils";
 
 type SubmitArgsShape = {
-  jobId: number[] | string;
+  feedId: number[] | string;
   apiConfigHash?: number[] | string;
   configHash?: number[] | string;
   registryVersion: number | string;
@@ -62,7 +62,7 @@ export function registerDataCommands(program: Command): void {
     .command("sign")
     .description("Produce signed SubmitDataUpdate args")
     .option("--fixture <path>", "fixture file")
-    .option("--job-id <hex>", "32-byte job id")
+    .option("--feed-id <hex>", "32-byte feed id")
     .option("--registry-version <number>", "registry version")
     .option("--config-hash <hex>", "32-byte config hash")
     .option("--value <hex>", "32-byte value")
@@ -91,7 +91,7 @@ export function registerDataCommands(program: Command): void {
     .description("Submit a signed data update")
     .option("--fixture <path>", "fixture file")
     .option("--args <path>", "json file with submit args")
-    .option("--job-id <hex>", "32-byte job id")
+    .option("--feed-id <hex>", "32-byte feed id")
     .option("--registry-version <number>", "registry version")
     .option("--config-hash <hex>", "32-byte config hash")
     .option("--value <hex>", "32-byte value")
@@ -118,9 +118,9 @@ export function registerDataCommands(program: Command): void {
       }
 
       const submitArgs = resolveSubmitArgs(options, ctx.programId);
-      const jobId = bytesFromField(submitArgs.jobId, 32, "job id");
-      const [jobPda] = findJobPda(ctx.programId, jobId);
-      const [feedPda] = findFeedPda(ctx.programId, jobId);
+      const feedId = bytesFromField(submitArgs.feedId, 32, "feed id");
+      const [jobPda] = findJobPda(ctx.programId, feedId);
+      const [feedPda] = findFeedPda(ctx.programId, feedId);
       const existingJob = await fetchAccountOrNull<any>(
         ctx.program,
         "job",
@@ -199,7 +199,7 @@ export function registerDataCommands(program: Command): void {
     .description("Simulate verify_data_update and print return data")
     .option("--fixture <path>", "fixture file")
     .option("--args <path>", "json file with submit args")
-    .option("--job-id <hex>", "32-byte job id")
+    .option("--feed-id <hex>", "32-byte feed id")
     .option("--registry-version <number>", "registry version")
     .option("--config-hash <hex>", "32-byte config hash")
     .option("--value <hex>", "32-byte value")
@@ -228,7 +228,7 @@ export function registerDataCommands(program: Command): void {
       const submitArgs = resolveSubmitArgs(options, ctx.programId);
       const [jobPda] = findJobPda(
         ctx.programId,
-        bytesFromField(submitArgs.jobId, 32, "job id")
+        bytesFromField(submitArgs.feedId, 32, "feed id")
       );
       const { remainingTransition } = await resolveTransitionForRegistryVersion(
         ctx.program,
@@ -325,7 +325,7 @@ function buildSignedPayload(
     ),
     signerMaterial,
     signersBitmap ?? signerCount,
-    hexToBytes(requireValue(options.jobId, "Missing --job-id"), 32, "job id"),
+    hexToBytes(requireValue(options.feedId, "Missing --feed-id"), 32, "feed id"),
     {
       configHash: hexToBytes(
         requireValue(options.configHash, "Missing --config-hash"),
@@ -430,7 +430,7 @@ function planTypeId(planType: Record<string, object> | number): number {
 
 function normalizeSubmitArgs(value: SubmitArgsShape) {
   return {
-    jobId: Array.from(bytesFromField(value.jobId, 32, "job id")),
+    feedId: Array.from(bytesFromField(value.feedId, 32, "feed id")),
     registryVersion:
       typeof value.registryVersion === "number"
         ? value.registryVersion

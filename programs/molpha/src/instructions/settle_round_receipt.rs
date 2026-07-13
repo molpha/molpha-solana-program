@@ -27,7 +27,7 @@ use anchor_lang::prelude::*;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleRoundArgs {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub timestamp: u64,
     pub signatures_required: u8,
     pub registry_version: u32,
@@ -51,7 +51,7 @@ pub fn settle_round_receipt<'info>(
     args: SettleRoundArgs,
 ) -> Result<()> {
     let SettleRoundArgs {
-        job_id,
+        feed_id,
         timestamp,
         signatures_required,
         agg_sig,
@@ -86,7 +86,7 @@ pub fn settle_round_receipt<'info>(
         *consumer_authority,
     )?;
 
-    let request_auth_hash = hash_request_auth_fields(job_id, *timestamp);
+    let request_auth_hash = hash_request_auth_fields(feed_id, *timestamp);
     require!(
         verify_ed25519_signature(
             &ctx.accounts.instructions_sysvar,
@@ -107,7 +107,7 @@ pub fn settle_round_receipt<'info>(
     let agg_sig_hash = hash_agg_sig(agg_sig);
     let data_update_message_hash = molpha_verifier::compute_message_hash(
         &molpha_verifier::DataUpdate {
-            job_id: *job_id,
+            feed_id: *feed_id,
             signatures_required: *signatures_required,
             registry_version: *registry_version,
             signers_bitmap: agg_sig.signers_bitmap,
@@ -163,7 +163,7 @@ pub fn settle_round_receipt<'info>(
 
     // 9 (dedup) is enforced by `init` on the record PDA.
     let record = &mut ctx.accounts.round_record;
-    record.job_id = *job_id;
+    record.feed_id = *feed_id;
     record.timestamp = *timestamp;
     record.signatures_required = *signatures_required;
     record.signers_bitmap = agg_sig.signers_bitmap;
@@ -187,7 +187,7 @@ pub fn settle_round_receipt<'info>(
 
     emit!(RoundSettled {
         gateway: gateway.key(),
-        job_id: *job_id,
+        feed_id: *feed_id,
         timestamp: *timestamp,
         signers_bitmap: agg_sig.signers_bitmap,
         credited_count,
@@ -235,7 +235,7 @@ pub struct SettleRoundReceipt<'info> {
     pub payer: Signer<'info>,
 
     // /// CHECK: SAFETY: required only when `job` is initialized by this settlement.
-    // /// The handler validates this pubkey against the subscription PDA and derived job id.
+    // /// The handler validates this pubkey against the subscription PDA and derived feed id.
     // pub subscription_owner: Option<UncheckedAccount<'info>>,
     #[account(
         seeds = [ProtocolConfig::SEED_PREFIX],
@@ -272,7 +272,7 @@ pub struct SettleRoundReceipt<'info> {
         space = RoundReceiptRecord::SPACE,
         seeds = [
             RoundReceiptRecord::SEED_PREFIX,
-            args.job_id.as_ref(),
+            args.feed_id.as_ref(),
             args.timestamp.to_le_bytes().as_ref(),
         ],
         bump

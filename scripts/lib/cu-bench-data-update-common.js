@@ -24,7 +24,7 @@ const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 const REGISTRY_INDEX_SEED = Buffer.from("molpha_registry_index");
 const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
-const JOB_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
+const FEED_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
 
 const NODE_COUNT = 32;
 const SIGNER_COUNTS = [3, 8, 18];
@@ -37,7 +37,7 @@ const CU_CEILINGS = {
   submit_data_update: { 3: 300_000, 8: 387_000, 18: 532_000 },
 };
 
-const FIXTURE_JOB_ID = hexToBuffer(EVM_FIXTURE.dataUpdate.jobId);
+const FIXTURE_FEED_ID = hexToBuffer(EVM_FIXTURE.dataUpdate.feedId);
 const FIXTURE_CONFIG_HASH = hexToBuffer(EVM_FIXTURE.dataUpdate.configHash);
 const FIXTURE_VALUE = hexToBuffer(EVM_FIXTURE.dataUpdate.value);
 const FIXTURE_REGISTRY_VERSION = EVM_FIXTURE.dataUpdate.registryVersion;
@@ -182,12 +182,12 @@ function deriveGroupBitmap(seed, nodeCount, groupSize) {
   return bigintToEvmBytes32(bitmap);
 }
 
-function deriveSelectionSeed(jobId, registryVersion, canonicalTimestamp) {
+function deriveSelectionSeed(feedId, registryVersion, canonicalTimestamp) {
   return Buffer.from(
     keccak_256(
       Buffer.concat([
         SELECTION_SEED_PREFIX,
-        jobId,
+        feedId,
         u32be(registryVersion),
         u64be(canonicalTimestamp),
       ])
@@ -204,7 +204,7 @@ function effectiveSelectionSize(
 }
 
 function deriveSignersBitmapForJob(
-  jobId,
+  feedId,
   registryVersion,
   nodeCount,
   signaturesRequired,
@@ -216,7 +216,7 @@ function deriveSignersBitmapForJob(
     redundancyBuffer,
     nodeCount
   );
-  const seed = deriveSelectionSeed(jobId, registryVersion, timestamp);
+  const seed = deriveSelectionSeed(feedId, registryVersion, timestamp);
   return deriveGroupBitmap(seed, nodeCount, selectionSize);
 }
 
@@ -285,7 +285,7 @@ function schnorrSignForVerifier({
 }
 
 function computeMessageHash({
-  jobId,
+  feedId,
   registryVersion,
   signaturesRequired,
   signersBitmap,
@@ -294,7 +294,7 @@ function computeMessageHash({
 }) {
   return keccakConcat([
     MESSAGE_PREFIX,
-    jobId,
+    feedId,
     u32be(registryVersion),
     u32be(signaturesRequired),
     signersBitmap,
@@ -310,11 +310,11 @@ function benchConfigHash(signerCount) {
   return b;
 }
 
-function deriveJobId(owner, apiConfigHash, signaturesRequired) {
+function deriveFeedId(owner, apiConfigHash, signaturesRequired) {
   return Buffer.from(
     keccak_256(
       Buffer.concat([
-        JOB_ID_PREFIX,
+        FEED_ID_PREFIX,
         owner.toBuffer(),
         apiConfigHash,
         Buffer.from([signaturesRequired]),
@@ -392,7 +392,7 @@ function buildCoalitionSignature({
   signerCount,
   privKeys,
   compressedPubkeys,
-  jobId,
+  feedId,
   registryVersion,
   configHash,
   value,
@@ -401,7 +401,7 @@ function buildCoalitionSignature({
   redundancyBuffer = REDUNDANCY_BUFFER,
 }) {
   const signersBitmap = deriveSignersBitmapForJob(
-    jobId,
+    feedId,
     registryVersion,
     nodeCount,
     signerCount,
@@ -409,7 +409,7 @@ function buildCoalitionSignature({
     canonicalTimestamp
   );
   const messageHash = computeMessageHash({
-    jobId,
+    feedId,
     registryVersion,
     signaturesRequired: signerCount,
     signersBitmap,
@@ -440,9 +440,9 @@ function buildCoalitionSignature({
   return { signersBitmap, s, commitmentAddr };
 }
 
-function buildSubmitArgs(signerCount, signatureMaterial, jobId) {
+function buildSubmitArgs(signerCount, signatureMaterial, feedId) {
   return buildLiveSubmitArgs({
-    jobId,
+    feedId,
     registryVersion: FIXTURE_REGISTRY_VERSION,
     signaturesRequired: signerCount,
     signersBitmap: signatureMaterial.signersBitmap,
@@ -455,7 +455,7 @@ function buildSubmitArgs(signerCount, signatureMaterial, jobId) {
 
 /** Anchor `submitDataUpdate` / `verifyDataUpdate` args (current on-chain layout). */
 function buildLiveSubmitArgs({
-  jobId,
+  feedId,
   registryVersion,
   signaturesRequired,
   signersBitmap,
@@ -465,7 +465,7 @@ function buildLiveSubmitArgs({
   commitmentAddr,
 }) {
   return {
-    jobId: Array.from(jobId),
+    feedId: Array.from(feedId),
     signaturesRequired,
     registryVersion,
     signersBitmap: Array.from(signersBitmap),
@@ -514,7 +514,7 @@ function signDataUpdateForRegistry({
   registryVersion,
   signerMaterial,
   signaturesRequired,
-  jobId,
+  feedId,
   value,
   canonicalTimestamp,
   nodeCount,
@@ -524,7 +524,7 @@ function signDataUpdateForRegistry({
     signerCount: signaturesRequired,
     privKeys: signerMaterial.privKeys,
     compressedPubkeys: signerMaterial.compressedPubkeys,
-    jobId,
+    feedId,
     registryVersion,
     configHash: Buffer.alloc(32, 0),
     value,
@@ -535,7 +535,7 @@ function signDataUpdateForRegistry({
 
   return {
     submitArgs: buildLiveSubmitArgs({
-      jobId,
+      feedId,
       registryVersion,
       signaturesRequired,
       signersBitmap: signatureMaterial.signersBitmap,
@@ -583,7 +583,7 @@ async function buildBenchAccountSet(
   signerMaterial
 ) {
   const configHash = benchConfigHash(signerCount);
-  const jobId = deriveJobId(payer.publicKey, configHash, signerCount);
+  const feedId = deriveFeedId(payer.publicKey, configHash, signerCount);
 
   const [protocolConfigPda, protocolBump] = PublicKey.findProgramAddressSync(
     [PROTOCOL_CONFIG_SEED],
@@ -594,11 +594,11 @@ async function buildBenchAccountSet(
     programId
   );
   const [jobPda, jobBump] = PublicKey.findProgramAddressSync(
-    [JOB_SEED, jobId],
+    [JOB_SEED, feedId],
     programId
   );
   const [feedPda, feedBump] = PublicKey.findProgramAddressSync(
-    [FEED_SEED, jobId],
+    [FEED_SEED, feedId],
     programId
   );
 
@@ -652,7 +652,7 @@ async function buildBenchAccountSet(
   });
 
   const jobData = await encodeAccount(program, "job", {
-    jobId: Array.from(jobId),
+    feedId: Array.from(feedId),
     owner: payer.publicKey,
     apiConfigHash: Array.from(configHash),
     decimals: 8,
@@ -664,7 +664,7 @@ async function buildBenchAccountSet(
   accounts.push({ pubkey: jobPda, data: jobData, owner: programId });
 
   const feedData = await encodeAccount(program, "feed", {
-    jobId: Array.from(jobId),
+    feedId: Array.from(feedId),
     registryVersion: 0,
     canonicalTimestamp: new anchor.BN(0),
     value: Array.from(Buffer.alloc(32)),
@@ -700,7 +700,7 @@ async function buildBenchAccountSet(
 
   return {
     accounts,
-    jobId,
+    feedId,
     configHash,
     protocolConfigPda,
     registryStatePda,
@@ -753,7 +753,7 @@ module.exports = {
   SIGNER_COUNTS,
   COMPUTE_UNIT_LIMIT,
   CU_CEILINGS,
-  FIXTURE_JOB_ID,
+  FIXTURE_FEED_ID,
   FIXTURE_VALUE,
   FIXTURE_REGISTRY_VERSION,
   FIXTURE_CANONICAL_TIMESTAMP,
@@ -765,7 +765,7 @@ module.exports = {
   deriveSelectionSeed,
   effectiveSelectionSize,
   benchConfigHash,
-  deriveJobId,
+  deriveFeedId,
   loadProgramId,
   loadIdl,
   findRegistryIndexPda,

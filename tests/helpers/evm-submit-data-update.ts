@@ -36,7 +36,7 @@ const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
 export const VIRTUAL_INDEX = 0xffffffff;
 const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
-const JOB_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
+const FEED_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
 const SELECTION_SEED_PREFIX = Buffer.from(
   keccak_256(Buffer.from("MOLPHA_SELECTION_V1"))
 );
@@ -45,7 +45,7 @@ const DERIVE_GROUP_BITMAP_MAX_ROUNDS = 65_536;
 
 const ACCOUNT_LAMPORTS = 10_000_000;
 
-export const EVM_FIXTURE_JOB_ID = hexToBytes(evmFixture.dataUpdate.jobId);
+export const EVM_FIXTURE_FEED_ID = hexToBytes(evmFixture.dataUpdate.feedId);
 export const EVM_FIXTURE_CONFIG_HASH = hexToBytes(
   evmFixture.dataUpdate.configHash
 );
@@ -94,7 +94,7 @@ export function buildSignedVerifyAnswerEvmArgs(
     registryVersion,
     signerMaterialForVerifyAnswerEvm(),
     evmUint256BitmapForFirstN(evmFixture.dataUpdate.signaturesRequired),
-    EVM_FIXTURE_JOB_ID,
+    EVM_FIXTURE_FEED_ID,
     {
       configHash: EVM_FIXTURE_CONFIG_HASH,
       value: EVM_FIXTURE_VALUE,
@@ -246,14 +246,14 @@ export function deriveGroupBitmap(
 }
 
 export function deriveSelectionSeed(
-  jobId: Uint8Array,
+  feedId: Uint8Array,
   registryVersion: number,
   canonicalTimestamp: number
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
       SELECTION_SEED_PREFIX,
-      Buffer.from(jobId),
+      Buffer.from(feedId),
       Buffer.from(u32be(registryVersion)),
       Buffer.from(u64be(canonicalTimestamp)),
     ])
@@ -270,7 +270,7 @@ export function effectiveSelectionSize(
 }
 
 export function deriveSignersBitmapForJob(
-  jobId: Uint8Array,
+  feedId: Uint8Array,
   registryVersion: number,
   nodeCount: number,
   signaturesRequired: number,
@@ -282,7 +282,7 @@ export function deriveSignersBitmapForJob(
     redundancyBuffer,
     nodeCount
   );
-  const seed = deriveSelectionSeed(jobId, registryVersion, canonicalTimestamp);
+  const seed = deriveSelectionSeed(feedId, registryVersion, canonicalTimestamp);
   return deriveGroupBitmap(seed, nodeCount, selectionSize);
 }
 
@@ -579,7 +579,7 @@ export function computeFixtureMessageHash(
     BigInt(fixture.schnorrSignature.signersBitmap)
   );
   return computeMessageHash({
-    jobId: hexToBytes(fixture.dataUpdate.jobId),
+    feedId: hexToBytes(fixture.dataUpdate.feedId),
     registryVersion: fixture.dataUpdate.registryVersion,
     signaturesRequired: fixture.dataUpdate.signaturesRequired,
     signersBitmap,
@@ -600,7 +600,7 @@ export function verifyFixtureSchnorrSignature(fixture: LoadedE2eFixture): void {
     fixture.dataUpdate.registryVersion,
     material,
     signersBitmap,
-    hexToBytes(fixture.dataUpdate.jobId),
+    hexToBytes(fixture.dataUpdate.feedId),
     {
       configHash: hexToBytes(fixture.dataUpdate.configHash),
       value: hexToBytes(fixture.dataUpdate.value),
@@ -646,7 +646,7 @@ export function buildSubmitArgsFromE2eFixture(fixture: LoadedE2eFixture) {
     fixture.dataUpdate.registryVersion,
     material,
     signersBitmap,
-    hexToBytes(fixture.dataUpdate.jobId),
+    hexToBytes(fixture.dataUpdate.feedId),
     {
       configHash: hexToBytes(fixture.dataUpdate.configHash),
       value: hexToBytes(fixture.dataUpdate.value),
@@ -657,7 +657,7 @@ export function buildSubmitArgsFromE2eFixture(fixture: LoadedE2eFixture) {
 }
 
 function computeMessageHash(params: {
-  jobId: Uint8Array;
+  feedId: Uint8Array;
   registryVersion: number;
   signaturesRequired: number;
   signersBitmap: Uint8Array;
@@ -666,7 +666,7 @@ function computeMessageHash(params: {
 }): Uint8Array {
   return keccakConcat([
     MESSAGE_PREFIX,
-    params.jobId,
+    params.feedId,
     u32be(params.registryVersion),
     u32be(params.signaturesRequired),
     params.signersBitmap,
@@ -719,7 +719,7 @@ export function signE2eDataUpdate(
   registryVersion: number,
   signerMaterial: E2eSignerMaterial,
   signerCountOrBitmap: number | Uint8Array,
-  jobId: Uint8Array,
+  feedId: Uint8Array,
   dataUpdate: E2eDataUpdateFields,
   signaturesRequired?: number,
   nodeCount?: number,
@@ -729,7 +729,7 @@ export function signE2eDataUpdate(
   const signersBitmap =
     typeof signerCountOrBitmap === "number"
       ? deriveSignersBitmapForJob(
-          jobId,
+          feedId,
           registryVersion,
           nodeCount ?? signerCountOrBitmap,
           signaturesRequired ?? signerCountOrBitmap,
@@ -740,7 +740,7 @@ export function signE2eDataUpdate(
   const signerCount = bitmapPopcountEvm(signersBitmap);
   const required = signaturesRequired ?? signerCount;
   const messageHash = computeMessageHash({
-    jobId,
+    feedId,
     registryVersion,
     signaturesRequired: required,
     signersBitmap,
@@ -772,7 +772,7 @@ export function signE2eDataUpdate(
   });
 
   const submitArgs = {
-    jobId: Array.from(jobId),
+    feedId: Array.from(feedId),
     registryVersion,
     signaturesRequired: required,
     signersBitmap: Array.from(signersBitmap),
@@ -859,7 +859,7 @@ export function buildSignedEvmSubmitDataUpdateArgs(
   registryVersion: number,
   signerMaterial: E2eSignerMaterial,
   signerCount = 8,
-  jobId: Uint8Array = EVM_FIXTURE_JOB_ID,
+  feedId: Uint8Array = EVM_FIXTURE_FEED_ID,
   dataUpdate: E2eDataUpdateFields = {
     configHash: EVM_FIXTURE_CONFIG_HASH,
     value: EVM_FIXTURE_VALUE,
@@ -872,7 +872,7 @@ export function buildSignedEvmSubmitDataUpdateArgs(
     registryVersion,
     signerMaterial,
     signerCount,
-    jobId,
+    feedId,
     dataUpdate,
     signerCount,
     nodeCount,
@@ -1055,16 +1055,16 @@ export async function createJobViaInstruction(
   },
   apiConfigHash: Uint8Array,
   opts?: { decimals?: number; signaturesRequired?: number }
-): Promise<{ jobPda: PublicKey; feedPda: PublicKey; jobId: Uint8Array }> {
+): Promise<{ jobPda: PublicKey; feedPda: PublicKey; feedId: Uint8Array }> {
   const decimals = opts?.decimals ?? 8;
   const signaturesRequired = opts?.signaturesRequired ?? 8;
-  const jobId = deriveJobId(
+  const feedId = deriveFeedId(
     ctx.authority.publicKey,
     apiConfigHash,
     signaturesRequired
   );
-  const jobPda = findJobPda(program.programId, jobId);
-  const feedPda = findFeedPda(program.programId, jobId);
+  const jobPda = findJobPda(program.programId, feedId);
+  const feedPda = findFeedPda(program.programId, feedId);
 
   await program.methods
     .createJob(
@@ -1073,7 +1073,7 @@ export async function createJobViaInstruction(
         signaturesRequired,
         decimals,
       },
-      Array.from(jobId)
+      Array.from(feedId)
     )
     .accountsPartial({
       creator: ctx.authority.publicKey,
@@ -1088,7 +1088,7 @@ export async function createJobViaInstruction(
     })
     .rpc();
 
-  return { jobPda, feedPda, jobId };
+  return { jobPda, feedPda, feedId };
 }
 
 export async function createEvmFixtureJobViaInstruction(
@@ -1099,7 +1099,7 @@ export async function createEvmFixtureJobViaInstruction(
     planPda: PublicKey;
     subscriptionPda: PublicKey;
   }
-): Promise<{ jobPda: PublicKey; feedPda: PublicKey; jobId: Uint8Array }> {
+): Promise<{ jobPda: PublicKey; feedPda: PublicKey; feedId: Uint8Array }> {
   return createJobViaInstruction(
     ctx,
     program,
@@ -1108,14 +1108,14 @@ export async function createEvmFixtureJobViaInstruction(
   );
 }
 
-export function deriveJobId(
+export function deriveFeedId(
   owner: PublicKey,
   apiConfigHash: Uint8Array,
   signaturesRequired: number
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
-      JOB_ID_PREFIX,
+      FEED_ID_PREFIX,
       owner.toBuffer(),
       Buffer.from(apiConfigHash),
       Buffer.from([signaturesRequired]),
@@ -1123,40 +1123,40 @@ export function deriveJobId(
   );
 }
 
-/** On-chain job id for the EVM fixture config hash and a given owner. */
-export function deriveEvmFixtureJobId(owner: PublicKey): Uint8Array {
-  return deriveJobId(
+/** On-chain feed id for the EVM fixture config hash and a given owner. */
+export function deriveEvmFixtureFeedId(owner: PublicKey): Uint8Array {
+  return deriveFeedId(
     owner,
     EVM_FIXTURE_CONFIG_HASH,
     evmFixture.dataUpdate.signaturesRequired
   );
 }
 
-export function findJobPda(programId: PublicKey, jobId: Uint8Array): PublicKey {
+export function findJobPda(programId: PublicKey, feedId: Uint8Array): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [JOB_SEED, Buffer.from(jobId)],
+    [JOB_SEED, Buffer.from(feedId)],
     programId
   )[0];
 }
 
 export function findFeedPda(
   programId: PublicKey,
-  jobId: Uint8Array
+  feedId: Uint8Array
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [FEED_SEED, Buffer.from(jobId)],
+    [FEED_SEED, Buffer.from(feedId)],
     programId
   )[0];
 }
 
-/** @deprecated Prefer `findJobPda(programId, deriveEvmFixtureJobId(owner))`. */
+/** @deprecated Prefer `findJobPda(programId, deriveEvmFixtureFeedId(owner))`. */
 export function findEvmJobPda(programId: PublicKey): PublicKey {
-  return findJobPda(programId, EVM_FIXTURE_JOB_ID);
+  return findJobPda(programId, EVM_FIXTURE_FEED_ID);
 }
 
-/** @deprecated Prefer `findFeedPda(programId, deriveEvmFixtureJobId(owner))`. */
+/** @deprecated Prefer `findFeedPda(programId, deriveEvmFixtureFeedId(owner))`. */
 export function findEvmFeedPda(programId: PublicKey): PublicKey {
-  return findFeedPda(programId, EVM_FIXTURE_JOB_ID);
+  return findFeedPda(programId, EVM_FIXTURE_FEED_ID);
 }
 
 /** Slot-keyed `Node` PDA: `["molpha_node", u32Le(index)]`. */
@@ -1335,17 +1335,17 @@ export async function seedEvmJobAndFeed(
   const jobPda = findEvmJobPda(program.programId);
   const feedPda = findEvmFeedPda(program.programId);
   const jobBump = PublicKey.findProgramAddressSync(
-    [JOB_SEED, Buffer.from(EVM_FIXTURE_JOB_ID)],
+    [JOB_SEED, Buffer.from(EVM_FIXTURE_FEED_ID)],
     program.programId
   )[1];
   const feedBump = PublicKey.findProgramAddressSync(
-    [FEED_SEED, Buffer.from(EVM_FIXTURE_JOB_ID)],
+    [FEED_SEED, Buffer.from(EVM_FIXTURE_FEED_ID)],
     program.programId
   )[1];
 
   const signaturesRequired = evmFixture.dataUpdate.signaturesRequired;
   await setProgramAccount(ctx, program, jobPda, "job", {
-    jobId: Array.from(EVM_FIXTURE_JOB_ID),
+    feedId: Array.from(EVM_FIXTURE_FEED_ID),
     owner,
     apiConfigHash: Array.from(EVM_FIXTURE_CONFIG_HASH),
     decimals: 8,
@@ -1356,7 +1356,7 @@ export async function seedEvmJobAndFeed(
   });
 
   await setProgramAccount(ctx, program, feedPda, "feed", {
-    jobId: Array.from(EVM_FIXTURE_JOB_ID),
+    feedId: Array.from(EVM_FIXTURE_FEED_ID),
     registryVersion: 0,
     canonicalTimestamp: new BN(0),
     value: Array.from(new Uint8Array(32)),

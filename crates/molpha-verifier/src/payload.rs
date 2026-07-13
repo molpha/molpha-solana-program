@@ -11,7 +11,7 @@
     derive(borsh::BorshSerialize, borsh::BorshDeserialize)
 )]
 pub struct DataUpdate {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub registry_version: u32,
     pub value: [u8; 32],
     pub canonical_timestamp: i64,
