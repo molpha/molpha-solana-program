@@ -89,6 +89,14 @@ pub enum MolphaError {
     DelegateNotFound,
     #[msg("delegate PDA already exists for this owner/delegate pair")]
     DelegateAlreadyPresent,
+    #[msg("delegate is paused")]
+    DelegateNotActive,
+    #[msg("signatures_required exceeds delegate.max_signers")]
+    SignaturesExceedDelegateMax,
+    #[msg("subscription delegate_count >= plan.max_delegates")]
+    DelegateCapReached,
+    #[msg("plan account missing or does not match the subscription plan")]
+    PlanMismatch,
     #[msg("job.owner does not match signer")]
     UnauthorisedJobOwner,
     #[msg("feed_id does not match derived value for args and created_at_slot")]
@@ -99,8 +107,8 @@ pub enum MolphaError {
     InvalidSelectionBitmap,
     #[msg("popcount(signers_bitmap) < signatures_required")]
     InsufficientSigners,
-    #[msg("signatures_required exceeds plan.max_signers")]
-    SignaturesExceedPlanMax,
+    #[msg("signatures_required exceeds subscription.max_signers")]
+    SignaturesExceedSubscriptionMax,
     #[msg("Signer bits outside selection bitmap")]
     SignersNotSubsetOfSelection,
     #[msg("PoP-Schnorr aggregate verification failed")]
@@ -167,25 +175,15 @@ pub enum MolphaError {
     #[msg("mismatched or missing credited node account")]
     InvalidCreditNodeAccount,
 
-    // ---- Agent pay-per-request access (agent-access spec v1). ----
+    // ---- Agent pay-per-request access (x402 / self-funded). ----
     #[msg("agent escrow is not active")]
     AgentNotActive,
-    #[msg("agent escrow has expired")]
-    AgentExpired,
-    #[msg("request_nonce must be strictly greater than last_request_nonce")]
-    AgentNonceNotIncreasing,
-    #[msg("agent authority Ed25519 signature missing or invalid")]
-    AgentSigInvalid,
     #[msg("computed price exceeds the agent-signed max_price")]
     MaxPriceExceeded,
-    #[msg("signatures_required exceeds agent escrow max_signers")]
-    SignaturesExceedAgentMax,
-    #[msg("epoch_spent + price exceeds the escrow epoch_cap")]
+    #[msg("arithmetic overflow in escrow spend accounting")]
     EpochCapExceeded,
     #[msg("escrow ATA balance below computed price")]
     InsufficientAgentCredits,
-    #[msg("args.agent does not match the supplied agent escrow")]
-    AgentAccountMismatch,
     #[msg("signer is not the agent escrow owner")]
     UnauthorisedAgentOwner,
     #[msg("signer is not the gateway authority")]
@@ -196,8 +194,6 @@ pub enum MolphaError {
     AgentEscrowNotEmpty,
     #[msg("credited signer count exceeds signatures_required + redundancy_buffer")]
     CreditedExceedsSelection,
-    #[msg("amount must be greater than zero")]
-    InvalidAmount,
 }
 
 pub(crate) fn map_data_update_err(error: DataUpdateError) -> anchor_lang::error::Error {

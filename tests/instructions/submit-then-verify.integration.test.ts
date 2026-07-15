@@ -110,8 +110,8 @@ describe("submit_data_update (current registry)", () => {
         planType: { standard: {} },
         subscriptionPrice: new BN(3_000_000),
         maxJobs: 4,
-        signaturesRequired: SIGNER_COUNT,
         maxSigners: SIGNER_COUNT,
+        maxDelegates: 2,
         privateApiEnabled: true,
         isActive: true,
       })

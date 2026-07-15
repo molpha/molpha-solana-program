@@ -54,6 +54,7 @@ pub struct PlanAdded {
     pub subscription_price: u64,
     pub max_jobs: u32,
     pub max_signers: u8,
+    pub max_delegates: u32,
     pub private_api_enabled: bool,
     pub is_active: bool,
 }
@@ -64,6 +65,7 @@ pub struct PlanUpdated {
     pub subscription_price: u64,
     pub max_jobs: u32,
     pub max_signers: u8,
+    pub max_delegates: u32,
     pub private_api_enabled: bool,
     pub is_active: bool,
 }
@@ -116,6 +118,9 @@ pub struct DelegateAdded {
     pub delegate: Pubkey,
     pub max_jobs_created: u32,
     pub max_data_requests: u64,
+    pub max_signers: u8,
+    /// Subscription delegate count after this addition.
+    pub delegate_count: u32,
 }
 
 #[event]
@@ -124,6 +129,18 @@ pub struct DelegateRemoved {
     pub delegate: Pubkey,
     pub jobs_created: u32,
     pub data_requests_used: u64,
+    /// Subscription delegate count after this removal.
+    pub delegate_count: u32,
+}
+
+#[event]
+pub struct DelegateStatusChanged {
+    pub delegate_account: Pubkey,
+    pub owner: Pubkey,
+    pub delegate: Pubkey,
+    pub old_status: u8,
+    pub new_status: u8,
+    pub by: Pubkey,
 }
 
 #[event]
@@ -175,37 +192,7 @@ pub struct RewardsClaimed {
 #[event]
 pub struct AgentEscrowCreated {
     pub agent: Pubkey,
-    pub owner: Pubkey,
     pub authority: Pubkey,
-    pub max_signers: u8,
-    pub epoch_cap: u64,
-    pub expires_at: i64,
-}
-
-#[event]
-pub struct AgentCreditsDeposited {
-    pub agent: Pubkey,
-    pub depositor: Pubkey,
-    pub amount: u64,
-    /// Escrow ATA balance after the deposit.
-    pub new_balance: u64,
-}
-
-#[event]
-pub struct AgentPolicyUpdated {
-    pub agent: Pubkey,
-    pub authority: Pubkey,
-    pub max_signers: u8,
-    pub epoch_cap: u64,
-    pub expires_at: i64,
-}
-
-#[event]
-pub struct AgentStatusChanged {
-    pub agent: Pubkey,
-    pub old_status: u8,
-    pub new_status: u8,
-    pub by: Pubkey,
 }
 
 #[event]

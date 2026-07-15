@@ -1,6 +1,10 @@
 use anchor_lang::prelude::*;
 
-use crate::{error::MolphaError, events::DelegateRemoved, state::Delegate};
+use crate::{
+    error::MolphaError,
+    events::DelegateRemoved,
+    state::{Delegate, Subscription},
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct RemoveDelegateArgs {
@@ -21,11 +25,15 @@ pub fn remove_delegate(ctx: Context<RemoveDelegate>, args: RemoveDelegateArgs) -
         MolphaError::DelegateNotFound
     );
 
+    let subscription = &mut ctx.accounts.subscription;
+    subscription.release_delegate();
+
     emit!(DelegateRemoved {
         owner: ctx.accounts.owner.key(),
         delegate: args.delegate,
         jobs_created: delegate_account.jobs_created,
         data_requests_used: delegate_account.data_requests_used,
+        delegate_count: subscription.delegate_count,
     });
 
     Ok(())
@@ -36,6 +44,13 @@ pub fn remove_delegate(ctx: Context<RemoveDelegate>, args: RemoveDelegateArgs) -
 pub struct RemoveDelegate<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [Subscription::SEED_PREFIX, owner.key().as_ref()],
+        bump = subscription.bump,
+    )]
+    pub subscription: Account<'info, Subscription>,
 
     #[account(
         mut,

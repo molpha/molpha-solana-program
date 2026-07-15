@@ -126,6 +126,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
         subscriptionPrice: new BN(3_000_000),
         maxJobs: 4,
         maxSigners: SIGNATURES_REQUIRED,
+        maxDelegates: 2,
         privateApiEnabled: true,
         isActive: true,
       })

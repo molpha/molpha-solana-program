@@ -67,6 +67,10 @@ pub mod molpha {
         instructions::remove_delegate(ctx, args)
     }
 
+    pub fn set_delegate_paused(ctx: Context<SetDelegatePaused>, paused: bool) -> Result<()> {
+        instructions::set_delegate_paused(ctx, paused)
+    }
+
     pub fn submit_data_update(
         ctx: Context<SubmitDataUpdate>,
         args: SubmitDataUpdateArgs,
@@ -109,37 +113,7 @@ pub mod molpha {
         instructions::claim_gateway_rewards(ctx)
     }
 
-    // ---- Agent pay-per-request access (agent-access spec v1). ----
-
-    pub fn create_agent_escrow(
-        ctx: Context<CreateAgentEscrow>,
-        args: CreateAgentEscrowArgs,
-    ) -> Result<()> {
-        instructions::create_agent_escrow(ctx, args)
-    }
-
-    pub fn deposit_agent_credits(ctx: Context<DepositAgentCredits>, amount: u64) -> Result<()> {
-        instructions::deposit_agent_credits(ctx, amount)
-    }
-
-    pub fn update_agent_policy(
-        ctx: Context<UpdateAgentPolicy>,
-        args: UpdateAgentPolicyArgs,
-    ) -> Result<()> {
-        instructions::update_agent_policy(ctx, args)
-    }
-
-    pub fn set_agent_paused(ctx: Context<SetAgentPaused>, paused: bool) -> Result<()> {
-        instructions::set_agent_paused(ctx, paused)
-    }
-
-    pub fn set_agent_frozen(ctx: Context<SetAgentFrozen>, frozen: bool) -> Result<()> {
-        instructions::set_agent_frozen(ctx, frozen)
-    }
-
-    pub fn close_agent_escrow(ctx: Context<CloseAgentEscrow>) -> Result<()> {
-        instructions::close_agent_escrow(ctx)
-    }
+    // ---- Self-funded / x402 agent pay-per-request access. ----
 
     pub fn settle_agent_round<'info>(
         ctx: Context<'_, '_, 'info, 'info, SettleAgentRound<'info>>,

@@ -27,6 +27,8 @@ pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
         ctx.accounts.owner.key(),
         plan_type,
         plan.subscription_price,
+        plan.max_delegates,
+        plan.max_signers,
         now,
         ctx.bumps.subscription,
     );

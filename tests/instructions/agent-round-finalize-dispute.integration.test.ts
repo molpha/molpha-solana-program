@@ -20,10 +20,9 @@ import {
 import {
   advanceClock,
   AgentProtocolContext,
-  AgentEscrowSetup,
   BondedGateway,
   bitmapWithBits,
-  createFundedEscrow,
+  createX402FundedEscrow,
   creditedNodePdasForBits,
   findAgentRoundPda,
   findNodePda,
@@ -34,6 +33,7 @@ import {
   settleAgentRound,
   sha256,
   u64le,
+  X402EscrowSetup,
   zeroedAggSig,
 } from "../helpers/agent-access";
 
@@ -58,7 +58,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
   let proto: AgentProtocolContext;
   let gateway: BondedGateway;
   let victimGateway: BondedGateway;
-  let escrow: AgentEscrowSetup;
+  let escrow: X402EscrowSetup;
   let material: ReturnType<typeof generateE2eSignerMaterial>;
   let registryVersion: number;
   let ts = 1_700_200_000;
@@ -87,7 +87,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     registryVersion = registry.currentVersion;
     gateway = await registerBondedGateway(ctx, proto);
     victimGateway = await registerBondedGateway(ctx, proto);
-    escrow = await createFundedEscrow(ctx, proto, { depositAmount: 500_000 });
+    escrow = createX402FundedEscrow(ctx, proto, { fundAmount: 500_000 });
   }, 180_000);
 
   async function disputeRound(params: {
@@ -130,7 +130,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     await settleAgentRound({
       proto,
       gateway,
-      escrow,
+      payer: escrow.payer.publicKey,
       requestNonce: n,
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
       feedId: FEED_ID,
@@ -247,7 +247,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     await settleAgentRound({
       proto,
       gateway: victimGateway,
-      escrow,
+      payer: escrow.payer.publicKey,
       requestNonce: n,
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
       feedId: FEED_ID,
@@ -336,7 +336,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     await settleAgentRound({
       proto,
       gateway,
-      escrow,
+      payer: escrow.payer.publicKey,
       requestNonce: n,
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
       feedId: FEED_ID,
@@ -387,8 +387,8 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
         planType: { standard: {} },
         subscriptionPrice: new BN(2_000_000),
         maxJobs: 3,
-        signaturesRequired: 1,
         maxSigners: 4,
+        maxDelegates: 2,
         privateApiEnabled: false,
         isActive: true,
       })
@@ -444,7 +444,8 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
         payer: ctx.authority.publicKey,
         protocolConfig: proto.protocolConfigPda,
         registryState: proto.registryStatePda,
-        plan: null,
+        // Owner-direct settlement now requires the matching plan account.
+        plan: planPda,
         subscription: subscriptionPda,
         consumerDelegate: null,
         gateway: gateway.gatewayPda,

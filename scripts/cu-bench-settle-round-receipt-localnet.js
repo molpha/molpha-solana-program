@@ -464,6 +464,7 @@ async function bootstrapState({
       subscriptionPrice: new anchor.BN(100_000),
       maxJobs: 8,
       maxSigners: maxSigners,
+      maxDelegates: 2,
       privateApiEnabled: false,
       isActive: true,
     })
@@ -669,6 +670,7 @@ async function bootstrapState({
   return {
     protocolConfigPda,
     registryStatePda,
+    planPda,
     jobPda,
     subscriptionPda,
     gatewayPda,
@@ -793,7 +795,8 @@ async function simulateSettleRound({
       jobOwner: null,
       protocolConfig: setupState.protocolConfigPda,
       registryState: setupState.registryStatePda,
-      plan: null,
+      // Owner-direct settlement requires the matching plan account.
+      plan: setupState.planPda,
       job: setupState.jobPda,
       subscription: setupState.subscriptionPda,
       consumerDelegate: null,

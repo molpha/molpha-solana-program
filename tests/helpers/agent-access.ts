@@ -1,19 +1,15 @@
 /**
- * Shared harness for the agent pay-per-request tests (agent-access spec v1).
+ * Shared harness for the self-funded / x402 agent pay-per-request tests.
  *
- * Wraps protocol initialization, gateway bonding, escrow lifecycle, and
- * `settle_agent_round` transaction construction (including the Ed25519
- * `AgentRequestAuth` attestation instruction packed into the same tx).
+ * Wraps protocol initialization, gateway bonding, escrow funding, and
+ * `settle_agent_round` transaction construction. Escrows are lazily created by
+ * settlement (seeded by payer/authority); funding is a direct payment into the
+ * escrow ATA. Owner-provisioned agents are `Delegate` accounts settled through
+ * `settle_round_receipt` and are covered by the delegate test suites.
  */
 import * as anchor from "@coral-xyz/anchor";
 import { BN, Idl, Program } from "@coral-xyz/anchor";
-import {
-  Ed25519Program,
-  Keypair,
-  PublicKey,
-  SystemProgram,
-  SYSVAR_INSTRUCTIONS_PUBKEY,
-} from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
@@ -38,10 +34,6 @@ export const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 export const GATEWAY_SEED = Buffer.from("molpha_gateway");
 export const AGENT_ESCROW_SEED = Buffer.from("molpha_agent");
 export const AGENT_ROUND_SEED = Buffer.from("molpha_agent_round");
-export const DOMAIN_AGENT_REQAUTH = Buffer.from(
-  "MOLPHA_AGENT_REQAUTH_V1",
-  "utf8"
-);
 
 // Mirrors the `initialize` args used across the integration suite.
 export const INIT = {
@@ -54,8 +46,6 @@ export const INIT = {
   agentRoundBase: 1_000,
   agentRoundPerSig: 15,
   agentEpochLenSecs: 86_400,
-  maxSigners: 8,
-  epochCap: 1_000_000,
 };
 
 export const REQUEST_KIND_FRESH = 0;
@@ -76,40 +66,15 @@ export function sha256(parts: Buffer[]): Buffer {
   return h.digest();
 }
 
-/** `H(AgentRequestAuth)` — must match `state/receipt.rs::hash_agent_request_auth`. */
-export function hashAgentRequestAuth(params: {
-  agent: PublicKey;
-  requestNonce: number | bigint;
-  feedId: Uint8Array;
-  maxPrice: number | bigint;
-}): Buffer {
-  const body = Buffer.concat([
-    params.agent.toBuffer(),
-    u64le(params.requestNonce),
-    Buffer.from(params.feedId),
-    u64le(params.maxPrice),
-  ]);
-  return sha256([DOMAIN_AGENT_REQAUTH, body]);
-}
-
-/** Escrow PDA — seeds ["molpha_agent", owner, authority]. */
+/** Escrow PDA — seeds ["molpha_agent", authority]. */
 export function findAgentEscrowPda(
   programId: PublicKey,
-  owner: PublicKey,
   authority: PublicKey
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [AGENT_ESCROW_SEED, owner.toBuffer(), authority.toBuffer()],
+    [AGENT_ESCROW_SEED, authority.toBuffer()],
     programId
   )[0];
-}
-
-/** x402-provisioned escrow PDA — owner == authority == payer. */
-export function findX402EscrowPda(
-  programId: PublicKey,
-  payer: PublicKey
-): PublicKey {
-  return findAgentEscrowPda(programId, payer, payer);
 }
 
 /** The escrow's own USDC ATA (real custody). The escrow PDA is off-curve. */
@@ -321,79 +286,42 @@ export async function registerBondedGateway(
   return { gatewayAuthority, gatewayPda, authorityUsdc };
 }
 
-export interface AgentEscrowSetup {
-  owner: Keypair;
-  hotKey: Keypair;
+export interface X402EscrowSetup {
+  /** The paying identity (escrow PDA seed). */
+  payer: Keypair;
   escrowPda: PublicKey;
   escrowAta: PublicKey;
-  ownerUsdc: PublicKey;
 }
 
-export async function createFundedEscrow(
+/**
+ * Set up an x402-style funded escrow: derive PDA(["molpha_agent", payer]) and write
+ * USDC directly into its ATA — no program call. The escrow data account itself is
+ * lazily created by the first `settle_agent_round`.
+ */
+export function createX402FundedEscrow(
   ctx: TestContext,
   proto: AgentProtocolContext,
-  opts?: {
-    maxSigners?: number;
-    epochCap?: number;
-    expiresAt?: number;
-    depositAmount?: number;
-  }
-): Promise<AgentEscrowSetup> {
-  const owner = Keypair.generate();
-  const hotKey = Keypair.generate();
-  // Fresh owner + hot key per escrow — the [owner, authority] seed pair is the identity;
-  // owner != authority marks it owner-provisioned.
-  const ownerUsdc = await fundNodeOwnerInBankrun(
-    ctx,
-    owner,
-    ctx.underlyingTokenMint,
-    BigInt(1_000_000_000)
-  );
+  opts?: { payer?: Keypair; fundAmount?: number | bigint }
+): X402EscrowSetup {
+  const payer = opts?.payer ?? Keypair.generate();
   const escrowPda = findAgentEscrowPda(
     proto.program.programId,
-    owner.publicKey,
-    hotKey.publicKey
+    payer.publicKey
   );
   const escrowAta = findEscrowAta(ctx.underlyingTokenMint, escrowPda);
 
-  await proto.program.methods
-    .createAgentEscrow({
-      authority: hotKey.publicKey,
-      maxSigners: opts?.maxSigners ?? INIT.maxSigners,
-      epochCap: new BN(opts?.epochCap ?? INIT.epochCap),
-      expiresAt: new BN(opts?.expiresAt ?? 0),
-    })
-    .accountsPartial({
-      owner: owner.publicKey,
-      protocolConfig: proto.protocolConfigPda,
-      agentEscrow: escrowPda,
-      usdcMint: ctx.underlyingTokenMint,
+  const fundAmount = opts?.fundAmount ?? 1_000_000;
+  if (BigInt(fundAmount) > 0n) {
+    fundAtaInBankrun(
+      ctx,
       escrowAta,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-    })
-    .signers([owner])
-    .rpc();
-
-  const depositAmount = opts?.depositAmount ?? 1_000_000;
-  if (depositAmount > 0) {
-    await proto.program.methods
-      .depositAgentCredits(new BN(depositAmount))
-      .accountsPartial({
-        depositor: owner.publicKey,
-        protocolConfig: proto.protocolConfigPda,
-        agentEscrow: escrowPda,
-        usdcMint: ctx.underlyingTokenMint,
-        depositorUsdc: ownerUsdc,
-        escrowAta,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .signers([owner])
-      .rpc();
+      ctx.underlyingTokenMint,
+      escrowPda,
+      fundAmount
+    );
   }
 
-  return { owner, hotKey, escrowPda, escrowAta, ownerUsdc };
+  return { payer, escrowPda, escrowAta };
 }
 
 /** Bitmap (EVM u256 layout) with the given bit positions set. */
@@ -418,14 +346,8 @@ export function zeroedAggSig(signersBitmap?: Uint8Array) {
 export interface SettleAgentRoundParams {
   proto: AgentProtocolContext;
   gateway: BondedGateway;
-  /**
-   * Owner-provisioned escrow (+ hot key that signs the `AgentRequestAuth`). Omit for the
-   * x402 path and pass `payer` instead — then owner == authority == payer and the escrow is
-   * lazily created by settle.
-   */
-  escrow?: AgentEscrowSetup;
-  /** x402 payer identity (used when `escrow` is omitted). */
-  payer?: PublicKey;
+  /** x402 payer identity — seeds the escrow PDA as `authority`. */
+  payer: PublicKey;
   requestNonce: number;
   maxPrice: number;
   feedId: Uint8Array;
@@ -436,26 +358,16 @@ export interface SettleAgentRoundParams {
   value?: Uint8Array;
   /** Node PDAs for the credited bitmap, ascending bit order. */
   creditedNodePdas?: PublicKey[];
-  /** Override the Ed25519 attestation (e.g. wrong key / missing sig tests). */
-  ed25519Signer?: Keypair | null;
-  /** Override the (owner, authority) args passed on-chain (mismatch tests). */
-  ownerAuthorityOverride?: { owner: PublicKey; authority: PublicKey };
 }
 
 export async function settleAgentRound(
   params: SettleAgentRoundParams
 ): Promise<void> {
   const programId = params.proto.program.programId;
-  const ownerMode = !!params.escrow;
 
-  const owner =
-    params.ownerAuthorityOverride?.owner ??
-    (ownerMode ? params.escrow!.owner.publicKey : params.payer!);
-  const authority =
-    params.ownerAuthorityOverride?.authority ??
-    (ownerMode ? params.escrow!.hotKey.publicKey : params.payer!);
+  const authority = params.payer;
 
-  const escrowPda = findAgentEscrowPda(programId, owner, authority);
+  const escrowPda = findAgentEscrowPda(programId, authority);
   const escrowAta = findEscrowAta(params.proto.usdcMint, escrowPda);
 
   const roundRecordPda = findAgentRoundPda(
@@ -464,28 +376,8 @@ export async function settleAgentRound(
     params.requestNonce
   );
 
-  // Owner mode carries the off-chain hot-key attestation; x402 does not (the client's
-  // on-chain payment into the escrow ATA is the authorization).
-  const preInstructions = [];
-  if (ownerMode && params.ed25519Signer !== null) {
-    const signer = params.ed25519Signer ?? params.escrow!.hotKey;
-    const authHash = hashAgentRequestAuth({
-      agent: escrowPda,
-      requestNonce: params.requestNonce,
-      feedId: params.feedId,
-      maxPrice: params.maxPrice,
-    });
-    preInstructions.push(
-      Ed25519Program.createInstructionWithPrivateKey({
-        privateKey: signer.secretKey,
-        message: authHash,
-      })
-    );
-  }
-
-  const builder = params.proto.program.methods
+  await params.proto.program.methods
     .settleAgentRound({
-      owner,
       authority,
       requestNonce: new BN(params.requestNonce),
       maxPrice: new BN(params.maxPrice),
@@ -507,7 +399,6 @@ export async function settleAgentRound(
       treasury: params.proto.treasury,
       tokenProgram: TOKEN_PROGRAM_ID,
       roundRecord: roundRecordPda,
-      instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
       systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(
@@ -517,10 +408,8 @@ export async function settleAgentRound(
         isSigner: false,
       }))
     )
-    .preInstructions(preInstructions)
-    .signers([params.gateway.gatewayAuthority]);
-
-  await builder.rpc();
+    .signers([params.gateway.gatewayAuthority])
+    .rpc();
 }
 
 export function creditedNodePdasForBits(

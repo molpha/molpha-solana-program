@@ -146,8 +146,8 @@ describe("Molpha instruction coverage integration", () => {
         planType: { standard: {} },
         subscriptionPrice: new BN(2_000_000),
         maxJobs: 3,
-        signaturesRequired: 1,
         maxSigners: 2,
+        maxDelegates: 2,
         privateApiEnabled: false,
         isActive: true,
       })
@@ -165,6 +165,7 @@ describe("Molpha instruction coverage integration", () => {
         subscriptionPrice: new BN(3_000_000),
         maxJobs: 4,
         maxSigners: 3,
+        maxDelegates: 3,
         privateApiEnabled: true,
         isActive: true,
       })
@@ -178,6 +179,7 @@ describe("Molpha instruction coverage integration", () => {
     const plan = await program.account.plan.fetch(planPda);
     assert.equal(plan.maxJobs, 4);
     assert.equal(plan.subscriptionPrice.toString(), "3000000");
+    assert.equal(plan.maxDelegates, 3);
 
     // 3) subscribe + extend_subscription
     await program.methods
@@ -236,9 +238,12 @@ describe("Molpha instruction coverage integration", () => {
         delegate,
         maxJobsCreated: 2,
         maxDataRequests: new BN(10),
+        maxSigners: 2,
       })
       .accountsPartial({
         owner: ctx.authority.publicKey,
+        subscription: subscriptionPda,
+        plan: planPda,
         delegateAccount: delegatePda,
         systemProgram: SystemProgram.programId,
       })
@@ -248,6 +253,13 @@ describe("Molpha instruction coverage integration", () => {
     assert.equal(delegateAccount.jobsCreated, 0);
     assert.equal(delegateAccount.maxJobsCreated, 2);
     assert.equal(delegateAccount.maxDataRequests.toString(), "10");
+    assert.equal(delegateAccount.maxSigners, 2);
+    assert.deepEqual(delegateAccount.status, { active: {} });
+
+    let subscriptionAfterDelegate = await program.account.subscription.fetch(
+      subscriptionPda
+    );
+    assert.equal(subscriptionAfterDelegate.delegateCount, 1);
 
     await program.methods
       .removeDelegate({
@@ -255,9 +267,15 @@ describe("Molpha instruction coverage integration", () => {
       })
       .accountsPartial({
         owner: ctx.authority.publicKey,
+        subscription: subscriptionPda,
         delegateAccount: delegatePda,
       })
       .rpc();
+
+    subscriptionAfterDelegate = await program.account.subscription.fetch(
+      subscriptionPda
+    );
+    assert.equal(subscriptionAfterDelegate.delegateCount, 0);
 
     try {
       await program.account.delegate.fetch(delegatePda);
@@ -308,6 +326,7 @@ describe("Molpha instruction coverage integration", () => {
         subscriptionPrice: new BN(3_000_000),
         maxJobs: 4,
         maxSigners: 8,
+        maxDelegates: 3,
         privateApiEnabled: true,
         isActive: true,
       })

@@ -188,8 +188,8 @@ mod tests {
     fn initialize_instruction_data_serializes_args() {
         let args = fixture_args();
         let data = crate::instruction::Initialize { args: args.clone() }.data();
-        // 137 (pre-agent fields) + 4 * u64 + 1 * i64 for the agent pricing/policy block.
-        assert_eq!(data.len(), 137 + 40);
+        // 137 (pre-agent fields) + 2 * u64 + 1 * i64 for the agent pricing/policy block.
+        assert_eq!(data.len(), 137 + 24);
 
         let decoded = InitializeArgs::try_from_slice(&data[8..]).expect("deserialize args");
         assert_eq!(decoded.usdc_mint, args.usdc_mint);

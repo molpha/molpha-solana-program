@@ -1,21 +1,8 @@
-//! `settle_round_receipt` — optimistic happy path (no Schnorr verify).
-//!
-//! Verifies two cheap Ed25519 signatures (consumer + gateway), stores the committed
-//! `AggregatedSig` *without verifying it*, and stores the committed data-update message hash
-//! that dispute-time Schnorr verification must use. Credits are applied to the participation set
-//! embedded in that signature (`agg_sig.signers_bitmap`). Schnorr verification runs only on
-//! `dispute_round`.
-//!
-//! The v0.2 spec batches several rounds (`Vec<SettleEntry>`) into one transaction. Because the
-//! per-round cost is flat (§8), this is implemented as a single-round instruction; clients pack
-//! multiple of these into one transaction up to the 1232-byte limit for identical effect, with
-//! far simpler and safer account handling.
-
 use crate::{
     error::MolphaError,
     events::RoundSettled,
     state::{
-        hash_agg_sig, hash_request_auth_fields, AggregatedSig, Delegate, Gateway, Node, Plan,
+        hash_agg_sig, hash_request_auth_fields, AggregatedSig, Delegate, Gateway, Node,
         ProtocolConfig, RegistryState, RoundReceiptRecord, Subscription,
     },
     utils::{
@@ -79,11 +66,12 @@ pub fn settle_round_receipt<'info>(
         MolphaError::InvalidRegistryVersion
     );
 
-    // 3. Consumer authorization.
+    // 3. Consumer authorization (owner-direct or delegate/agent).
     authorize_consumer(
         subscription,
         &mut ctx.accounts.consumer_delegate,
         *consumer_authority,
+        *signatures_required,
     )?;
 
     let request_auth_hash = hash_request_auth_fields(feed_id, *timestamp);
@@ -195,9 +183,14 @@ fn authorize_consumer(
     subscription: &Account<'_, Subscription>,
     delegate: &mut Option<Account<'_, Delegate>>,
     consumer_authority: Pubkey,
+    signatures_required: u8,
 ) -> Result<()> {
     if consumer_authority == subscription.owner {
         require!(delegate.is_none(), MolphaError::UnexpectedDelegateAccount);
+        require!(
+            signatures_required <= subscription.max_signers,
+            MolphaError::SignaturesExceedSubscriptionMax
+        );
         return Ok(());
     }
 
@@ -214,6 +207,11 @@ fn authorize_consumer(
         delegate.delegate,
         consumer_authority,
         MolphaError::UnauthorisedConsumer
+    );
+    require!(delegate.is_active(), MolphaError::DelegateNotActive);
+    require!(
+        signatures_required <= delegate.max_signers,
+        MolphaError::SignaturesExceedDelegateMax
     );
     delegate.try_consume_data_request()?;
 
@@ -240,9 +238,6 @@ pub struct SettleRoundReceipt<'info> {
         bump = registry_state.bump,
     )]
     pub registry_state: Account<'info, RegistryState>,
-
-    /// Plan validation is performed only when a new job is initialized.
-    pub plan: Option<Account<'info, Plan>>,
 
     #[account(mut)]
     pub subscription: Account<'info, Subscription>,
