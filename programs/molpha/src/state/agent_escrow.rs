@@ -32,18 +32,3 @@ impl AgentEscrow {
         self.bump = bump;
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn fixture_escrow() -> AgentEscrow {
-        AgentEscrow {
-            authority: Pubkey::new_from_array([2; 32]),
-            status: AgentStatus::Active,
-            spent_total: 0,
-            last_request_nonce: 0,
-            bump: 255,
-        }
-    }
-}
