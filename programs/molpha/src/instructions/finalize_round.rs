@@ -26,9 +26,6 @@ pub fn finalize_round<'info>(
     let registry = &ctx.accounts.registry_state;
     let record = &ctx.accounts.round_record;
 
-    require!(!record.voided, MolphaError::RoundVoided);
-    require!(!record.finalized, MolphaError::RoundAlreadyFinalized);
-
     let clock = Clock::get()?;
     let now_slot = clock.slot;
     require!(
@@ -110,7 +107,7 @@ pub fn finalize_round<'info>(
     record.finalized = true;
 
     emit!(RoundFinalized {
-        job_id: record.job_id,
+        feed_id: record.feed_id,
         timestamp: record.timestamp,
         credited_count,
         finalized_slot: now_slot,
@@ -135,15 +132,11 @@ pub struct FinalizeRound<'info> {
     )]
     pub registry_state: Account<'info, RegistryState>,
 
-    #[account(
-        mut,
-        seeds = [
-            RoundReceiptRecord::SEED_PREFIX,
-            round_record.job_id.as_ref(),
-            round_record.timestamp.to_le_bytes().as_ref(),
-        ],
-        bump = round_record.bump,
-    )]
+    /// Subscription (`["molpha_round", feed_id, ts]`) or agent
+    /// (`["molpha_agent_round", agent, nonce]`) settlement record. No seeds constraint:
+    /// owner + discriminator suffice — only the two settle instructions can create this
+    /// account type, and both write complete state, so stored contents are trusted.
+    #[account(mut)]
     pub round_record: Account<'info, RoundReceiptRecord>,
 
     #[account(

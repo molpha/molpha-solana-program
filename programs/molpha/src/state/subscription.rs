@@ -10,11 +10,21 @@ pub struct Subscription {
     pub prepaid_usdc: u64,
     pub price: u64,
     pub valid_until: i64,
-    pub job_count: u32,
-    /// Rounds settled against this subscription.
     pub used_rounds: u64,
-    /// Round quota; `u64::MAX` means unlimited while the subscription is active.
     pub max_rounds: u64,
+    pub delegate_count: u32,
+    pub max_delegates: u32,
+    pub max_signers: u8,
+    pub bump: u8,
+}
+
+pub struct SubscriptionInitArgs {
+    pub owner: Pubkey,
+    pub plan_type: PlanType,
+    pub monthly_price: u64,
+    pub max_delegates: u32,
+    pub max_signers: u8,
+    pub now: i64,
     pub bump: u8,
 }
 
@@ -23,23 +33,21 @@ impl Subscription {
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
     pub const SECONDS_PER_MONTH: i64 = 30 * 24 * 60 * 60;
 
-    pub fn init(
-        &mut self,
-        owner: Pubkey,
-        plan_type: PlanType,
-        monthly_price: u64,
-        now: i64,
-        bump: u8,
-    ) {
-        self.owner = owner;
-        self.plan_type = plan_type;
-        self.prepaid_usdc = monthly_price;
-        self.price = monthly_price;
-        self.valid_until = now.checked_add(Self::SECONDS_PER_MONTH).unwrap_or(i64::MAX);
-        self.job_count = 0;
+    pub fn init(&mut self, args: SubscriptionInitArgs) {
+        self.owner = args.owner;
+        self.plan_type = args.plan_type;
+        self.prepaid_usdc = args.monthly_price;
+        self.price = args.monthly_price;
+        self.valid_until = args
+            .now
+            .checked_add(Self::SECONDS_PER_MONTH)
+            .unwrap_or(i64::MAX);
         self.used_rounds = 0;
         self.max_rounds = u64::MAX;
-        self.bump = bump;
+        self.delegate_count = 0;
+        self.max_delegates = args.max_delegates;
+        self.max_signers = args.max_signers;
+        self.bump = args.bump;
     }
 
     pub fn is_active(&self) -> bool {
@@ -56,5 +64,21 @@ impl Subscription {
             .checked_add(1)
             .ok_or(crate::error::MolphaError::SubscriptionInactiveOrExhausted)?;
         Ok(())
+    }
+
+    pub fn try_add_delegate(&mut self) -> Result<()> {
+        require!(
+            self.delegate_count < self.max_delegates,
+            crate::error::MolphaError::DelegateCapReached
+        );
+        self.delegate_count = self
+            .delegate_count
+            .checked_add(1)
+            .ok_or(crate::error::MolphaError::DelegateCapReached)?;
+        Ok(())
+    }
+
+    pub fn release_delegate(&mut self) {
+        self.delegate_count = self.delegate_count.saturating_sub(1);
     }
 }

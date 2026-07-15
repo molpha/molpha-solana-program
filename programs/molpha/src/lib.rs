@@ -67,6 +67,10 @@ pub mod molpha {
         instructions::remove_delegate(ctx, args)
     }
 
+    pub fn set_delegate_paused(ctx: Context<SetDelegatePaused>, paused: bool) -> Result<()> {
+        instructions::set_delegate_paused(ctx, paused)
+    }
+
     pub fn submit_data_update(
         ctx: Context<SubmitDataUpdate>,
         args: SubmitDataUpdateArgs,
@@ -107,5 +111,14 @@ pub mod molpha {
 
     pub fn claim_gateway_rewards(ctx: Context<ClaimGatewayRewards>) -> Result<()> {
         instructions::claim_gateway_rewards(ctx)
+    }
+
+    // ---- Self-funded / x402 agent pay-per-request access. ----
+
+    pub fn settle_agent_round<'info>(
+        ctx: Context<'_, '_, 'info, 'info, SettleAgentRound<'info>>,
+        args: SettleAgentRoundArgs,
+    ) -> Result<()> {
+        instructions::settle_agent_round(ctx, args)
     }
 }

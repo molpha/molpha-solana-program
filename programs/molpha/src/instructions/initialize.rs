@@ -28,6 +28,9 @@ pub struct InitializeArgs {
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
     pub usdc_mint: Pubkey,
+    pub agent_round_base: u64,
+    pub agent_round_per_sig: u64,
+    pub agent_epoch_len_secs: i64,
 }
 
 pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> {
@@ -37,6 +40,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
         args.usdc_mint,
         MolphaError::InvalidOwnerUsdc
     );
+    require!(args.agent_epoch_len_secs > 0, MolphaError::InvalidAgentCaps);
 
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.authority = ctx.accounts.authority.key();
@@ -60,6 +64,9 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.withdrawal_cooldown_secs = args.withdrawal_cooldown_secs;
     protocol_config.timelock_expires_at = None;
     protocol_config.pending_change = None;
+    protocol_config.agent_round_base = args.agent_round_base;
+    protocol_config.agent_round_per_sig = args.agent_round_per_sig;
+    protocol_config.agent_epoch_len_secs = args.agent_epoch_len_secs;
     protocol_config.bump = ctx.bumps.protocol_config;
 
     let registry_state = &mut ctx.accounts.registry_state;
@@ -144,6 +151,9 @@ mod tests {
             gateway_bond_min: 500_000_000,
             challenger_bounty_bps: 500,
             usdc_mint: Pubkey::new_from_array([7; 32]),
+            agent_round_base: 1_000,
+            agent_round_per_sig: 15,
+            agent_epoch_len_secs: 86_400,
         }
     }
 
@@ -169,13 +179,17 @@ mod tests {
             args.max_receipt_delay_slots
         );
         assert_eq!(decoded.usdc_mint, args.usdc_mint);
+        assert_eq!(decoded.agent_round_base, args.agent_round_base);
+        assert_eq!(decoded.agent_round_per_sig, args.agent_round_per_sig);
+        assert_eq!(decoded.agent_epoch_len_secs, args.agent_epoch_len_secs);
     }
 
     #[test]
     fn initialize_instruction_data_serializes_args() {
         let args = fixture_args();
         let data = crate::instruction::Initialize { args: args.clone() }.data();
-        assert_eq!(data.len(), 137);
+        // 137 (pre-agent fields) + 2 * u64 + 1 * i64 for the agent pricing/policy block.
+        assert_eq!(data.len(), 137 + 24);
 
         let decoded = InitializeArgs::try_from_slice(&data[8..]).expect("deserialize args");
         assert_eq!(decoded.usdc_mint, args.usdc_mint);

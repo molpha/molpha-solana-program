@@ -51,6 +51,9 @@ async function initializeRegistry(
       protocolFeeBps: 100,
       maxReceiptDelaySlots: new BN(256),
       usdcMint: ctx.underlyingTokenMint,
+      agentRoundBase: new BN(1_000),
+      agentRoundPerSig: new BN(15),
+      agentEpochLenSecs: new BN(86_400),
     })
     .accountsPartial({
       protocolConfig: protocolConfigPda,

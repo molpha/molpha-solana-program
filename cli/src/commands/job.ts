@@ -1,7 +1,7 @@
 import { SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import { getCliContext } from "../lib/client";
-import { deriveJobId } from "../lib/ids";
+import { deriveFeedId } from "../lib/ids";
 import { fetchAccountOrNull } from "../lib/accounts";
 import {
   findDelegatePda,
@@ -57,9 +57,9 @@ export function registerJobCommands(program: Command): void {
         options.signaturesRequired,
         "signatures required"
       );
-      const jobId = deriveJobId(jobOwner, apiConfigHash, signaturesRequired);
-      const [jobPda] = findJobPda(ctx.programId, jobId);
-      const [feedPda] = findFeedPda(ctx.programId, jobId);
+      const feedId = deriveFeedId(jobOwner, apiConfigHash, signaturesRequired);
+      const [jobPda] = findJobPda(ctx.programId, feedId);
+      const [feedPda] = findFeedPda(ctx.programId, feedId);
 
       const accounts: Record<string, unknown> = {
         creator,
@@ -85,7 +85,7 @@ export function registerJobCommands(program: Command): void {
             signaturesRequired,
             decimals: parseInteger(options.decimals, "decimals"),
           },
-          Array.from(jobId)
+          Array.from(feedId)
         )
         .accountsPartial(accounts)
         .rpc();
@@ -94,7 +94,7 @@ export function registerJobCommands(program: Command): void {
         signature,
         owner: jobOwner.toBase58(),
         creator: creator.toBase58(),
-        jobId: `0x${Buffer.from(jobId).toString("hex")}`,
+        feedId: `0x${Buffer.from(feedId).toString("hex")}`,
         job: jobPda.toBase58(),
         feed: feedPda.toBase58(),
       });

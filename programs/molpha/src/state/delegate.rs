@@ -1,15 +1,27 @@
 use anchor_lang::prelude::*;
 
+use crate::state::AgentStatus;
+
 /// Owner-scoped delegate authorization with persistent job/request quotas.
 #[account]
 #[derive(InitSpace)]
 pub struct Delegate {
     pub owner: Pubkey,
     pub delegate: Pubkey,
+    /// Owner pause / protocol freeze backstop.
+    pub status: AgentStatus,
     pub max_jobs_created: u32,
     pub jobs_created: u32,
     pub max_data_requests: u64,
     pub data_requests_used: u64,
+    /// Per-delegate quorum ceiling; clamped to `plan.max_signers` at creation.
+    pub max_signers: u8,
+    /// Dormant: per-epoch credit ceiling for the future credit economy. Not enforced.
+    pub epoch_cap: u64,
+    /// Dormant: credits spent in the current epoch. Not enforced.
+    pub epoch_spent: u64,
+    /// Dormant: epoch discriminator for `epoch_spent`. Not enforced.
+    pub epoch_id: i64,
     pub bump: u8,
 }
 
@@ -23,15 +35,25 @@ impl Delegate {
         delegate: Pubkey,
         max_jobs_created: u32,
         max_data_requests: u64,
+        max_signers: u8,
         bump: u8,
     ) {
         self.owner = owner;
         self.delegate = delegate;
+        self.status = AgentStatus::Active;
         self.max_jobs_created = max_jobs_created;
         self.jobs_created = 0;
         self.max_data_requests = max_data_requests;
         self.data_requests_used = 0;
+        self.max_signers = max_signers;
+        self.epoch_cap = 0;
+        self.epoch_spent = 0;
+        self.epoch_id = 0;
         self.bump = bump;
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.status == AgentStatus::Active
     }
 
     pub fn try_consume_job(&mut self) -> Result<()> {

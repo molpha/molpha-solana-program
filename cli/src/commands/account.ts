@@ -131,12 +131,12 @@ export function registerAccountCommands(program: Command): void {
     .command("job")
     .description("Fetch job account")
     .option("--address <pubkey>", "job address")
-    .option("--job-id <hex>", "32-byte job id")
+    .option("--feed-id <hex>", "32-byte feed id")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const address =
         options.address ??
-        findJobOrNodeAddress("job", ctx.programId, options.jobId).toBase58();
+        findJobOrNodeAddress("job", ctx.programId, options.feedId).toBase58();
       await printNamedAccount(command, "job", address);
     });
 
@@ -144,16 +144,16 @@ export function registerAccountCommands(program: Command): void {
     .command("feed")
     .description("Fetch feed account")
     .option("--address <pubkey>", "feed address")
-    .option("--job-id <hex>", "32-byte job id")
+    .option("--feed-id <hex>", "32-byte feed id")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const jobId = hexToBytes(
-        requireValue(options.jobId, "Missing --job-id"),
+      const feedId = hexToBytes(
+        requireValue(options.feedId, "Missing --feed-id"),
         32,
-        "job id"
+        "feed id"
       );
       const address =
-        options.address ?? findFeedPda(ctx.programId, jobId)[0].toBase58();
+        options.address ?? findFeedPda(ctx.programId, feedId)[0].toBase58();
       await printNamedAccount(command, "feed", address);
     });
 }

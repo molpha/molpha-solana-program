@@ -24,7 +24,7 @@ const toml = require("toml");
 
 const {
   NODE_COUNT,
-  FIXTURE_JOB_ID,
+  FIXTURE_FEED_ID,
   FIXTURE_CONFIG_HASH,
   FIXTURE_VALUE,
   FIXTURE_REGISTRY_VERSION,
@@ -168,7 +168,7 @@ function schnorrSignForVerifier({
 }
 
 function computeMessageHash({
-  jobId,
+  feedId,
   registryVersion,
   signaturesRequired,
   signersBitmap,
@@ -177,7 +177,7 @@ function computeMessageHash({
 }) {
   return keccakConcat([
     MESSAGE_PREFIX,
-    jobId,
+    feedId,
     u32be(registryVersion),
     u32be(signaturesRequired),
     signersBitmap,
@@ -256,13 +256,13 @@ async function seedBenchAccounts(
     program.programId
   );
   const [jobPda, jobBump] = PublicKey.findProgramAddressSync(
-    [JOB_SEED, FIXTURE_JOB_ID],
+    [JOB_SEED, FIXTURE_FEED_ID],
     program.programId
   );
   const canonicalTimestampLe = Buffer.alloc(8);
   canonicalTimestampLe.writeBigInt64LE(BigInt(FIXTURE_CANONICAL_TIMESTAMP));
   const [feedPda, feedBump] = PublicKey.findProgramAddressSync(
-    [FEED_SEED, FIXTURE_JOB_ID],
+    [FEED_SEED, FIXTURE_FEED_ID],
     program.programId
   );
 
@@ -310,7 +310,7 @@ async function seedBenchAccounts(
   });
 
   await setProgramAccount(context, program, jobPda, "job", {
-    jobId: Array.from(FIXTURE_JOB_ID),
+    feedId: Array.from(FIXTURE_FEED_ID),
     owner: payer.publicKey,
     apiConfigHash: Array.from(FIXTURE_CONFIG_HASH),
     decimals: 8,
@@ -321,7 +321,7 @@ async function seedBenchAccounts(
   });
 
   await setProgramAccount(context, program, feedPda, "feed", {
-    jobId: Array.from(FIXTURE_JOB_ID),
+    feedId: Array.from(FIXTURE_FEED_ID),
     registryVersion: 0,
     canonicalTimestamp: new anchor.BN(0),
     value: Array.from(Buffer.alloc(32)),
@@ -390,7 +390,7 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     signerCount,
     privKeys: signerMaterial.privKeys,
     compressedPubkeys: signerMaterial.compressedPubkeys,
-    jobId: FIXTURE_JOB_ID,
+    feedId: FIXTURE_FEED_ID,
     registryVersion: FIXTURE_REGISTRY_VERSION,
     configHash: FIXTURE_CONFIG_HASH,
     value: FIXTURE_VALUE,
@@ -405,7 +405,7 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     signerMaterial
   );
 
-  const args = buildSubmitArgs(signerCount, signatureMaterial, FIXTURE_JOB_ID);
+  const args = buildSubmitArgs(signerCount, signatureMaterial, FIXTURE_FEED_ID);
   const signersBitmapBuf = signatureMaterial.signersBitmap;
   const remainingAccounts = registryIndexRemainingAccounts(
     program.programId,

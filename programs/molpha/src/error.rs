@@ -67,7 +67,7 @@ pub enum MolphaError {
     GroupBitmapDerivationFailed,
     #[msg("Signers bitmap contains out-of-range indices")]
     InvalidSignersBitmap,
-    #[msg("job_id PDA already initialised")]
+    #[msg("feed_id PDA already initialised")]
     JobAlreadyExists,
     #[msg("plan exists but is_active is false")]
     PlanNotActive,
@@ -89,25 +89,33 @@ pub enum MolphaError {
     DelegateNotFound,
     #[msg("delegate PDA already exists for this owner/delegate pair")]
     DelegateAlreadyPresent,
+    #[msg("delegate is paused")]
+    DelegateNotActive,
+    #[msg("signatures_required exceeds delegate.max_signers")]
+    SignaturesExceedDelegateMax,
+    #[msg("subscription delegate_count >= plan.max_delegates")]
+    DelegateCapReached,
+    #[msg("plan account missing or does not match the subscription plan")]
+    PlanMismatch,
     #[msg("job.owner does not match signer")]
     UnauthorisedJobOwner,
-    #[msg("job_id does not match derived value for args and created_at_slot")]
-    InvalidJobId,
+    #[msg("feed_id does not match derived value for args and created_at_slot")]
+    InvalidFeedId,
     #[msg("node_id does not match derived value for owner, pubkey, and salt")]
     InvalidNodeId,
     #[msg("Re-derived selection bitmap does not match submitted bitmap")]
     InvalidSelectionBitmap,
     #[msg("popcount(signers_bitmap) < signatures_required")]
     InsufficientSigners,
-    #[msg("signatures_required exceeds plan.max_signers")]
-    SignaturesExceedPlanMax,
+    #[msg("signatures_required exceeds subscription.max_signers")]
+    SignaturesExceedSubscriptionMax,
     #[msg("Signer bits outside selection bitmap")]
     SignersNotSubsetOfSelection,
     #[msg("PoP-Schnorr aggregate verification failed")]
     InvalidAggregateSignature,
     #[msg("canonical_timestamp <= feed.canonical_timestamp")]
     FeedNotNewer,
-    #[msg("args.job_id does not match job.job_id")]
+    #[msg("args.feed_id does not match feed.feed_id")]
     DataUpdateJobMismatch,
     #[msg("api_config_hash mismatch")]
     DataUpdateConfigMismatch,
@@ -128,13 +136,13 @@ pub enum MolphaError {
     SelectionBitmapMismatch,
     #[msg("popcount(signers_bitmap) < signatures_required")]
     QuorumBelowThreshold,
-    #[msg("args.job_id != job.job_id")]
+    #[msg("args.feed_id != feed.feed_id")]
     AggSigJobMismatch,
     #[msg("gateway Ed25519 signature missing or invalid")]
     GatewaySigInvalid,
     #[msg("gateway not registered or bonded below gateway_bond_min")]
     GatewayNotBonded,
-    #[msg("(job_id, timestamp) receipt already recorded")]
+    #[msg("(feed_id, timestamp) receipt already recorded")]
     ReceiptAlreadyRecorded,
     #[msg("subscription inactive or round quota exhausted")]
     SubscriptionInactiveOrExhausted,
@@ -166,6 +174,30 @@ pub enum MolphaError {
     UnauthorisedConsumer,
     #[msg("mismatched or missing credited node account")]
     InvalidCreditNodeAccount,
+
+    // ---- Agent pay-per-request access (x402 / self-funded). ----
+    #[msg("agent escrow is not active")]
+    AgentNotActive,
+    #[msg("computed price exceeds the agent-signed max_price")]
+    MaxPriceExceeded,
+    #[msg("arithmetic overflow in escrow spend accounting")]
+    EpochCapExceeded,
+    #[msg("escrow ATA balance below computed price")]
+    InsufficientAgentCredits,
+    #[msg("escrow ATA balance must exactly equal computed price")]
+    AgentEscrowPaymentNotExact,
+    #[msg("agent request authorization signature is invalid or missing")]
+    AgentSigInvalid,
+    #[msg("signer is not the agent escrow owner")]
+    UnauthorisedAgentOwner,
+    #[msg("signer is not the gateway authority")]
+    UnauthorisedGateway,
+    #[msg("agent cap parameters invalid")]
+    InvalidAgentCaps,
+    #[msg("escrow ATA balance must be zero to close")]
+    AgentEscrowNotEmpty,
+    #[msg("credited signer count exceeds signatures_required + redundancy_buffer")]
+    CreditedExceedsSelection,
 }
 
 pub(crate) fn map_data_update_err(error: DataUpdateError) -> anchor_lang::error::Error {

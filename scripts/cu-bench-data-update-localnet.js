@@ -39,7 +39,7 @@ const {
   FIXTURE_VALUE,
   FIXTURE_CANONICAL_TIMESTAMP,
   benchConfigHash,
-  deriveJobId,
+  deriveFeedId,
   loadProgramId,
   loadIdl,
   registryIndexRemainingAccounts,
@@ -160,13 +160,13 @@ async function ensureProgramDeployed(connection, programId) {
 }
 
 async function benchAccountsPresent(connection, programId, payer, signerCount) {
-  const jobId = deriveJobId(
+  const feedId = deriveFeedId(
     payer.publicKey,
     benchConfigHash(signerCount),
     signerCount
   );
   const [jobPda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("molpha_job"), jobId],
+    [Buffer.from("molpha_job"), feedId],
     programId
   );
   const info = await connection.getAccountInfo(jobPda, "processed");
@@ -208,7 +208,7 @@ async function measureForSignerCount(
   signerCount
 ) {
   const configHash = benchConfigHash(signerCount);
-  const jobId = deriveJobId(payer.publicKey, configHash, signerCount);
+  const feedId = deriveFeedId(payer.publicKey, configHash, signerCount);
 
   const signerMaterial = generateSignerMaterial(NODE_COUNT);
 
@@ -216,7 +216,7 @@ async function measureForSignerCount(
     signerCount,
     privKeys: signerMaterial.privKeys,
     compressedPubkeys: signerMaterial.compressedPubkeys,
-    jobId,
+    feedId,
     registryVersion: 1,
     configHash,
     value: FIXTURE_VALUE,
@@ -228,15 +228,15 @@ async function measureForSignerCount(
     programId
   );
   const [jobPda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("molpha_job"), jobId],
+    [Buffer.from("molpha_job"), feedId],
     programId
   );
   const [feedPda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("molpha_feed"), jobId],
+    [Buffer.from("molpha_feed"), feedId],
     programId
   );
 
-  const args = buildSubmitArgs(signerCount, signatureMaterial, jobId);
+  const args = buildSubmitArgs(signerCount, signatureMaterial, feedId);
   const signersBitmapBuf = signatureMaterial.signersBitmap;
   const remainingAccounts = registryIndexRemainingAccounts(
     programId,

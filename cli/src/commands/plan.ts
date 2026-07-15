@@ -27,6 +27,10 @@ export function registerPlanCommands(program: Command): void {
     )
     .requiredOption("--max-jobs <count>", "max jobs")
     .requiredOption("--max-signers <count>", "max signers")
+    .requiredOption(
+      "--max-delegates <count>",
+      "max delegates/agents an owner may provision"
+    )
     .option("--private-api-enabled", "enable private api")
     .option("--inactive", "create the plan inactive")
     .action(async (options, command: Command) => {
@@ -66,6 +70,10 @@ export function registerPlanCommands(program: Command): void {
     )
     .option("--max-jobs <count>", "max jobs")
     .option("--max-signers <count>", "max signers")
+    .option(
+      "--max-delegates <count>",
+      "max delegates/agents an owner may provision"
+    )
     .option("--private-api-enabled", "enable private api")
     .option("--inactive", "set inactive")
     .action(async (options, command: Command) => {
@@ -145,10 +153,13 @@ function buildPlanArgs(options: Record<string, string | boolean>) {
       requireValue(options.maxJobs as string, "Missing --max-jobs"),
       "max jobs"
     ),
-    signaturesRequired: 0,
     maxSigners: parseInteger(
       requireValue(options.maxSigners as string, "Missing --max-signers"),
       "max signers"
+    ),
+    maxDelegates: parseInteger(
+      requireValue(options.maxDelegates as string, "Missing --max-delegates"),
+      "max delegates"
     ),
     privateApiEnabled: Boolean(options.privateApiEnabled),
     isActive: !options.inactive,
@@ -162,6 +173,7 @@ function buildUpdatePlanArgs(
     subscriptionPrice: { toString(): string };
     maxJobs: number;
     maxSigners: number;
+    maxDelegates: number;
     privateApiEnabled: boolean;
     isActive: boolean;
   }
@@ -178,11 +190,14 @@ function buildUpdatePlanArgs(
       options.maxJobs !== undefined
         ? parseInteger(options.maxJobs as string, "max jobs")
         : current.maxJobs,
-    signaturesRequired: 0,
     maxSigners:
       options.maxSigners !== undefined
         ? parseInteger(options.maxSigners as string, "max signers")
         : current.maxSigners,
+    maxDelegates:
+      options.maxDelegates !== undefined
+        ? parseInteger(options.maxDelegates as string, "max delegates")
+        : current.maxDelegates,
     privateApiEnabled:
       options.privateApiEnabled === true ? true : current.privateApiEnabled,
     isActive: options.inactive === true ? false : current.isActive,

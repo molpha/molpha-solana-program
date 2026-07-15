@@ -14,7 +14,7 @@ import { Clock } from "solana-bankrun";
 import { setupTestContext, TestContext } from "../setup";
 import { generateE2eScenario } from "../helpers/e2e-fixture-export";
 import {
-  deriveJobId,
+  deriveFeedId,
   executeVerifyDataUpdateReturnData,
   expectedVerifyDataUpdateReturnBytes,
   findFeedPda,
@@ -89,6 +89,9 @@ describe("submit_data_update (current registry)", () => {
         protocolFeeBps: 100,
         maxReceiptDelaySlots: new BN(256),
         usdcMint: ctx.underlyingTokenMint,
+        agentRoundBase: new BN(1_000),
+        agentRoundPerSig: new BN(15),
+        agentEpochLenSecs: new BN(86_400),
       })
       .accountsPartial({
         protocolConfig: protocolConfigPda,
@@ -107,8 +110,8 @@ describe("submit_data_update (current registry)", () => {
         planType: { standard: {} },
         subscriptionPrice: new BN(3_000_000),
         maxJobs: 4,
-        signaturesRequired: SIGNER_COUNT,
         maxSigners: SIGNER_COUNT,
+        maxDelegates: 2,
         privateApiEnabled: true,
         isActive: true,
       })
@@ -161,19 +164,19 @@ describe("submit_data_update (current registry)", () => {
       })
       .rpc();
 
-    const jobId = deriveJobId(
+    const feedId = deriveFeedId(
       ctx.authority.publicKey,
       scenario.configHash,
       SIGNER_COUNT
     );
-    const jobPda = findJobPda(program.programId, jobId);
-    const feedPda = findFeedPda(program.programId, jobId);
+    const jobPda = findJobPda(program.programId, feedId);
+    const feedPda = findFeedPda(program.programId, feedId);
 
     const signed = signE2eDataUpdate(
       registry.currentVersion,
       signerMaterial,
       SIGNER_COUNT,
-      jobId,
+      feedId,
       {
         configHash: scenario.configHash,
         value: scenario.value,

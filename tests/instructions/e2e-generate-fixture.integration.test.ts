@@ -25,7 +25,7 @@ import {
   writeVerifyAnswerEvmFixture,
 } from "../helpers/e2e-fixture-export";
 import {
-  deriveJobId,
+  deriveFeedId,
   findFeedPda,
   findJobPda,
   generateE2eSignerMaterialFromSeed,
@@ -103,6 +103,9 @@ describe("e2e generate verify-answer-evm fixture", () => {
         protocolFeeBps: 100,
         maxReceiptDelaySlots: new BN(256),
         usdcMint: ctx.underlyingTokenMint,
+        agentRoundBase: new BN(1_000),
+        agentRoundPerSig: new BN(15),
+        agentEpochLenSecs: new BN(86_400),
       })
       .accountsPartial({
         protocolConfig: protocolConfigPda,
@@ -123,6 +126,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
         subscriptionPrice: new BN(3_000_000),
         maxJobs: 4,
         maxSigners: SIGNATURES_REQUIRED,
+        maxDelegates: 2,
         privateApiEnabled: true,
         isActive: true,
       })
@@ -173,19 +177,19 @@ describe("e2e generate verify-answer-evm fixture", () => {
       })
       .rpc();
 
-    const jobId = deriveJobId(
+    const feedId = deriveFeedId(
       ctx.authority.publicKey,
       scenario.configHash,
       SIGNATURES_REQUIRED
     );
-    const jobPda = findJobPda(program.programId, jobId);
-    const feedPda = findFeedPda(program.programId, jobId);
+    const jobPda = findJobPda(program.programId, feedId);
+    const feedPda = findFeedPda(program.programId, feedId);
 
     const signed = signE2eDataUpdate(
       registry.currentVersion,
       signerMaterial,
       NODE_COUNT,
-      jobId,
+      feedId,
       {
         configHash: scenario.configHash,
         value: scenario.value,
@@ -244,7 +248,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
       nodePubkeys: signerMaterial.compressedPubkeys,
       nodePrivkeys: signerMaterial.privKeys,
       signaturesRequired: SIGNATURES_REQUIRED,
-      jobId,
+      feedId,
       dataUpdate: {
         configHash: scenario.configHash,
         value: scenario.value,
@@ -261,7 +265,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
         seed,
         outputPath,
         registryVersion: registry.currentVersion,
-        jobId: fixture.dataUpdate.jobId,
+        feedId: fixture.dataUpdate.feedId,
       })
     );
 

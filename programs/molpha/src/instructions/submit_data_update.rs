@@ -9,7 +9,7 @@ use molpha_verifier::DataUpdate;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SubmitDataUpdateArgs {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub registry_version: u32,
     pub value: [u8; 32],
     pub canonical_timestamp: i64,
@@ -24,7 +24,7 @@ pub struct SubmitDataUpdateArgs {
 impl From<&SubmitDataUpdateArgs> for DataUpdate {
     fn from(args: &SubmitDataUpdateArgs) -> Self {
         Self {
-            job_id: args.job_id,
+            feed_id: args.feed_id,
             registry_version: args.registry_version,
             value: args.value,
             canonical_timestamp: args.canonical_timestamp,
@@ -47,9 +47,9 @@ pub fn submit_data_update(
     let now = clock.unix_timestamp;
 
     // if feed is not initialized, initialize it
-    if feed.job_id == [0u8; 32] {
+    if feed.feed_id == [0u8; 32] {
         feed.init(&FeedInitParams {
-            job_id: args.job_id,
+            feed_id: args.feed_id,
             value: args.value,
             canonical_timestamp: args.canonical_timestamp,
             signatures_required: args.signatures_required,
@@ -78,7 +78,7 @@ pub fn submit_data_update(
     .map_err(map_data_update_err)?;
 
     emit!(FeedUpdated {
-        job_id: args.job_id,
+        feed_id: args.feed_id,
         registry_version: args.registry_version,
         canonical_timestamp: args.canonical_timestamp,
         value: args.value,
@@ -107,7 +107,7 @@ pub struct SubmitDataUpdate<'info> {
         space = Feed::SPACE,
         seeds = [
             Feed::SEED_PREFIX,
-            args.job_id.as_ref()
+            args.feed_id.as_ref()
         ],
         bump
     )]
@@ -125,7 +125,7 @@ mod tests {
 
     fn fixture_args() -> SubmitDataUpdateArgs {
         SubmitDataUpdateArgs {
-            job_id: [0x11; 32],
+            feed_id: [0x11; 32],
             signatures_required: 3,
             registry_version: 7,
             signers_bitmap: [0x33; 32],
@@ -145,7 +145,7 @@ mod tests {
         let decoded = SubmitDataUpdateArgs::try_from_slice(&bytes)
             .expect("SubmitDataUpdateArgs should deserialize");
 
-        assert_eq!(decoded.job_id, args.job_id);
+        assert_eq!(decoded.feed_id, args.feed_id);
         assert_eq!(decoded.registry_version, args.registry_version);
         assert_eq!(decoded.signers_bitmap, args.signers_bitmap);
         assert_eq!(decoded.value, args.value);

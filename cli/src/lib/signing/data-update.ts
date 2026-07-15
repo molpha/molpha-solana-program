@@ -37,7 +37,7 @@ export type E2eDataUpdateFields = {
 
 export type SignedDataUpdate = {
   submitArgs: {
-    jobId: number[];
+    feedId: number[];
     registryVersion: number;
     signersBitmap: number[];
     value: number[];
@@ -228,14 +228,14 @@ export function deriveGroupBitmap(
 }
 
 export function deriveSelectionSeed(
-  jobId: Uint8Array,
+  feedId: Uint8Array,
   registryVersion: number,
   canonicalTimestamp: number
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
       SELECTION_SEED_PREFIX,
-      Buffer.from(jobId),
+      Buffer.from(feedId),
       Buffer.from(u32be(registryVersion)),
       Buffer.from(u64be(canonicalTimestamp)),
     ])
@@ -252,7 +252,7 @@ export function effectiveSelectionSize(
 }
 
 export function deriveSignersBitmapForJob(
-  jobId: Uint8Array,
+  feedId: Uint8Array,
   registryVersion: number,
   nodeCount: number,
   signaturesRequired: number,
@@ -265,7 +265,7 @@ export function deriveSignersBitmapForJob(
     nodeCount
   );
   return deriveGroupBitmap(
-    deriveSelectionSeed(jobId, registryVersion, canonicalTimestamp),
+    deriveSelectionSeed(feedId, registryVersion, canonicalTimestamp),
     nodeCount,
     selectionSize
   );
@@ -297,7 +297,7 @@ export function generateE2eSignerMaterialFromSeed(
 }
 
 function computeMessageHash(params: {
-  jobId: Uint8Array;
+  feedId: Uint8Array;
   registryVersion: number;
   signaturesRequired: number;
   signersBitmap: Uint8Array;
@@ -306,7 +306,7 @@ function computeMessageHash(params: {
 }): Uint8Array {
   return keccakConcat([
     MESSAGE_PREFIX,
-    params.jobId,
+    params.feedId,
     u32be(params.registryVersion),
     u32be(params.signaturesRequired),
     params.signersBitmap,
@@ -349,7 +349,7 @@ export function signE2eDataUpdate(
   registryVersion: number,
   signerMaterial: E2eSignerMaterial,
   signerCountOrBitmap: number | Uint8Array,
-  jobId: Uint8Array,
+  feedId: Uint8Array,
   dataUpdate: E2eDataUpdateFields,
   signaturesRequired?: number
 ): SignedDataUpdate {
@@ -360,7 +360,7 @@ export function signE2eDataUpdate(
   const signerCount = bitmapPopcountEvm(signersBitmap);
   const required = signaturesRequired ?? signerCount;
   const messageHash = computeMessageHash({
-    jobId,
+    feedId,
     registryVersion,
     signaturesRequired: required,
     signersBitmap,
@@ -396,7 +396,7 @@ export function signE2eDataUpdate(
 
   return {
     submitArgs: {
-      jobId: Array.from(jobId),
+      feedId: Array.from(feedId),
       registryVersion,
       signersBitmap: Array.from(signersBitmap),
       value: Array.from(dataUpdate.value),
@@ -416,7 +416,7 @@ export function buildSubmitArgsFromFixture(fixture: VerifyDataUpdateFixture) {
     BigInt(fixture.schnorrSignature.signersBitmap)
   );
   return {
-    jobId: Array.from(hexToBytes(fixture.dataUpdate.jobId, 32, "job id")),
+    feedId: Array.from(hexToBytes(fixture.dataUpdate.feedId, 32, "feed id")),
     registryVersion: fixture.dataUpdate.registryVersion,
     signersBitmap: Array.from(signersBitmap),
     value: Array.from(hexToBytes(fixture.dataUpdate.value, 32, "value")),

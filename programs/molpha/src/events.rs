@@ -54,6 +54,7 @@ pub struct PlanAdded {
     pub subscription_price: u64,
     pub max_jobs: u32,
     pub max_signers: u8,
+    pub max_delegates: u32,
     pub private_api_enabled: bool,
     pub is_active: bool,
 }
@@ -64,6 +65,7 @@ pub struct PlanUpdated {
     pub subscription_price: u64,
     pub max_jobs: u32,
     pub max_signers: u8,
+    pub max_delegates: u32,
     pub private_api_enabled: bool,
     pub is_active: bool,
 }
@@ -103,7 +105,7 @@ pub struct GatewayRegistered {
 
 #[event]
 pub struct JobCreated {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub owner: Pubkey,
     pub plan_type: u8,
     pub signatures_required: u8,
@@ -116,6 +118,9 @@ pub struct DelegateAdded {
     pub delegate: Pubkey,
     pub max_jobs_created: u32,
     pub max_data_requests: u64,
+    pub max_signers: u8,
+    /// Subscription delegate count after this addition.
+    pub delegate_count: u32,
 }
 
 #[event]
@@ -124,11 +129,23 @@ pub struct DelegateRemoved {
     pub delegate: Pubkey,
     pub jobs_created: u32,
     pub data_requests_used: u64,
+    /// Subscription delegate count after this removal.
+    pub delegate_count: u32,
+}
+
+#[event]
+pub struct DelegateStatusChanged {
+    pub delegate_account: Pubkey,
+    pub owner: Pubkey,
+    pub delegate: Pubkey,
+    pub old_status: u8,
+    pub new_status: u8,
+    pub by: Pubkey,
 }
 
 #[event]
 pub struct FeedUpdated {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub registry_version: u32,
     pub canonical_timestamp: i64,
     pub value: [u8; 32],
@@ -139,7 +156,7 @@ pub struct FeedUpdated {
 #[event]
 pub struct RoundSettled {
     pub gateway: Pubkey,
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub timestamp: u64,
     pub signers_bitmap: [u8; 32],
     pub credited_count: u32,
@@ -150,7 +167,7 @@ pub struct RoundSettled {
 
 #[event]
 pub struct RoundFinalized {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub timestamp: u64,
     pub credited_count: u32,
     pub finalized_slot: u64,
@@ -158,7 +175,7 @@ pub struct RoundFinalized {
 
 #[event]
 pub struct RoundDisputed {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub timestamp: u64,
     pub gateway: Pubkey,
     pub slashed_bond: u64,
@@ -170,4 +187,29 @@ pub struct RewardsClaimed {
     pub beneficiary: Pubkey,
     pub destination: Pubkey,
     pub amount: u64,
+}
+
+#[event]
+pub struct AgentEscrowCreated {
+    pub agent: Pubkey,
+    pub authority: Pubkey,
+}
+
+#[event]
+pub struct AgentEscrowClosed {
+    pub agent: Pubkey,
+    pub owner: Pubkey,
+}
+
+#[event]
+pub struct AgentRoundSettled {
+    pub agent: Pubkey,
+    pub request_nonce: u64,
+    pub price: u64,
+    pub feed_id: [u8; 32],
+    pub timestamp: u64,
+    pub gateway: Pubkey,
+    pub signers_bitmap: [u8; 32],
+    pub credited_count: u32,
+    pub recorded_slot: u64,
 }

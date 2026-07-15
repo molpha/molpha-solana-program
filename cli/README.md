@@ -60,6 +60,14 @@ yarn molpha --idl "/Users/vitaliikoval/dev/molpha-solana-program/target/idl/molp
   --receipt-submitter-bonus 5 \
   --protocol-fee-bps 100 \
   --max-receipt-delay-slots 256 \
+  --protocol-fee 0 \
+  --dispute-window-slots 256 \
+  --gateway-bond-min 500000000 \
+  --challenger-bounty-bps 500 \
+  --agent-round-base 1000 \
+  --agent-round-per-sig 15 \
+  --max-agent-per-request-cap 1000000 \
+  --agent-epoch-len-secs 86400 \
   --usdc-mint <MINT>
 ```
 
@@ -92,7 +100,7 @@ yarn molpha registry register \
   --security-deposit 1000000
 
 yarn molpha data submit \
-  --job-id <JOB_ID_HEX> \
+  --feed-id <FEED_ID_HEX> \
   --registry-version 1 \
   --config-hash <32_BYTE_HEX> \
   --decimals 8 \
@@ -106,7 +114,7 @@ Verify and inspect:
 
 ```bash
 yarn molpha data verify \
-  --job-id <JOB_ID_HEX> \
+  --feed-id <FEED_ID_HEX> \
   --registry-version 1 \
   --config-hash <32_BYTE_HEX> \
   --value <32_BYTE_HEX> \
@@ -114,7 +122,7 @@ yarn molpha data verify \
   --signer-count 1 \
   --signer-seed molpha-cli-e2e-signers
 
-yarn molpha account feed --job-id <JOB_ID_HEX>
+yarn molpha account feed --feed-id <FEED_ID_HEX>
 ```
 
 ## Notes

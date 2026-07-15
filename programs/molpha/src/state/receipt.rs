@@ -1,35 +1,18 @@
-//! Receipt-settlement wire structures (v0.2 spec).
-//!
-//! These are instruction-argument payloads (not on-chain accounts). They carry the
-//! consumer demand authorization, the committed (but unverified-on-happy-path) aggregate
-//! Schnorr signature, and the gateway's bilateral envelope.
-//!
-//! Hashing uses SHA-256 (`solana_program::hash`) to match the spec's `sha256(..)` / `H(..)`
-//! definitions. Domain separation tags bind each hash to its role.
-
 use anchor_lang::prelude::*;
 use solana_sha256_hasher::hashv as sha256_hashv;
 
-/// Domain tag for `H(RequestAuth)` — the consumer's Ed25519-signed message.
 pub const DOMAIN_REQAUTH: &[u8] = b"MOLPHA_REQAUTH_V1";
-/// Domain tag for `H(GatewayReceipt)` — the gateway's Ed25519-signed message.
 pub const DOMAIN_GWRCPT: &[u8] = b"MOLPHA_GWRCPT_V1";
+pub const DOMAIN_AGENT_REQAUTH: &[u8] = b"MOLPHA_AGENT_REQAUTH_V1";
 
 /// Consumer demand authorization (Ed25519-signed by `consumer.authority`).
-///
-/// The consumer signs only `(job_id, timestamp)`. Replay protection is enforced on-chain
-/// via `Job.last_request_timestamp` (strictly increasing per job).
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct RequestAuth {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub timestamp: u64,
 }
 
 /// The committed aggregate Schnorr signature. **Not verified on the happy path.**
-///
-/// Round context (`job_id`, `timestamp`) is passed once at the instruction level in
-/// `SettleRoundArgs`. The credited participation set is `signers_bitmap` — the gateway is
-/// bound to it via the on-chain `sha256(AggregatedSig)` mixed into `H(GatewayReceipt)`.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AggregatedSig {
     /// Schnorr scalar `s`.
@@ -50,11 +33,45 @@ pub fn hash_request_auth(request_auth: &RequestAuth) -> [u8; 32] {
     sha256_hashv(&[DOMAIN_REQAUTH, &body]).to_bytes()
 }
 
-/// `H(RequestAuth)` from the instruction-level `(job_id, timestamp)` pair.
-pub fn hash_request_auth_fields(job_id: &[u8; 32], timestamp: u64) -> [u8; 32] {
+/// `H(RequestAuth)` from the instruction-level `(feed_id, timestamp)` pair.
+pub fn hash_request_auth_fields(feed_id: &[u8; 32], timestamp: u64) -> [u8; 32] {
     hash_request_auth(&RequestAuth {
-        job_id: *job_id,
+        feed_id: *feed_id,
         timestamp,
+    })
+}
+
+/// Agent demand authorization (Ed25519-signed by the escrow `authority` / x402 payer).
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct AgentRequestAuth {
+    /// The `AgentEscrow` PDA address.
+    pub agent: Pubkey,
+    pub request_nonce: u64,
+    pub feed_id: [u8; 32],
+    /// Max price (USDC atomic units) the payer authorizes for this request.
+    pub max_price: u64,
+}
+
+/// `H(AgentRequestAuth)` — domain-separated SHA-256 over the borsh encoding.
+pub fn hash_agent_request_auth(auth: &AgentRequestAuth) -> [u8; 32] {
+    let body = auth
+        .try_to_vec()
+        .expect("AgentRequestAuth serialization is infallible");
+    sha256_hashv(&[DOMAIN_AGENT_REQAUTH, &body]).to_bytes()
+}
+
+/// `H(AgentRequestAuth)` from instruction-level fields.
+pub fn hash_agent_request_auth_fields(
+    agent: &Pubkey,
+    request_nonce: u64,
+    feed_id: &[u8; 32],
+    max_price: u64,
+) -> [u8; 32] {
+    hash_agent_request_auth(&AgentRequestAuth {
+        agent: *agent,
+        request_nonce,
+        feed_id: *feed_id,
+        max_price,
     })
 }
 
@@ -72,7 +89,7 @@ mod tests {
 
     fn fixture_request_auth() -> RequestAuth {
         RequestAuth {
-            job_id: [0x11; 32],
+            feed_id: [0x11; 32],
             timestamp: 1_700_000_000,
         }
     }
@@ -91,7 +108,7 @@ mod tests {
     fn hash_request_auth_fields_matches_struct_hash() {
         let auth = fixture_request_auth();
         assert_eq!(
-            hash_request_auth_fields(&auth.job_id, auth.timestamp),
+            hash_request_auth_fields(&auth.feed_id, auth.timestamp),
             hash_request_auth(&auth)
         );
     }
@@ -103,7 +120,7 @@ mod tests {
         a.timestamp += 1;
         assert_ne!(hash_request_auth(&a), base);
         let mut b = fixture_request_auth();
-        b.job_id[0] ^= 0x01;
+        b.feed_id[0] ^= 0x01;
         assert_ne!(hash_request_auth(&b), base);
     }
 
@@ -115,10 +132,44 @@ mod tests {
         assert_ne!(hash_agg_sig(&a), base);
     }
 
+    fn fixture_agent_request_auth() -> AgentRequestAuth {
+        AgentRequestAuth {
+            agent: Pubkey::new_from_array([0x22; 32]),
+            request_nonce: 42,
+            feed_id: [0x11; 32],
+            max_price: 1_030,
+        }
+    }
+
+    #[test]
+    fn hash_agent_request_auth_fields_matches_struct_hash() {
+        let auth = fixture_agent_request_auth();
+        assert_eq!(
+            hash_agent_request_auth_fields(
+                &auth.agent,
+                auth.request_nonce,
+                &auth.feed_id,
+                auth.max_price,
+            ),
+            hash_agent_request_auth(&auth)
+        );
+    }
+
+    #[test]
+    fn agent_request_auth_hash_is_field_sensitive() {
+        let base = hash_agent_request_auth(&fixture_agent_request_auth());
+        let mut a = fixture_agent_request_auth();
+        a.request_nonce += 1;
+        assert_ne!(hash_agent_request_auth(&a), base);
+        let mut b = fixture_agent_request_auth();
+        b.max_price += 1;
+        assert_ne!(hash_agent_request_auth(&b), base);
+    }
+
     #[test]
     fn distinct_domains_separate_hashes() {
-        // A RequestAuth and GatewayReceipt that happen to share a borsh prefix must not
-        // collide thanks to the domain tags.
+        // Domain tags must not collide — they bind hashes to their role.
         assert_ne!(DOMAIN_REQAUTH, DOMAIN_GWRCPT);
+        assert_ne!(DOMAIN_REQAUTH, DOMAIN_AGENT_REQAUTH);
     }
 }

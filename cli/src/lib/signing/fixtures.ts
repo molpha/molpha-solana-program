@@ -9,7 +9,7 @@ export type VerifyDataUpdateFixture = {
   secretKeys?: string[];
   nodePrivkeys?: string[];
   dataUpdate: {
-    jobId: string;
+    feedId: string;
     registryVersion: number;
     signaturesRequired: number;
     configHash: string;

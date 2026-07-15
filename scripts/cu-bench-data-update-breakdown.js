@@ -19,7 +19,7 @@ const toml = require("toml");
 const {
   NODE_COUNT,
   COMPUTE_UNIT_LIMIT,
-  FIXTURE_JOB_ID,
+  FIXTURE_FEED_ID,
   FIXTURE_CONFIG_HASH,
   FIXTURE_VALUE,
   FIXTURE_REGISTRY_VERSION,
@@ -130,11 +130,11 @@ async function seedBenchAccounts(
     program.programId
   );
   const [jobPda, jobBump] = PublicKey.findProgramAddressSync(
-    [JOB_SEED, FIXTURE_JOB_ID],
+    [JOB_SEED, FIXTURE_FEED_ID],
     program.programId
   );
   const [feedPda, feedBump] = PublicKey.findProgramAddressSync(
-    [FEED_SEED, FIXTURE_JOB_ID],
+    [FEED_SEED, FIXTURE_FEED_ID],
     program.programId
   );
 
@@ -182,7 +182,7 @@ async function seedBenchAccounts(
   });
 
   await setProgramAccount(context, program, jobPda, "job", {
-    jobId: Array.from(FIXTURE_JOB_ID),
+    feedId: Array.from(FIXTURE_FEED_ID),
     owner: payer.publicKey,
     apiConfigHash: Array.from(FIXTURE_CONFIG_HASH),
     decimals: 8,
@@ -193,7 +193,7 @@ async function seedBenchAccounts(
   });
 
   await setProgramAccount(context, program, feedPda, "feed", {
-    jobId: Array.from(FIXTURE_JOB_ID),
+    feedId: Array.from(FIXTURE_FEED_ID),
     registryVersion: 0,
     canonicalTimestamp: new anchor.BN(0),
     value: Array.from(Buffer.alloc(32)),
@@ -262,7 +262,7 @@ async function main() {
   const rows = [];
   for (const sigReq of SWEEP) {
     const bm = deriveSignersBitmapForJob(
-      FIXTURE_JOB_ID,
+      FIXTURE_FEED_ID,
       FIXTURE_REGISTRY_VERSION,
       NODE_COUNT,
       sigReq,

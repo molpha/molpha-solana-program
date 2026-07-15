@@ -106,6 +106,9 @@ async function initializeProtocol(ctx: TestContext): Promise<{
       protocolFeeBps: 100,
       maxReceiptDelaySlots: new BN(256),
       usdcMint: ctx.underlyingTokenMint,
+      agentRoundBase: new BN(1_000),
+      agentRoundPerSig: new BN(15),
+      agentEpochLenSecs: new BN(86_400),
     })
     .accountsPartial({
       protocolConfig: protocolConfigPda,
@@ -124,8 +127,8 @@ async function initializeProtocol(ctx: TestContext): Promise<{
       planType: { standard: {} },
       subscriptionPrice: new BN(2_000_000),
       maxJobs: 3,
-      signaturesRequired: 1,
       maxSigners: 2,
+      maxDelegates: 2,
       privateApiEnabled: false,
       isActive: true,
     })

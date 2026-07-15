@@ -28,7 +28,7 @@ const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
 const DELEGATE_SEED = Buffer.from("molpha_delegate");
 
-const JOB_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
+const FEED_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
 const SECONDS_PER_MONTH = 30 * 24 * 60 * 60;
 
 function hexToBytes(hex: string): Uint8Array {
@@ -36,14 +36,14 @@ function hexToBytes(hex: string): Uint8Array {
   return Uint8Array.from(Buffer.from(clean, "hex"));
 }
 
-function deriveJobId(
+function deriveFeedId(
   owner: PublicKey,
   apiConfigHash: Uint8Array,
   signaturesRequired: number
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
-      JOB_ID_PREFIX,
+      FEED_ID_PREFIX,
       owner.toBuffer(),
       Buffer.from(apiConfigHash),
       Buffer.from([signaturesRequired]),
@@ -116,6 +116,9 @@ describe("Molpha instruction coverage integration", () => {
         protocolFeeBps: 100,
         maxReceiptDelaySlots: new BN(256),
         usdcMint: ctx.underlyingTokenMint,
+        agentRoundBase: new BN(1_000),
+        agentRoundPerSig: new BN(15),
+        agentEpochLenSecs: new BN(86_400),
       })
       .accountsPartial({
         protocolConfig: protocolConfigPda,
@@ -143,8 +146,8 @@ describe("Molpha instruction coverage integration", () => {
         planType: { standard: {} },
         subscriptionPrice: new BN(2_000_000),
         maxJobs: 3,
-        signaturesRequired: 1,
         maxSigners: 2,
+        maxDelegates: 2,
         privateApiEnabled: false,
         isActive: true,
       })
@@ -162,6 +165,7 @@ describe("Molpha instruction coverage integration", () => {
         subscriptionPrice: new BN(3_000_000),
         maxJobs: 4,
         maxSigners: 3,
+        maxDelegates: 3,
         privateApiEnabled: true,
         isActive: true,
       })
@@ -175,6 +179,7 @@ describe("Molpha instruction coverage integration", () => {
     const plan = await program.account.plan.fetch(planPda);
     assert.equal(plan.maxJobs, 4);
     assert.equal(plan.subscriptionPrice.toString(), "3000000");
+    assert.equal(plan.maxDelegates, 3);
 
     // 3) subscribe + extend_subscription
     await program.methods
@@ -215,9 +220,9 @@ describe("Molpha instruction coverage integration", () => {
     assert.isAbove(Number(subscription.validUntil), now + SECONDS_PER_MONTH);
 
     const apiConfigHash = Uint8Array.from(Buffer.alloc(32, 7));
-    const jobId = deriveJobId(ctx.authority.publicKey, apiConfigHash, 1);
+    const feedId = deriveFeedId(ctx.authority.publicKey, apiConfigHash, 1);
     const [feedPda] = PublicKey.findProgramAddressSync(
-      [FEED_SEED, Buffer.from(jobId)],
+      [FEED_SEED, Buffer.from(feedId)],
       program.programId
     );
 
@@ -233,9 +238,12 @@ describe("Molpha instruction coverage integration", () => {
         delegate,
         maxJobsCreated: 2,
         maxDataRequests: new BN(10),
+        maxSigners: 2,
       })
       .accountsPartial({
         owner: ctx.authority.publicKey,
+        subscription: subscriptionPda,
+        plan: planPda,
         delegateAccount: delegatePda,
         systemProgram: SystemProgram.programId,
       })
@@ -245,6 +253,13 @@ describe("Molpha instruction coverage integration", () => {
     assert.equal(delegateAccount.jobsCreated, 0);
     assert.equal(delegateAccount.maxJobsCreated, 2);
     assert.equal(delegateAccount.maxDataRequests.toString(), "10");
+    assert.equal(delegateAccount.maxSigners, 2);
+    assert.deepEqual(delegateAccount.status, { active: {} });
+
+    let subscriptionAfterDelegate = await program.account.subscription.fetch(
+      subscriptionPda
+    );
+    assert.equal(subscriptionAfterDelegate.delegateCount, 1);
 
     await program.methods
       .removeDelegate({
@@ -252,9 +267,15 @@ describe("Molpha instruction coverage integration", () => {
       })
       .accountsPartial({
         owner: ctx.authority.publicKey,
+        subscription: subscriptionPda,
         delegateAccount: delegatePda,
       })
       .rpc();
+
+    subscriptionAfterDelegate = await program.account.subscription.fetch(
+      subscriptionPda
+    );
+    assert.equal(subscriptionAfterDelegate.delegateCount, 0);
 
     try {
       await program.account.delegate.fetch(delegatePda);
@@ -264,9 +285,9 @@ describe("Molpha instruction coverage integration", () => {
     }
 
     // 6) submit_data_update + verify_data_update (failure-path coverage)
-    const badJobId = Uint8Array.from(Buffer.alloc(32, 4));
+    const badFeedId = Uint8Array.from(Buffer.alloc(32, 4));
     const dataUpdateArgs = {
-      jobId: Array.from(jobId),
+      feedId: Array.from(feedId),
       registryVersion: 0,
       signaturesRequired: 1,
       signersBitmap: Array.from(Buffer.alloc(32, 0)),
@@ -278,7 +299,7 @@ describe("Molpha instruction coverage integration", () => {
     };
     const badDataUpdateArgs = {
       ...dataUpdateArgs,
-      jobId: Array.from(badJobId),
+      feedId: Array.from(badFeedId),
     };
 
     try {
@@ -305,6 +326,7 @@ describe("Molpha instruction coverage integration", () => {
         subscriptionPrice: new BN(3_000_000),
         maxJobs: 4,
         maxSigners: 8,
+        maxDelegates: 3,
         privateApiEnabled: true,
         isActive: true,
       })

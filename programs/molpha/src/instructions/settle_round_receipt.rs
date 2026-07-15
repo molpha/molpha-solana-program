@@ -1,21 +1,8 @@
-//! `settle_round_receipt` — optimistic happy path (no Schnorr verify).
-//!
-//! Verifies two cheap Ed25519 signatures (consumer + gateway), stores the committed
-//! `AggregatedSig` *without verifying it*, and stores the committed data-update message hash
-//! that dispute-time Schnorr verification must use. Credits are applied to the participation set
-//! embedded in that signature (`agg_sig.signers_bitmap`). Schnorr verification runs only on
-//! `dispute_round`.
-//!
-//! The v0.2 spec batches several rounds (`Vec<SettleEntry>`) into one transaction. Because the
-//! per-round cost is flat (§8), this is implemented as a single-round instruction; clients pack
-//! multiple of these into one transaction up to the 1232-byte limit for identical effect, with
-//! far simpler and safer account handling.
-
 use crate::{
     error::MolphaError,
     events::RoundSettled,
     state::{
-        hash_agg_sig, hash_request_auth_fields, AggregatedSig, Delegate, Gateway, Node, Plan,
+        hash_agg_sig, hash_request_auth_fields, AggregatedSig, Delegate, Gateway, Node,
         ProtocolConfig, RegistryState, RoundReceiptRecord, Subscription,
     },
     utils::{
@@ -27,7 +14,7 @@ use anchor_lang::prelude::*;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleRoundArgs {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub timestamp: u64,
     pub signatures_required: u8,
     pub registry_version: u32,
@@ -51,7 +38,7 @@ pub fn settle_round_receipt<'info>(
     args: SettleRoundArgs,
 ) -> Result<()> {
     let SettleRoundArgs {
-        job_id,
+        feed_id,
         timestamp,
         signatures_required,
         agg_sig,
@@ -79,14 +66,15 @@ pub fn settle_round_receipt<'info>(
         MolphaError::InvalidRegistryVersion
     );
 
-    // 3. Consumer authorization.
+    // 3. Consumer authorization (owner-direct or delegate/agent).
     authorize_consumer(
         subscription,
         &mut ctx.accounts.consumer_delegate,
         *consumer_authority,
+        *signatures_required,
     )?;
 
-    let request_auth_hash = hash_request_auth_fields(job_id, *timestamp);
+    let request_auth_hash = hash_request_auth_fields(feed_id, *timestamp);
     require!(
         verify_ed25519_signature(
             &ctx.accounts.instructions_sysvar,
@@ -107,7 +95,7 @@ pub fn settle_round_receipt<'info>(
     let agg_sig_hash = hash_agg_sig(agg_sig);
     let data_update_message_hash = molpha_verifier::compute_message_hash(
         &molpha_verifier::DataUpdate {
-            job_id: *job_id,
+            feed_id: *feed_id,
             signatures_required: *signatures_required,
             registry_version: *registry_version,
             signers_bitmap: agg_sig.signers_bitmap,
@@ -163,7 +151,7 @@ pub fn settle_round_receipt<'info>(
 
     // 9 (dedup) is enforced by `init` on the record PDA.
     let record = &mut ctx.accounts.round_record;
-    record.job_id = *job_id;
+    record.feed_id = *feed_id;
     record.timestamp = *timestamp;
     record.signatures_required = *signatures_required;
     record.signers_bitmap = agg_sig.signers_bitmap;
@@ -174,13 +162,12 @@ pub fn settle_round_receipt<'info>(
     record.reward_per_signature = reward_per_signature;
     record.gateway_fee = gateway_fee;
     record.recorded_slot = now_slot;
-    record.finalized = false;
-    record.voided = false;
+    record.price = 0;
     record.bump = ctx.bumps.round_record;
 
     emit!(RoundSettled {
         gateway: gateway.key(),
-        job_id: *job_id,
+        feed_id: *feed_id,
         timestamp: *timestamp,
         signers_bitmap: agg_sig.signers_bitmap,
         credited_count,
@@ -196,9 +183,14 @@ fn authorize_consumer(
     subscription: &Account<'_, Subscription>,
     delegate: &mut Option<Account<'_, Delegate>>,
     consumer_authority: Pubkey,
+    signatures_required: u8,
 ) -> Result<()> {
     if consumer_authority == subscription.owner {
         require!(delegate.is_none(), MolphaError::UnexpectedDelegateAccount);
+        require!(
+            signatures_required <= subscription.max_signers,
+            MolphaError::SignaturesExceedSubscriptionMax
+        );
         return Ok(());
     }
 
@@ -216,19 +208,24 @@ fn authorize_consumer(
         consumer_authority,
         MolphaError::UnauthorisedConsumer
     );
+    require!(delegate.is_active(), MolphaError::DelegateNotActive);
+    require!(
+        signatures_required <= delegate.max_signers,
+        MolphaError::SignaturesExceedDelegateMax
+    );
     delegate.try_consume_data_request()?;
 
     Ok(())
 }
 
 #[derive(Accounts)]
-#[instruction(args: SettleRoundArgs, job_init: Option<SettleJobInitArgs>)]
+#[instruction(args: SettleRoundArgs)]
 pub struct SettleRoundReceipt<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
     // /// CHECK: SAFETY: required only when `job` is initialized by this settlement.
-    // /// The handler validates this pubkey against the subscription PDA and derived job id.
+    // /// The handler validates this pubkey against the subscription PDA and derived feed id.
     // pub subscription_owner: Option<UncheckedAccount<'info>>,
     #[account(
         seeds = [ProtocolConfig::SEED_PREFIX],
@@ -241,9 +238,6 @@ pub struct SettleRoundReceipt<'info> {
         bump = registry_state.bump,
     )]
     pub registry_state: Account<'info, RegistryState>,
-
-    /// Plan validation is performed only when a new job is initialized.
-    pub plan: Option<Account<'info, Plan>>,
 
     #[account(mut)]
     pub subscription: Account<'info, Subscription>,
@@ -265,7 +259,7 @@ pub struct SettleRoundReceipt<'info> {
         space = RoundReceiptRecord::SPACE,
         seeds = [
             RoundReceiptRecord::SEED_PREFIX,
-            args.job_id.as_ref(),
+            args.feed_id.as_ref(),
             args.timestamp.to_le_bytes().as_ref(),
         ],
         bump

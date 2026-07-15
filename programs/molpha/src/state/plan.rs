@@ -19,6 +19,8 @@ pub struct Plan {
     pub subscription_price: u64,
     pub max_jobs: u32,
     pub max_signers: u8,
+    /// Max delegates/agents an owner on this plan may provision.
+    pub max_delegates: u32,
     pub private_api_enabled: bool,
     pub is_active: bool,
     pub bump: u8,
@@ -29,6 +31,7 @@ pub struct PlanInitParams {
     pub subscription_price: u64,
     pub max_jobs: u32,
     pub max_signers: u8,
+    pub max_delegates: u32,
     pub private_api_enabled: bool,
     pub is_active: bool,
     pub bump: u8,
@@ -43,17 +46,20 @@ impl Plan {
         self.subscription_price = params.subscription_price;
         self.max_jobs = params.max_jobs;
         self.max_signers = params.max_signers;
+        self.max_delegates = params.max_delegates;
         self.private_api_enabled = params.private_api_enabled;
         self.is_active = params.is_active;
         self.bump = params.bump;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
         plan_type: PlanType,
         subscription_price: u64,
         max_jobs: u32,
         max_signers: u8,
+        max_delegates: u32,
         private_api_enabled: bool,
         is_active: bool,
     ) {
@@ -61,6 +67,7 @@ impl Plan {
         self.subscription_price = subscription_price;
         self.max_jobs = max_jobs;
         self.max_signers = max_signers;
+        self.max_delegates = max_delegates;
         self.private_api_enabled = private_api_enabled;
         self.is_active = is_active;
     }

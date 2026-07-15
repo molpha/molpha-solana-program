@@ -10,7 +10,7 @@ Molpha on Solana provides:
 - **Plans & subscriptions** — USDC-paid plans that cap jobs and define signing thresholds
 - **Jobs & feeds** — Each job owns a feed PDA; updates carry a 32-byte value, coalition bitmap, and aggregate Schnorr signature
 - **Data updates** — `submit_data_update` writes feed state; `verify_data_update` runs the same checks without writing (72-byte return data for CPI consumers)
-- **Delegates** — Job owners can authorize up to five delegates to submit on their behalf
+- **Delegates** — Subscription owners can authorize delegates (including owner-provisioned agents), capped by their plan's `max_delegates`
 - **Protocol governance** — Admin config for fees, registry cooldowns, gateway allowlists, and treasury
 
 For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP.md`](WP.md) and the operator-focused [**Node Operator Guide**](NODE_OPERATOR_GUIDE.md).
@@ -143,13 +143,13 @@ Use `ComputeBudgetProgram.setComputeUnitLimit` ≥ **550_000** for large coaliti
 ### Example: read feed via CLI
 
 ```bash
-yarn molpha account feed --job-id <64_hex_feed_id>
+yarn molpha account feed --feed-id <64_hex_feed_id>
 ```
 
 Off-chain signing and submission:
 
 ```bash
-yarn molpha data sign --job-id <hex> --registry-version 1 --value <hex> ...
+yarn molpha data sign --feed-id <hex> --registry-version 1 --value <hex> ...
 yarn molpha data submit ...
 ```
 
