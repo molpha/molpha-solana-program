@@ -18,32 +18,36 @@ pub struct Subscription {
     pub bump: u8,
 }
 
+pub struct SubscriptionInitArgs {
+    pub owner: Pubkey,
+    pub plan_type: PlanType,
+    pub monthly_price: u64,
+    pub max_delegates: u32,
+    pub max_signers: u8,
+    pub now: i64,
+    pub bump: u8,
+}
+
 impl Subscription {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_subscription";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
     pub const SECONDS_PER_MONTH: i64 = 30 * 24 * 60 * 60;
 
-    pub fn init(
-        &mut self,
-        owner: Pubkey,
-        plan_type: PlanType,
-        monthly_price: u64,
-        max_delegates: u32,
-        max_signers: u8,
-        now: i64,
-        bump: u8,
-    ) {
-        self.owner = owner;
-        self.plan_type = plan_type;
-        self.prepaid_usdc = monthly_price;
-        self.price = monthly_price;
-        self.valid_until = now.checked_add(Self::SECONDS_PER_MONTH).unwrap_or(i64::MAX);
+    pub fn init(&mut self, args: SubscriptionInitArgs) {
+        self.owner = args.owner;
+        self.plan_type = args.plan_type;
+        self.prepaid_usdc = args.monthly_price;
+        self.price = args.monthly_price;
+        self.valid_until = args
+            .now
+            .checked_add(Self::SECONDS_PER_MONTH)
+            .unwrap_or(i64::MAX);
         self.used_rounds = 0;
         self.max_rounds = u64::MAX;
         self.delegate_count = 0;
-        self.max_delegates = max_delegates;
-        self.max_signers = max_signers;
-        self.bump = bump;
+        self.max_delegates = args.max_delegates;
+        self.max_signers = args.max_signers;
+        self.bump = args.bump;
     }
 
     pub fn is_active(&self) -> bool {
