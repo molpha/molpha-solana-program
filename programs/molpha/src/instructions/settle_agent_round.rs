@@ -2,10 +2,13 @@ use crate::{
     error::MolphaError,
     events::{AgentEscrowCreated, AgentRoundSettled},
     state::{
-        hash_agg_sig, AgentEscrow, AgentStatus, AggregatedSig, Gateway, Node, ProtocolConfig,
-        RegistryState, RoundReceiptRecord,
+        hash_agent_request_auth_fields, hash_agg_sig, AgentEscrow, AgentStatus, AggregatedSig,
+        Gateway, Node, ProtocolConfig, RegistryState, RoundReceiptRecord,
     },
-    utils::bitmap::{bitmap_load, for_each_set_bit_u256},
+    utils::{
+        bitmap::{bitmap_load, for_each_set_bit_u256},
+        ed25519::verify_ed25519_signature,
+    },
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
@@ -72,6 +75,27 @@ pub fn settle_agent_round<'info>(
         escrow.status == AgentStatus::Active,
         MolphaError::AgentNotActive
     );
+    require_keys_eq!(
+        escrow.authority,
+        args.authority,
+        MolphaError::UnauthorisedAgentOwner
+    );
+
+    // Payer must have signed AgentRequestAuth over (agent, nonce, feed_id, max_price).
+    let auth_hash = hash_agent_request_auth_fields(
+        &escrow.key(),
+        args.request_nonce,
+        &args.feed_id,
+        args.max_price,
+    );
+    require!(
+        verify_ed25519_signature(
+            &ctx.accounts.instructions_sysvar,
+            &escrow.authority.to_bytes(),
+            &auth_hash,
+        )?,
+        MolphaError::AgentSigInvalid
+    );
 
     let price = compute_agent_price(config, args.signatures_required)?;
     require!(price <= args.max_price, MolphaError::MaxPriceExceeded);
@@ -97,11 +121,14 @@ pub fn settle_agent_round<'info>(
         .checked_add(price)
         .ok_or(MolphaError::EpochCapExceeded)?;
 
-    // 10. Funding — move `price` from the escrow's ATA into the treasury; the escrow PDA signs
-    //     with `["molpha_agent", owner, authority, bump]`.
+    // x402 `exact`: escrow ATA must hold exactly `price` for this round.
     require!(
         ctx.accounts.escrow_ata.amount >= price,
         MolphaError::InsufficientAgentCredits
+    );
+    require!(
+        ctx.accounts.escrow_ata.amount == price,
+        MolphaError::AgentEscrowPaymentNotExact
     );
     let (authority_key, escrow_bump) = { (escrow.authority, escrow.bump) };
     let bump = [escrow_bump];
@@ -119,7 +146,7 @@ pub fn settle_agent_round<'info>(
         price,
     )?;
 
-    // 11. Credit + commitment hashes.
+    // Credit + commitment hashes.
     let reward_per_signature = config.reward_per_signature;
 
     let mut cursor = 0usize;
@@ -169,8 +196,8 @@ pub fn settle_agent_round<'info>(
         args.signatures_required,
     );
 
-    // 12. Record. The price surplus over node + gateway credits is protocol revenue,
-    //     implicit in the treasury (identical to subscription revenue).
+    // Record. The price surplus over node + gateway credits is protocol revenue,
+    // implicit in the treasury (identical to subscription revenue).
     let record = &mut ctx.accounts.round_record;
     record.feed_id = args.feed_id;
     record.timestamp = args.timestamp;
@@ -186,7 +213,6 @@ pub fn settle_agent_round<'info>(
     record.price = price;
     record.bump = ctx.bumps.round_record;
 
-    // 13. Event.
     emit!(AgentRoundSettled {
         agent: escrow.key(),
         request_nonce: args.request_nonce,
@@ -274,6 +300,12 @@ pub struct SettleAgentRound<'info> {
         bump
     )]
     pub round_record: Box<Account<'info, RoundReceiptRecord>>,
+
+    /// CHECK: validated by address; read via Ed25519 instruction introspection.
+    #[account(
+        address = anchor_lang::solana_program::sysvar::instructions::ID @ MolphaError::InvalidInstructionsSysvar
+    )]
+    pub instructions_sysvar: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }

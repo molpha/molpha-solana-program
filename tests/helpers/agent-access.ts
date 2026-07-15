@@ -9,7 +9,13 @@
  */
 import * as anchor from "@coral-xyz/anchor";
 import { BN, Idl, Program } from "@coral-xyz/anchor";
-import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
+  Ed25519Program,
+} from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
@@ -34,6 +40,10 @@ export const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 export const GATEWAY_SEED = Buffer.from("molpha_gateway");
 export const AGENT_ESCROW_SEED = Buffer.from("molpha_agent");
 export const AGENT_ROUND_SEED = Buffer.from("molpha_agent_round");
+export const DOMAIN_AGENT_REQAUTH = Buffer.from(
+  "MOLPHA_AGENT_REQAUTH_V1",
+  "utf8"
+);
 
 // Mirrors the `initialize` args used across the integration suite.
 export const INIT = {
@@ -64,6 +74,22 @@ export function sha256(parts: Buffer[]): Buffer {
   const h = crypto.createHash("sha256");
   for (const part of parts) h.update(part);
   return h.digest();
+}
+
+/** `H(AgentRequestAuth)` — mirrors `hash_agent_request_auth_fields` in Rust. */
+export function hashAgentRequestAuthFields(
+  agent: PublicKey,
+  requestNonce: number | bigint,
+  feedId: Uint8Array | Buffer,
+  maxPrice: number | bigint
+): Buffer {
+  const body = Buffer.concat([
+    agent.toBuffer(),
+    u64le(requestNonce),
+    Buffer.from(feedId),
+    u64le(maxPrice),
+  ]);
+  return sha256([DOMAIN_AGENT_REQAUTH, body]);
 }
 
 /** Escrow PDA — seeds ["molpha_agent", authority]. */
@@ -346,8 +372,8 @@ export function zeroedAggSig(signersBitmap?: Uint8Array) {
 export interface SettleAgentRoundParams {
   proto: AgentProtocolContext;
   gateway: BondedGateway;
-  /** x402 payer identity — seeds the escrow PDA as `authority`. */
-  payer: PublicKey;
+  /** x402 payer keypair — seeds the escrow PDA as `authority` and signs AgentRequestAuth. */
+  payer: Keypair;
   requestNonce: number;
   maxPrice: number;
   feedId: Uint8Array;
@@ -358,6 +384,8 @@ export interface SettleAgentRoundParams {
   value?: Uint8Array;
   /** Node PDAs for the credited bitmap, ascending bit order. */
   creditedNodePdas?: PublicKey[];
+  /** When false, omit the Ed25519 AgentRequestAuth pre-instruction (negative tests). */
+  signAgentRequest?: boolean;
 }
 
 export async function settleAgentRound(
@@ -365,7 +393,7 @@ export async function settleAgentRound(
 ): Promise<void> {
   const programId = params.proto.program.programId;
 
-  const authority = params.payer;
+  const authority = params.payer.publicKey;
 
   const escrowPda = findAgentEscrowPda(programId, authority);
   const escrowAta = findEscrowAta(params.proto.usdcMint, escrowPda);
@@ -375,6 +403,22 @@ export async function settleAgentRound(
     escrowPda,
     params.requestNonce
   );
+
+  const preInstructions = [];
+  if (params.signAgentRequest !== false) {
+    const authHash = hashAgentRequestAuthFields(
+      escrowPda,
+      params.requestNonce,
+      params.feedId,
+      params.maxPrice
+    );
+    preInstructions.push(
+      Ed25519Program.createInstructionWithPrivateKey({
+        privateKey: params.payer.secretKey,
+        message: authHash,
+      })
+    );
+  }
 
   await params.proto.program.methods
     .settleAgentRound({
@@ -399,6 +443,7 @@ export async function settleAgentRound(
       treasury: params.proto.treasury,
       tokenProgram: TOKEN_PROGRAM_ID,
       roundRecord: roundRecordPda,
+      instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
       systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(
@@ -408,6 +453,7 @@ export async function settleAgentRound(
         isSigner: false,
       }))
     )
+    .preInstructions(preInstructions)
     .signers([params.gateway.gatewayAuthority])
     .rpc();
 }

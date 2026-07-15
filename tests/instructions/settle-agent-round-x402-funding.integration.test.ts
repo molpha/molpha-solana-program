@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Keypair } from "@solana/web3.js";
 import { setupTestContext, TestContext } from "../setup";
 import {
   generateE2eSignerMaterial,
@@ -31,12 +31,10 @@ const FEED_ID = Uint8Array.from(Buffer.alloc(32, 0x24));
 
 /**
  * x402 / self-funded pay-per-request: the client pays plain `exact` USDC to the
- * deterministic escrow ATA `ATA(PDA(["molpha_agent", payer]), USDC)`. There is no
- * pre-existing escrow data account and no request signature — the on-chain payment is the
- * authorization, and `settle_agent_round` lazily creates the escrow. Settlement moves
- * `price` from that ATA into the treasury (the escrow PDA signs) and credits nodes +
- * gateway exactly like the subscription path. This is the ONLY use of `settle_agent_round`;
- * owner-provisioned agents are `Delegate`s settled via `settle_round_receipt`.
+ * deterministic escrow ATA `ATA(PDA(["molpha_agent", payer]), USDC)` and signs
+ * `AgentRequestAuth` (agent, request_nonce, feed_id, max_price). Settlement
+ * verifies the signature via Ed25519 introspection, requires the ATA balance
+ * to equal the computed price, then moves that amount into the treasury.
  */
 describe("settle_agent_round (x402 / self-funded rail)", () => {
   let ctx: TestContext;
@@ -70,10 +68,20 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
     gateway = await registerBondedGateway(ctx, proto);
   }, 180_000);
 
-  // The x402 payer is just an identity; no on-chain account is required for it.
-  const payer = Keypair.generate().publicKey;
-  const escrowPda = () => findAgentEscrowPda(proto.program.programId, payer);
+  const payer = Keypair.generate();
+  const escrowPda = () =>
+    findAgentEscrowPda(proto.program.programId, payer.publicKey);
   const escrowAta = () => findEscrowAta(proto.usdcMint, escrowPda());
+
+  const fundExact = (sigs = SIGS_REQUIRED) => {
+    fundAtaInBankrun(
+      ctx,
+      escrowAta(),
+      proto.usdcMint,
+      escrowPda(),
+      freshRoundPrice(sigs)
+    );
+  };
 
   const baseParams = (over: Record<string, any> = {}) => ({
     proto,
@@ -92,8 +100,7 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
 
   it("settles an x402-funded FreshRound: moves price ATA -> treasury, credits nodes + gateway", async () => {
     const price = freshRoundPrice(SIGS_REQUIRED);
-    // Simulate the client's x402 `exact` payment landing in the escrow ATA.
-    fundAtaInBankrun(ctx, escrowAta(), proto.usdcMint, escrowPda(), 1_000_000);
+    fundExact();
 
     // The escrow data account does not exist yet — settle lazily creates it.
     assert.isNull(
@@ -113,6 +120,7 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
     const treasuryAfter = await readTokenAmount(ctx, proto.treasury);
     assert.equal(ataBefore - ataAfter, BigInt(price));
     assert.equal(treasuryAfter - treasuryBefore, BigInt(price));
+    assert.equal(ataAfter, 0n);
 
     const gwAfter = await proto.program.account.gateway.fetch(
       gateway.gatewayPda
@@ -122,9 +130,8 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
       INIT.gatewayFee
     );
 
-    // Settle lazily created the x402 escrow keyed by the payer identity.
     const escrow = await proto.program.account.agentEscrow.fetch(escrowPda());
-    assert.equal(escrow.authority.toBase58(), payer.toBase58());
+    assert.equal(escrow.authority.toBase58(), payer.publicKey.toBase58());
     assert.deepEqual(escrow.status, { active: {} });
     assert.equal(escrow.spentTotal.toNumber(), price);
 
@@ -139,8 +146,10 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
   });
 
   it("blocks replay of the same (payer, request_nonce) via the record PDA", async () => {
+    fundExact();
     const params = baseParams();
     await settleAgentRound(params);
+    fundExact();
     try {
       await settleAgentRound({ ...params, timestamp: params.timestamp + 1 });
       assert.fail("expected duplicate record PDA failure");
@@ -150,10 +159,12 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
   });
 
   it("rejects settlement when the escrow ATA is underfunded", async () => {
-    const poorPayer = Keypair.generate().publicKey;
-    const poorEscrow = findAgentEscrowPda(proto.program.programId, poorPayer);
+    const poorPayer = Keypair.generate();
+    const poorEscrow = findAgentEscrowPda(
+      proto.program.programId,
+      poorPayer.publicKey
+    );
     const poorAta = findEscrowAta(proto.usdcMint, poorEscrow);
-    // Fund below the FreshRound price.
     fundAtaInBankrun(ctx, poorAta, proto.usdcMint, poorEscrow, 500);
     try {
       await settleAgentRound(
@@ -165,7 +176,34 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
     }
   });
 
+  it("rejects over-funded escrow ATA (exact payment required)", async () => {
+    fundAtaInBankrun(
+      ctx,
+      escrowAta(),
+      proto.usdcMint,
+      escrowPda(),
+      freshRoundPrice(SIGS_REQUIRED) + 1
+    );
+    try {
+      await settleAgentRound(baseParams());
+      assert.fail("expected AgentEscrowPaymentNotExact");
+    } catch (e: any) {
+      assert.include(e.toString(), "AgentEscrowPaymentNotExact");
+    }
+  });
+
+  it("rejects settlement without a payer AgentRequestAuth signature", async () => {
+    fundExact();
+    try {
+      await settleAgentRound(baseParams({ signAgentRequest: false }));
+      assert.fail("expected AgentSigInvalid");
+    } catch (e: any) {
+      assert.include(e.toString(), "AgentSigInvalid");
+    }
+  });
+
   it("rejects when the computed price exceeds the payer's max_price", async () => {
+    fundExact();
     try {
       await settleAgentRound(
         baseParams({ maxPrice: freshRoundPrice(SIGS_REQUIRED) - 1 })
@@ -177,7 +215,7 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
   });
 
   it("enforces quorum shape: threshold, inflation bound, node account list", async () => {
-    // Below threshold.
+    fundExact();
     try {
       await settleAgentRound(
         baseParams({
@@ -192,7 +230,7 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
       assert.include(e.toString(), "QuorumBelowThreshold");
     }
 
-    // Above signatures_required + redundancy_buffer.
+    fundExact(1);
     try {
       await settleAgentRound(
         baseParams({
@@ -210,7 +248,7 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
       assert.include(e.toString(), "CreditedExceedsSelection");
     }
 
-    // Wrong remaining-accounts count.
+    fundExact();
     try {
       await settleAgentRound(
         baseParams({
@@ -224,7 +262,7 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
       assert.include(e.toString(), "InvalidCreditNodeAccount");
     }
 
-    // Wrong node order (index mismatch with bit position).
+    fundExact();
     try {
       await settleAgentRound(
         baseParams({
@@ -241,6 +279,7 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
   });
 
   it("rejects a stale registry version", async () => {
+    fundExact();
     try {
       await settleAgentRound(
         baseParams({ registryVersion: registryVersion + 1 })

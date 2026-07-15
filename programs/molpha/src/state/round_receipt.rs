@@ -30,18 +30,8 @@ pub struct RoundReceiptRecord {
     pub reward_per_signature: u64,
     pub gateway_fee: u64,
     pub recorded_slot: u64,
-    // /// Credits moved from `pending_rewards` to `claimable_rewards`.
-    // pub finalized: bool,
-    // /// Successfully disputed — credits are voided and never finalize.
-    // pub voided: bool,
-    // /// `RECORD_KIND_*` discriminant.
-    // pub kind: u8,
-    /// Agent escrow PDA (owner-provisioned) or self-funded payer identity (`PDA(["molpha_agent",
-    /// payer])`). `Pubkey::default()` for subscription rounds.
-    // pub agent: Pubkey,
-    /// Agent replay nonce; 0 for subscription rounds.
-    // pub request_nonce: u64,
-    /// On-chain computed round price charged at settlement; 0 for subscription rounds.
+    pub finalized: bool,
+    pub voided: bool,
     pub price: u64,
     pub bump: u8,
 }

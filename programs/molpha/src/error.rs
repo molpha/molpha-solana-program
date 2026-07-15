@@ -184,6 +184,10 @@ pub enum MolphaError {
     EpochCapExceeded,
     #[msg("escrow ATA balance below computed price")]
     InsufficientAgentCredits,
+    #[msg("escrow ATA balance must exactly equal computed price")]
+    AgentEscrowPaymentNotExact,
+    #[msg("agent request authorization signature is invalid or missing")]
+    AgentSigInvalid,
     #[msg("signer is not the agent escrow owner")]
     UnauthorisedAgentOwner,
     #[msg("signer is not the gateway authority")]

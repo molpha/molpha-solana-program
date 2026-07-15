@@ -27,6 +27,7 @@ import {
   findAgentRoundPda,
   findNodePda,
   freshRoundPrice,
+  fundAtaInBankrun,
   INIT,
   initializeProtocolForAgents,
   registerBondedGateway,
@@ -87,8 +88,18 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     registryVersion = registry.currentVersion;
     gateway = await registerBondedGateway(ctx, proto);
     victimGateway = await registerBondedGateway(ctx, proto);
-    escrow = createX402FundedEscrow(ctx, proto, { fundAmount: 500_000 });
+    escrow = createX402FundedEscrow(ctx, proto, { fundAmount: 0 });
   }, 180_000);
+
+  function fundEscrowExact() {
+    fundAtaInBankrun(
+      ctx,
+      escrow.escrowAta,
+      proto.usdcMint,
+      escrow.escrowPda,
+      freshRoundPrice(SIGS_REQUIRED)
+    );
+  }
 
   async function disputeRound(params: {
     roundRecord: PublicKey;
@@ -127,10 +138,11 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
   it("finalizes an agent FreshRound after the dispute window", async () => {
     const n = ++nonce;
     const t = ++ts;
+    fundEscrowExact();
     await settleAgentRound({
       proto,
       gateway,
-      payer: escrow.payer.publicKey,
+      payer: escrow.payer,
       requestNonce: n,
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
       feedId: FEED_ID,
@@ -219,13 +231,11 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       INIT.gatewayFee
     );
 
-    // round record is closed by the finalize round instruction
-    try {
-      await proto.program.account.roundReceiptRecord.fetch(recordPda);
-      assert.fail("expected RoundReceiptRecordNotFound");
-    } catch (e: any) {
-      assert.include(e.toString(), "Could not find " + recordPda.toBase58());
-    }
+    const record = await proto.program.account.roundReceiptRecord.fetch(
+      recordPda
+    );
+    assert.isTrue(record.finalized);
+    assert.isFalse(record.voided);
   });
 
   it("voids a fabricated agent round on dispute and slashes the gateway bond", async () => {
@@ -244,10 +254,11 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     const bits = bitsOf(selection);
     const fabricatedSig = zeroedAggSig(selection);
 
+    fundEscrowExact();
     await settleAgentRound({
       proto,
       gateway: victimGateway,
-      payer: escrow.payer.publicKey,
+      payer: escrow.payer,
       requestNonce: n,
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
       feedId: FEED_ID,
@@ -280,13 +291,11 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       nodeBits: bits,
     });
 
-    // round record is closed by the dispute round instruction
-    try {
-      await proto.program.account.roundReceiptRecord.fetch(recordPda);
-      assert.fail("expected RoundReceiptRecordNotFound");
-    } catch (e: any) {
-      assert.include(e.toString(), "Could not find " + recordPda.toBase58());
-    }
+    // round record is voided by the dispute round instruction
+    const voided = await proto.program.account.roundReceiptRecord.fetch(
+      recordPda
+    );
+    assert.isTrue(voided.voided);
 
     const gw = await proto.program.account.gateway.fetch(
       victimGateway.gatewayPda
@@ -333,10 +342,11 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       signersBitmap: Array.from(signed.signersBitmap),
     };
 
+    fundEscrowExact();
     await settleAgentRound({
       proto,
       gateway,
-      payer: escrow.payer.publicKey,
+      payer: escrow.payer,
       requestNonce: n,
       maxPrice: freshRoundPrice(SIGS_REQUIRED),
       feedId: FEED_ID,
@@ -482,15 +492,10 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       ])
       .rpc();
 
-    // round record is closed by the finalize round instruction
-    try {
-      await proto.program.account.roundReceiptRecord.fetch(roundRecordPda);
-      assert.fail("expected RoundReceiptRecordNotFound");
-    } catch (e: any) {
-      assert.include(
-        e.toString(),
-        "Could not find " + roundRecordPda.toBase58()
-      );
-    }
+    const record = await proto.program.account.roundReceiptRecord.fetch(
+      roundRecordPda
+    );
+    assert.isTrue(record.finalized);
+    assert.isFalse(record.voided);
   });
 });
