@@ -1,11 +1,6 @@
 [workspace]
 members = [
     "programs/molpha",
-    "crates/molpha-verifier",
-]
-exclude = [
-    "programs/molpha-solana",
-    "programs/molpha-feed",
 ]
 resolver = "2"
 
