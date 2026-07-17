@@ -19,8 +19,11 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 
 ### Node registry
 
-- `register_node` / `deactivate_node` with versioned `RegistryState` and `RegistryIndex` entries
-- secp256k1 signing keys stored in the registry index (EVM-parity message hashing)
+- `register_node` / `deactivate_node` with versioned `RegistryState` and slot-keyed `Node` entries
+- canonical compressed secp256k1 keys are validated on registration, stored as affine coordinates,
+  and permanently reserved by a key-claim PDA
+- registration requires a domain-separated Schnorr proof of possession bound to the program and
+  derived node identity; verifier hot paths rely on this registration invariant
 - `finalize_registry_transition` after batch registry changes
 
 ### Jobs, plans, and subscriptions
@@ -82,12 +85,12 @@ tests/                              # Jest + bankrun instruction tests
 
 ### For integrators and feed consumers
 
-| Goal | Document |
-|------|----------|
-| Quick integration | [QUICK_START.md](QUICK_START.md) |
-| Full product usage | [MOLPHA_USER_GUIDE.md](MOLPHA_USER_GUIDE.md) |
+| Goal                     | Document                                     |
+| ------------------------ | -------------------------------------------- |
+| Quick integration        | [QUICK_START.md](QUICK_START.md)             |
+| Full product usage       | [MOLPHA_USER_GUIDE.md](MOLPHA_USER_GUIDE.md) |
 | Step-by-step integration | [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) |
-| API & account reference | [API_REFERENCE.md](API_REFERENCE.md) |
+| API & account reference  | [API_REFERENCE.md](API_REFERENCE.md)         |
 
 ### For oracle node operators
 
@@ -133,10 +136,10 @@ Program IDs are defined in [`Anchor.toml`](Anchor.toml) (see below).
 Bankrun/localnet measurements (May 2026 — details in [NODE_OPERATOR_GUIDE.md §10](NODE_OPERATOR_GUIDE.md#10-compute-budgets-and-limits)):
 
 | Signers | `verify_data_update` | `submit_data_update` |
-|---------|----------------------|----------------------|
-| 3 | ~296K | ~300K |
-| 8 | ~384K | ~387K |
-| 18 | ~529K | ~532K |
+| ------- | -------------------- | -------------------- |
+| 3       | ~296K                | ~300K                |
+| 8       | ~384K                | ~387K                |
+| 18      | ~529K                | ~532K                |
 
 Use `ComputeBudgetProgram.setComputeUnitLimit` ≥ **550_000** for large coalitions. CI enforces ceilings via `yarn cu:data-update:bankrun`.
 
@@ -159,8 +162,8 @@ See [`scripts/subscribe-create-job-submit.js`](scripts/subscribe-create-job-subm
 
 From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 
-| Program | ID |
-|---------|-----|
+| Program    | ID                                            |
+| ---------- | --------------------------------------------- |
 | **Molpha** | `MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8` |
 
 ## Documentation
@@ -188,12 +191,12 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 
 ## Scripts & yarn commands
 
-| Command | Purpose |
-|---------|---------|
-| `yarn molpha` | Operator CLI (after `yarn build:cli`) |
-| `yarn register-nodes` | `scripts/generate-and-register-nodes.js` |
-| `yarn job-flow` | Subscribe → submit update (lazy job/feed init) |
-| `yarn cu:data-update:bankrun` | CU benchmark (bankrun) |
+| Command                       | Purpose                                        |
+| ----------------------------- | ---------------------------------------------- |
+| `yarn molpha`                 | Operator CLI (after `yarn build:cli`)          |
+| `yarn register-nodes`         | `scripts/generate-and-register-nodes.js`       |
+| `yarn job-flow`               | Subscribe → submit update (lazy job/feed init) |
+| `yarn cu:data-update:bankrun` | CU benchmark (bankrun)                         |
 
 Key scripts under `scripts/`: `generate-and-register-nodes.js`, `subscribe-create-job-submit.js`, `oracle-client.ts`, and CU bench utilities. Use `yarn molpha` for all on-chain operations.
 
@@ -213,17 +216,17 @@ Consumers read Feed account OR CPI verify_data_update (no write, return data)
 
 ### PDA seeds
 
-| Account | Seed prefix | Additional seeds |
-|---------|-------------|------------------|
-| Protocol config | `molpha_config` | — |
-| Registry state | `molpha_registry` | — |
-| Registry index | `molpha_registry_index` | version, index |
-| Node | `molpha_node` | node owner |
-| Plan | `molpha_plan` | plan type byte |
-| Subscription | `molpha_subscription` | subscriber owner |
-| Job | `molpha_job` | `feed_id` (32 bytes) |
-| Feed | `molpha_feed` | `feed_id` (32 bytes) |
-| Gateway | `molpha_gateway` | IP + port |
+| Account         | Seed prefix             | Additional seeds     |
+| --------------- | ----------------------- | -------------------- |
+| Protocol config | `molpha_config`         | —                    |
+| Registry state  | `molpha_registry`       | —                    |
+| Registry index  | `molpha_registry_index` | version, index       |
+| Node            | `molpha_node`           | node owner           |
+| Plan            | `molpha_plan`           | plan type byte       |
+| Subscription    | `molpha_subscription`   | subscriber owner     |
+| Job             | `molpha_job`            | `feed_id` (32 bytes) |
+| Feed            | `molpha_feed`           | `feed_id` (32 bytes) |
+| Gateway         | `molpha_gateway`        | IP + port            |
 
 Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_GUIDE.md#3-on-chain-accounts-and-pdas).
 

@@ -28,7 +28,10 @@ pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
     let clock = Clock::get()?;
     let now_slot = clock.slot;
 
-    require!(record.status == RoundRecordStatus::Pending, MolphaError::RoundNotPending);
+    require!(
+        record.status == RoundRecordStatus::Pending,
+        MolphaError::RoundNotPending
+    );
     require!(
         now_slot.saturating_sub(record.recorded_slot) > config.dispute_window_slots,
         MolphaError::RoundNotFinalizable

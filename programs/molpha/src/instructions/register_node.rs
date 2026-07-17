@@ -22,10 +22,7 @@ pub struct RegisterNodeArgs {
     pub pop_sig_s: [u8; 32],
 }
 
-pub fn register_node(
-    ctx: Context<RegisterNode>,
-    args: RegisterNodeArgs,
-) -> Result<()> {
+pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Result<()> {
     let clock = Clock::get()?;
     let now = clock.unix_timestamp;
 

@@ -313,7 +313,6 @@ export async function initializeProtocol(ctx: TestContext): Promise<void> {
   }
 }
 
-
 // Helper function to create feed parameters
 export function createFeedParams(
   feedId: string,

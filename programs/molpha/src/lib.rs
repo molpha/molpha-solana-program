@@ -21,10 +21,7 @@ pub mod molpha {
         instructions::initialize(ctx, args)
     }
 
-    pub fn register_node(
-        ctx: Context<RegisterNode>,
-        args: RegisterNodeArgs,
-    ) -> Result<()> {
+    pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Result<()> {
         instructions::register_node(ctx, args)
     }
 

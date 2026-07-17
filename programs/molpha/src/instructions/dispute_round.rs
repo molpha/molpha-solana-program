@@ -30,7 +30,10 @@ pub fn dispute_round<'info>(
 ) -> Result<()> {
     let record = &ctx.accounts.round_record;
 
-    require!(record.status == RoundRecordStatus::Pending, MolphaError::RoundNotPending);
+    require!(
+        record.status == RoundRecordStatus::Pending,
+        MolphaError::RoundNotPending
+    );
     // Challenger must supply the exact committed signature.
     require!(
         hash_agg_sig(&agg_sig) == record.agg_sig_hash,

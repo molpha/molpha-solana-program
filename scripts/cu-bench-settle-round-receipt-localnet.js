@@ -619,19 +619,17 @@ async function bootstrapState({
     const keyClaimPda = findSecp256k1KeyClaimPda(programId, secpCompressed);
 
     await program.methods
-      .registerNode(
-        {
-          newIndex: index,
-          registrationSalt: Array.from(registrationSalt),
-          ip: [127, 0, 0, 1],
-          port: 9000 + index,
-          secp256K1PubkeyCompressed: Array.from(secpCompressed),
-          secp256K1KeyFingerprint: Array.from(keccak_256(secpCompressed)),
-          popSigR: Array.from(pop.popSigR),
-          popSigS: Array.from(pop.popSigS),
-          securityDeposit: new anchor.BN(1),
-        }
-      )
+      .registerNode({
+        newIndex: index,
+        registrationSalt: Array.from(registrationSalt),
+        ip: [127, 0, 0, 1],
+        port: 9000 + index,
+        secp256K1PubkeyCompressed: Array.from(secpCompressed),
+        secp256K1KeyFingerprint: Array.from(keccak_256(secpCompressed)),
+        popSigR: Array.from(pop.popSigR),
+        popSigS: Array.from(pop.popSigS),
+        securityDeposit: new anchor.BN(1),
+      })
       .accountsPartial({
         authority: payer.publicKey,
         nodeOwner: nodeOwner.publicKey,

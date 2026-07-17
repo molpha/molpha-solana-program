@@ -146,7 +146,7 @@ describe("register_node cryptographic validation", () => {
             secp256k1PubkeyCompressed: params.compressed,
             popSigR: pop.popSigR,
             popSigS: pop.popSigS,
-          }),
+          })
         )
         .accountsPartial({
           authority: ctx.authority.publicKey,

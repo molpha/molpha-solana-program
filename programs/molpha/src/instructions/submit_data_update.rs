@@ -58,7 +58,10 @@ pub fn submit_data_update(
             bump: ctx.bumps.feed,
         });
     } else {
-        require!(args.canonical_timestamp > feed.canonical_timestamp, MolphaError::FeedNotNewer);
+        require!(
+            args.canonical_timestamp > feed.canonical_timestamp,
+            MolphaError::FeedNotNewer
+        );
         feed.update(&FeedUpdateParams {
             value: args.value,
             canonical_timestamp: args.canonical_timestamp,

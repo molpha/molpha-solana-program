@@ -396,7 +396,7 @@ describe("Molpha instruction coverage integration", () => {
             secp256k1PubkeyCompressed: extraCompressed,
             popSigR: Buffer.alloc(32),
             popSigS: Buffer.alloc(32),
-          }),
+          })
         )
         .accountsPartial({
           authority: ctx.authority.publicKey,
