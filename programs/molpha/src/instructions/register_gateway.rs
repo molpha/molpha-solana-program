@@ -44,7 +44,6 @@ pub fn register_gateway(ctx: Context<RegisterGateway>, args: RegisterGatewayArgs
     gateway.ip = args.ip;
     gateway.port = args.port;
     gateway.bond = args.bond_amount;
-    gateway.pending_rewards = 0;
     gateway.claimable_rewards = 0;
     gateway.slashed = false;
     gateway.registered_at = now;

@@ -1,8 +1,8 @@
-//! `finalize_round` — permissionless promotion of credits past the dispute window.
+//! `finalize_round` — permissionless finalization of round credits past the dispute window.
 //!
 //! After `dispute_window_slots` have elapsed and no successful dispute voided the round, this
-//! moves each credited node's `reward_per_signature` (and the gateway's `gateway_fee`) from
-//! `pending_rewards` to `claimable_rewards`, after which `claim_*_rewards` may withdraw it.
+//! credits each node's `reward_per_signature` (and the gateway's `gateway_fee`) to
+//! `claimable_rewards`, after which `claim_*_rewards` may withdraw it.
 //!
 //! Credited nodes are re-identified through their slot `Node` accounts (applying the
 //! previous-version-after-remove remap), so finalization must occur while the round's registry
@@ -83,10 +83,6 @@ pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
         );
         require!(node.index == expected_index, MolphaError::InvalidNodeIndex);
 
-        node.pending_rewards = node
-            .pending_rewards
-            .checked_sub(reward)
-            .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
         node.claimable_rewards = node
             .claimable_rewards
             .checked_add(reward)
@@ -98,10 +94,6 @@ pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
 
     let gateway_fee = record.gateway_fee;
     let gateway = &mut ctx.accounts.gateway;
-    gateway.pending_rewards = gateway
-        .pending_rewards
-        .checked_sub(gateway_fee)
-        .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
     gateway.claimable_rewards = gateway
         .claimable_rewards
         .checked_add(gateway_fee)

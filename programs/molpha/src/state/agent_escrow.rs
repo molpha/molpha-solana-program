@@ -15,7 +15,6 @@ pub enum AgentStatus {
 pub struct AgentEscrow {
     pub authority: Pubkey,
     pub status: AgentStatus,
-    pub spent_total: u64,
     pub bump: u8,
 }
 
@@ -26,7 +25,6 @@ impl AgentEscrow {
     pub fn init(&mut self, authority: Pubkey, bump: u8) {
         self.authority = authority;
         self.status = AgentStatus::Active;
-        self.spent_total = 0;
         self.bump = bump;
     }
 }

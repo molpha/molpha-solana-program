@@ -13,8 +13,6 @@ pub struct Gateway {
     pub port: u16,
     /// USDC bond held in the protocol treasury, slashable on a successful dispute.
     pub bond: u64,
-    /// Accrued but not-yet-finalized fees.
-    pub pending_rewards: u64,
     /// Finalized fees, withdrawable via `claim_gateway_rewards`.
     pub claimable_rewards: u64,
     pub slashed: bool,

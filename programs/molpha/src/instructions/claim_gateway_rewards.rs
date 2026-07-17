@@ -1,6 +1,6 @@
 //! `claim_gateway_rewards` — withdraw a gateway's finalized fees.
 //!
-//! Mirrors `claim_node_rewards`: only `claimable_rewards` (promoted by `finalize_round`) are
+//! Mirrors `claim_node_rewards`: only `claimable_rewards` (credited by `finalize_round`) are
 //! withdrawable. The gateway's bond stays escrowed in the treasury.
 
 use anchor_lang::prelude::*;

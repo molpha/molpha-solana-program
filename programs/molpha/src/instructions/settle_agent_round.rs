@@ -109,11 +109,6 @@ pub fn settle_agent_round<'info>(
         MolphaError::InvalidCreditNodeAccount
     );
 
-    escrow.spent_total = escrow
-        .spent_total
-        .checked_add(price)
-        .ok_or(MolphaError::EpochCapExceeded)?;
-
     require!(
         ctx.accounts.escrow_ata.amount >= price,
         MolphaError::InsufficientAgentCredits
@@ -150,25 +145,13 @@ pub fn settle_agent_round<'info>(
             node_ai.owner == ctx.program_id,
             MolphaError::InvalidCreditNodeAccount
         );
-        let mut node: Account<Node> = Account::try_from(node_ai)?;
+        let node: Account<Node> = Account::try_from(node_ai)?;
         // Settlement is current-version-only, so the bit position is the slot
         // index directly.
         require!(node.index == bit_pos as u32, MolphaError::InvalidNodeIndex);
 
-        node.pending_rewards = node
-            .pending_rewards
-            .checked_add(reward_per_signature)
-            .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-        node.exit(ctx.program_id)?;
-
         Ok(())
     })?;
-
-    let gateway = &mut ctx.accounts.gateway;
-    gateway.pending_rewards = gateway
-        .pending_rewards
-        .checked_add(config.gateway_fee)
-        .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
 
     let agg_sig_hash = hash_agg_sig(&args.agg_sig);
     let data_update_message_hash = molpha_verifier::compute_message_hash(

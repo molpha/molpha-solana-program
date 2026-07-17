@@ -46,8 +46,8 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
         MolphaError::InvalidNodeAccount
     );
 
-    // The deactivating node's identity *and* reward balances move to the virtual slot, so a
-    // grace-window `finalize_round` can still promote its in-flight pending rounds.
+    // The deactivating node's identity and claimable rewards move to the virtual slot so a
+    // grace-window `finalize_round` can still credit its in-flight rounds.
     ctx.accounts.virtual_node.init(
         VIRTUAL_INDEX,
         removed_node.owner,
@@ -55,7 +55,6 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
         removed_node.secp256k1_pubkey_y,
         ctx.bumps.virtual_node,
     );
-    ctx.accounts.virtual_node.pending_rewards = removed_node.pending_rewards;
     ctx.accounts.virtual_node.claimable_rewards = removed_node.claimable_rewards;
 
     let old_version = registry.current_version;
@@ -86,7 +85,7 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
             MolphaError::InvalidNodeAccount
         );
 
-        let (moved_owner, moved_x, moved_y, moved_pending, moved_claimable) = {
+        let (moved_owner, moved_x, moved_y, moved_claimable) = {
             let data = last_node_info.try_borrow_data()?;
             let last_node = Node::try_deserialize(&mut &data[..])
                 .map_err(|_| error!(MolphaError::InvalidNodeAccount))?;
@@ -95,7 +94,6 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
                 last_node.owner,
                 last_node.secp256k1_pubkey_x,
                 last_node.secp256k1_pubkey_y,
-                last_node.pending_rewards,
                 last_node.claimable_rewards,
             )
         };
@@ -120,7 +118,6 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
         removed_node.owner = moved_owner;
         removed_node.secp256k1_pubkey_x = moved_x;
         removed_node.secp256k1_pubkey_y = moved_y;
-        removed_node.pending_rewards = moved_pending;
         removed_node.claimable_rewards = moved_claimable;
 
         close_account_info(

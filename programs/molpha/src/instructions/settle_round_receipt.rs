@@ -94,7 +94,7 @@ pub fn settle_round_receipt<'info>(
         args.signatures_required,
     );
 
-    // ---- Credit (deterministic; fixed gateway fee). ----
+    // ---- Validate credited nodes; rewards are recorded on the round receipt only. ----
     let reward_per_signature = config.reward_per_signature;
     let gateway_fee = config.gateway_fee;
     let program_id = ctx.program_id;
@@ -116,23 +116,12 @@ pub fn settle_round_receipt<'info>(
             node_ai.owner == program_id,
             MolphaError::InvalidCreditNodeAccount
         );
-        let mut node: Account<Node> = Account::try_from(node_ai)?;
+        let node: Account<Node> = Account::try_from(node_ai)?;
         // Settlement is current-version-only, so the bit position is the slot index directly.
         require!(node.index == bit_pos as u32, MolphaError::InvalidNodeIndex);
 
-        node.pending_rewards = node
-            .pending_rewards
-            .checked_add(reward_per_signature)
-            .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-        node.exit(program_id)?;
-
         Ok(())
     })?;
-
-    gateway.pending_rewards = gateway
-        .pending_rewards
-        .checked_add(gateway_fee)
-        .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
 
     ctx.accounts.subscription.consume_round()?;
 

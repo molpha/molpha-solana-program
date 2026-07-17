@@ -1,8 +1,7 @@
 //! `claim_node_rewards` — withdraw a node's finalized rewards.
 //!
-//! Only `claimable_rewards` (credits promoted by `finalize_round` after the dispute window) are
-//! withdrawable; `pending_rewards` remain locked until finalization. This is the dispute-window
-//! finality gate of the spec's `claim()`.
+//! Only `claimable_rewards` (credits from `finalize_round` after the dispute window) are
+//! withdrawable. This is the dispute-window finality gate of the spec's `claim()`.
 //!
 //! While the node is active, `claimable_rewards` live on its slot [`Node`] (passed as the optional
 //! `node`). After deactivation the slot account is gone and the operator's finalized rewards have
