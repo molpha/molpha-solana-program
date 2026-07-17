@@ -12,7 +12,6 @@ use crate::{
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct RegisterNodeArgs {
-    pub new_index: u32,
     pub registration_salt: [u8; 32],
     pub ip: [u8; 4],
     pub port: u16,
@@ -36,6 +35,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         registry.current_node_count < config.max_node_count,
         MolphaError::NodeCapExceeded
     );
+    let node_index = registry.current_node_count;
 
     require!(
         args.registration_salt != [0u8; 32],
@@ -80,7 +80,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
     let owner_key = ctx.accounts.node_owner.key();
     ctx.accounts.node_operator.init(
         owner_key,
-        args.new_index,
+        node_index,
         args.ip,
         args.port,
         config.minimum_node_deposit,
@@ -88,13 +88,9 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         ctx.bumps.node_operator,
     );
 
-    ctx.accounts.node.init(
-        args.new_index,
-        owner_key,
-        pub_key_x,
-        pub_key_y,
-        ctx.bumps.node,
-    );
+    ctx.accounts
+        .node
+        .init(node_index, owner_key, pub_key_x, pub_key_y, ctx.bumps.node);
 
     ctx.accounts.secp256k1_key_claim.init(
         key_fingerprint,
@@ -108,7 +104,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
 
     emit!(NodeRegistered {
         node_id,
-        new_index: args.new_index,
+        new_index: node_index,
         owner: ctx.accounts.node_owner.key(),
         ip: args.ip,
         port: args.port,
