@@ -658,7 +658,6 @@ async function bootstrapState({
   );
   const lookupAddresses = [];
   for (let index = 0; index < maxSigners; index++) {
-    lookupAddresses.push(registryIndexPdasByIndex.get(index));
     lookupAddresses.push(nodePdasByIndex.get(index));
   }
   const lookupTableAccount = await createLookupTableForAddresses(
@@ -670,39 +669,27 @@ async function bootstrapState({
   return {
     protocolConfigPda,
     registryStatePda,
-    planPda,
-    jobPda,
     subscriptionPda,
     gatewayPda,
     gatewayAuthority,
     gatewayIndex: Number(gateway.index),
     registryVersion: Number(registryState.currentVersion),
     signaturesRequired: 1,
+    apiConfigHash,
     feedId,
     nodePdasByIndex,
-    registryIndexPdasByIndex,
     lookupTableAccount,
   };
 }
 
-function remainingAccountsForBitmap(
-  bitmap,
-  registryIndexPdasByIndex,
-  nodePdasByIndex
-) {
+function remainingAccountsForBitmap(bitmap, nodePdasByIndex) {
   const remaining = [];
   for (let bit = 0; bit < 256; bit++) {
     if (!bitmapBitSet(bitmap, bit)) continue;
-    const registryIndexPda = registryIndexPdasByIndex.get(bit);
     const nodePda = nodePdasByIndex.get(bit);
-    if (!registryIndexPda || !nodePda) {
-      throw new Error(`Missing registered node/registry index for bit ${bit}`);
+    if (!nodePda) {
+      throw new Error(`Missing registered node for bit ${bit}`);
     }
-    remaining.push({
-      pubkey: registryIndexPda,
-      isSigner: false,
-      isWritable: false,
-    });
     remaining.push({
       pubkey: nodePda,
       isSigner: false,
@@ -732,46 +719,34 @@ async function simulateSettleRound({
     signersBitmap: bitmap,
   };
 
-  const gatewayReceipt = {
-    registryVersion: setupState.registryVersion,
-    selectionBitmap: bitmap,
-    gatewayIndex: setupState.gatewayIndex,
-  };
-
-  const requestAuthHash = hashRequestAuth(setupState.feedId, timestamp);
-  const aggSigHash = hashAggregatedSig(aggSig);
-  const dataUpdateMessageHash = computeDataUpdateMessageHash({
-    feedId: setupState.feedId,
-    registryVersion: gatewayReceipt.registryVersion,
-    signaturesRequired: setupState.signaturesRequired,
-    signersBitmap: aggSig.signersBitmap,
-    value,
-    timestamp,
-  });
-  const gatewayReceiptHash = hashGatewayReceipt(
-    gatewayReceipt,
-    requestAuthHash,
-    aggSigHash,
-    dataUpdateMessageHash
+  const feedId = deriveFeedId(
+    payer.publicKey,
+    setupState.apiConfigHash,
+    setupState.signaturesRequired
   );
+  const requestAuthHash = hashRequestAuth(feedId, timestamp);
 
   const consumerSigIx = Ed25519Program.createInstructionWithPrivateKey({
     privateKey: payer.secretKey,
     message: requestAuthHash,
   });
-  const gatewaySigIx = Ed25519Program.createInstructionWithPrivateKey({
-    privateKey: setupState.gatewayAuthority.secretKey,
-    message: gatewayReceiptHash,
-  });
 
   const [roundRecordPda] = PublicKey.findProgramAddressSync(
-    [ROUND_RECEIPT_SEED, setupState.feedId, u64le(timestamp)],
+    [
+      ROUND_RECEIPT_SEED,
+      payer.publicKey.toBuffer(),
+      setupState.apiConfigHash,
+      Buffer.from([setupState.signaturesRequired]),
+      u64le(timestamp),
+    ],
     program.programId
   );
 
   const settleArgs = {
-    feedId: Array.from(setupState.feedId),
     timestamp: new anchor.BN(timestamp),
+    apiConfigHash: Array.from(setupState.apiConfigHash),
+    signaturesRequired: setupState.signaturesRequired,
+    registryVersion: setupState.registryVersion,
     aggSig: {
       s: Array.from(aggSig.s),
       rx: Array.from(aggSig.rx),
@@ -779,25 +754,16 @@ async function simulateSettleRound({
       commitmentAddr: Array.from(aggSig.commitmentAddr),
       signersBitmap: Array.from(aggSig.signersBitmap),
     },
-    gatewayReceipt: {
-      registryVersion: gatewayReceipt.registryVersion,
-      selectionBitmap: Array.from(gatewayReceipt.selectionBitmap),
-      gatewayIndex: gatewayReceipt.gatewayIndex,
-    },
     value: Array.from(value),
     consumerAuthority: payer.publicKey,
   };
 
   const settleIx = await program.methods
-    .settleRoundReceipt(settleArgs, null)
+    .settleRoundReceipt(settleArgs)
     .accountsPartial({
       payer: payer.publicKey,
-      jobOwner: null,
       protocolConfig: setupState.protocolConfigPda,
       registryState: setupState.registryStatePda,
-      // Owner-direct settlement requires the matching plan account.
-      plan: setupState.planPda,
-      job: setupState.jobPda,
       subscription: setupState.subscriptionPda,
       consumerDelegate: null,
       gateway: setupState.gatewayPda,
@@ -806,11 +772,7 @@ async function simulateSettleRound({
       systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(
-      remainingAccountsForBitmap(
-        bitmap,
-        setupState.registryIndexPdasByIndex,
-        setupState.nodePdasByIndex
-      )
+      remainingAccountsForBitmap(bitmap, setupState.nodePdasByIndex)
     )
     .instruction();
 
@@ -823,7 +785,6 @@ async function simulateSettleRound({
     instructions: [
       ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
       consumerSigIx,
-      gatewaySigIx,
       settleIx,
     ],
   }).compileToV0Message(

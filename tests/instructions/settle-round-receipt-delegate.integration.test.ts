@@ -276,7 +276,11 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
       recordPda
     );
 
-    const feedId = deriveFeedId(delegateHotKey.publicKey, apiConfigHash, SIGS_REQUIRED);
+    const feedId = deriveFeedId(
+      delegateHotKey.publicKey,
+      apiConfigHash,
+      SIGS_REQUIRED
+    );
     assert.equal(record.price.toNumber(), 0); // subscription-funded, no per-request USDC
     assert.deepEqual(Array.from(record.feedId), Array.from(feedId));
   });
@@ -302,7 +306,10 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
       })
       .rpc();
     try {
-      await settleReceipt({ apiConfigHash: nextApiConfigHash(), timestamp: ++ts });
+      await settleReceipt({
+        apiConfigHash: nextApiConfigHash(),
+        timestamp: ++ts,
+      });
       assert.fail("expected DelegateNotActive");
     } catch (e: any) {
       assert.include(e.toString(), "DelegateNotActive");

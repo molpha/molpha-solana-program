@@ -17,7 +17,8 @@ use solana_instructions_sysvar::load_instruction_at_checked;
 use crate::error::MolphaError;
 
 /// Ed25519 native program id.
-const ED25519_PROGRAM_ID: Pubkey = Pubkey::from_str_const("Ed25519SigVerify111111111111111111111111111");
+const ED25519_PROGRAM_ID: Pubkey =
+    Pubkey::from_str_const("Ed25519SigVerify111111111111111111111111111");
 
 const SIGNATURE_OFFSETS_START: usize = 2;
 const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = 14;

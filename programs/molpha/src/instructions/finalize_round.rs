@@ -19,9 +19,7 @@ use crate::{
     },
 };
 
-pub fn finalize_round<'info>(
-    ctx: Context<FinalizeRound<'info>>,
-) -> Result<()> {
+pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
     let config = &ctx.accounts.protocol_config;
     let registry = &ctx.accounts.registry_state;
     let record = &ctx.accounts.round_record;

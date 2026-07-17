@@ -11,7 +11,7 @@ pub mod utils;
 use instructions::*;
 use state::{AggregatedSig, PlanType};
 
-declare_id!("FeC7RTZTAC2MV5NoTTukq1937jzKhL3gb65XtF5aVd8q");
+declare_id!("MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8");
 
 #[program]
 pub mod molpha {
@@ -92,9 +92,7 @@ pub mod molpha {
         instructions::settle_round_receipt(ctx, args)
     }
 
-    pub fn finalize_round<'info>(
-        ctx: Context<FinalizeRound<'info>>,
-    ) -> Result<()> {
+    pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
         instructions::finalize_round(ctx)
     }
 

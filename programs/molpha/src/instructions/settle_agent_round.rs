@@ -19,7 +19,7 @@ pub struct SettleAgentRoundArgs {
     pub canonical_timestamp: u64,
     pub signatures_required: u8,
     pub registry_version: u32,
-    pub agg_sig: AggregatedSig,    
+    pub agg_sig: AggregatedSig,
     pub value: [u8; 32],
 }
 
@@ -43,7 +43,11 @@ pub fn settle_agent_round<'info>(
     let config = &ctx.accounts.protocol_config;
     let registry = &ctx.accounts.registry_state;
     let gateway = &ctx.accounts.gateway;
-    let feed_id = derive_feed_id(args.authority, args.api_config_hash, args.signatures_required);
+    let feed_id = derive_feed_id(
+        args.authority,
+        args.api_config_hash,
+        args.signatures_required,
+    );
 
     let clock = Clock::get()?;
     let now_slot = clock.slot;

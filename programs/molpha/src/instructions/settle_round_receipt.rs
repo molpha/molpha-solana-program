@@ -37,8 +37,11 @@ pub fn settle_round_receipt<'info>(
         MolphaError::SubscriptionInactiveOrExhausted
     );
 
-    let feed_id =
-        derive_feed_id(args.consumer_authority, args.api_config_hash, args.signatures_required);
+    let feed_id = derive_feed_id(
+        args.consumer_authority,
+        args.api_config_hash,
+        args.signatures_required,
+    );
 
     require!(
         args.registry_version == registry.current_version,
@@ -71,7 +74,8 @@ pub fn settle_round_receipt<'info>(
         MolphaError::QuorumBelowThreshold
     );
     require!(
-        credited_count <= u32::from(args.signatures_required) + u32::from(registry.redundancy_buffer),
+        credited_count
+            <= u32::from(args.signatures_required) + u32::from(registry.redundancy_buffer),
         MolphaError::CreditedExceedsSelection
     );
 
@@ -241,8 +245,8 @@ pub struct SettleRoundReceipt<'info> {
         space = RoundReceiptRecord::SPACE,
         seeds = [
             RoundReceiptRecord::SEED_PREFIX,
-            args.consumer_authority.as_ref(), 
-            args.api_config_hash.as_ref(), 
+            args.consumer_authority.as_ref(),
+            args.api_config_hash.as_ref(),
             args.signatures_required.to_le_bytes().as_ref(),
             args.timestamp.to_le_bytes().as_ref(),
         ],

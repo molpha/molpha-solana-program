@@ -92,11 +92,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
   }, 180_000);
 
   function feedIdForPayer(): Uint8Array {
-    return deriveFeedId(
-      escrow.payer.publicKey,
-      API_CONFIG_HASH,
-      SIGS_REQUIRED
-    );
+    return deriveFeedId(escrow.payer.publicKey, API_CONFIG_HASH, SIGS_REQUIRED);
   }
 
   function fundEscrowExact() {

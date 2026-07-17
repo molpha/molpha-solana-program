@@ -48,7 +48,7 @@ pub struct AgentRequestAuth {
     pub feed_id: [u8; 32],
     pub canonical_timestamp: u64,
     pub amount: u64,
-}   
+}
 
 /// `H(AgentRequestAuth)` — domain-separated SHA-256 over the borsh encoding.
 pub fn hash_agent_request_auth(auth: &AgentRequestAuth) -> [u8; 32] {
