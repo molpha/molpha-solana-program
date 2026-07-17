@@ -10,15 +10,17 @@ import {
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
 import {
+  deriveFeedId,
   generateE2eSignerMaterial,
   registerNodesForE2e,
-} from "../helpers/evm-submit-data-update";
+} from "../helpers/submit-data-update";
 import {
   advanceClock,
   AgentProtocolContext,
   BondedGateway,
   bitmapWithBits,
   creditedNodePdasForBits,
+  findSubscriptionRoundPda,
   initializeProtocolForAgents,
   registerBondedGateway,
   sha256,
@@ -32,7 +34,6 @@ const DOMAIN_REQAUTH = Buffer.from("MOLPHA_REQAUTH_V1", "utf8");
 const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 const DELEGATE_SEED = Buffer.from("molpha_delegate");
-const ROUND_SEED = Buffer.from("molpha_round");
 
 const PLAN_MAX_SIGNERS = 3;
 const DELEGATE_MAX_SIGNERS = 2;
@@ -60,14 +61,13 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
   let gateway: BondedGateway;
   let registryVersion: number;
   let planPda: PublicKey;
-  let basicPlanPda: PublicKey;
   let subscriptionPda: PublicKey;
   let delegateHotKey: Keypair;
   let delegatePda: PublicKey;
   let ts = 1_700_300_000;
   let feedByte = 0;
 
-  const nextFeed = () => Uint8Array.from(Buffer.alloc(32, ++feedByte));
+  const nextApiConfigHash = () => Buffer.alloc(32, ++feedByte);
 
   const addPlan = (planType: any, planId: number, maxSigners: number) => {
     const [pda] = PublicKey.findProgramAddressSync(
@@ -119,15 +119,13 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
       .rpc();
 
   interface SettleReceiptParams {
-    feedId: Uint8Array;
     timestamp: number;
+    apiConfigHash: Uint8Array;
     signaturesRequired?: number;
     /** Consumer keypair that signs H(RequestAuth). Defaults to the delegate hot key. */
     consumer?: Keypair;
     /** Delegate PDA to pass; null for owner-direct. */
     delegate?: PublicKey | null;
-    /** Plan account; null omits it. */
-    plan?: PublicKey | null;
     creditedBits?: number[];
   }
 
@@ -139,7 +137,11 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
     const bits =
       params.creditedBits ??
       Array.from({ length: signaturesRequired }, (_, i) => i);
-    const feedId = Buffer.from(params.feedId);
+    const feedId = deriveFeedId(
+      consumer.publicKey,
+      params.apiConfigHash,
+      signaturesRequired
+    );
 
     const requestAuthHash = sha256([
       DOMAIN_REQAUTH,
@@ -149,15 +151,18 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
       privateKey: consumer.secretKey,
       message: requestAuthHash,
     });
-    const [roundRecordPda] = PublicKey.findProgramAddressSync(
-      [ROUND_SEED, feedId, u64le(params.timestamp)],
-      proto.program.programId
+    const roundRecordPda = findSubscriptionRoundPda(
+      proto.program.programId,
+      consumer.publicKey,
+      params.apiConfigHash,
+      signaturesRequired,
+      params.timestamp
     );
 
     await proto.program.methods
       .settleRoundReceipt({
-        feedId: Array.from(params.feedId),
         timestamp: new BN(params.timestamp),
+        apiConfigHash: Array.from(params.apiConfigHash),
         signaturesRequired,
         registryVersion,
         aggSig: zeroedAggSig(bitmapWithBits(bits)),
@@ -168,7 +173,6 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
         payer: ctx.authority.publicKey,
         protocolConfig: proto.protocolConfigPda,
         registryState: proto.registryStatePda,
-        plan: params.plan === undefined ? null : params.plan,
         subscription: subscriptionPda,
         consumerDelegate:
           params.delegate === undefined ? delegatePda : params.delegate,
@@ -216,7 +220,6 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
     gateway = await registerBondedGateway(ctx, proto);
 
     planPda = await addPlan({ standard: {} }, 1, PLAN_MAX_SIGNERS);
-    basicPlanPda = await addPlan({ basic: {} }, 0, PLAN_MAX_SIGNERS);
 
     [subscriptionPda] = PublicKey.findProgramAddressSync(
       [SUBSCRIPTION_SEED, ctx.authority.publicKey.toBuffer()],
@@ -252,9 +255,9 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
       subscriptionPda
     );
 
-    const feedId = nextFeed();
+    const apiConfigHash = nextApiConfigHash();
     const t = ++ts;
-    const recordPda = await settleReceipt({ feedId, timestamp: t });
+    const recordPda = await settleReceipt({ apiConfigHash, timestamp: t });
 
     const after = await proto.program.account.delegate.fetch(delegatePda);
     assert.equal(
@@ -272,16 +275,22 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
     const record = await proto.program.account.roundReceiptRecord.fetch(
       recordPda
     );
+
+    const feedId = deriveFeedId(
+      delegateHotKey.publicKey,
+      apiConfigHash,
+      SIGS_REQUIRED
+    );
     assert.equal(record.price.toNumber(), 0); // subscription-funded, no per-request USDC
     assert.deepEqual(Array.from(record.feedId), Array.from(feedId));
   });
 
-  it("shares the (feed_id, timestamp) replay guard with owner rounds", async () => {
-    const feedId = nextFeed();
+  it("blocks replay of the same (consumer, api_config, sigs, timestamp) via the record PDA", async () => {
+    const apiConfigHash = nextApiConfigHash();
     const t = ++ts;
-    await settleReceipt({ feedId, timestamp: t });
+    await settleReceipt({ apiConfigHash, timestamp: t });
     try {
-      await settleReceipt({ feedId, timestamp: t });
+      await settleReceipt({ apiConfigHash, timestamp: t });
       assert.fail("expected duplicate record PDA failure");
     } catch (e: any) {
       assert.ok(e);
@@ -297,7 +306,10 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
       })
       .rpc();
     try {
-      await settleReceipt({ feedId: nextFeed(), timestamp: ++ts });
+      await settleReceipt({
+        apiConfigHash: nextApiConfigHash(),
+        timestamp: ++ts,
+      });
       assert.fail("expected DelegateNotActive");
     } catch (e: any) {
       assert.include(e.toString(), "DelegateNotActive");
@@ -315,7 +327,7 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
   it("caps delegate rounds at delegate.max_signers", async () => {
     try {
       await settleReceipt({
-        feedId: nextFeed(),
+        apiConfigHash: nextApiConfigHash(),
         timestamp: ++ts,
         signaturesRequired: DELEGATE_MAX_SIGNERS + 1,
       });
@@ -335,14 +347,14 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
       throttledKey.publicKey
     );
     await settleReceipt({
-      feedId: nextFeed(),
+      apiConfigHash: nextApiConfigHash(),
       timestamp: ++ts,
       consumer: throttledKey,
       delegate: throttledPda,
     });
     try {
       await settleReceipt({
-        feedId: nextFeed(),
+        apiConfigHash: nextApiConfigHash(),
         timestamp: ++ts,
         consumer: throttledKey,
         delegate: throttledPda,
@@ -353,55 +365,23 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
     }
   });
 
-  it("owner-direct settles with the matching plan supplied", async () => {
+  it("owner-direct settles without a delegate account", async () => {
     await settleReceipt({
-      feedId: nextFeed(),
+      apiConfigHash: nextApiConfigHash(),
       timestamp: ++ts,
       consumer: ctx.authority.payer,
       delegate: null,
-      plan: planPda,
     });
   });
 
-  it("owner-direct requires the plan account (PlanMismatch when missing)", async () => {
+  it("caps owner-direct rounds at subscription.max_signers", async () => {
     try {
       await settleReceipt({
-        feedId: nextFeed(),
-        timestamp: ++ts,
-        consumer: ctx.authority.payer,
-        delegate: null,
-        plan: null,
-      });
-      assert.fail("expected PlanMismatch");
-    } catch (e: any) {
-      assert.include(e.toString(), "PlanMismatch");
-    }
-  });
-
-  it("owner-direct rejects a plan that does not match the subscription", async () => {
-    try {
-      await settleReceipt({
-        feedId: nextFeed(),
-        timestamp: ++ts,
-        consumer: ctx.authority.payer,
-        delegate: null,
-        plan: basicPlanPda,
-      });
-      assert.fail("expected PlanMismatch");
-    } catch (e: any) {
-      assert.include(e.toString(), "PlanMismatch");
-    }
-  });
-
-  it("caps owner-direct rounds at plan.max_signers", async () => {
-    try {
-      await settleReceipt({
-        feedId: nextFeed(),
+        apiConfigHash: nextApiConfigHash(),
         timestamp: ++ts,
         signaturesRequired: PLAN_MAX_SIGNERS + 1,
         consumer: ctx.authority.payer,
         delegate: null,
-        plan: planPda,
       });
       assert.fail("expected SignaturesExceedSubscriptionMax");
     } catch (e: any) {

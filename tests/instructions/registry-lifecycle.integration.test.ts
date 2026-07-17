@@ -19,7 +19,7 @@ import {
   getProtocolTreasury,
   registerNodesForE2e,
   VIRTUAL_INDEX,
-} from "../helpers/evm-submit-data-update";
+} from "../helpers/submit-data-update";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");

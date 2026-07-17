@@ -235,6 +235,6 @@ fn close_account_info(account: &AccountInfo<'_>, receiver: &AccountInfo<'_>) -> 
     **account.try_borrow_mut_lamports()? = 0;
     **receiver.try_borrow_mut_lamports()? = receiver.lamports().saturating_add(lamports);
     account.assign(&system_program::ID);
-    account.realloc(0, false)?;
+    account.resize(0)?;
     Ok(())
 }

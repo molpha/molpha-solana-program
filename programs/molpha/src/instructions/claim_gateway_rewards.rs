@@ -21,7 +21,7 @@ pub fn claim_gateway_rewards(ctx: Context<ClaimGatewayRewards>) -> Result<()> {
     let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
     token::transfer(
         CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.treasury.to_account_info(),
                 to: ctx.accounts.destination.to_account_info(),

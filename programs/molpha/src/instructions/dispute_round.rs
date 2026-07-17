@@ -13,6 +13,7 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use molpha_verifier::bitmap::bitmap_is_subset;
 
 use crate::{
     error::{map_data_update_err, MolphaError},
@@ -21,11 +22,10 @@ use crate::{
         collect_node_entries, hash_agg_sig, AggregatedSig, Gateway, ProtocolConfig, RegistryState,
         RoundReceiptRecord,
     },
-    utils::bitmap::bitmap_is_subset,
 };
 
 pub fn dispute_round<'info>(
-    ctx: Context<'_, '_, '_, 'info, DisputeRound<'info>>,
+    ctx: Context<DisputeRound<'info>>,
     agg_sig: AggregatedSig,
 ) -> Result<()> {
     let record = &ctx.accounts.round_record;
@@ -106,7 +106,7 @@ pub fn dispute_round<'info>(
         let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
         token::transfer(
             CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
+                ctx.accounts.token_program.key(),
                 Transfer {
                     from: ctx.accounts.treasury.to_account_info(),
                     to: ctx.accounts.challenger_usdc.to_account_info(),

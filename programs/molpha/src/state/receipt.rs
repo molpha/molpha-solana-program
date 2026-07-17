@@ -27,9 +27,7 @@ pub struct AggregatedSig {
 
 /// `H(RequestAuth)` — domain-separated SHA-256 over the borsh encoding.
 pub fn hash_request_auth(request_auth: &RequestAuth) -> [u8; 32] {
-    let body = request_auth
-        .try_to_vec()
-        .expect("RequestAuth serialization is infallible");
+    let body = borsh::to_vec(request_auth).expect("RequestAuth serialization is infallible");
     sha256_hashv(&[DOMAIN_REQAUTH, &body]).to_bytes()
 }
 
@@ -46,40 +44,38 @@ pub fn hash_request_auth_fields(feed_id: &[u8; 32], timestamp: u64) -> [u8; 32] 
 pub struct AgentRequestAuth {
     /// The `AgentEscrow` PDA address.
     pub agent: Pubkey,
-    pub request_nonce: u64,
+    pub gateway: Pubkey,
     pub feed_id: [u8; 32],
-    /// Max price (USDC atomic units) the payer authorizes for this request.
-    pub max_price: u64,
+    pub canonical_timestamp: u64,
+    pub amount: u64,
 }
 
 /// `H(AgentRequestAuth)` — domain-separated SHA-256 over the borsh encoding.
 pub fn hash_agent_request_auth(auth: &AgentRequestAuth) -> [u8; 32] {
-    let body = auth
-        .try_to_vec()
-        .expect("AgentRequestAuth serialization is infallible");
+    let body = borsh::to_vec(auth).expect("AgentRequestAuth serialization is infallible");
     sha256_hashv(&[DOMAIN_AGENT_REQAUTH, &body]).to_bytes()
 }
 
 /// `H(AgentRequestAuth)` from instruction-level fields.
 pub fn hash_agent_request_auth_fields(
     agent: &Pubkey,
-    request_nonce: u64,
+    gateway: &Pubkey,
     feed_id: &[u8; 32],
-    max_price: u64,
+    canonical_timestamp: u64,
+    amount: u64,
 ) -> [u8; 32] {
     hash_agent_request_auth(&AgentRequestAuth {
         agent: *agent,
-        request_nonce,
+        gateway: *gateway,
         feed_id: *feed_id,
-        max_price,
+        canonical_timestamp,
+        amount,
     })
 }
 
 /// `sha256(AggregatedSig)` — the commitment stored in `RoundReceiptRecord`.
 pub fn hash_agg_sig(agg_sig: &AggregatedSig) -> [u8; 32] {
-    let body = agg_sig
-        .try_to_vec()
-        .expect("AggregatedSig serialization is infallible");
+    let body = borsh::to_vec(agg_sig).expect("AggregatedSig serialization is infallible");
     sha256_hashv(&[&body]).to_bytes()
 }
 
@@ -135,9 +131,10 @@ mod tests {
     fn fixture_agent_request_auth() -> AgentRequestAuth {
         AgentRequestAuth {
             agent: Pubkey::new_from_array([0x22; 32]),
-            request_nonce: 42,
+            canonical_timestamp: 1_700_000_000,
             feed_id: [0x11; 32],
-            max_price: 1_030,
+            amount: 1_030,
+            gateway: Pubkey::new_from_array([0x24; 32]),
         }
     }
 
@@ -147,9 +144,10 @@ mod tests {
         assert_eq!(
             hash_agent_request_auth_fields(
                 &auth.agent,
-                auth.request_nonce,
+                &auth.gateway,
                 &auth.feed_id,
-                auth.max_price,
+                auth.canonical_timestamp,
+                auth.amount,
             ),
             hash_agent_request_auth(&auth)
         );
@@ -159,10 +157,10 @@ mod tests {
     fn agent_request_auth_hash_is_field_sensitive() {
         let base = hash_agent_request_auth(&fixture_agent_request_auth());
         let mut a = fixture_agent_request_auth();
-        a.request_nonce += 1;
+        a.canonical_timestamp += 1;
         assert_ne!(hash_agent_request_auth(&a), base);
         let mut b = fixture_agent_request_auth();
-        b.max_price += 1;
+        b.amount += 1;
         assert_ne!(hash_agent_request_auth(&b), base);
     }
 

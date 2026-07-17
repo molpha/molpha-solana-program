@@ -4,13 +4,14 @@ import { setupTestContext, TestContext } from "../setup";
 import {
   generateE2eSignerMaterial,
   registerNodesForE2e,
-} from "../helpers/evm-submit-data-update";
+} from "../helpers/submit-data-update";
 import {
   advanceClock,
   AgentProtocolContext,
   BondedGateway,
   bitmapWithBits,
   creditedNodePdasForBits,
+  deriveFeedId,
   findAgentEscrowPda,
   findAgentRoundPda,
   findEscrowAta,
@@ -27,14 +28,16 @@ import {
 
 const NODE_COUNT = 4;
 const SIGS_REQUIRED = 2;
-const FEED_ID = Uint8Array.from(Buffer.alloc(32, 0x24));
+const API_CONFIG_HASH = Uint8Array.from(Buffer.alloc(32, 0x24));
 
 /**
- * x402 / self-funded pay-per-request: the client pays plain `exact` USDC to the
- * deterministic escrow ATA `ATA(PDA(["molpha_agent", payer]), USDC)` and signs
- * `AgentRequestAuth` (agent, request_nonce, feed_id, max_price). Settlement
- * verifies the signature via Ed25519 introspection, requires the ATA balance
- * to equal the computed price, then moves that amount into the treasury.
+ * x402 / self-funded pay-per-request: the client pays USDC to the deterministic
+ * escrow ATA `ATA(PDA(["molpha_agent", payer]), USDC)` and signs
+ * `AgentRequestAuth` (agent, gateway, feed_id, canonical_timestamp, amount).
+ * Settlement verifies the signature via Ed25519 introspection, requires
+ * `escrow_ata.amount >= price` and `amount == price`, then moves `price` into
+ * the treasury. Replay is guarded by the round-record PDA keyed by
+ * `(authority, api_config_hash, signatures_required, canonical_timestamp)`.
  */
 describe("settle_agent_round (x402 / self-funded rail)", () => {
   let ctx: TestContext;
@@ -42,7 +45,6 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
   let gateway: BondedGateway;
   let registryVersion: number;
   let ts = 1_700_100_000;
-  let nonce = 0;
 
   beforeAll(async () => {
     ctx = await setupTestContext();
@@ -87,10 +89,9 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
     proto,
     gateway,
     payer,
-    requestNonce: ++nonce,
-    maxPrice: freshRoundPrice(SIGS_REQUIRED),
-    feedId: FEED_ID,
-    timestamp: ++ts,
+    amount: freshRoundPrice(SIGS_REQUIRED),
+    apiConfigHash: API_CONFIG_HASH,
+    canonicalTimestamp: ++ts,
     signaturesRequired: SIGS_REQUIRED,
     registryVersion,
     aggSig: zeroedAggSig(bitmapWithBits([0, 1])),
@@ -114,7 +115,7 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
     );
 
     const params = baseParams();
-    await settleAgentRound(params);
+    const recordPda = await settleAgentRound(params);
 
     const ataAfter = await readTokenAmount(ctx, escrowAta());
     const treasuryAfter = await readTokenAmount(ctx, proto.treasury);
@@ -135,23 +136,35 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
     assert.deepEqual(escrow.status, { active: {} });
     assert.equal(escrow.spentTotal.toNumber(), price);
 
-    const record = await proto.program.account.roundReceiptRecord.fetch(
+    const expectedFeedId = deriveFeedId(
+      payer.publicKey,
+      API_CONFIG_HASH,
+      SIGS_REQUIRED
+    );
+    assert.equal(
+      recordPda.toBase58(),
       findAgentRoundPda(
         proto.program.programId,
-        escrowPda(),
-        params.requestNonce
-      )
+        payer.publicKey,
+        API_CONFIG_HASH,
+        SIGS_REQUIRED,
+        params.canonicalTimestamp
+      ).toBase58()
+    );
+    const record = await proto.program.account.roundReceiptRecord.fetch(
+      recordPda
     );
     assert.equal(record.price.toNumber(), price);
+    assert.deepEqual(Array.from(record.feedId), Array.from(expectedFeedId));
   });
 
-  it("blocks replay of the same (payer, request_nonce) via the record PDA", async () => {
+  it("blocks replay of the same (authority, api_config, sigs, timestamp) via the record PDA", async () => {
     fundExact();
     const params = baseParams();
     await settleAgentRound(params);
     fundExact();
     try {
-      await settleAgentRound({ ...params, timestamp: params.timestamp + 1 });
+      await settleAgentRound(params);
       assert.fail("expected duplicate record PDA failure");
     } catch (e: any) {
       assert.ok(e);
@@ -167,29 +180,25 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
     const poorAta = findEscrowAta(proto.usdcMint, poorEscrow);
     fundAtaInBankrun(ctx, poorAta, proto.usdcMint, poorEscrow, 500);
     try {
-      await settleAgentRound(
-        baseParams({ payer: poorPayer, requestNonce: 900 })
-      );
+      await settleAgentRound(baseParams({ payer: poorPayer }));
       assert.fail("expected InsufficientAgentCredits");
     } catch (e: any) {
       assert.include(e.toString(), "InsufficientAgentCredits");
     }
   });
 
-  it("rejects over-funded escrow ATA (exact payment required)", async () => {
+  it("allows an over-funded escrow ATA (surplus remains after settle)", async () => {
+    const price = freshRoundPrice(SIGS_REQUIRED);
+    const surplus = 50;
     fundAtaInBankrun(
       ctx,
       escrowAta(),
       proto.usdcMint,
       escrowPda(),
-      freshRoundPrice(SIGS_REQUIRED) + 1
+      price + surplus
     );
-    try {
-      await settleAgentRound(baseParams());
-      assert.fail("expected AgentEscrowPaymentNotExact");
-    } catch (e: any) {
-      assert.include(e.toString(), "AgentEscrowPaymentNotExact");
-    }
+    await settleAgentRound(baseParams());
+    assert.equal(await readTokenAmount(ctx, escrowAta()), BigInt(surplus));
   });
 
   it("rejects settlement without a payer AgentRequestAuth signature", async () => {
@@ -202,15 +211,15 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
     }
   });
 
-  it("rejects when the computed price exceeds the payer's max_price", async () => {
+  it("rejects when the signed amount does not match the computed price", async () => {
     fundExact();
     try {
       await settleAgentRound(
-        baseParams({ maxPrice: freshRoundPrice(SIGS_REQUIRED) - 1 })
+        baseParams({ amount: freshRoundPrice(SIGS_REQUIRED) - 1 })
       );
-      assert.fail("expected MaxPriceExceeded");
+      assert.fail("expected AmountMismatch");
     } catch (e: any) {
-      assert.include(e.toString(), "MaxPriceExceeded");
+      assert.include(e.toString(), "AmountMismatch");
     }
   });
 
@@ -235,7 +244,7 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
       await settleAgentRound(
         baseParams({
           signaturesRequired: 1,
-          maxPrice: freshRoundPrice(1),
+          amount: freshRoundPrice(1),
           aggSig: zeroedAggSig(bitmapWithBits([0, 1, 2, 3])),
           creditedNodePdas: creditedNodePdasForBits(
             proto.program.programId,

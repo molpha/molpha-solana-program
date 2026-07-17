@@ -12,12 +12,13 @@
 //! the Ed25519 instruction itself (`instruction_index == u16::MAX`) or in another instruction.
 
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::sysvar::instructions::load_instruction_at_checked;
+use solana_instructions_sysvar::load_instruction_at_checked;
 
 use crate::error::MolphaError;
 
 /// Ed25519 native program id.
-const ED25519_PROGRAM_ID: Pubkey = solana_sdk_ids::ed25519_program::ID;
+const ED25519_PROGRAM_ID: Pubkey =
+    Pubkey::from_str_const("Ed25519SigVerify111111111111111111111111111");
 
 const SIGNATURE_OFFSETS_START: usize = 2;
 const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = 14;

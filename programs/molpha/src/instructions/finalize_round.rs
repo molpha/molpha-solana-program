@@ -9,6 +9,7 @@
 //! version is still current or in grace — consistent with the rest of the protocol.
 
 use anchor_lang::prelude::*;
+use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
 
 use crate::{
     error::{map_data_update_err, MolphaError},
@@ -16,12 +17,9 @@ use crate::{
     state::{
         Gateway, Node, ProtocolConfig, RegistryState, RegistryTransitionType, RoundReceiptRecord,
     },
-    utils::bitmap::{bitmap_load, for_each_set_bit_u256},
 };
 
-pub fn finalize_round<'info>(
-    ctx: Context<'_, '_, 'info, 'info, FinalizeRound<'info>>,
-) -> Result<()> {
+pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
     let config = &ctx.accounts.protocol_config;
     let registry = &ctx.accounts.registry_state;
     let record = &ctx.accounts.round_record;

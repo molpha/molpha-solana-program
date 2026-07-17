@@ -9,11 +9,12 @@ import { setupTestContext, TestContext } from "../setup";
 import {
   fundNodeOwnerInBankrun,
   getProtocolTreasury,
-} from "../helpers/evm-submit-data-update";
+} from "../helpers/submit-data-update";
 import molphaIdl from "../../target/idl/molpha.json";
 
+/** Prefer the built IDL address (matches `declare_id!` / Anchor.toml localnet). */
 const LOCALNET_PROGRAM_ID = new PublicKey(
-  "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
+  (molphaIdl as { address: string }).address
 );
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");

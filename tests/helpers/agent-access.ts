@@ -28,11 +28,13 @@ import {
   fundNodeOwnerInBankrun,
   getProtocolTreasury,
   findNodePda,
-} from "./evm-submit-data-update";
+  deriveFeedId,
+} from "./submit-data-update";
 import molphaIdl from "../../target/idl/molpha.json";
 
+/** Prefer the built IDL address (matches `declare_id!` / Anchor.toml localnet). */
 export const LOCALNET_PROGRAM_ID = new PublicKey(
-  "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
+  (molphaIdl as { address: string }).address
 );
 
 export const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
@@ -40,6 +42,7 @@ export const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 export const GATEWAY_SEED = Buffer.from("molpha_gateway");
 export const AGENT_ESCROW_SEED = Buffer.from("molpha_agent");
 export const AGENT_ROUND_SEED = Buffer.from("molpha_agent_round");
+export const ROUND_SEED = Buffer.from("molpha_round");
 export const DOMAIN_AGENT_REQAUTH = Buffer.from(
   "MOLPHA_AGENT_REQAUTH_V1",
   "utf8"
@@ -70,24 +73,33 @@ export function u64le(value: number | bigint): Buffer {
   return buf;
 }
 
+export function u8(value: number): Buffer {
+  return Buffer.from([value & 0xff]);
+}
+
 export function sha256(parts: Buffer[]): Buffer {
   const h = crypto.createHash("sha256");
   for (const part of parts) h.update(part);
   return h.digest();
 }
 
-/** `H(AgentRequestAuth)` — mirrors `hash_agent_request_auth_fields` in Rust. */
+/**
+ * `H(AgentRequestAuth)` — mirrors `hash_agent_request_auth_fields` in Rust.
+ * Borsh body order: agent, gateway, feed_id, canonical_timestamp, amount.
+ */
 export function hashAgentRequestAuthFields(
   agent: PublicKey,
-  requestNonce: number | bigint,
+  gateway: PublicKey,
   feedId: Uint8Array | Buffer,
-  maxPrice: number | bigint
+  canonicalTimestamp: number | bigint,
+  amount: number | bigint
 ): Buffer {
   const body = Buffer.concat([
     agent.toBuffer(),
-    u64le(requestNonce),
+    gateway.toBuffer(),
     Buffer.from(feedId),
-    u64le(maxPrice),
+    u64le(canonicalTimestamp),
+    u64le(amount),
   ]);
   return sha256([DOMAIN_AGENT_REQAUTH, body]);
 }
@@ -113,8 +125,8 @@ export function findEscrowAta(
 
 /**
  * Directly write a funded USDC token account at `ata` owned by `owner` (may be a PDA).
- * Mirrors `fundNodeOwnerInBankrun`, but for an arbitrary ATA — used to simulate an x402
- * `exact` payment landing in the escrow ATA before settlement.
+ * Mirrors `fundNodeOwnerInBankrun`, but for an arbitrary ATA — used to simulate an
+ * x402 payment landing in the escrow ATA before settlement.
  */
 export function fundAtaInBankrun(
   ctx: TestContext,
@@ -147,13 +159,48 @@ export async function readTokenAmount(
   return Buffer.from(acct.data).readBigUInt64LE(64);
 }
 
+/**
+ * Agent round-record PDA:
+ * `["molpha_agent_round", authority, api_config_hash, signatures_required, canonical_timestamp_le]`
+ */
 export function findAgentRoundPda(
   programId: PublicKey,
-  agent: PublicKey,
-  requestNonce: number | bigint
+  authority: PublicKey,
+  apiConfigHash: Uint8Array | Buffer,
+  signaturesRequired: number,
+  canonicalTimestamp: number | bigint
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [AGENT_ROUND_SEED, agent.toBuffer(), u64le(requestNonce)],
+    [
+      AGENT_ROUND_SEED,
+      authority.toBuffer(),
+      Buffer.from(apiConfigHash),
+      u8(signaturesRequired),
+      u64le(canonicalTimestamp),
+    ],
+    programId
+  )[0];
+}
+
+/**
+ * Subscription / delegate round-record PDA:
+ * `["molpha_round", consumer_authority, api_config_hash, signatures_required, timestamp_le]`
+ */
+export function findSubscriptionRoundPda(
+  programId: PublicKey,
+  consumerAuthority: PublicKey,
+  apiConfigHash: Uint8Array | Buffer,
+  signaturesRequired: number,
+  timestamp: number | bigint
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [
+      ROUND_SEED,
+      consumerAuthority.toBuffer(),
+      Buffer.from(apiConfigHash),
+      u8(signaturesRequired),
+      u64le(timestamp),
+    ],
     programId
   )[0];
 }
@@ -374,10 +421,9 @@ export interface SettleAgentRoundParams {
   gateway: BondedGateway;
   /** x402 payer keypair — seeds the escrow PDA as `authority` and signs AgentRequestAuth. */
   payer: Keypair;
-  requestNonce: number;
-  maxPrice: number;
-  feedId: Uint8Array;
-  timestamp: number;
+  amount: number;
+  apiConfigHash: Uint8Array;
+  canonicalTimestamp: number;
   signaturesRequired: number;
   registryVersion: number;
   aggSig?: ReturnType<typeof zeroedAggSig>;
@@ -390,27 +436,34 @@ export interface SettleAgentRoundParams {
 
 export async function settleAgentRound(
   params: SettleAgentRoundParams
-): Promise<void> {
+): Promise<PublicKey> {
   const programId = params.proto.program.programId;
-
   const authority = params.payer.publicKey;
 
   const escrowPda = findAgentEscrowPda(programId, authority);
   const escrowAta = findEscrowAta(params.proto.usdcMint, escrowPda);
+  const feedId = deriveFeedId(
+    authority,
+    params.apiConfigHash,
+    params.signaturesRequired
+  );
 
   const roundRecordPda = findAgentRoundPda(
     programId,
-    escrowPda,
-    params.requestNonce
+    authority,
+    params.apiConfigHash,
+    params.signaturesRequired,
+    params.canonicalTimestamp
   );
 
   const preInstructions = [];
   if (params.signAgentRequest !== false) {
     const authHash = hashAgentRequestAuthFields(
       escrowPda,
-      params.requestNonce,
-      params.feedId,
-      params.maxPrice
+      params.gateway.gatewayPda,
+      feedId,
+      params.canonicalTimestamp,
+      params.amount
     );
     preInstructions.push(
       Ed25519Program.createInstructionWithPrivateKey({
@@ -423,10 +476,9 @@ export async function settleAgentRound(
   await params.proto.program.methods
     .settleAgentRound({
       authority,
-      requestNonce: new BN(params.requestNonce),
-      maxPrice: new BN(params.maxPrice),
-      feedId: Array.from(params.feedId),
-      timestamp: new BN(params.timestamp),
+      amount: new BN(params.amount),
+      apiConfigHash: Array.from(params.apiConfigHash),
+      canonicalTimestamp: new BN(params.canonicalTimestamp),
       signaturesRequired: params.signaturesRequired,
       registryVersion: params.registryVersion,
       aggSig: params.aggSig ?? zeroedAggSig(),
@@ -456,6 +508,8 @@ export async function settleAgentRound(
     .preInstructions(preInstructions)
     .signers([params.gateway.gatewayAuthority])
     .rpc();
+
+  return roundRecordPda;
 }
 
 export function creditedNodePdasForBits(
@@ -467,4 +521,4 @@ export function creditedNodePdasForBits(
     .map((bit) => findNodePda(programId, bit));
 }
 
-export { findNodePda };
+export { findNodePda, deriveFeedId };

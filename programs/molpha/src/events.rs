@@ -204,7 +204,6 @@ pub struct AgentEscrowClosed {
 #[event]
 pub struct AgentRoundSettled {
     pub agent: Pubkey,
-    pub request_nonce: u64,
     pub price: u64,
     pub feed_id: [u8; 32],
     pub timestamp: u64,

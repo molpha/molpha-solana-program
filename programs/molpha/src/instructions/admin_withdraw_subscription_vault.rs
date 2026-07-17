@@ -22,7 +22,7 @@ pub fn admin_withdraw_subscription_vault(
     let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
     token_interface::transfer_checked(
         CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.token_program.key(),
             TransferChecked {
                 from: ctx.accounts.treasury.to_account_info(),
                 mint: ctx.accounts.usdc_mint.to_account_info(),

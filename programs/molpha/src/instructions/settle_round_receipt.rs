@@ -5,48 +5,26 @@ use crate::{
         hash_agg_sig, hash_request_auth_fields, AggregatedSig, Delegate, Gateway, Node,
         ProtocolConfig, RegistryState, RoundReceiptRecord, Subscription,
     },
-    utils::{
-        bitmap::{bitmap_load, for_each_set_bit_u256},
-        ed25519::verify_ed25519_signature,
-    },
+    utils::{ed25519::verify_ed25519_signature, registry::derive_feed_id},
 };
 use anchor_lang::prelude::*;
+use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleRoundArgs {
-    pub feed_id: [u8; 32],
     pub timestamp: u64,
+    pub api_config_hash: [u8; 32],
     pub signatures_required: u8,
     pub registry_version: u32,
-    // pub selection_bitmap: [u8; 32],
     pub agg_sig: AggregatedSig,
-    /// Feed payload value signed by the aggregate Schnorr coalition.
     pub value: [u8; 32],
-    /// Consumer Ed25519 key that signed `H(RequestAuth)` (job owner or a registered delegate).
     pub consumer_authority: Pubkey,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct SettleJobInitArgs {
-    pub api_config_hash: [u8; 32],
-    pub signatures_required: u8,
-    pub decimals: u8,
-}
-
 pub fn settle_round_receipt<'info>(
-    ctx: Context<'_, '_, 'info, 'info, SettleRoundReceipt<'info>>,
+    ctx: Context<SettleRoundReceipt<'info>>,
     args: SettleRoundArgs,
 ) -> Result<()> {
-    let SettleRoundArgs {
-        feed_id,
-        timestamp,
-        signatures_required,
-        agg_sig,
-        value,
-        consumer_authority,
-        registry_version,
-    } = &args;
-
     let clock = Clock::get()?;
     let now_slot = clock.slot;
     let subscription = &ctx.accounts.subscription;
@@ -54,15 +32,19 @@ pub fn settle_round_receipt<'info>(
     let registry = &ctx.accounts.registry_state;
     let gateway = &mut ctx.accounts.gateway;
 
-    // 1. Job & subscription quota (subscription.is_active() enforced via account constraint).
     require!(
-        ctx.accounts.subscription.is_active() && ctx.accounts.subscription.has_round_quota(),
+        subscription.is_active() && subscription.has_round_quota(),
         MolphaError::SubscriptionInactiveOrExhausted
     );
 
-    // 2. Registry — current-version-only for settlement.
+    let feed_id = derive_feed_id(
+        args.consumer_authority,
+        args.api_config_hash,
+        args.signatures_required,
+    );
+
     require!(
-        *registry_version == registry.current_version,
+        args.registry_version == registry.current_version,
         MolphaError::InvalidRegistryVersion
     );
 
@@ -70,41 +52,46 @@ pub fn settle_round_receipt<'info>(
     authorize_consumer(
         subscription,
         &mut ctx.accounts.consumer_delegate,
-        *consumer_authority,
-        *signatures_required,
+        args.consumer_authority,
+        args.signatures_required,
     )?;
 
-    let request_auth_hash = hash_request_auth_fields(feed_id, *timestamp);
+    let request_auth_hash = hash_request_auth_fields(&feed_id, args.timestamp);
     require!(
         verify_ed25519_signature(
             &ctx.accounts.instructions_sysvar,
-            &consumer_authority.to_bytes(),
+            &args.consumer_authority.to_bytes(),
             &request_auth_hash,
         )?,
         MolphaError::ConsumerSigInvalid
     );
 
     // 4. Quorum shape on the embedded bitmap (no selection re-derivation here).
-    let credited = bitmap_load(&agg_sig.signers_bitmap);
+    let credited = bitmap_load(&args.agg_sig.signers_bitmap);
     let credited_count = credited.count_ones();
     require!(
-        credited_count >= u32::from(*signatures_required),
+        credited_count >= u32::from(args.signatures_required),
         MolphaError::QuorumBelowThreshold
     );
+    require!(
+        credited_count
+            <= u32::from(args.signatures_required) + u32::from(registry.redundancy_buffer),
+        MolphaError::CreditedExceedsSelection
+    );
 
-    let agg_sig_hash = hash_agg_sig(agg_sig);
+    let agg_sig_hash = hash_agg_sig(&args.agg_sig);
     let data_update_message_hash = molpha_verifier::compute_message_hash(
         &molpha_verifier::DataUpdate {
-            feed_id: *feed_id,
-            signatures_required: *signatures_required,
-            registry_version: *registry_version,
-            signers_bitmap: agg_sig.signers_bitmap,
-            value: *value,
-            canonical_timestamp: *timestamp as i64,
-            agg_sig_s: agg_sig.s,
-            commitment_addr: agg_sig.commitment_addr,
+            feed_id,
+            signatures_required: args.signatures_required,
+            registry_version: args.registry_version,
+            signers_bitmap: args.agg_sig.signers_bitmap,
+            value: args.value,
+            canonical_timestamp: args.timestamp as i64,
+            agg_sig_s: args.agg_sig.s,
+            commitment_addr: args.agg_sig.commitment_addr,
         },
-        *signatures_required,
+        args.signatures_required,
     );
 
     // ---- Credit (deterministic; fixed gateway fee). ----
@@ -151,14 +138,14 @@ pub fn settle_round_receipt<'info>(
 
     // 9 (dedup) is enforced by `init` on the record PDA.
     let record = &mut ctx.accounts.round_record;
-    record.feed_id = *feed_id;
-    record.timestamp = *timestamp;
-    record.signatures_required = *signatures_required;
-    record.signers_bitmap = agg_sig.signers_bitmap;
+    record.feed_id = feed_id;
+    record.timestamp = args.timestamp;
+    record.signatures_required = args.signatures_required;
+    record.signers_bitmap = args.agg_sig.signers_bitmap;
     record.agg_sig_hash = agg_sig_hash;
     record.data_update_message_hash = data_update_message_hash;
     record.gateway = gateway.key();
-    record.registry_version = *registry_version;
+    record.registry_version = args.registry_version;
     record.reward_per_signature = reward_per_signature;
     record.gateway_fee = gateway_fee;
     record.recorded_slot = now_slot;
@@ -167,9 +154,9 @@ pub fn settle_round_receipt<'info>(
 
     emit!(RoundSettled {
         gateway: gateway.key(),
-        feed_id: *feed_id,
-        timestamp: *timestamp,
-        signers_bitmap: agg_sig.signers_bitmap,
+        feed_id,
+        timestamp: args.timestamp,
+        signers_bitmap: args.agg_sig.signers_bitmap,
         credited_count,
         reward_per_signature,
         gateway_fee,
@@ -242,7 +229,6 @@ pub struct SettleRoundReceipt<'info> {
     #[account(mut)]
     pub subscription: Account<'info, Subscription>,
 
-    /// CHECK: SAFETY: required when `consumer_authority != job.owner`.
     /// The handler checks the delegate PDA, owner/delegate fields, and discriminator before use.
     #[account(mut)]
     pub consumer_delegate: Option<Account<'info, Delegate>>,
@@ -259,7 +245,9 @@ pub struct SettleRoundReceipt<'info> {
         space = RoundReceiptRecord::SPACE,
         seeds = [
             RoundReceiptRecord::SEED_PREFIX,
-            args.feed_id.as_ref(),
+            args.consumer_authority.as_ref(),
+            args.api_config_hash.as_ref(),
+            args.signatures_required.to_le_bytes().as_ref(),
             args.timestamp.to_le_bytes().as_ref(),
         ],
         bump
@@ -268,7 +256,7 @@ pub struct SettleRoundReceipt<'info> {
 
     /// CHECK: validated by address; read via Ed25519 instruction introspection.
     #[account(
-        address = anchor_lang::solana_program::sysvar::instructions::ID @ MolphaError::InvalidInstructionsSysvar
+        address = solana_instructions_sysvar::id() @ MolphaError::InvalidInstructionsSysvar
     )]
     pub instructions_sysvar: UncheckedAccount<'info>,
 
