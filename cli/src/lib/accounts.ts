@@ -137,23 +137,6 @@ export function accountJson(address: PublicKey, data: any): unknown {
   };
 }
 
-export function decodeVerifyReturnData(bytes: Uint8Array): {
-  raw: string;
-  value: string;
-  canonicalTimestamp: string;
-} {
-  if (bytes.length !== 72) {
-    throw new Error(`Expected 72 bytes of return data, got ${bytes.length}`);
-  }
-
-  const timestamp = Buffer.from(bytes.slice(32, 40)).readBigInt64BE(0);
-  return {
-    raw: `0x${Buffer.from(bytes).toString("hex")}`,
-    value: `0x${Buffer.from(bytes.slice(0, 32)).toString("hex")}`,
-    canonicalTimestamp: timestamp.toString(),
-  };
-}
-
 export function toAccountMetaList(addresses: PublicKey[]): AccountMeta[] {
   return addresses.map((pubkey) => ({
     pubkey,

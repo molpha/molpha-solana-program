@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { keccak_256 } from "@noble/hashes/sha3";
-import { u32Le } from "./utils";
+import { u32Le, u64Le } from "./utils";
 
 export const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 export const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
@@ -11,9 +11,12 @@ export const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
 export const SECP256K1_KEY_CLAIM_SEED = Buffer.from("molpha_secp_key");
 export const PLAN_SEED = Buffer.from("molpha_plan");
 export const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
-export const JOB_SEED = Buffer.from("molpha_job");
 export const FEED_SEED = Buffer.from("molpha_feed");
 export const DELEGATE_SEED = Buffer.from("molpha_delegate");
+export const GATEWAY_SEED = Buffer.from("molpha_gateway");
+export const AGENT_ESCROW_SEED = Buffer.from("molpha_agent");
+export const AGENT_ROUND_SEED = Buffer.from("molpha_agent_round");
+export const ROUND_SEED = Buffer.from("molpha_round");
 export const VIRTUAL_INDEX = 0xffffffff;
 
 export function findProtocolConfigPda(
@@ -85,16 +88,6 @@ export function findSubscriptionPda(
   );
 }
 
-export function findJobPda(
-  programId: PublicKey,
-  feedId: Uint8Array
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [JOB_SEED, Buffer.from(feedId)],
-    programId
-  );
-}
-
 export function findFeedPda(
   programId: PublicKey,
   feedId: Uint8Array
@@ -112,6 +105,66 @@ export function findDelegatePda(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [DELEGATE_SEED, owner.toBuffer(), delegate.toBuffer()],
+    programId
+  );
+}
+
+export function findGatewayPda(
+  programId: PublicKey,
+  authority: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [GATEWAY_SEED, authority.toBuffer()],
+    programId
+  );
+}
+
+export function findAgentEscrowPda(
+  programId: PublicKey,
+  authority: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [AGENT_ESCROW_SEED, authority.toBuffer()],
+    programId
+  );
+}
+
+/** Subscription / delegate round receipt PDA. */
+export function findSubscriptionRoundPda(
+  programId: PublicKey,
+  consumerAuthority: PublicKey,
+  apiConfigHash: Uint8Array,
+  signaturesRequired: number,
+  timestamp: number | bigint
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      ROUND_SEED,
+      consumerAuthority.toBuffer(),
+      Buffer.from(apiConfigHash),
+      Buffer.from([signaturesRequired & 0xff]),
+      u64Le(timestamp),
+    ],
+    programId
+  );
+}
+
+/** Agent (x402) round receipt PDA. */
+export function findAgentRoundPda(
+  programId: PublicKey,
+  authority: PublicKey,
+  apiConfigHash: Uint8Array,
+  signaturesRequired: number,
+  canonicalTimestamp: number | bigint
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      AGENT_ROUND_SEED,
+      authority.toBuffer(),
+      Buffer.from(apiConfigHash),
+      Buffer.from([signaturesRequired & 0xff]),
+      u64Le(canonicalTimestamp),
+    ],
     programId
   );
 }

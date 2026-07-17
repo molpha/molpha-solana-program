@@ -9,7 +9,6 @@ On-chain interaction (init, registry, plans, subscriptions, jobs, account reads)
 | Command | Script |
 |---------|--------|
 | `yarn register-nodes` | `generate-and-register-nodes.js` |
-| `yarn job-flow` | `subscribe-create-job-submit.js` |
 | `yarn cu:data-update:bankrun` | `cu-bench-data-update-bankrun.js` |
 | `yarn cu:data-update:localnet` | `cu-bench-data-update-localnet.js` |
 | `yarn cu:settle-round-receipt:localnet` | `cu-bench-settle-round-receipt-localnet.js` |
@@ -25,16 +24,6 @@ yarn register-nodes --finalize
 ```
 
 Prerequisites: `anchor build`, `yarn molpha init`, funded admin wallet (SOL + USDC).
-
-## End-to-end job flow
-
-`subscribe-create-job-submit.js` — subscribe, sign a coalition update, and submit (lazy job/feed init).
-
-```bash
-yarn job-flow --plan-id 1
-```
-
-Requires `generated-nodes.json` from `yarn register-nodes`.
 
 ## CU benchmarks
 

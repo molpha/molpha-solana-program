@@ -199,6 +199,39 @@ export function u32Le(value: number): Buffer {
   return out;
 }
 
+export function u64Le(value: number | bigint): Buffer {
+  const out = Buffer.alloc(8);
+  out.writeBigUInt64LE(BigInt(value), 0);
+  return out;
+}
+
+/** Parse dotted IPv4 (`127.0.0.1`) into four octets. */
+export function parseIpv4(value: string, label = "ip"): number[] {
+  const parts = value.split(".").map((part) => Number(part));
+  if (
+    parts.length !== 4 ||
+    parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
+  ) {
+    throw new Error(`Invalid ${label}: ${value}`);
+  }
+  return parts;
+}
+
+/** Parse comma-separated bit indices (`0,1,3`) into a sorted unique list. */
+export function parseBitList(value: string, label = "bits"): number[] {
+  const bits = value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => parseInteger(part, label));
+  for (const bit of bits) {
+    if (bit < 0 || bit > 255) {
+      throw new Error(`${label} must be in 0..255, got ${bit}`);
+    }
+  }
+  return [...new Set(bits)].sort((a, b) => a - b);
+}
+
 export function requireValue<T>(
   value: T | undefined | null,
   message: string

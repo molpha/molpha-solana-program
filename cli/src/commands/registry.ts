@@ -1,4 +1,3 @@
-import { BN } from "@coral-xyz/anchor";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
@@ -22,12 +21,11 @@ import {
 } from "../lib/pdas";
 import { buildRegisterNodeArgs } from "../lib/signing/register-node";
 import {
-  bn,
   hexToBytes,
   loadKeypair,
   parseInteger,
+  parseIpv4,
   parsePublicKey,
-  requireValue,
   writeJson,
 } from "../lib/utils";
 
@@ -46,11 +44,8 @@ export function registerRegistryCommands(program: Command): void {
     .requiredOption("--registration-salt <hex>", "32-byte registration salt")
     .requiredOption("--pop-sig-r <hex>", "32-byte even-Y Schnorr nonce x")
     .requiredOption("--pop-sig-s <hex>", "32-byte Schnorr response scalar")
-    .option("--security-deposit <amount>", "security deposit amount")
-    .option(
-      "--new-index <number>",
-      "explicit new index, defaults to current node count"
-    )
+    .option("--ip <dotted>", "IPv4 endpoint", "127.0.0.1")
+    .option("--port <number>", "TCP port", "8080")
     .option(
       "--node-owner-wallet <path>",
       "separate node owner keypair; admin remains provider wallet"
@@ -83,10 +78,7 @@ export function registerRegistryCommands(program: Command): void {
         32,
         "registration salt"
       );
-      const newIndex =
-        options.newIndex !== undefined
-          ? parseInteger(options.newIndex, "new index")
-          : Number(registryState.currentNodeCount);
+      const newIndex = Number(registryState.currentNodeCount);
       const nodeId = deriveNodeId(
         nodeOwner.publicKey,
         secpPubkey,
@@ -109,14 +101,12 @@ export function registerRegistryCommands(program: Command): void {
           );
 
       const args = buildRegisterNodeArgs({
-        newIndex,
         registrationSalt,
         secp256k1PubkeyCompressed: secpPubkey,
         popSigR: hexToBytes(options.popSigR, 32, "PoP signature r"),
         popSigS: hexToBytes(options.popSigS, 32, "PoP signature s"),
-        securityDeposit: options.securityDeposit
-          ? bn(options.securityDeposit, "security deposit")
-          : new BN(protocolConfig.minimumNodeDeposit.toString()),
+        ip: parseIpv4(options.ip, "ip"),
+        port: parseInteger(options.port, "port"),
       });
 
       const builder = (ctx.program.methods as any)
@@ -125,7 +115,7 @@ export function registerRegistryCommands(program: Command): void {
           authority: ctx.wallet.publicKey,
           nodeOwner: nodeOwner.publicKey,
           protocolConfig: protocolConfigPda,
-          registryState: registryStatePda,
+          registry: registryStatePda,
           nodeOperator,
           node,
           secp256K1KeyClaim: secp256k1KeyClaim,
@@ -148,6 +138,7 @@ export function registerRegistryCommands(program: Command): void {
         signature,
         nodeOwner: nodeOwner.publicKey.toBase58(),
         nodeId: `0x${Buffer.from(nodeId).toString("hex")}`,
+        nodeIndex: newIndex,
         nodeOperator: nodeOperator.toBase58(),
         node: node.toBase58(),
       });
@@ -168,8 +159,6 @@ export function registerRegistryCommands(program: Command): void {
         throw new Error("Registry state is not initialized");
       }
 
-      // `removed_operator` is seeded by the signer (the program requires
-      // authority == operator.owner), so derive it from the wallet.
       const [removedOperator] = findNodeOperatorPda(
         ctx.programId,
         ctx.wallet.publicKey
@@ -253,7 +242,6 @@ export function registerRegistryCommands(program: Command): void {
         throw new Error(`Virtual node not found at ${virtualNode.toBase58()}`);
       }
 
-      // The deactivated operator receives the virtual slot's residual rewards.
       let nodeOperator = null;
       if (virtualNode) {
         const virtualNodeData = await fetchAccountOrNull<any>(

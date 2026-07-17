@@ -20,7 +20,6 @@
  *   --output <path>       Output JSON path (default: ./generated-nodes.json)
  *   --generate-new        Generate fresh keys and overwrite the output file
  *   --finalize            Call finalize_registry_transition after last node
- *   --security-deposit <n> Override deposit (default: protocol minimum)
  *   --skip-register       Only generate keys; do not send transactions
  *
  * By default, if the output file already exists, keys are loaded from it and only
@@ -103,8 +102,6 @@ function parseArgs(argv) {
       opts.generateNew = true;
     } else if (arg === "--finalize") {
       opts.finalize = true;
-    } else if (arg === "--security-deposit") {
-      opts.securityDeposit = argv[++i];
     } else if (arg === "--skip-register") {
       opts.skipRegister = true;
     } else if (arg === "--help" || arg === "-h") {

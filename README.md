@@ -156,8 +156,6 @@ yarn molpha data sign --feed-id <hex> --registry-version 1 --value <hex> ...
 yarn molpha data submit ...
 ```
 
-See [`scripts/subscribe-create-job-submit.js`](scripts/subscribe-create-job-submit.js) (`yarn job-flow`) for a full devnet/localnet path.
-
 ## Program IDs
 
 From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
@@ -195,7 +193,6 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 | ----------------------------- | ---------------------------------------------- |
 | `yarn molpha`                 | Operator CLI (after `yarn build:cli`)          |
 | `yarn register-nodes`         | `scripts/generate-and-register-nodes.js`       |
-| `yarn job-flow`               | Subscribe → submit update (lazy job/feed init) |
 | `yarn cu:data-update:bankrun` | CU benchmark (bankrun)                         |
 
 Key scripts under `scripts/`: `generate-and-register-nodes.js`, `subscribe-create-job-submit.js`, `oracle-client.ts`, and CU bench utilities. Use `yarn molpha` for all on-chain operations.
