@@ -3,7 +3,7 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { SystemProgram } from "@solana/web3.js";
+import { ComputeBudgetProgram, SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import {
   accountExists,
@@ -17,6 +17,7 @@ import {
   findNodePda,
   findProtocolConfigPda,
   findRegistryStatePda,
+  findSecp256k1KeyClaimPda,
   findVirtualNodePda,
 } from "../lib/pdas";
 import { buildRegisterNodeArgs } from "../lib/signing/register-node";
@@ -43,12 +44,8 @@ export function registerRegistryCommands(program: Command): void {
       "33-byte compressed secp256k1 pubkey"
     )
     .requiredOption("--registration-salt <hex>", "32-byte registration salt")
-    .option(
-      "--encryption-pubkey <hex>",
-      "33-byte encryption pubkey, defaults to secp pubkey"
-    )
-    .option("--peer-id-hash <hex>", "32-byte peer id hash")
-    .option("--metadata-hash <hex>", "32-byte metadata hash")
+    .requiredOption("--pop-sig-r <hex>", "32-byte even-Y Schnorr nonce x")
+    .requiredOption("--pop-sig-s <hex>", "32-byte Schnorr response scalar")
     .option("--security-deposit <amount>", "security deposit amount")
     .option(
       "--new-index <number>",
@@ -100,6 +97,10 @@ export function registerRegistryCommands(program: Command): void {
         nodeOwner.publicKey
       );
       const [node] = findNodePda(ctx.programId, newIndex);
+      const [secp256k1KeyClaim] = findSecp256k1KeyClaimPda(
+        ctx.programId,
+        secpPubkey
+      );
       const ownerUsdc = options.ownerUsdc
         ? parsePublicKey(options.ownerUsdc, "owner USDC account")
         : getAssociatedTokenAddressSync(
@@ -111,35 +112,32 @@ export function registerRegistryCommands(program: Command): void {
         newIndex,
         registrationSalt,
         secp256k1PubkeyCompressed: secpPubkey,
-        encryptionPubkey: options.encryptionPubkey
-          ? hexToBytes(options.encryptionPubkey, 33, "encryption pubkey")
-          : undefined,
-        peerIdHash: options.peerIdHash
-          ? hexToBytes(options.peerIdHash, 32, "peer id hash")
-          : undefined,
-        metadataHash: options.metadataHash
-          ? hexToBytes(options.metadataHash, 32, "metadata hash")
-          : undefined,
+        popSigR: hexToBytes(options.popSigR, 32, "PoP signature r"),
+        popSigS: hexToBytes(options.popSigS, 32, "PoP signature s"),
         securityDeposit: options.securityDeposit
           ? bn(options.securityDeposit, "security deposit")
           : new BN(protocolConfig.minimumNodeDeposit.toString()),
       });
 
       const builder = (ctx.program.methods as any)
-        .registerNode(args, Array.from(nodeId))
+        .registerNode(args)
         .accountsPartial({
-          adminAuthority: ctx.wallet.publicKey,
+          authority: ctx.wallet.publicKey,
           nodeOwner: nodeOwner.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
           nodeOperator,
           node,
+          secp256K1KeyClaim: secp256k1KeyClaim,
           usdcMint: protocolConfig.usdcMint,
           ownerUsdc,
           treasury: protocolConfig.treasury,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
-        });
+        })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+        ]);
 
       if (!nodeOwner.publicKey.equals(ctx.wallet.publicKey)) {
         builder.signers([nodeOwner]);

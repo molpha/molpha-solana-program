@@ -20,7 +20,7 @@ use crate::{
     events::RoundDisputed,
     state::{
         collect_node_entries, hash_agg_sig, AggregatedSig, Gateway, ProtocolConfig, RegistryState,
-        RoundReceiptRecord,
+        RoundReceiptRecord, RoundRecordStatus,
     },
 };
 
@@ -30,6 +30,7 @@ pub fn dispute_round<'info>(
 ) -> Result<()> {
     let record = &ctx.accounts.round_record;
 
+    require!(record.status == RoundRecordStatus::Pending, MolphaError::RoundNotPending);
     // Challenger must supply the exact committed signature.
     require!(
         hash_agg_sig(&agg_sig) == record.agg_sig_hash,
@@ -123,7 +124,7 @@ pub fn dispute_round<'info>(
     gateway.slashed = true;
 
     let record = &mut ctx.accounts.round_record;
-    record.voided = true;
+    record.status = RoundRecordStatus::Voided;
 
     emit!(RoundDisputed {
         feed_id: record.feed_id,

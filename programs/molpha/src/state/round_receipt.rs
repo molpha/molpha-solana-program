@@ -20,10 +20,17 @@ pub struct RoundReceiptRecord {
     pub reward_per_signature: u64,
     pub gateway_fee: u64,
     pub recorded_slot: u64,
-    pub finalized: bool,
-    pub voided: bool,
+    pub status: RoundRecordStatus,
     pub price: u64,
     pub bump: u8,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
+#[repr(u8)]
+pub enum RoundRecordStatus {
+    Pending,
+    Finalized,
+    Voided,
 }
 
 impl RoundReceiptRecord {

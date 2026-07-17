@@ -18,6 +18,7 @@ import {
   findNodePda,
   getProtocolTreasury,
   registerNodesForE2e,
+  signerMaterialForVerifyAnswerEvm,
   VIRTUAL_INDEX,
 } from "../helpers/submit-data-update";
 
@@ -156,6 +157,7 @@ describe("registry lifecycle", () => {
       await initializeRegistry(ctx, 8);
 
     await advanceClock(ctx, 5);
+    const fixtureMaterial = signerMaterialForVerifyAnswerEvm();
     await registerNodesForE2e(
       ctx,
       program,
@@ -166,7 +168,13 @@ describe("registry lifecycle", () => {
         ownerUsdc: ctx.userTokenAccount,
         treasury,
       },
-      EVM_FIXTURE_NODE_PUBKEYS.slice(0, nodeCount),
+      {
+        privKeys: fixtureMaterial.privKeys.slice(0, nodeCount),
+        compressedPubkeys: fixtureMaterial.compressedPubkeys.slice(
+          0,
+          nodeCount
+        ),
+      },
       advanceClock
     );
 

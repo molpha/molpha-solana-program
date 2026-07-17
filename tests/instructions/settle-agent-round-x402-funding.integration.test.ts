@@ -60,7 +60,7 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
         ownerUsdc: ctx.userTokenAccount,
         treasury: proto.treasury,
       },
-      material.compressedPubkeys,
+      material,
       advanceClock
     );
     const registry = await proto.program.account.registryState.fetch(

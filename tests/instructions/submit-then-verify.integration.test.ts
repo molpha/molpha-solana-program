@@ -139,7 +139,7 @@ describe("submit_data_update (current registry)", () => {
         ownerUsdc: ctx.userTokenAccount,
         treasury,
       },
-      signerMaterial.compressedPubkeys,
+      signerMaterial,
       advanceClock
     );
 

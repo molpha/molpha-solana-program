@@ -16,6 +16,7 @@ use crate::{
     events::RoundFinalized,
     state::{
         Gateway, Node, ProtocolConfig, RegistryState, RegistryTransitionType, RoundReceiptRecord,
+        RoundRecordStatus,
     },
 };
 
@@ -26,6 +27,8 @@ pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
 
     let clock = Clock::get()?;
     let now_slot = clock.slot;
+
+    require!(record.status == RoundRecordStatus::Pending, MolphaError::RoundNotPending);
     require!(
         now_slot.saturating_sub(record.recorded_slot) > config.dispute_window_slots,
         MolphaError::RoundNotFinalizable
@@ -102,7 +105,7 @@ pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
         .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
 
     let record = &mut ctx.accounts.round_record;
-    record.finalized = true;
+    record.status = RoundRecordStatus::Finalized;
 
     emit!(RoundFinalized {
         feed_id: record.feed_id,

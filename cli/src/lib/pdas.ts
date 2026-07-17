@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { keccak_256 } from "@noble/hashes/sha3";
 import { u32Le } from "./utils";
 
 export const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
@@ -7,6 +8,7 @@ export const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 export const NODE_SEED = Buffer.from("molpha_node");
 /** Owner-keyed management account (`NodeOperator`). */
 export const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
+export const SECP256K1_KEY_CLAIM_SEED = Buffer.from("molpha_secp_key");
 export const PLAN_SEED = Buffer.from("molpha_plan");
 export const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 export const JOB_SEED = Buffer.from("molpha_job");
@@ -45,6 +47,20 @@ export function findNodeOperatorPda(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [NODE_OPERATOR_SEED, owner.toBuffer()],
+    programId
+  );
+}
+
+export function findSecp256k1KeyClaimPda(
+  programId: PublicKey,
+  secp256k1PubkeyCompressed: Uint8Array
+): [PublicKey, number] {
+  if (secp256k1PubkeyCompressed.length !== 33) {
+    throw new Error("secp256k1 public key must be 33 bytes");
+  }
+  const fingerprint = keccak_256(secp256k1PubkeyCompressed);
+  return PublicKey.findProgramAddressSync(
+    [SECP256K1_KEY_CLAIM_SEED, Buffer.from(fingerprint)],
     programId
   );
 }

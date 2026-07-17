@@ -79,7 +79,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
         ownerUsdc: ctx.userTokenAccount,
         treasury: proto.treasury,
       },
-      material.compressedPubkeys,
+      material,
       advanceClock
     );
     const registry = await proto.program.account.registryState.fetch(
@@ -241,8 +241,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     const record = await proto.program.account.roundReceiptRecord.fetch(
       recordPda
     );
-    assert.isTrue(record.finalized);
-    assert.isFalse(record.voided);
+    assert.isOk(record.status.finalized);
   });
 
   it("voids a fabricated agent round on dispute and slashes the gateway bond", async () => {
@@ -295,7 +294,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     const voided = await proto.program.account.roundReceiptRecord.fetch(
       recordPda
     );
-    assert.isTrue(voided.voided);
+    assert.isOk(voided.status.voided);
 
     const gw = await proto.program.account.gateway.fetch(
       victimGateway.gatewayPda
@@ -489,7 +488,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     const record = await proto.program.account.roundReceiptRecord.fetch(
       roundRecordPda
     );
-    assert.isTrue(record.finalized);
-    assert.isFalse(record.voided);
+    assert.isOk(record.status.finalized);
   });
 });

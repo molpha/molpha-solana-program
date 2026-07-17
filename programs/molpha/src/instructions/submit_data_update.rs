@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    error::map_data_update_err,
+    error::{map_data_update_err, MolphaError},
     events::FeedUpdated,
     state::{collect_node_entries, Feed, FeedInitParams, FeedUpdateParams, RegistryState},
 };
@@ -58,6 +58,7 @@ pub fn submit_data_update(
             bump: ctx.bumps.feed,
         });
     } else {
+        require!(args.canonical_timestamp > feed.canonical_timestamp, MolphaError::FeedNotNewer);
         feed.update(&FeedUpdateParams {
             value: args.value,
             canonical_timestamp: args.canonical_timestamp,

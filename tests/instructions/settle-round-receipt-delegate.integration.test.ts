@@ -210,7 +210,7 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
         ownerUsdc: ctx.userTokenAccount,
         treasury: proto.treasury,
       },
-      material.compressedPubkeys,
+      material,
       advanceClock
     );
     const registry = await proto.program.account.registryState.fetch(

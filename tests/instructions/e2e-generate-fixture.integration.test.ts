@@ -152,7 +152,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
         ownerUsdc: ctx.userTokenAccount,
         treasury,
       },
-      signerMaterial.compressedPubkeys,
+      signerMaterial,
       advanceClock
     );
 

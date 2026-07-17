@@ -96,6 +96,8 @@ Register a node and submit data. The first submit initializes the job/feed if ne
 yarn molpha registry register \
   --secp-pubkey <COMPRESSED_SECP256K1_PUBKEY> \
   --registration-salt <32_BYTE_HEX> \
+  --pop-sig-r <32_BYTE_EVEN_NONCE_X_HEX> \
+  --pop-sig-s <32_BYTE_RESPONSE_SCALAR_HEX> \
   --owner-usdc <OWNER_USDC_ATA> \
   --security-deposit 1000000
 
@@ -109,6 +111,10 @@ yarn molpha data submit \
   --signer-count 1 \
   --signer-seed molpha-cli-e2e-signers
 ```
+
+The node generates the PoP off chain over
+`keccak256("MOLPHA_NODE_POP_V1" || program_id || node_id)`. The CLI accepts only the resulting
+signature and never accepts the secp256k1 private key.
 
 Verify and inspect:
 

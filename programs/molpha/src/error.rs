@@ -103,6 +103,10 @@ pub enum MolphaError {
     InvalidFeedId,
     #[msg("node_id does not match derived value for owner, pubkey, and salt")]
     InvalidNodeId,
+    #[msg("registration_salt must not be zero")]
+    InvalidRegistrationSalt,
+    #[msg("secp256k1 key fingerprint does not match compressed key")]
+    InvalidSecp256k1KeyFingerprint,
     #[msg("Re-derived selection bitmap does not match submitted bitmap")]
     InvalidSelectionBitmap,
     #[msg("popcount(signers_bitmap) < signatures_required")]
@@ -162,10 +166,8 @@ pub enum MolphaError {
     CreditedBitmapMismatch,
     #[msg("round still inside dispute window; cannot finalize")]
     RoundNotFinalizable,
-    #[msg("round already finalized")]
-    RoundAlreadyFinalized,
-    #[msg("round was voided by a successful dispute")]
-    RoundVoided,
+    #[msg("round is not pending")]
+    RoundNotPending,
     #[msg("no claimable rewards")]
     NothingToClaim,
     #[msg("instructions sysvar account is invalid")]

@@ -36,6 +36,7 @@ const {
   Keypair,
   PublicKey,
   SystemProgram,
+  ComputeBudgetProgram,
   LAMPORTS_PER_SOL,
   Transaction,
   sendAndConfirmTransaction,
@@ -47,19 +48,17 @@ const {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } = require("@solana/spl-token");
-const secp256k1 = require("@noble/secp256k1");
 const { keccak_256 } = require("@noble/hashes/sha3");
 const {
   generateKeypair: generateEvmKeypair,
 } = require("./generate-evm-keypair");
+const { findSecp256k1KeyClaimPda, signNodePop } = require("./lib/node-pop");
 
 const NODE_ID_PREFIX = Buffer.from("MOLPHA_NODE_ID_V1");
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
-const REGISTRY_INDEX_SEED = Buffer.from("molpha_registry_index");
 const NODE_SEED = Buffer.from("molpha_node");
-
-const VALID_POP_SIG_S = Buffer.concat([Buffer.alloc(31, 0), Buffer.from([1])]);
+const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
 const DEFAULT_COUNT = 5;
 const DEFAULT_OUTPUT = path.resolve(process.cwd(), "generated-nodes.json");
 const OWNER_SOL_LAMPORTS = 0.05 * LAMPORTS_PER_SOL;
@@ -267,27 +266,18 @@ function deriveNodeId(owner, secpCompressed, registrationSalt) {
   );
 }
 
-function decompressSecp256k1(compressed) {
-  const point = secp256k1.ProjectivePoint.fromHex(Buffer.from(compressed));
-  const uncompressed = point.toRawBytes(false);
-  return {
-    x: uncompressed.subarray(1, 33),
-    y: uncompressed.subarray(33, 65),
-  };
-}
-
-function findNodePdaByOwner(programId, nodeOwner) {
+function findNodeOperatorPda(programId, nodeOwner) {
   return PublicKey.findProgramAddressSync(
-    [NODE_SEED, nodeOwner.toBuffer()],
+    [NODE_OPERATOR_SEED, nodeOwner.toBuffer()],
     programId
   )[0];
 }
 
-function findRegistryIndexPda(programId, index) {
+function findNodePda(programId, index) {
   const indexBytes = Buffer.alloc(4);
   indexBytes.writeUInt32LE(index);
   return PublicKey.findProgramAddressSync(
-    [REGISTRY_INDEX_SEED, indexBytes],
+    [NODE_SEED, indexBytes],
     programId
   )[0];
 }
@@ -296,18 +286,19 @@ function buildRegisterNodeArgs({
   newIndex,
   registrationSalt,
   secpCompressed,
+  popSigR,
+  popSigS,
   securityDeposit,
 }) {
-  const { x, y } = decompressSecp256k1(secpCompressed);
   return {
     newIndex,
     registrationSalt: Array.from(registrationSalt),
     ip: [127, 0, 0, 1],
     port: 8080 + newIndex,
-    pubKeyX: Array.from(x),
-    pubKeyY: Array.from(y),
-    popSigR: Array.from(Buffer.alloc(32, 0)),
-    popSigS: Array.from(VALID_POP_SIG_S),
+    secp256K1PubkeyCompressed: Array.from(secpCompressed),
+    secp256K1KeyFingerprint: Array.from(keccak_256(secpCompressed)),
+    popSigR: Array.from(popSigR),
+    popSigS: Array.from(popSigS),
     securityDeposit,
   };
 }
@@ -483,6 +474,15 @@ function secpCompressedFromNodeRecord(node) {
   return buf;
 }
 
+function secpPrivateKeyFromNodeRecord(node) {
+  const hex = node.evm?.privateKey0x ?? node.evm?.privateKey ?? null;
+  if (!hex)
+    throw new Error(`Node ${node.index ?? "?"} missing EVM private key`);
+  const key = Buffer.from(hex.replace(/^0x/, ""), "hex");
+  if (key.length !== 32) throw new Error("EVM private key must be 32 bytes");
+  return key;
+}
+
 function registrationSaltFromNodeRecord(node) {
   const hex = (node.registrationSalt ?? "").replace(/^0x/, "");
   if (hex.length !== 64) {
@@ -508,13 +508,15 @@ function prepareLoadedNodes(manifest, programId, limit) {
   return slice.map((record) => {
     const solanaOwner = keypairFromNodeRecord(record);
     const secpCompressed = secpCompressedFromNodeRecord(record);
+    const secpPrivateKey = secpPrivateKeyFromNodeRecord(record);
     const registrationSalt = registrationSaltFromNodeRecord(record);
     const nodeId = nodeIdFromRecord(record);
-    const nodePda = findNodePdaByOwner(programId, solanaOwner.publicKey);
+    const nodePda = findNodeOperatorPda(programId, solanaOwner.publicKey);
     return {
       record: { ...record },
       solanaOwner,
       secpCompressed,
+      secpPrivateKey,
       registrationSalt,
       nodeId,
       nodePda,
@@ -529,14 +531,14 @@ function generateFreshNodes(programId, startIndex, count) {
     const solanaOwner = Keypair.generate();
     const evm = generateEvmKeypair();
     const secpCompressed = evm.publicKeyCompressed;
+    const secpPrivateKey = evm.privateKey;
     const registrationSalt = Buffer.alloc(32, index + 1);
     const nodeId = deriveNodeId(
       solanaOwner.publicKey,
       secpCompressed,
       registrationSalt
     );
-    const nodePda = findNodePdaByOwner(programId, solanaOwner.publicKey);
-    const registryIndexPda = findRegistryIndexPda(programId, index);
+    const nodePda = findNodeOperatorPda(programId, solanaOwner.publicKey);
 
     items.push({
       record: {
@@ -547,13 +549,13 @@ function generateFreshNodes(programId, startIndex, count) {
         evm: evmKeypairRecord(evm),
         onChain: {
           nodePda: nodePda.toBase58(),
-          registryIndexPda: registryIndexPda.toBase58(),
           nodeOwner: solanaOwner.publicKey.toBase58(),
         },
         registration: null,
       },
       solanaOwner,
       secpCompressed,
+      secpPrivateKey,
       registrationSalt,
       nodeId,
       nodePda,
@@ -756,12 +758,21 @@ async function main() {
       }
       graceWaitedThisRun = true;
 
-      const registryIndexPda = findRegistryIndexPda(programId, chainIndex);
+      const nodeOperatorPda = findNodeOperatorPda(
+        programId,
+        item.solanaOwner.publicKey
+      );
+      const nodePda = findNodePda(programId, chainIndex);
+      const keyClaimPda = findSecp256k1KeyClaimPda(
+        programId,
+        item.secpCompressed
+      );
       nodeRecord.index = chainIndex;
       nodeRecord.onChain = {
         ...nodeRecord.onChain,
-        nodePda: item.nodePda.toBase58(),
-        registryIndexPda: registryIndexPda.toBase58(),
+        nodePda: nodePda.toBase58(),
+        nodeOperatorPda: nodeOperatorPda.toBase58(),
+        secp256k1KeyClaimPda: keyClaimPda.toBase58(),
         nodeOwner: item.solanaOwner.publicKey.toBase58(),
       };
 
@@ -773,10 +784,17 @@ async function main() {
         depositPerNode
       );
 
+      const pop = signNodePop({
+        programId,
+        nodeId: item.nodeId,
+        secp256k1PrivateKey: item.secpPrivateKey,
+      });
       const registerNodeArgs = buildRegisterNodeArgs({
         newIndex: chainIndex,
         registrationSalt: item.registrationSalt,
         secpCompressed: item.secpCompressed,
+        popSigR: pop.popSigR,
+        popSigS: pop.popSigS,
         securityDeposit: securityDepositBn,
       });
 
@@ -787,14 +805,18 @@ async function main() {
           nodeOwner: item.solanaOwner.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
-          node: item.nodePda,
-          registryIndex: registryIndexPda,
+          nodeOperator: nodeOperatorPda,
+          node: nodePda,
+          secp256K1KeyClaim: keyClaimPda,
           usdcMint,
           ownerUsdc,
           treasury,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+        ])
         .signers([item.solanaOwner])
         .rpc();
 
