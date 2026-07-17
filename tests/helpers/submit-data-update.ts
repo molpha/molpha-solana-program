@@ -1357,7 +1357,6 @@ export async function seedEvmRegistryIndices(
       owner: PublicKey.unique(),
       secp256K1PubkeyX: Array.from(x),
       secp256K1PubkeyY: Array.from(y),
-      pendingRewards: new BN(0),
       claimableRewards: new BN(0),
       bump,
     });
@@ -1468,7 +1467,6 @@ export async function seedEvmRemoveSwapGraceState(
     owner: PublicKey.unique(),
     secp256K1PubkeyX: Array.from(movedX),
     secp256K1PubkeyY: Array.from(movedY),
-    pendingRewards: new BN(0),
     claimableRewards: new BN(0),
     bump: gapBump,
   });
@@ -1487,7 +1485,6 @@ export async function seedEvmRemoveSwapGraceState(
     owner: PublicKey.unique(),
     secp256K1PubkeyX: Array.from(removedX),
     secp256K1PubkeyY: Array.from(removedY),
-    pendingRewards: new BN(0),
     claimableRewards: new BN(0),
     bump: virtualBump,
   });

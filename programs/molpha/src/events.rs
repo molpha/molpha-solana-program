@@ -1,6 +1,28 @@
 use anchor_lang::prelude::*;
 
 #[event]
+pub struct ProtocolConfigUpdated {
+    pub reward_per_signature: u64,
+    pub gateway_fee: u64,
+    pub receipt_submitter_bonus: u64,
+    pub protocol_fee_bps: u16,
+    pub max_receipt_delay_slots: u64,
+    pub protocol_fee: u64,
+    pub dispute_window_slots: u64,
+    pub gateway_bond_min: u64,
+    pub challenger_bounty_bps: u16,
+    pub registry_cooldown_secs: i64,
+    pub previous_grace_secs: i64,
+    pub max_node_count: u32,
+    pub redundancy_buffer: u8,
+    pub minimum_node_deposit: u64,
+    pub withdrawal_cooldown_secs: i64,
+    pub agent_round_base: u64,
+    pub agent_round_per_sig: u64,
+    pub agent_epoch_len_secs: i64,
+}
+
+#[event]
 pub struct ProtocolInitialized {
     pub protocol_config: Pubkey,
     pub registry_state: Pubkey,

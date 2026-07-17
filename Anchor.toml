@@ -8,13 +8,10 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-molpha = "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
+molpha = "MoLF4sBjvfsYYdwE84yU9FcTkpd4WSGvR92rpLQgbpn"
 
 [programs.localnet]
-molpha = "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
-
-[registry]
-url = "https://api.apr.dev"
+molpha = "MoLF4sBjvfsYYdwE84yU9FcTkpd4WSGvR92rpLQgbpn"
 
 [provider]
 cluster = "localnet"
@@ -22,3 +19,5 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "cp target/deploy/molpha.so tests/fixtures && RUST_LOG= yarn jest --runInBand --verbose --forceExit"
+
+[hooks]

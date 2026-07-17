@@ -44,7 +44,6 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
 
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.authority = ctx.accounts.authority.key();
-    protocol_config.pending_authority = None;
     protocol_config.usdc_mint = args.usdc_mint;
     protocol_config.treasury = ctx.accounts.treasury.key();
     protocol_config.reward_per_signature = args.reward_per_signature;
@@ -62,8 +61,6 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.redundancy_buffer = args.redundancy_buffer;
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_secs = args.withdrawal_cooldown_secs;
-    protocol_config.timelock_expires_at = None;
-    protocol_config.pending_change = None;
     protocol_config.agent_round_base = args.agent_round_base;
     protocol_config.agent_round_per_sig = args.agent_round_per_sig;
     protocol_config.agent_epoch_len_secs = args.agent_epoch_len_secs;

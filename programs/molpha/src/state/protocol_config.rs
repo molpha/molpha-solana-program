@@ -1,20 +1,9 @@
 use anchor_lang::prelude::*;
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
-pub enum ConfigChange {
-    RewardPerSignature(u64),
-    GatewayFee(u64),
-    ReceiptSubmitterBonus(u64),
-    ProtocolFeeBps(u16),
-    MaxReceiptDelaySlots(u64),
-    MinimumNodeDeposit(u64),
-}
-
 #[account]
 #[derive(InitSpace)]
 pub struct ProtocolConfig {
     pub authority: Pubkey,
-    pub pending_authority: Option<Pubkey>,
     pub usdc_mint: Pubkey,
     pub treasury: Pubkey,
     pub reward_per_signature: u64,
@@ -38,11 +27,6 @@ pub struct ProtocolConfig {
     pub redundancy_buffer: u8,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_secs: i64,
-    // DEAD STATE: `timelock_expires_at` / `pending_change` (and the `ConfigChange` enum)
-    // have no propose/apply instruction — they are initialized to `None` and never read.
-    // Kept for layout stability until a config-update path is designed.
-    pub timelock_expires_at: Option<i64>,
-    pub pending_change: Option<ConfigChange>,
     // ---- Agent pay-per-request pricing and policy (agent-access spec v1). ----
     /// Base price of an agent `FreshRound` request (USDC atomic units).
     pub agent_round_base: u64,

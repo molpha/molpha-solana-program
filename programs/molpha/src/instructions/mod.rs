@@ -17,6 +17,7 @@ pub mod settle_agent_round;
 pub mod settle_round_receipt;
 pub mod submit_data_update;
 pub mod subscribe;
+pub mod update_config;
 pub mod update_plan;
 
 pub use add_delegate::*;
@@ -38,4 +39,5 @@ pub use settle_agent_round::*;
 pub use settle_round_receipt::*;
 pub use submit_data_update::*;
 pub use subscribe::*;
+pub use update_config::*;
 pub use update_plan::*;

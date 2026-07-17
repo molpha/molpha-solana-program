@@ -88,7 +88,7 @@ export function registerGatewayCommands(program: Command): void {
 
   gateway
     .command("claim")
-    .description("Claim finalized gateway rewards")
+    .description("Claim finalized gateway rewards credited by finalize_round")
     .option(
       "--gateway-wallet <path>",
       "gateway authority keypair; defaults to provider wallet"

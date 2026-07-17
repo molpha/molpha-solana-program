@@ -11,7 +11,7 @@ pub mod utils;
 use instructions::*;
 use state::{AggregatedSig, PlanType};
 
-declare_id!("MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8");
+declare_id!("MoLF4sBjvfsYYdwE84yU9FcTkpd4WSGvR92rpLQgbpn");
 
 #[program]
 pub mod molpha {
@@ -19,6 +19,10 @@ pub mod molpha {
 
     pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> {
         instructions::initialize(ctx, args)
+    }
+
+    pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Result<()> {
+        instructions::update_config(ctx, args)
     }
 
     pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Result<()> {

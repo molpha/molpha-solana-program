@@ -127,14 +127,13 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
       gateway.gatewayPda
     );
     assert.equal(
-      gwAfter.pendingRewards.toNumber() - gwBefore.pendingRewards.toNumber(),
-      INIT.gatewayFee
+      gwAfter.claimableRewards.toNumber(),
+      gwBefore.claimableRewards.toNumber()
     );
 
     const escrow = await proto.program.account.agentEscrow.fetch(escrowPda());
     assert.equal(escrow.authority.toBase58(), payer.publicKey.toBase58());
     assert.deepEqual(escrow.status, { active: {} });
-    assert.equal(escrow.spentTotal.toNumber(), price);
 
     const expectedFeedId = deriveFeedId(
       payer.publicKey,

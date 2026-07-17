@@ -19,8 +19,6 @@ pub struct Node {
     /// canonical compressed secp256k1 point, so verifier hot paths may safely skip re-parsing.
     pub secp256k1_pubkey_x: [u8; 32],
     pub secp256k1_pubkey_y: [u8; 32],
-    /// Accrued rewards not yet past the dispute window.
-    pub pending_rewards: u64,
     /// Finalized rewards, withdrawable via `claim_node_rewards`.
     pub claimable_rewards: u64,
     pub bump: u8,
@@ -42,7 +40,6 @@ impl Node {
         self.owner = owner;
         self.secp256k1_pubkey_x = secp256k1_pubkey_x;
         self.secp256k1_pubkey_y = secp256k1_pubkey_y;
-        self.pending_rewards = 0;
         self.claimable_rewards = 0;
         self.bump = bump;
     }
@@ -87,7 +84,6 @@ mod tests {
             owner: Pubkey::new_from_array([0xAA; 32]),
             secp256k1_pubkey_x: [0x11; 32],
             secp256k1_pubkey_y: [0x22; 32],
-            pending_rewards: 7,
             claimable_rewards: 9,
             bump: 7,
         };
@@ -104,7 +100,6 @@ mod tests {
         assert_eq!(decoded.owner, account.owner);
         assert_eq!(decoded.secp256k1_pubkey_x, account.secp256k1_pubkey_x);
         assert_eq!(decoded.secp256k1_pubkey_y, account.secp256k1_pubkey_y);
-        assert_eq!(decoded.pending_rewards, account.pending_rewards);
         assert_eq!(decoded.claimable_rewards, account.claimable_rewards);
     }
 }

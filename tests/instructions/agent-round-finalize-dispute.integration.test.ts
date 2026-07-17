@@ -228,11 +228,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       INIT.rewardPerSignature
     );
     assert.equal(
-      nodeBefore.pendingRewards.toNumber() -
-        nodeAfter.pendingRewards.toNumber(),
-      INIT.rewardPerSignature
-    );
-    assert.equal(
       gwAfter.claimableRewards.toNumber() -
         gwBefore.claimableRewards.toNumber(),
       INIT.gatewayFee

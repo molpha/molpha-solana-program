@@ -15,8 +15,7 @@ pub fn finalize_registry_transition(ctx: Context<FinalizeRegistryTransition>) ->
 
     if let Some(virtual_node) = &mut ctx.accounts.virtual_node {
         // Migrate any rewards left on the virtual slot to the deactivated operator's claimable
-        // bucket so it can still be withdrawn, then close the virtual slot. Pending rounds not
-        // finalized within the grace window are forfeited into claimable (the round is gone).
+        // bucket so it can still be withdrawn, then close the virtual slot.
         let operator = ctx
             .accounts
             .node_operator
@@ -26,13 +25,9 @@ pub fn finalize_registry_transition(ctx: Context<FinalizeRegistryTransition>) ->
             operator.owner == virtual_node.owner,
             MolphaError::InvalidNodeAccount
         );
-        let migrated = virtual_node
-            .claimable_rewards
-            .checked_add(virtual_node.pending_rewards)
-            .ok_or(error!(MolphaError::InvalidNodeAccount))?;
         operator.claimable_rewards = operator
             .claimable_rewards
-            .checked_add(migrated)
+            .checked_add(virtual_node.claimable_rewards)
             .ok_or(error!(MolphaError::InvalidNodeAccount))?;
 
         virtual_node.close(ctx.accounts.rent_receiver.to_account_info())?;
