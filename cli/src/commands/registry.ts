@@ -1,9 +1,8 @@
-import { BN } from "@coral-xyz/anchor";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { SystemProgram } from "@solana/web3.js";
+import { ComputeBudgetProgram, SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import {
   accountExists,
@@ -17,16 +16,16 @@ import {
   findNodePda,
   findProtocolConfigPda,
   findRegistryStatePda,
+  findSecp256k1KeyClaimPda,
   findVirtualNodePda,
 } from "../lib/pdas";
 import { buildRegisterNodeArgs } from "../lib/signing/register-node";
 import {
-  bn,
   hexToBytes,
   loadKeypair,
   parseInteger,
+  parseIpv4,
   parsePublicKey,
-  requireValue,
   writeJson,
 } from "../lib/utils";
 
@@ -43,17 +42,10 @@ export function registerRegistryCommands(program: Command): void {
       "33-byte compressed secp256k1 pubkey"
     )
     .requiredOption("--registration-salt <hex>", "32-byte registration salt")
-    .option(
-      "--encryption-pubkey <hex>",
-      "33-byte encryption pubkey, defaults to secp pubkey"
-    )
-    .option("--peer-id-hash <hex>", "32-byte peer id hash")
-    .option("--metadata-hash <hex>", "32-byte metadata hash")
-    .option("--security-deposit <amount>", "security deposit amount")
-    .option(
-      "--new-index <number>",
-      "explicit new index, defaults to current node count"
-    )
+    .requiredOption("--pop-sig-r <hex>", "32-byte even-Y Schnorr nonce x")
+    .requiredOption("--pop-sig-s <hex>", "32-byte Schnorr response scalar")
+    .option("--ip <dotted>", "IPv4 endpoint", "127.0.0.1")
+    .option("--port <number>", "TCP port", "8080")
     .option(
       "--node-owner-wallet <path>",
       "separate node owner keypair; admin remains provider wallet"
@@ -86,10 +78,7 @@ export function registerRegistryCommands(program: Command): void {
         32,
         "registration salt"
       );
-      const newIndex =
-        options.newIndex !== undefined
-          ? parseInteger(options.newIndex, "new index")
-          : Number(registryState.currentNodeCount);
+      const newIndex = Number(registryState.currentNodeCount);
       const nodeId = deriveNodeId(
         nodeOwner.publicKey,
         secpPubkey,
@@ -100,6 +89,10 @@ export function registerRegistryCommands(program: Command): void {
         nodeOwner.publicKey
       );
       const [node] = findNodePda(ctx.programId, newIndex);
+      const [secp256k1KeyClaim] = findSecp256k1KeyClaimPda(
+        ctx.programId,
+        secpPubkey
+      );
       const ownerUsdc = options.ownerUsdc
         ? parsePublicKey(options.ownerUsdc, "owner USDC account")
         : getAssociatedTokenAddressSync(
@@ -108,38 +101,33 @@ export function registerRegistryCommands(program: Command): void {
           );
 
       const args = buildRegisterNodeArgs({
-        newIndex,
         registrationSalt,
         secp256k1PubkeyCompressed: secpPubkey,
-        encryptionPubkey: options.encryptionPubkey
-          ? hexToBytes(options.encryptionPubkey, 33, "encryption pubkey")
-          : undefined,
-        peerIdHash: options.peerIdHash
-          ? hexToBytes(options.peerIdHash, 32, "peer id hash")
-          : undefined,
-        metadataHash: options.metadataHash
-          ? hexToBytes(options.metadataHash, 32, "metadata hash")
-          : undefined,
-        securityDeposit: options.securityDeposit
-          ? bn(options.securityDeposit, "security deposit")
-          : new BN(protocolConfig.minimumNodeDeposit.toString()),
+        popSigR: hexToBytes(options.popSigR, 32, "PoP signature r"),
+        popSigS: hexToBytes(options.popSigS, 32, "PoP signature s"),
+        ip: parseIpv4(options.ip, "ip"),
+        port: parseInteger(options.port, "port"),
       });
 
       const builder = (ctx.program.methods as any)
-        .registerNode(args, Array.from(nodeId))
+        .registerNode(args)
         .accountsPartial({
-          adminAuthority: ctx.wallet.publicKey,
+          authority: ctx.wallet.publicKey,
           nodeOwner: nodeOwner.publicKey,
           protocolConfig: protocolConfigPda,
-          registryState: registryStatePda,
+          registry: registryStatePda,
           nodeOperator,
           node,
+          secp256K1KeyClaim: secp256k1KeyClaim,
           usdcMint: protocolConfig.usdcMint,
           ownerUsdc,
           treasury: protocolConfig.treasury,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
-        });
+        })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+        ]);
 
       if (!nodeOwner.publicKey.equals(ctx.wallet.publicKey)) {
         builder.signers([nodeOwner]);
@@ -150,6 +138,7 @@ export function registerRegistryCommands(program: Command): void {
         signature,
         nodeOwner: nodeOwner.publicKey.toBase58(),
         nodeId: `0x${Buffer.from(nodeId).toString("hex")}`,
+        nodeIndex: newIndex,
         nodeOperator: nodeOperator.toBase58(),
         node: node.toBase58(),
       });
@@ -170,8 +159,6 @@ export function registerRegistryCommands(program: Command): void {
         throw new Error("Registry state is not initialized");
       }
 
-      // `removed_operator` is seeded by the signer (the program requires
-      // authority == operator.owner), so derive it from the wallet.
       const [removedOperator] = findNodeOperatorPda(
         ctx.programId,
         ctx.wallet.publicKey
@@ -255,7 +242,6 @@ export function registerRegistryCommands(program: Command): void {
         throw new Error(`Virtual node not found at ${virtualNode.toBase58()}`);
       }
 
-      // The deactivated operator receives the virtual slot's residual rewards.
       let nodeOperator = null;
       if (virtualNode) {
         const virtualNodeData = await fetchAccountOrNull<any>(

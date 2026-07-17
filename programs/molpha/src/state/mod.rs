@@ -9,6 +9,7 @@ pub mod protocol_config;
 pub mod receipt;
 pub mod registry_state;
 pub mod round_receipt;
+pub mod secp256k1_key_claim;
 pub mod subscription;
 
 pub use agent_escrow::*;
@@ -22,4 +23,5 @@ pub use protocol_config::*;
 pub use receipt::*;
 pub use registry_state::*;
 pub use round_receipt::*;
+pub use secp256k1_key_claim::*;
 pub use subscription::*;

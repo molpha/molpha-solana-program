@@ -1,32 +1,28 @@
-import { BN } from "@coral-xyz/anchor";
-
-const VALID_POP_SIG_S = Uint8Array.from(
-  Buffer.concat([Buffer.alloc(31, 0), Buffer.from([1])])
-);
+import { keccak_256 } from "@noble/hashes/sha3";
 
 export function buildRegisterNodeArgs(params: {
-  newIndex: number;
   registrationSalt: Uint8Array;
   secp256k1PubkeyCompressed: Uint8Array;
-  encryptionPubkey?: Uint8Array;
-  peerIdHash?: Uint8Array;
-  metadataHash?: Uint8Array;
-  securityDeposit: BN;
+  popSigR: Uint8Array;
+  popSigS: Uint8Array;
+  ip?: number[];
+  port?: number;
 }) {
-  const secp = params.secp256k1PubkeyCompressed;
+  if (params.secp256k1PubkeyCompressed.length !== 33) {
+    throw new Error("secp256k1 public key must be 33 bytes");
+  }
+  if (params.popSigR.length !== 32 || params.popSigS.length !== 32) {
+    throw new Error("PoP r and s must each be 32 bytes");
+  }
   return {
-    newIndex: params.newIndex,
     registrationSalt: Array.from(params.registrationSalt),
-    secp256K1PubkeyCompressed: Array.from(secp),
-    encryptionPubkey: Array.from(params.encryptionPubkey ?? secp),
-    peerIdHash: Array.from(
-      params.peerIdHash ?? Buffer.alloc(32, params.newIndex + 2)
+    ip: params.ip ?? [127, 0, 0, 1],
+    port: params.port ?? 8080,
+    secp256K1PubkeyCompressed: Array.from(params.secp256k1PubkeyCompressed),
+    secp256K1KeyFingerprint: Array.from(
+      keccak_256(params.secp256k1PubkeyCompressed)
     ),
-    metadataHash: Array.from(
-      params.metadataHash ?? Buffer.alloc(32, params.newIndex + 3)
-    ),
-    popSigR: Array.from(Buffer.alloc(32, 0)),
-    popSigS: Array.from(VALID_POP_SIG_S),
-    securityDeposit: params.securityDeposit,
+    popSigR: Array.from(params.popSigR),
+    popSigS: Array.from(params.popSigS),
   };
 }

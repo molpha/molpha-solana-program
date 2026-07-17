@@ -15,9 +15,11 @@ import {
   EVM_FIXTURE_NODE_PUBKEYS,
   findNodeOperatorPda,
   findNodePda,
+  findSecp256k1KeyClaimPda,
   fundNodeOwnerInBankrun,
   registerNodesForE2e,
   getProtocolTreasury,
+  signerMaterialForVerifyAnswerEvm,
 } from "../helpers/submit-data-update";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
@@ -339,6 +341,7 @@ describe("Molpha instruction coverage integration", () => {
 
     await advanceClock(ctx, 5);
 
+    const fixtureMaterial = signerMaterialForVerifyAnswerEvm();
     await registerNodesForE2e(
       ctx,
       program,
@@ -349,7 +352,10 @@ describe("Molpha instruction coverage integration", () => {
         ownerUsdc: ctx.userTokenAccount,
         treasury,
       },
-      EVM_FIXTURE_NODE_PUBKEYS.slice(0, 8),
+      {
+        privKeys: fixtureMaterial.privKeys.slice(0, 8),
+        compressedPubkeys: fixtureMaterial.compressedPubkeys.slice(0, 8),
+      },
       advanceClock
     );
 
@@ -376,6 +382,10 @@ describe("Molpha instruction coverage integration", () => {
       ctx.underlyingTokenMint
     );
     const extraNodePda = findNodePda(program.programId, 8);
+    const extraKeyClaimPda = findSecp256k1KeyClaimPda(
+      program.programId,
+      extraCompressed
+    );
 
     try {
       await program.methods
@@ -384,16 +394,18 @@ describe("Molpha instruction coverage integration", () => {
             newIndex: 8,
             registrationSalt: extraSalt,
             secp256k1PubkeyCompressed: extraCompressed,
-          }),
-          Array.from(extraNodeId)
+            popSigR: Buffer.alloc(32),
+            popSigS: Buffer.alloc(32),
+          })
         )
         .accountsPartial({
-          adminAuthority: ctx.authority.publicKey,
+          authority: ctx.authority.publicKey,
           nodeOwner: capNodeOwner.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
           nodeOperator: extraOperatorPda,
           node: extraNodePda,
+          secp256K1KeyClaim: extraKeyClaimPda,
           usdcMint: ctx.underlyingTokenMint,
           ownerUsdc: capOwnerUsdc,
           treasury,

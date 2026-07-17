@@ -313,48 +313,6 @@ export async function initializeProtocol(ctx: TestContext): Promise<void> {
   }
 }
 
-// Helper function to register a node with security deposit
-export async function registerNodeWithDeposit(
-  ctx: TestContext,
-  nodePubkey: PublicKey,
-  evmPubkey: Buffer,
-  url: string = "https://example.com/node"
-): Promise<PublicKey> {
-  const [nodePDA] = PublicKey.findProgramAddressSync(
-    [Buffer.from("node"), nodePubkey.toBuffer()],
-    ctx.molphaProgram.programId
-  );
-
-  // Get the ATA for the node's security deposit
-  const nodeSecurityDepositAccount = getAssociatedTokenAddressSync(
-    ctx.underlyingTokenMint,
-    nodePDA,
-    true // allowOwnerOffCurve - since nodePDA is a PDA
-  );
-
-  await ctx.molphaProgram.methods
-    .registerNode(nodePubkey, evmPubkey, url)
-    .accountsPartial({
-      node: nodePDA,
-      protocolConfig: ctx.protocolConfigPDA,
-      underlyingToken: ctx.underlyingTokenMint,
-      nodeOperatorTokenAccount: ctx.userTokenAccount,
-      nodeSecurityDepositAccount: nodeSecurityDepositAccount,
-      authority: ctx.authority.publicKey,
-      systemProgram: SystemProgram.programId,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-    })
-    .preInstructions([
-      // Node registration performs one secp256k1 pubkey decompression (sqrt in BPF),
-      // so we need a higher CU limit than the bankrun default.
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-    ])
-    .rpc();
-
-  return nodePDA;
-}
-
 // Helper function to create feed parameters
 export function createFeedParams(
   feedId: string,

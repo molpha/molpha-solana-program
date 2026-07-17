@@ -15,6 +15,8 @@ pub struct Node {
     pub index: u32,
     /// Operator wallet — used for claim authorization and deactivate validation.
     pub owner: Pubkey,
+    /// Validated affine coordinates. `register_node` is the only write path and accepts only a
+    /// canonical compressed secp256k1 point, so verifier hot paths may safely skip re-parsing.
     pub secp256k1_pubkey_x: [u8; 32],
     pub secp256k1_pubkey_y: [u8; 32],
     /// Accrued rewards not yet past the dispute window.

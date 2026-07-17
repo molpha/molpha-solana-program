@@ -276,7 +276,7 @@ function main() {
     console.log(
       `   yarn molpha registry register --secp-pubkey 0x${keypair.publicKeyCompressed.toString(
         "hex"
-      )} --registration-salt <32_BYTE_HEX> --owner-usdc <ATA> --security-deposit <amount>`
+      )} --registration-salt <32_BYTE_HEX> --owner-usdc <ATA>`
     );
     console.log("");
     console.log("2. Compress an existing uncompressed public key:");

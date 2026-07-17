@@ -46,6 +46,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { createProvider } = require("./lib/molpha-provider");
+const { findSecp256k1KeyClaimPda, signNodePop } = require("./lib/node-pop");
 
 const DOMAIN_REQAUTH = Buffer.from("MOLPHA_REQAUTH_V1", "utf8");
 const DOMAIN_GWRCPT = Buffer.from("MOLPHA_GWRCPT_V1", "utf8");
@@ -63,7 +64,7 @@ const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
 const GATEWAY_SEED = Buffer.from("molpha_gateway");
 const NODE_SEED = Buffer.from("molpha_node");
-const REGISTRY_INDEX_SEED = Buffer.from("molpha_registry_index");
+const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
 const ROUND_RECEIPT_SEED = Buffer.from("molpha_round");
 
 const DEFAULT_SIGNER_COUNTS = [1, 3, 8];
@@ -72,7 +73,6 @@ const DEFAULT_OUTPUT = path.join(
   process.cwd(),
   "settle-round-receipt-cu-localnet.json"
 );
-const VALID_POP_SIG_S = Buffer.concat([Buffer.alloc(31, 0), Buffer.from([1])]);
 
 function parseArgs(argv) {
   const opts = {
@@ -571,7 +571,6 @@ async function bootstrapState({
 
   // Register nodes and keep PDA maps by index.
   const nodePdasByIndex = new Map();
-  const registryIndexPdasByIndex = new Map();
   for (let index = 0; index < maxSigners; index++) {
     const nodeOwner = Keypair.generate();
     await airdropIfNeeded(connection, nodeOwner.publicKey, 2);
@@ -591,14 +590,14 @@ async function bootstrapState({
       BigInt(1_000_000)
     );
 
-    const [nodePda] = PublicKey.findProgramAddressSync(
-      [NODE_SEED, nodeOwner.publicKey.toBuffer()],
+    const [nodeOperatorPda] = PublicKey.findProgramAddressSync(
+      [NODE_OPERATOR_SEED, nodeOwner.publicKey.toBuffer()],
       programId
     );
     const indexBytes = Buffer.alloc(4);
     indexBytes.writeUInt32LE(index, 0);
-    const [registryIndexPda] = PublicKey.findProgramAddressSync(
-      [REGISTRY_INDEX_SEED, indexBytes],
+    const [nodePda] = PublicKey.findProgramAddressSync(
+      [NODE_SEED, indexBytes],
       programId
     );
 
@@ -606,51 +605,52 @@ async function bootstrapState({
     const secpCompressed = Buffer.from(
       secp256k1.getPublicKey(secpPrivate, true)
     );
-    const secpPoint = Point.fromHex(secpCompressed.toString("hex"));
-    const uncompressed = Buffer.from(secpPoint.toRawBytes(false));
-    const pubKeyX = uncompressed.subarray(1, 33);
-    const pubKeyY = uncompressed.subarray(33, 65);
-
     const registrationSalt = crypto.randomBytes(32);
     const nodeId = deriveNodeId(
       nodeOwner.publicKey,
       secpCompressed,
       registrationSalt
     );
+    const pop = signNodePop({
+      programId,
+      nodeId,
+      secp256k1PrivateKey: secpPrivate,
+    });
+    const keyClaimPda = findSecp256k1KeyClaimPda(programId, secpCompressed);
 
     await program.methods
-      .registerNode(
-        {
-          newIndex: index,
-          registrationSalt: Array.from(registrationSalt),
-          ip: [127, 0, 0, 1],
-          port: 9000 + index,
-          pubKeyX: Array.from(pubKeyX),
-          pubKeyY: Array.from(pubKeyY),
-          popSigR: Array.from(Buffer.alloc(32, 0)),
-          popSigS: Array.from(VALID_POP_SIG_S),
-          securityDeposit: new anchor.BN(1),
-        },
-        Array.from(nodeId)
-      )
+      .registerNode({
+        newIndex: index,
+        registrationSalt: Array.from(registrationSalt),
+        ip: [127, 0, 0, 1],
+        port: 9000 + index,
+        secp256K1PubkeyCompressed: Array.from(secpCompressed),
+        secp256K1KeyFingerprint: Array.from(keccak_256(secpCompressed)),
+        popSigR: Array.from(pop.popSigR),
+        popSigS: Array.from(pop.popSigS),
+        securityDeposit: new anchor.BN(1),
+      })
       .accountsPartial({
-        adminAuthority: payer.publicKey,
+        authority: payer.publicKey,
         nodeOwner: nodeOwner.publicKey,
         protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
+        nodeOperator: nodeOperatorPda,
         node: nodePda,
-        registryIndex: registryIndexPda,
+        secp256K1KeyClaim: keyClaimPda,
         usdcMint,
         ownerUsdc: ownerUsdc.address,
         treasury,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+      ])
       .signers([nodeOwner])
       .rpc({ commitment: "processed" });
 
     nodePdasByIndex.set(index, nodePda);
-    registryIndexPdasByIndex.set(index, registryIndexPda);
   }
 
   const registryState = await program.account.registryState.fetch(

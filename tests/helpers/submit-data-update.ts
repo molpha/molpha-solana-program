@@ -17,6 +17,7 @@ import { keccak_256 } from "@noble/hashes/sha3";
 import evmFixture from "../fixtures-json/verify-answer-evm.json";
 import { VerifyAnswerEvmFixture } from "./e2e-fixture-export";
 import { TestContext } from "../setup";
+import { signNodePop } from "../../cli/src/lib/signing/node-pop";
 
 const NODE_ID_PREFIX = Buffer.from("MOLPHA_NODE_ID_V1");
 const MESSAGE_PREFIX = Buffer.from(
@@ -31,6 +32,7 @@ const SECP256K1_ORDER_N = BigInt(
 const NODE_SEED = Buffer.from("molpha_node");
 /** Owner-keyed management account (`NodeOperator`). */
 const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
+const SECP256K1_KEY_CLAIM_SEED = Buffer.from("molpha_secp_key");
 
 /** Matches `VIRTUAL_INDEX` in `programs/molpha/src/state/node.rs`. */
 export const VIRTUAL_INDEX = 0xffffffff;
@@ -82,7 +84,7 @@ export function decompressSecp256k1(compressed: Uint8Array): {
 }
 
 /** Secret keys for `verify-answer-evm.json` coalition (see `secretKeys` in fixture). */
-function signerMaterialForVerifyAnswerEvm(): E2eSignerMaterial {
+export function signerMaterialForVerifyAnswerEvm(): E2eSignerMaterial {
   return signerMaterialFromFixture(evmFixture as LoadedE2eFixture);
 }
 
@@ -880,10 +882,6 @@ export function buildSignedEvmSubmitDataUpdateArgs(
   ).submitArgs;
 }
 
-const VALID_POP_SIG_S = Uint8Array.from(
-  Buffer.concat([Buffer.alloc(31, 0), Buffer.from([1])])
-);
-
 /** NodeOperator PDA (management): `["molpha_node_operator", owner]`. */
 export function findNodeOperatorPda(
   programId: PublicKey,
@@ -897,6 +895,18 @@ export function findNodeOperatorPda(
 
 /** @deprecated Renamed to `findNodeOperatorPda`. */
 export const findNodePdaByOwner = findNodeOperatorPda;
+
+/** Permanent secp256k1 key reservation PDA. */
+export function findSecp256k1KeyClaimPda(
+  programId: PublicKey,
+  secp256k1PubkeyCompressed: Uint8Array
+): PublicKey {
+  const fingerprint = keccak_256(secp256k1PubkeyCompressed);
+  return PublicKey.findProgramAddressSync(
+    [SECP256K1_KEY_CLAIM_SEED, Buffer.from(fingerprint)],
+    programId
+  )[0];
+}
 
 /** Fund a node-owner keypair and its USDC ATA in bankrun for `register_node`. */
 export async function fundNodeOwnerInBankrun(
@@ -936,20 +946,23 @@ export function buildRegisterNodeArgs(params: {
   newIndex: number;
   registrationSalt: Uint8Array;
   secp256k1PubkeyCompressed: Uint8Array;
+  popSigR: Uint8Array;
+  popSigS: Uint8Array;
   ip?: number[];
   port?: number;
   securityDeposit?: BN;
 }) {
-  const { x, y } = decompressSecp256k1(params.secp256k1PubkeyCompressed);
   return {
     newIndex: params.newIndex,
     registrationSalt: Array.from(params.registrationSalt),
     ip: params.ip ?? [127, 0, 0, 1],
     port: params.port ?? 8080 + params.newIndex,
-    pubKeyX: Array.from(x),
-    pubKeyY: Array.from(y),
-    popSigR: Array.from(Buffer.alloc(32, 0)),
-    popSigS: Array.from(VALID_POP_SIG_S),
+    secp256K1PubkeyCompressed: Array.from(params.secp256k1PubkeyCompressed),
+    secp256K1KeyFingerprint: Array.from(
+      keccak_256(params.secp256k1PubkeyCompressed)
+    ),
+    popSigR: Array.from(params.popSigR),
+    popSigS: Array.from(params.popSigS),
     securityDeposit: params.securityDeposit ?? new BN(100_000_000),
   };
 }
@@ -972,7 +985,7 @@ export async function registerNodesForE2e(
     ownerUsdc: PublicKey;
     treasury: PublicKey;
   },
-  compressedPubkeys: Uint8Array[],
+  signerMaterial: E2eSignerMaterial,
   advanceClock: (ctx: TestContext, seconds: number) => Promise<void>,
   opts?: { startIndex?: number; finalize?: boolean }
 ): Promise<void> {
@@ -980,13 +993,19 @@ export async function registerNodesForE2e(
   const startIndex = opts?.startIndex ?? 0;
   const shouldFinalize = opts?.finalize ?? true;
 
-  for (let i = 0; i < compressedPubkeys.length; i++) {
+  if (
+    signerMaterial.privKeys.length !== signerMaterial.compressedPubkeys.length
+  ) {
+    throw new Error("registerNodesForE2e: private/public key count mismatch");
+  }
+
+  for (let i = 0; i < signerMaterial.compressedPubkeys.length; i++) {
     const index = startIndex + i;
     if (i > 0 || startIndex > 0) {
       await advanceClock(ctx, graceAdvanceSecs);
     }
 
-    const secpCompressed = compressedPubkeys[i];
+    const secpCompressed = signerMaterial.compressedPubkeys[i];
     if (secpCompressed.length !== 33) {
       throw new Error(
         `registerNodesForE2e: expected 33-byte secp pubkey at index ${index}, got ${secpCompressed.length}`
@@ -1003,30 +1022,45 @@ export async function registerNodesForE2e(
 
     const registrationSalt = Uint8Array.from(Buffer.alloc(32, index + 1));
     const nodeId = deriveNodeId(nodeOwner, secpCompressed, registrationSalt);
+    const pop = signNodePop({
+      programId: program.programId,
+      nodeId,
+      secp256k1PrivateKey: bytes32FromBigintBE(signerMaterial.privKeys[i]),
+    });
     const operatorPda = findNodeOperatorPda(program.programId, nodeOwner);
     const nodePda = findNodePda(program.programId, index);
+    const keyClaimPda = findSecp256k1KeyClaimPda(
+      program.programId,
+      secpCompressed
+    );
 
     const registerNodeArgs = buildRegisterNodeArgs({
       newIndex: index,
       registrationSalt,
       secp256k1PubkeyCompressed: secpCompressed,
+      popSigR: pop.popSigR,
+      popSigS: pop.popSigS,
     });
 
     await program.methods
-      .registerNode(registerNodeArgs, Array.from(nodeId))
+      .registerNode(registerNodeArgs)
       .accountsPartial({
-        adminAuthority: ctx.authority.publicKey,
+        authority: ctx.authority.publicKey,
         nodeOwner,
         protocolConfig: accounts.protocolConfigPda,
         registryState: accounts.registryStatePda,
         nodeOperator: operatorPda,
         node: nodePda,
+        secp256K1KeyClaim: keyClaimPda,
         usdcMint: accounts.usdcMint,
         ownerUsdc,
         treasury: accounts.treasury,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+      ])
       .signers([nodeOwnerKp])
       .rpc();
   }

@@ -39,12 +39,12 @@ export type SignedDataUpdate = {
   submitArgs: {
     feedId: number[];
     registryVersion: number;
-    signersBitmap: number[];
     value: number[];
     canonicalTimestamp: BN;
-    aggSigR: number[];
+    signaturesRequired: number;
     aggSigS: number[];
     commitmentAddr: number[];
+    signersBitmap: number[];
   };
   signersBitmap: Uint8Array;
   aggSigS: Uint8Array;
@@ -398,12 +398,12 @@ export function signE2eDataUpdate(
     submitArgs: {
       feedId: Array.from(feedId),
       registryVersion,
-      signersBitmap: Array.from(signersBitmap),
       value: Array.from(dataUpdate.value),
       canonicalTimestamp: new BN(dataUpdate.canonicalTimestamp),
-      aggSigR: Array.from(new Uint8Array(32)),
+      signaturesRequired: required,
       aggSigS: Array.from(s),
       commitmentAddr: Array.from(commitmentAddr),
+      signersBitmap: Array.from(signersBitmap),
     },
     signersBitmap,
     aggSigS: s,
@@ -415,13 +415,14 @@ export function buildSubmitArgsFromFixture(fixture: VerifyDataUpdateFixture) {
   const signersBitmap = uint256BE(
     BigInt(fixture.schnorrSignature.signersBitmap)
   );
+  const signaturesRequired =
+    fixture.dataUpdate.signaturesRequired ?? bitmapPopcountEvm(signersBitmap);
   return {
     feedId: Array.from(hexToBytes(fixture.dataUpdate.feedId, 32, "feed id")),
     registryVersion: fixture.dataUpdate.registryVersion,
-    signersBitmap: Array.from(signersBitmap),
     value: Array.from(hexToBytes(fixture.dataUpdate.value, 32, "value")),
     canonicalTimestamp: new BN(fixture.dataUpdate.canonicalTimestamp),
-    aggSigR: Array.from(new Uint8Array(32)),
+    signaturesRequired,
     aggSigS: Array.from(
       hexToBytes(fixture.schnorrSignature.signature, 32, "signature")
     ),
@@ -432,6 +433,7 @@ export function buildSubmitArgsFromFixture(fixture: VerifyDataUpdateFixture) {
         "commitment"
       )
     ),
+    signersBitmap: Array.from(signersBitmap),
   };
 }
 
