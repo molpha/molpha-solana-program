@@ -128,10 +128,10 @@ pub struct Initialize<'info> {
     pub system_program: Program<'info, System>,
 }
 
-#[cfg(test)]
+#[cfg(test)]    
 mod tests {
     use super::InitializeArgs;
-    use anchor_lang::{prelude::Pubkey, AnchorDeserialize, AnchorSerialize, InstructionData};
+    use anchor_lang::{prelude::Pubkey, InstructionData};
 
     fn fixture_args() -> InitializeArgs {
         InitializeArgs {
