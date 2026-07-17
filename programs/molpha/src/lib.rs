@@ -11,7 +11,7 @@ pub mod utils;
 use instructions::*;
 use state::{AggregatedSig, PlanType};
 
-declare_id!("MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8");
+declare_id!("FeC7RTZTAC2MV5NoTTukq1937jzKhL3gb65XtF5aVd8q");
 
 #[program]
 pub mod molpha {
@@ -86,20 +86,20 @@ pub mod molpha {
     }
 
     pub fn settle_round_receipt<'info>(
-        ctx: Context<'_, '_, 'info, 'info, SettleRoundReceipt<'info>>,
+        ctx: Context<SettleRoundReceipt<'info>>,
         args: SettleRoundArgs,
     ) -> Result<()> {
         instructions::settle_round_receipt(ctx, args)
     }
 
     pub fn finalize_round<'info>(
-        ctx: Context<'_, '_, 'info, 'info, FinalizeRound<'info>>,
+        ctx: Context<FinalizeRound<'info>>,
     ) -> Result<()> {
         instructions::finalize_round(ctx)
     }
 
     pub fn dispute_round<'info>(
-        ctx: Context<'_, '_, 'info, 'info, DisputeRound<'info>>,
+        ctx: Context<DisputeRound<'info>>,
         agg_sig: AggregatedSig,
     ) -> Result<()> {
         instructions::dispute_round(ctx, agg_sig)
@@ -116,7 +116,7 @@ pub mod molpha {
     // ---- Self-funded / x402 agent pay-per-request access. ----
 
     pub fn settle_agent_round<'info>(
-        ctx: Context<'_, '_, 'info, 'info, SettleAgentRound<'info>>,
+        ctx: Context<SettleAgentRound<'info>>,
         args: SettleAgentRoundArgs,
     ) -> Result<()> {
         instructions::settle_agent_round(ctx, args)

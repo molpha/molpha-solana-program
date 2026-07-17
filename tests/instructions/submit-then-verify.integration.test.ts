@@ -25,7 +25,7 @@ import {
   signE2eDataUpdate,
   signerRemainingAccounts,
   VERIFY_DATA_UPDATE_RETURN_LEN,
-} from "../helpers/evm-submit-data-update";
+} from "../helpers/submit-data-update";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");

@@ -6,11 +6,12 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
-import { getProtocolTreasury } from "../helpers/evm-submit-data-update";
+import { getProtocolTreasury } from "../helpers/submit-data-update";
 import molphaIdl from "../../target/idl/molpha.json";
 
+/** Prefer the built IDL address (matches `declare_id!` / Anchor.toml localnet). */
 const LOCALNET_PROGRAM_ID = new PublicKey(
-  "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
+  (molphaIdl as { address: string }).address
 );
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
@@ -105,6 +106,10 @@ async function initializeProtocol(ctx: TestContext): Promise<{
       receiptSubmitterBonus: new BN(5),
       protocolFeeBps: 100,
       maxReceiptDelaySlots: new BN(256),
+      protocolFee: new BN(0),
+      disputeWindowSlots: new BN(256),
+      gatewayBondMin: new BN(500_000_000),
+      challengerBountyBps: 500,
       usdcMint: ctx.underlyingTokenMint,
       agentRoundBase: new BN(1_000),
       agentRoundPerSig: new BN(15),

@@ -14,7 +14,7 @@ pub fn extend_subscription(ctx: Context<ExtendSubscription>) -> Result<()> {
 
     token::transfer(
         CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.owner_usdc.to_account_info(),
                 to: ctx.accounts.treasury.to_account_info(),

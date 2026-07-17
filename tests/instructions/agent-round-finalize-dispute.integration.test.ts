@@ -10,13 +10,14 @@ import {
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
 import {
+  deriveFeedId,
   deriveSignersBitmapForJob,
   evmBitmapBitSet,
   fundNodeOwnerInBankrun,
   generateE2eSignerMaterial,
   registerNodesForE2e,
   signE2eDataUpdate,
-} from "../helpers/evm-submit-data-update";
+} from "../helpers/submit-data-update";
 import {
   advanceClock,
   AgentProtocolContext,
@@ -26,6 +27,7 @@ import {
   creditedNodePdasForBits,
   findAgentRoundPda,
   findNodePda,
+  findSubscriptionRoundPda,
   freshRoundPrice,
   fundAtaInBankrun,
   INIT,
@@ -40,11 +42,10 @@ import {
 
 const NODE_COUNT = 4;
 const SIGS_REQUIRED = 2;
-const FEED_ID = Uint8Array.from(Buffer.alloc(32, 0x66));
+const API_CONFIG_HASH = Uint8Array.from(Buffer.alloc(32, 0x66));
 const DOMAIN_REQAUTH = Buffer.from("MOLPHA_REQAUTH_V1", "utf8");
 const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
-const ROUND_SEED = Buffer.from("molpha_round");
 
 function bitsOf(bitmap: Uint8Array): number[] {
   const bits: number[] = [];
@@ -63,7 +64,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
   let material: ReturnType<typeof generateE2eSignerMaterial>;
   let registryVersion: number;
   let ts = 1_700_200_000;
-  let nonce = 0;
 
   beforeAll(async () => {
     ctx = await setupTestContext();
@@ -90,6 +90,14 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     victimGateway = await registerBondedGateway(ctx, proto);
     escrow = createX402FundedEscrow(ctx, proto, { fundAmount: 0 });
   }, 180_000);
+
+  function feedIdForPayer(): Uint8Array {
+    return deriveFeedId(
+      escrow.payer.publicKey,
+      API_CONFIG_HASH,
+      SIGS_REQUIRED
+    );
+  }
 
   function fundEscrowExact() {
     fundAtaInBankrun(
@@ -136,17 +144,15 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
   }
 
   it("finalizes an agent FreshRound after the dispute window", async () => {
-    const n = ++nonce;
     const t = ++ts;
     fundEscrowExact();
-    await settleAgentRound({
+    const recordPda = await settleAgentRound({
       proto,
       gateway,
       payer: escrow.payer,
-      requestNonce: n,
-      maxPrice: freshRoundPrice(SIGS_REQUIRED),
-      feedId: FEED_ID,
-      timestamp: t,
+      amount: freshRoundPrice(SIGS_REQUIRED),
+      apiConfigHash: API_CONFIG_HASH,
+      canonicalTimestamp: t,
       signaturesRequired: SIGS_REQUIRED,
       registryVersion,
       aggSig: zeroedAggSig(bitmapWithBits([0, 1])),
@@ -155,10 +161,15 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
         [0, 1]
       ),
     });
-    const recordPda = findAgentRoundPda(
-      proto.program.programId,
-      escrow.escrowPda,
-      n
+    assert.equal(
+      recordPda.toBase58(),
+      findAgentRoundPda(
+        proto.program.programId,
+        escrow.payer.publicKey,
+        API_CONFIG_HASH,
+        SIGS_REQUIRED,
+        t
+      ).toBase58()
     );
 
     const finalize = (computeUnitLimit?: number) =>
@@ -239,12 +250,12 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
   });
 
   it("voids a fabricated agent round on dispute and slashes the gateway bond", async () => {
-    const n = ++nonce;
     const t = ++ts;
+    const feedId = feedIdForPayer();
     // The credited set must be the deterministically derived selection so the dispute
     // reaches Schnorr verification (which then fails on the garbage signature).
     const selection = deriveSignersBitmapForJob(
-      FEED_ID,
+      feedId,
       registryVersion,
       NODE_COUNT,
       SIGS_REQUIRED,
@@ -255,24 +266,18 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     const fabricatedSig = zeroedAggSig(selection);
 
     fundEscrowExact();
-    await settleAgentRound({
+    const recordPda = await settleAgentRound({
       proto,
       gateway: victimGateway,
       payer: escrow.payer,
-      requestNonce: n,
-      maxPrice: freshRoundPrice(SIGS_REQUIRED),
-      feedId: FEED_ID,
-      timestamp: t,
+      amount: freshRoundPrice(SIGS_REQUIRED),
+      apiConfigHash: API_CONFIG_HASH,
+      canonicalTimestamp: t,
       signaturesRequired: SIGS_REQUIRED,
       registryVersion,
       aggSig: fabricatedSig,
       creditedNodePdas: creditedNodePdasForBits(proto.program.programId, bits),
     });
-    const recordPda = findAgentRoundPda(
-      proto.program.programId,
-      escrow.escrowPda,
-      n
-    );
 
     const challenger = ctx.nodes[30];
     const challengerUsdc = await fundNodeOwnerInBankrun(
@@ -291,7 +296,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       nodeBits: bits,
     });
 
-    // round record is voided by the dispute round instruction
     const voided = await proto.program.account.roundReceiptRecord.fetch(
       recordPda
     );
@@ -314,18 +318,18 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
   });
 
   it("fails to dispute a genuinely valid full-participation agent round", async () => {
-    const n = ++nonce;
     const t = ++ts;
     const value = Uint8Array.from(Buffer.alloc(32, 0x99));
+    const feedId = feedIdForPayer();
     // Full participation: signers == derived selection. Before the subset-check fix this
     // was falsely adjudicated as fraud; it must now fail with DisputeSignatureValid.
     const signed = signE2eDataUpdate(
       registryVersion,
       material,
-      NODE_COUNT, // derive the selection bitmap for this job/timestamp
-      FEED_ID,
+      NODE_COUNT,
+      feedId,
       {
-        configHash: new Uint8Array(32),
+        configHash: API_CONFIG_HASH,
         value,
         canonicalTimestamp: t,
       },
@@ -343,25 +347,19 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     };
 
     fundEscrowExact();
-    await settleAgentRound({
+    const recordPda = await settleAgentRound({
       proto,
       gateway,
       payer: escrow.payer,
-      requestNonce: n,
-      maxPrice: freshRoundPrice(SIGS_REQUIRED),
-      feedId: FEED_ID,
-      timestamp: t,
+      amount: freshRoundPrice(SIGS_REQUIRED),
+      apiConfigHash: API_CONFIG_HASH,
+      canonicalTimestamp: t,
       signaturesRequired: SIGS_REQUIRED,
       registryVersion,
       aggSig: validSig,
       value,
       creditedNodePdas: creditedNodePdasForBits(proto.program.programId, bits),
     });
-    const recordPda = findAgentRoundPda(
-      proto.program.programId,
-      escrow.escrowPda,
-      n
-    );
 
     try {
       await disputeRound({
@@ -382,7 +380,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
   });
 
   it("still finalizes a subscription round record (seeds-constraint removal regression)", async () => {
-    // Plan + subscription for the authority wallet.
     const planId = 1; // PlanType::Standard
     const [planPda] = PublicKey.findProgramAddressSync(
       [PLAN_SEED, Buffer.from([planId])],
@@ -424,9 +421,9 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       })
       .rpc();
 
-    // Subscription settle: consumer Ed25519 attestation over H(RequestAuth).
     const t = ++ts;
-    const subFeedId = Buffer.alloc(32, 0x77);
+    const apiConfig = Buffer.alloc(32, 0x77);
+    const subFeedId = deriveFeedId(ctx.authority.publicKey, apiConfig, 1);
     const requestAuthHash = sha256([
       DOMAIN_REQAUTH,
       Buffer.concat([subFeedId, u64le(t)]),
@@ -435,15 +432,18 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       privateKey: ctx.authority.payer.secretKey,
       message: requestAuthHash,
     });
-    const [roundRecordPda] = PublicKey.findProgramAddressSync(
-      [ROUND_SEED, subFeedId, u64le(t)],
-      proto.program.programId
+    const roundRecordPda = findSubscriptionRoundPda(
+      proto.program.programId,
+      ctx.authority.publicKey,
+      apiConfig,
+      1,
+      t
     );
 
     await proto.program.methods
       .settleRoundReceipt({
-        feedId: Array.from(subFeedId),
         timestamp: new BN(t),
+        apiConfigHash: Array.from(apiConfig),
         signaturesRequired: 1,
         registryVersion,
         aggSig: zeroedAggSig(bitmapWithBits([0])),
@@ -454,8 +454,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
         payer: ctx.authority.publicKey,
         protocolConfig: proto.protocolConfigPda,
         registryState: proto.registryStatePda,
-        // Owner-direct settlement now requires the matching plan account.
-        plan: planPda,
         subscription: subscriptionPda,
         consumerDelegate: null,
         gateway: gateway.gatewayPda,

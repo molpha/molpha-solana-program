@@ -18,7 +18,7 @@ import {
   fundNodeOwnerInBankrun,
   registerNodesForE2e,
   getProtocolTreasury,
-} from "../helpers/evm-submit-data-update";
+} from "../helpers/submit-data-update";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");

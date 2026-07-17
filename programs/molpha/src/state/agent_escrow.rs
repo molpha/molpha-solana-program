@@ -16,7 +16,6 @@ pub struct AgentEscrow {
     pub authority: Pubkey,
     pub status: AgentStatus,
     pub spent_total: u64,
-    pub last_request_nonce: u64,
     pub bump: u8,
 }
 
@@ -28,7 +27,6 @@ impl AgentEscrow {
         self.authority = authority;
         self.status = AgentStatus::Active;
         self.spent_total = 0;
-        self.last_request_nonce = 0;
         self.bump = bump;
     }
 }

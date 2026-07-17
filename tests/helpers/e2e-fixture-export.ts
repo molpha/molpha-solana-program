@@ -9,7 +9,7 @@ import {
   evmSignersBitmapNumberFromBytes,
   E2eSignerMaterial,
   SignedE2eDataUpdate,
-} from "./evm-submit-data-update";
+} from "./submit-data-update";
 
 /** JSON shape compatible with `tests/fixtures-json/verify-answer-evm.json`. */
 export type VerifyAnswerEvmFixture = {

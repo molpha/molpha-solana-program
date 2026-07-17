@@ -119,7 +119,6 @@ pub struct SubmitDataUpdate<'info> {
 #[cfg(test)]
 mod tests {
     use super::SubmitDataUpdateArgs;
-    use anchor_lang::{AnchorDeserialize, AnchorSerialize};
 
     const ARGS_SERIALIZED_LEN: usize = 161;
 
@@ -139,10 +138,8 @@ mod tests {
     #[test]
     fn submit_data_update_args_roundtrip() {
         let args = fixture_args();
-        let bytes = args
-            .try_to_vec()
-            .expect("SubmitDataUpdateArgs should serialize");
-        let decoded = SubmitDataUpdateArgs::try_from_slice(&bytes)
+        let bytes = borsh::to_vec(&args).expect("SubmitDataUpdateArgs should serialize");
+        let decoded = borsh::from_slice::<SubmitDataUpdateArgs>(&bytes)
             .expect("SubmitDataUpdateArgs should deserialize");
 
         assert_eq!(decoded.feed_id, args.feed_id);
@@ -156,9 +153,7 @@ mod tests {
 
     #[test]
     fn submit_data_update_args_serialized_len_is_stable() {
-        let bytes = fixture_args()
-            .try_to_vec()
-            .expect("SubmitDataUpdateArgs should serialize");
+        let bytes = borsh::to_vec(&fixture_args()).expect("SubmitDataUpdateArgs should serialize");
         assert_eq!(bytes.len(), ARGS_SERIALIZED_LEN);
     }
 
@@ -166,10 +161,8 @@ mod tests {
     fn submit_data_update_args_preserves_negative_timestamp() {
         let mut args = fixture_args();
         args.canonical_timestamp = -123_456_789;
-        let bytes = args
-            .try_to_vec()
-            .expect("SubmitDataUpdateArgs should serialize");
-        let decoded = SubmitDataUpdateArgs::try_from_slice(&bytes)
+        let bytes = borsh::to_vec(&args).expect("SubmitDataUpdateArgs should serialize");
+        let decoded = borsh::from_slice::<SubmitDataUpdateArgs>(&bytes)
             .expect("SubmitDataUpdateArgs should deserialize");
         assert_eq!(decoded.canonical_timestamp, -123_456_789);
     }

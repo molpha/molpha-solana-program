@@ -178,8 +178,8 @@ pub enum MolphaError {
     // ---- Agent pay-per-request access (x402 / self-funded). ----
     #[msg("agent escrow is not active")]
     AgentNotActive,
-    #[msg("computed price exceeds the agent-signed max_price")]
-    MaxPriceExceeded,
+    #[msg("computed price does not match the agent-signed amount")]
+    AmountMismatch,
     #[msg("arithmetic overflow in escrow spend accounting")]
     EpochCapExceeded,
     #[msg("escrow ATA balance below computed price")]

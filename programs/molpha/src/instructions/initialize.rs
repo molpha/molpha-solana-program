@@ -160,8 +160,8 @@ mod tests {
     #[test]
     fn initialize_args_roundtrip() {
         let args = fixture_args();
-        let bytes = args.try_to_vec().expect("serialize");
-        let decoded = InitializeArgs::try_from_slice(&bytes).expect("deserialize");
+        let bytes = borsh::to_vec(&args).expect("serialize");
+        let decoded = borsh::from_slice::<InitializeArgs>(&bytes).expect("deserialize");
 
         assert_eq!(decoded.registry_cooldown_secs, args.registry_cooldown_secs);
         assert_eq!(decoded.previous_grace_secs, args.previous_grace_secs);
@@ -191,7 +191,7 @@ mod tests {
         // 137 (pre-agent fields) + 2 * u64 + 1 * i64 for the agent pricing/policy block.
         assert_eq!(data.len(), 137 + 24);
 
-        let decoded = InitializeArgs::try_from_slice(&data[8..]).expect("deserialize args");
+        let decoded = borsh::from_slice::<InitializeArgs>(&data[8..]).expect("deserialize args");
         assert_eq!(decoded.usdc_mint, args.usdc_mint);
         assert_eq!(decoded.max_node_count, args.max_node_count);
     }

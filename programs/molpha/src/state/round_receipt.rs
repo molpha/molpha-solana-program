@@ -6,16 +6,6 @@ pub const RECORD_KIND_SUBSCRIPTION: u8 = 0;
 pub const RECORD_KIND_AGENT_FRESH: u8 = 1;
 
 /// Per-round settlement record.
-///
-/// One per `(feed_id, timestamp)` for subscription rounds, one per `(agent, request_nonce)`
-/// for agent rounds (seed `AGENT_SEED_PREFIX`). Created optimistically without verifying the
-/// committed `AggregatedSig`. Settlement also commits the exact data-update message hash used
-/// for any future dispute verification. Credits become withdrawable once `finalized == true`
-/// (after the dispute window) via `finalize_round`.
-///
-/// `finalize_round` / `dispute_round` accept both variants: they validate the account by
-/// owner + discriminator and trust stored contents (only the two settle instructions can
-/// create records, and both write complete state).
 #[account]
 #[derive(InitSpace)]
 pub struct RoundReceiptRecord {
@@ -38,7 +28,6 @@ pub struct RoundReceiptRecord {
 
 impl RoundReceiptRecord {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_round";
-    /// Agent-round records: `[AGENT_SEED_PREFIX, agent, request_nonce_le]`.
     pub const AGENT_SEED_PREFIX: &'static [u8] = b"molpha_agent_round";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 }
