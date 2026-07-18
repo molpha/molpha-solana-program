@@ -482,7 +482,7 @@ export async function settleAgentRound(
       signaturesRequired: params.signaturesRequired,
       registryVersion: params.registryVersion,
       aggSig: params.aggSig ?? zeroedAggSig(),
-      value: Array.from(params.value ?? new Uint8Array(32)),
+      value: Buffer.from(params.value ?? new Uint8Array(32)),
     })
     .accountsPartial({
       gatewayAuthority: params.gateway.gatewayAuthority.publicKey,

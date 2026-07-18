@@ -754,7 +754,7 @@ async function simulateSettleRound({
       commitmentAddr: Array.from(aggSig.commitmentAddr),
       signersBitmap: Array.from(aggSig.signersBitmap),
     },
-    value: Array.from(value),
+    value: Buffer.from(value),
     consumerAuthority: payer.publicKey,
   };
 

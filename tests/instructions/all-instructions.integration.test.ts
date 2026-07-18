@@ -293,7 +293,7 @@ describe("Molpha instruction coverage integration", () => {
       registryVersion: 0,
       signaturesRequired: 1,
       signersBitmap: Array.from(Buffer.alloc(32, 0)),
-      value: Array.from(Buffer.alloc(32, 1)),
+      value: Buffer.alloc(32, 1),
       canonicalTimestamp: new BN(1),
       aggSigR: Array.from(Buffer.alloc(32, 0)),
       aggSigS: Array.from(Buffer.alloc(32, 0)),

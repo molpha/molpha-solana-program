@@ -1,6 +1,6 @@
 /**
- * MVP happy path: register → subscribe → submit_data_update (lazy job init) →
- * verify_data_update on the current registry, with return-data checks.
+ * MVP happy path: register → subscribe → submit_data_update (lazy feed init).
+ * Covers FeedValueKind::Value (≤32 bytes) and FeedValueKind::Hash (>32 bytes).
  */
 import * as anchor from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
@@ -10,21 +10,18 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import { keccak_256 } from "@noble/hashes/sha3";
 import { Clock } from "solana-bankrun";
 import { setupTestContext, TestContext } from "../setup";
 import { generateE2eScenario } from "../helpers/e2e-fixture-export";
 import {
   deriveFeedId,
-  executeVerifyDataUpdateReturnData,
-  expectedVerifyDataUpdateReturnBytes,
   findFeedPda,
-  findJobPda,
   generateE2eSignerMaterialFromSeed,
   getProtocolTreasury,
   registerNodesForE2e,
   signE2eDataUpdate,
   signerRemainingAccounts,
-  VERIFY_DATA_UPDATE_RETURN_LEN,
 } from "../helpers/submit-data-update";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
@@ -49,8 +46,11 @@ async function advanceClock(ctx: TestContext, seconds: number): Promise<void> {
 }
 
 describe("submit_data_update (current registry)", () => {
-  it("submits an update then verifies return data matches value, timestamp, and round_id", async () => {
+  it("stores raw value (<=32) or keccak hash (>32) based on payload length", async () => {
     const scenario = generateE2eScenario(E2E_SEED, SIGNER_COUNT);
+    const longValue = Buffer.alloc(64, 0xab);
+    const expectedHash = Buffer.from(keccak_256(longValue));
+
     const ctx = await setupTestContext();
     const program = ctx.molphaProgram as anchor.Program;
 
@@ -164,15 +164,14 @@ describe("submit_data_update (current registry)", () => {
       })
       .rpc();
 
+    // ---- ≤32 bytes → FeedValueKind::Value ----
     const feedId = deriveFeedId(
       ctx.authority.publicKey,
       scenario.configHash,
       SIGNER_COUNT
     );
-    const jobPda = findJobPda(program.programId, feedId);
     const feedPda = findFeedPda(program.programId, feedId);
-
-    const signed = signE2eDataUpdate(
+    const signedValue = signE2eDataUpdate(
       registry.currentVersion,
       signerMaterial,
       SIGNER_COUNT,
@@ -184,20 +183,20 @@ describe("submit_data_update (current registry)", () => {
       }
     );
 
-    const remaining = signerRemainingAccounts(
-      program.programId,
-      signed.submitArgs.signersBitmap
-    );
-
     await program.methods
-      .submitDataUpdate(signed.submitArgs)
+      .submitDataUpdate(signedValue.submitArgs)
       .accountsPartial({
         submitter: ctx.authority.publicKey,
         registryState: registryStatePda,
         feed: feedPda,
         systemProgram: SystemProgram.programId,
       })
-      .remainingAccounts(remaining)
+      .remainingAccounts(
+        signerRemainingAccounts(
+          program.programId,
+          signedValue.submitArgs.signersBitmap
+        )
+      )
       .preInstructions([
         anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({
           units: 1_400_000,
@@ -205,17 +204,64 @@ describe("submit_data_update (current registry)", () => {
       ])
       .rpc();
 
-    const feed = await program.account.feed.fetch(feedPda);
-    assert.deepEqual(Array.from(feed.value), Array.from(scenario.value));
-    assert.equal(feed.registryVersion, registry.currentVersion);
+    const feedValue = await program.account.feed.fetch(feedPda);
+    assert.deepEqual(feedValue.valueKind, { value: {} });
+    assert.deepEqual(Array.from(feedValue.value), Array.from(scenario.value));
+    assert.equal(feedValue.registryVersion, registry.currentVersion);
     assert.equal(
-      feed.canonicalTimestamp.toString(),
+      feedValue.canonicalTimestamp.toString(),
       String(scenario.canonicalTimestamp)
     );
-    assert.equal(feed.signaturesRequired, SIGNER_COUNT);
+    assert.equal(feedValue.signaturesRequired, SIGNER_COUNT);
     assert.deepEqual(
-      Array.from(feed.signersBitmap),
-      Array.from(signed.submitArgs.signersBitmap)
+      Array.from(feedValue.signersBitmap),
+      Array.from(signedValue.submitArgs.signersBitmap)
     );
+
+    // ---- >32 bytes → FeedValueKind::Hash ----
+    const longConfigHash = Buffer.from(keccak_256(Buffer.from("long-config")));
+    const longFeedId = deriveFeedId(
+      ctx.authority.publicKey,
+      longConfigHash,
+      SIGNER_COUNT
+    );
+    const longFeedPda = findFeedPda(program.programId, longFeedId);
+    const signedHash = signE2eDataUpdate(
+      registry.currentVersion,
+      signerMaterial,
+      SIGNER_COUNT,
+      longFeedId,
+      {
+        configHash: longConfigHash,
+        value: longValue,
+        canonicalTimestamp: scenario.canonicalTimestamp + 1,
+      }
+    );
+
+    await program.methods
+      .submitDataUpdate(signedHash.submitArgs)
+      .accountsPartial({
+        submitter: ctx.authority.publicKey,
+        registryState: registryStatePda,
+        feed: longFeedPda,
+        systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts(
+        signerRemainingAccounts(
+          program.programId,
+          signedHash.submitArgs.signersBitmap
+        )
+      )
+      .preInstructions([
+        anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({
+          units: 1_400_000,
+        }),
+      ])
+      .rpc();
+
+    const feedHash = await program.account.feed.fetch(longFeedPda);
+    assert.deepEqual(feedHash.valueKind, { hash: {} });
+    assert.deepEqual(Array.from(feedHash.value), Array.from(expectedHash));
+    assert.equal(feedHash.value.length, 32);
   });
 });

@@ -2,7 +2,7 @@ use crate::{
     error::MolphaError,
     events::RoundSettled,
     state::{
-        hash_agg_sig, hash_request_auth_fields, AggregatedSig, Delegate, Gateway, Node,
+        hash_agg_sig, hash_request_auth_fields, AggregatedSig, Delegate, Feed, Gateway, Node,
         ProtocolConfig, RegistryState, RoundReceiptRecord, Subscription,
     },
     utils::{ed25519::verify_ed25519_signature, registry::derive_feed_id},
@@ -17,7 +17,7 @@ pub struct SettleRoundArgs {
     pub signatures_required: u8,
     pub registry_version: u32,
     pub agg_sig: AggregatedSig,
-    pub value: [u8; 32],
+    pub value: Vec<u8>,
     pub consumer_authority: Pubkey,
 }
 
@@ -46,6 +46,11 @@ pub fn settle_round_receipt<'info>(
     require!(
         args.registry_version == registry.current_version,
         MolphaError::InvalidRegistryVersion
+    );
+
+    require!(
+        args.value.len() <= Feed::MAX_VALUE_LEN,
+        MolphaError::InvalidValueLength
     );
 
     // 3. Consumer authorization (owner-direct or delegate/agent).

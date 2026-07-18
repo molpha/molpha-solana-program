@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 
+use crate::state::FeedValueKind;
+
 #[event]
 pub struct ProtocolConfigUpdated {
     pub reward_per_signature: u64,
@@ -170,7 +172,9 @@ pub struct FeedUpdated {
     pub feed_id: [u8; 32],
     pub registry_version: u32,
     pub canonical_timestamp: i64,
-    pub value: [u8; 32],
+    /// Compacted payload stored on the feed (raw ≤32 bytes, or keccak digest).
+    pub value: Vec<u8>,
+    pub value_kind: FeedValueKind,
     pub signers_bitmap: [u8; 32],
     pub last_updated_slot: u64,
 }

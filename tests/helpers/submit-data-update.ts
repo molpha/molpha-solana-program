@@ -778,7 +778,7 @@ export function signE2eDataUpdate(
     registryVersion,
     signaturesRequired: required,
     signersBitmap: Array.from(signersBitmap),
-    value: Array.from(dataUpdate.value),
+    value: Buffer.from(dataUpdate.value),
     canonicalTimestamp: new BN(dataUpdate.canonicalTimestamp),
     aggSigR: Array.from(new Uint8Array(32)),
     aggSigS: Array.from(s),
@@ -1395,10 +1395,10 @@ export async function seedEvmJobAndFeed(
     feedId: Array.from(EVM_FIXTURE_FEED_ID),
     registryVersion: 0,
     canonicalTimestamp: new BN(0),
-    value: Array.from(new Uint8Array(32)),
+    value: Buffer.alloc(0),
+    valueKind: { value: {} },
     signersBitmap: Array.from(new Uint8Array(32)),
     signaturesRequired: 0,
-    lastUpdatedSlot: new BN(0),
     bump: feedBump,
   });
 
