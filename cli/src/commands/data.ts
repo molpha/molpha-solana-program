@@ -32,7 +32,7 @@ type SubmitArgsShape = {
   registryVersion: number | string;
   signaturesRequired: number | string;
   signersBitmap: number[] | string;
-  value: number[] | string;
+  value: number[] | string | Uint8Array;
   canonicalTimestamp: string | number;
   aggSigS: number[] | string;
   commitmentAddr: number[] | string;
@@ -50,7 +50,7 @@ export function registerDataCommands(program: Command): void {
     .option("--feed-id <hex>", "32-byte feed id")
     .option("--registry-version <number>", "registry version")
     .option("--config-hash <hex>", "32-byte config hash (signing metadata)")
-    .option("--value <hex>", "32-byte value")
+    .option("--value <hex>", "oracle value bytes (hex)")
     .option("--canonical-timestamp <number>", "unix timestamp")
     .option("--signer-count <number>", "number of signers to include", "8")
     .option("--signers-bitmap <hex>", "explicit 32-byte signers bitmap")
@@ -77,7 +77,7 @@ export function registerDataCommands(program: Command): void {
     .option("--feed-id <hex>", "32-byte feed id")
     .option("--registry-version <number>", "registry version")
     .option("--config-hash <hex>", "32-byte config hash (signing metadata)")
-    .option("--value <hex>", "32-byte value")
+    .option("--value <hex>", "oracle value bytes (hex)")
     .option("--canonical-timestamp <number>", "unix timestamp")
     .option("--signer-count <number>", "number of signers to include", "8")
     .option("--signers-bitmap <hex>", "explicit 32-byte signers bitmap")
@@ -148,7 +148,7 @@ export function registerDataCommands(program: Command): void {
     .option("--feed-id <hex>", "32-byte feed id")
     .option("--registry-version <number>", "registry version")
     .option("--config-hash <hex>", "32-byte config hash (signing metadata)")
-    .option("--value <hex>", "32-byte value")
+    .option("--value <hex>", "oracle value bytes (hex)")
     .option("--canonical-timestamp <number>", "unix timestamp")
     .option("--signer-count <number>", "number of signers to include", "8")
     .option("--signers-bitmap <hex>", "explicit 32-byte signers bitmap")
@@ -236,7 +236,7 @@ function buildSignedPayload(
       ),
       value: hexToBytes(
         requireValue(options.value, "Missing --value"),
-        32,
+        undefined,
         "value"
       ),
       canonicalTimestamp: parseInteger(
@@ -278,7 +278,7 @@ function normalizeSubmitArgs(value: SubmitArgsShape) {
       typeof value.registryVersion === "number"
         ? value.registryVersion
         : parseInteger(value.registryVersion, "registry version"),
-    value: Array.from(bytesFromField(value.value, 32, "value")),
+    value: Buffer.from(bytesFromField(value.value, undefined, "value")),
     canonicalTimestamp: new BN(String(value.canonicalTimestamp)),
     signaturesRequired:
       typeof value.signaturesRequired === "number"
@@ -296,14 +296,14 @@ function normalizeSubmitArgs(value: SubmitArgsShape) {
 
 function bytesFromField(
   value: string | number[] | Uint8Array,
-  expectedLength: number,
+  expectedLength: number | undefined,
   label: string
 ): Uint8Array {
   if (typeof value === "string") {
     return hexToBytes(value, expectedLength, label);
   }
   const bytes = Uint8Array.from(value);
-  if (bytes.length !== expectedLength) {
+  if (expectedLength !== undefined && bytes.length !== expectedLength) {
     throw new Error(
       `${label} must be ${expectedLength} bytes, got ${bytes.length}`
     );

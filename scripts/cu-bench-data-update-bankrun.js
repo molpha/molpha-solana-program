@@ -324,7 +324,7 @@ async function seedBenchAccounts(
     feedId: Array.from(FIXTURE_FEED_ID),
     registryVersion: 0,
     canonicalTimestamp: new anchor.BN(0),
-    value: Array.from(Buffer.alloc(32)),
+    value: Buffer.alloc(32),
     signersBitmap: Array.from(Buffer.alloc(32)),
     signaturesRequired: 0,
     lastUpdatedSlot: new anchor.BN(0),

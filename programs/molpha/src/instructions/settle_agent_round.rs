@@ -3,7 +3,7 @@ use crate::{
     events::{AgentEscrowCreated, AgentRoundSettled},
     state::{
         hash_agent_request_auth_fields, hash_agg_sig, AgentEscrow, AgentStatus, AggregatedSig,
-        Gateway, Node, ProtocolConfig, RegistryState, RoundReceiptRecord,
+        Feed, Gateway, Node, ProtocolConfig, RegistryState, RoundReceiptRecord,
     },
     utils::{ed25519::verify_ed25519_signature, registry::derive_feed_id},
 };
@@ -20,7 +20,7 @@ pub struct SettleAgentRoundArgs {
     pub signatures_required: u8,
     pub registry_version: u32,
     pub agg_sig: AggregatedSig,
-    pub value: [u8; 32],
+    pub value: Vec<u8>,
 }
 
 /// Price from request-time parameters only (never the post-hoc bitmap popcount), so
@@ -55,6 +55,11 @@ pub fn settle_agent_round<'info>(
     require!(
         args.registry_version == registry.current_version,
         MolphaError::InvalidRegistryVersion
+    );
+
+    require!(
+        args.value.len() <= Feed::MAX_VALUE_LEN,
+        MolphaError::InvalidValueLength
     );
 
     let escrow = &mut ctx.accounts.agent_escrow;

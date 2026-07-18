@@ -56,7 +56,7 @@ export function registerRoundCommands(program: Command): void {
       "--gateway-authority <pubkey>",
       "gateway authority pubkey (for PDA)"
     )
-    .option("--value <hex>", "32-byte value", "0x" + "00".repeat(32))
+    .option("--value <hex>", "oracle value bytes (hex)", "0x" + "00".repeat(32))
     .option("--subscription-owner <pubkey>", "subscription owner")
     .option(
       "--consumer-wallet <path>",
@@ -109,7 +109,7 @@ export function registerRoundCommands(program: Command): void {
         options.registryVersion,
         "registry version"
       );
-      const value = hexToBytes(options.value, 32, "value");
+      const value = hexToBytes(options.value, undefined, "value");
       const aggSig = options.aggSig
         ? parseAggregatedSigJson(options.aggSig)
         : buildAggregatedSig({
@@ -147,7 +147,7 @@ export function registerRoundCommands(program: Command): void {
           signaturesRequired,
           registryVersion,
           aggSig,
-          value: Array.from(value),
+          value: Buffer.from(value),
           consumerAuthority: consumer.publicKey,
         })
         .accountsPartial({
@@ -203,7 +203,7 @@ export function registerRoundCommands(program: Command): void {
       "--gateway-wallet <path>",
       "gateway authority keypair; defaults to provider wallet"
     )
-    .option("--value <hex>", "32-byte value", "0x" + "00".repeat(32))
+    .option("--value <hex>", "oracle value bytes (hex)", "0x" + "00".repeat(32))
     .option("--agg-sig <path>", "JSON AggregatedSig file")
     .option("--signers-bitmap <hex>", "32-byte credited signers bitmap")
     .option("--credited-bits <list>", "comma-separated credited bit indices")
@@ -256,7 +256,7 @@ export function registerRoundCommands(program: Command): void {
         "registry version"
       );
       const amount = bn(options.amount, "amount");
-      const value = hexToBytes(options.value, 32, "value");
+      const value = hexToBytes(options.value, undefined, "value");
       const aggSig = options.aggSig
         ? parseAggregatedSigJson(options.aggSig)
         : buildAggregatedSig({
@@ -306,7 +306,7 @@ export function registerRoundCommands(program: Command): void {
           signaturesRequired,
           registryVersion,
           aggSig,
-          value: Array.from(value),
+          value: Buffer.from(value),
         })
         .accountsPartial({
           gatewayAuthority: gatewayAuthority.publicKey,

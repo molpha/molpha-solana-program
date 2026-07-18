@@ -138,6 +138,8 @@ pub enum MolphaError {
     InvalidAgentCaps,
     #[msg("credited signer count exceeds signatures_required + redundancy_buffer")]
     CreditedExceedsSelection,
+    #[msg("value exceeds Feed::MAX_VALUE_LEN")]
+    InvalidValueLength,
 }
 
 pub(crate) fn map_data_update_err(error: DataUpdateError) -> anchor_lang::error::Error {

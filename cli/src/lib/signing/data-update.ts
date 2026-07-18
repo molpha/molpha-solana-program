@@ -39,7 +39,7 @@ export type SignedDataUpdate = {
   submitArgs: {
     feedId: number[];
     registryVersion: number;
-    value: number[];
+    value: Buffer;
     canonicalTimestamp: BN;
     signaturesRequired: number;
     aggSigS: number[];
@@ -398,7 +398,7 @@ export function signE2eDataUpdate(
     submitArgs: {
       feedId: Array.from(feedId),
       registryVersion,
-      value: Array.from(dataUpdate.value),
+      value: Buffer.from(dataUpdate.value),
       canonicalTimestamp: new BN(dataUpdate.canonicalTimestamp),
       signaturesRequired: required,
       aggSigS: Array.from(s),
@@ -420,7 +420,9 @@ export function buildSubmitArgsFromFixture(fixture: VerifyDataUpdateFixture) {
   return {
     feedId: Array.from(hexToBytes(fixture.dataUpdate.feedId, 32, "feed id")),
     registryVersion: fixture.dataUpdate.registryVersion,
-    value: Array.from(hexToBytes(fixture.dataUpdate.value, 32, "value")),
+    value: Buffer.from(
+      hexToBytes(fixture.dataUpdate.value, undefined, "value")
+    ),
     canonicalTimestamp: new BN(fixture.dataUpdate.canonicalTimestamp),
     signaturesRequired,
     aggSigS: Array.from(

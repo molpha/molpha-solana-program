@@ -437,7 +437,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
         signaturesRequired: 1,
         registryVersion,
         aggSig: zeroedAggSig(bitmapWithBits([0])),
-        value: Array.from(new Uint8Array(32)),
+        value: Buffer.alloc(32),
         consumerAuthority: ctx.authority.publicKey,
       })
       .accountsPartial({

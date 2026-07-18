@@ -11,7 +11,7 @@ use molpha_verifier::DataUpdate;
 pub struct SubmitDataUpdateArgs {
     pub feed_id: [u8; 32],
     pub registry_version: u32,
-    pub value: [u8; 32],
+    pub value: Vec<u8>,
     pub canonical_timestamp: i64,
     pub signatures_required: u8,
 
@@ -26,7 +26,7 @@ impl From<&SubmitDataUpdateArgs> for DataUpdate {
         Self {
             feed_id: args.feed_id,
             registry_version: args.registry_version,
-            value: args.value,
+            value: args.value.clone(),
             canonical_timestamp: args.canonical_timestamp,
             signatures_required: args.signatures_required,
             agg_sig_s: args.agg_sig_s,
@@ -40,6 +40,8 @@ pub fn submit_data_update(
     ctx: Context<SubmitDataUpdate>,
     args: SubmitDataUpdateArgs,
 ) -> Result<()> {
+    let (stored_value, value_kind) = Feed::encode_stored_value(&args.value)?;
+
     let clock = Clock::get()?;
     let payload: DataUpdate = (&args).into();
     let feed = &mut ctx.accounts.feed;
@@ -50,7 +52,8 @@ pub fn submit_data_update(
     if feed.feed_id == [0u8; 32] {
         feed.init(&FeedInitParams {
             feed_id: args.feed_id,
-            value: args.value,
+            value: stored_value.clone(),
+            value_kind,
             canonical_timestamp: args.canonical_timestamp,
             signatures_required: args.signatures_required,
             registry_version: args.registry_version,
@@ -63,7 +66,8 @@ pub fn submit_data_update(
             MolphaError::FeedNotNewer
         );
         feed.update(&FeedUpdateParams {
-            value: args.value,
+            value: stored_value.clone(),
+            value_kind,
             canonical_timestamp: args.canonical_timestamp,
             registry_version: args.registry_version,
             signers_bitmap: args.signers_bitmap,
@@ -85,7 +89,8 @@ pub fn submit_data_update(
         feed_id: args.feed_id,
         registry_version: args.registry_version,
         canonical_timestamp: args.canonical_timestamp,
-        value: args.value,
+        value: stored_value,
+        value_kind,
         signers_bitmap: args.signers_bitmap,
         last_updated_slot: clock.slot,
     });
@@ -124,7 +129,8 @@ pub struct SubmitDataUpdate<'info> {
 mod tests {
     use super::SubmitDataUpdateArgs;
 
-    const ARGS_SERIALIZED_LEN: usize = 161;
+    /// Borsh size for a 32-byte `value` (u32 length prefix + 32 bytes + fixed fields).
+    const ARGS_SERIALIZED_LEN_32: usize = 165;
 
     fn fixture_args() -> SubmitDataUpdateArgs {
         SubmitDataUpdateArgs {
@@ -132,7 +138,7 @@ mod tests {
             signatures_required: 3,
             registry_version: 7,
             signers_bitmap: [0x33; 32],
-            value: [0x44; 32],
+            value: vec![0x44; 32],
             canonical_timestamp: 1_700_000_000,
             agg_sig_s: [0x66; 32],
             commitment_addr: [0x77; 20],
@@ -158,7 +164,7 @@ mod tests {
     #[test]
     fn submit_data_update_args_serialized_len_is_stable() {
         let bytes = borsh::to_vec(&fixture_args()).expect("SubmitDataUpdateArgs should serialize");
-        assert_eq!(bytes.len(), ARGS_SERIALIZED_LEN);
+        assert_eq!(bytes.len(), ARGS_SERIALIZED_LEN_32);
     }
 
     #[test]

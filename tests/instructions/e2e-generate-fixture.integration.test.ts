@@ -231,6 +231,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
 
     const feed = await program.account.feed.fetch(feedPda);
     assert.deepEqual(Array.from(feed.value), Array.from(scenario.value));
+    assert.deepEqual(feed.valueKind, { value: {} });
     assert.equal(feed.registryVersion, registry.currentVersion);
     assert.equal(
       feed.canonicalTimestamp.toString(),

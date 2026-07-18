@@ -166,7 +166,7 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
         signaturesRequired,
         registryVersion,
         aggSig: zeroedAggSig(bitmapWithBits(bits)),
-        value: Array.from(new Uint8Array(32)),
+        value: Buffer.alloc(32),
         consumerAuthority: consumer.publicKey,
       })
       .accountsPartial({
