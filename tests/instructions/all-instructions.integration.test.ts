@@ -237,14 +237,12 @@ describe("Molpha instruction coverage integration", () => {
     await program.methods
       .addDelegate({
         delegate,
-        maxJobsCreated: 2,
         maxDataRequests: new BN(10),
         maxSigners: 2,
       })
       .accountsPartial({
         owner: ctx.authority.publicKey,
         subscription: subscriptionPda,
-        plan: planPda,
         delegateAccount: delegatePda,
         systemProgram: SystemProgram.programId,
       })

@@ -11,7 +11,7 @@ pub mod utils;
 use instructions::*;
 use state::{AggregatedSig, PlanType};
 
-declare_id!("MoLF4sBjvfsYYdwE84yU9FcTkpd4WSGvR92rpLQgbpn");
+declare_id!("MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh");
 
 #[program]
 pub mod molpha {

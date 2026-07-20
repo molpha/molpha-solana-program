@@ -42,7 +42,6 @@ describe("delegate lifecycle", () => {
   const addDelegate = (
     delegate: PublicKey,
     over: Partial<{
-      maxJobsCreated: number;
       maxDataRequests: number;
       maxSigners: number;
     }> = {}
@@ -50,14 +49,12 @@ describe("delegate lifecycle", () => {
     proto.program.methods
       .addDelegate({
         delegate,
-        maxJobsCreated: over.maxJobsCreated ?? 2,
         maxDataRequests: new BN(over.maxDataRequests ?? 10),
         maxSigners: over.maxSigners ?? 3,
       })
       .accountsPartial({
         owner: ctx.authority.publicKey,
         subscription: subscriptionPda,
-        plan: planPda,
         delegateAccount: findDelegatePda(
           proto.program.programId,
           ctx.authority.publicKey,
@@ -232,14 +229,12 @@ describe("delegate lifecycle", () => {
       await proto.program.methods
         .addDelegate({
           delegate,
-          maxJobsCreated: 1,
           maxDataRequests: new BN(1),
           maxSigners: 1,
         })
         .accountsPartial({
           owner: stranger.publicKey,
           subscription: strangerSubscription,
-          plan: planPda,
           delegateAccount: findDelegatePda(
             proto.program.programId,
             stranger.publicKey,

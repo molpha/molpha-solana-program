@@ -8,13 +8,13 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-molpha = "MoLF4sBjvfsYYdwE84yU9FcTkpd4WSGvR92rpLQgbpn"
+molpha = "MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh"
 
 [programs.localnet]
-molpha = "MoLF4sBjvfsYYdwE84yU9FcTkpd4WSGvR92rpLQgbpn"
+molpha = "MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

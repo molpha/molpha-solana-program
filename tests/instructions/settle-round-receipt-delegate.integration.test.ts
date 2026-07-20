@@ -101,14 +101,12 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
     proto.program.methods
       .addDelegate({
         delegate,
-        maxJobsCreated: 5,
         maxDataRequests: new BN(over.maxDataRequests ?? 100),
         maxSigners: over.maxSigners ?? DELEGATE_MAX_SIGNERS,
       })
       .accountsPartial({
         owner: ctx.authority.publicKey,
         subscription: subscriptionPda,
-        plan: planPda,
         delegateAccount: findDelegatePda(
           proto.program.programId,
           ctx.authority.publicKey,
