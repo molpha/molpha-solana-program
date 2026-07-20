@@ -47,6 +47,14 @@ pub struct NodeRegistered {
 }
 
 #[event]
+pub struct NodeEndpointUpdated {
+    pub owner: Pubkey,
+    pub current_index: u32,
+    pub ip: [u8; 4],
+    pub port: u16,
+}
+
+#[event]
 pub struct NodeDeactivated {
     pub owner: Pubkey,
     pub removed_index: u32,
@@ -76,7 +84,6 @@ pub struct NodeSlotFinalized {
 pub struct PlanAdded {
     pub plan_type: u8,
     pub subscription_price: u64,
-    pub max_jobs: u32,
     pub max_signers: u8,
     pub max_delegates: u32,
     pub private_api_enabled: bool,
@@ -87,7 +94,6 @@ pub struct PlanAdded {
 pub struct PlanUpdated {
     pub plan_type: u8,
     pub subscription_price: u64,
-    pub max_jobs: u32,
     pub max_signers: u8,
     pub max_delegates: u32,
     pub private_api_enabled: bool,
@@ -128,19 +134,9 @@ pub struct GatewayRegistered {
 }
 
 #[event]
-pub struct JobCreated {
-    pub feed_id: [u8; 32],
-    pub owner: Pubkey,
-    pub plan_type: u8,
-    pub signatures_required: u8,
-    pub created_at: i64,
-}
-
-#[event]
 pub struct DelegateAdded {
     pub owner: Pubkey,
     pub delegate: Pubkey,
-    pub max_jobs_created: u32,
     pub max_data_requests: u64,
     pub max_signers: u8,
     /// Subscription delegate count after this addition.
@@ -151,7 +147,6 @@ pub struct DelegateAdded {
 pub struct DelegateRemoved {
     pub owner: Pubkey,
     pub delegate: Pubkey,
-    pub jobs_created: u32,
     pub data_requests_used: u64,
     /// Subscription delegate count after this removal.
     pub delegate_count: u32,
@@ -219,6 +214,7 @@ pub struct RewardsClaimed {
 pub struct AgentEscrowCreated {
     pub agent: Pubkey,
     pub authority: Pubkey,
+    pub gateway: Pubkey,
 }
 
 #[event]

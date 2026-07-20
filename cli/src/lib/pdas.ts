@@ -119,12 +119,14 @@ export function findGatewayPda(
   );
 }
 
+/** Per-(authority, gateway) x402 escrow PDA. */
 export function findAgentEscrowPda(
   programId: PublicKey,
-  authority: PublicKey
+  authority: PublicKey,
+  gateway: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [AGENT_ESCROW_SEED, authority.toBuffer()],
+    [AGENT_ESCROW_SEED, authority.toBuffer(), gateway.toBuffer()],
     programId
   );
 }
@@ -153,6 +155,7 @@ export function findSubscriptionRoundPda(
 export function findAgentRoundPda(
   programId: PublicKey,
   authority: PublicKey,
+  gateway: PublicKey,
   apiConfigHash: Uint8Array,
   signaturesRequired: number,
   canonicalTimestamp: number | bigint
@@ -161,6 +164,7 @@ export function findAgentRoundPda(
     [
       AGENT_ROUND_SEED,
       authority.toBuffer(),
+      gateway.toBuffer(),
       Buffer.from(apiConfigHash),
       Buffer.from([signaturesRequired & 0xff]),
       u64Le(canonicalTimestamp),

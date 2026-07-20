@@ -10,7 +10,6 @@ use crate::{
 pub struct AddPlanArgs {
     pub plan_type: PlanType,
     pub subscription_price: u64,
-    pub max_jobs: u32,
     pub max_signers: u8,
     pub max_delegates: u32,
     pub private_api_enabled: bool,
@@ -27,7 +26,6 @@ pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
     ctx.accounts.plan.init(&PlanInitParams {
         plan_type: args.plan_type,
         subscription_price: args.subscription_price,
-        max_jobs: args.max_jobs,
         max_signers: args.max_signers,
         max_delegates: args.max_delegates,
         private_api_enabled: args.private_api_enabled,
@@ -38,7 +36,6 @@ pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
     emit!(PlanAdded {
         plan_type: args.plan_type as u8,
         subscription_price: args.subscription_price,
-        max_jobs: args.max_jobs,
         max_signers: args.max_signers,
         max_delegates: args.max_delegates,
         private_api_enabled: args.private_api_enabled,

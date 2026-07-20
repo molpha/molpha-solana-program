@@ -145,10 +145,54 @@ export function registerRegistryCommands(program: Command): void {
     });
 
   registry
+    .command("update-endpoint")
+    .description("Update the signer's node IP and port")
+    .requiredOption("--ip <dotted>", "IPv4 endpoint")
+    .requiredOption("--port <number>", "TCP port")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const [nodeOperator] = findNodeOperatorPda(
+        ctx.programId,
+        ctx.wallet.publicKey
+      );
+      const operatorAccount = await fetchAccountOrNull<any>(
+        ctx.program,
+        "nodeOperator",
+        nodeOperator
+      );
+      if (!operatorAccount) {
+        throw new Error(
+          `Node operator not found at ${nodeOperator.toBase58()}`
+        );
+      }
+
+      const args = {
+        ip: parseIpv4(options.ip, "ip"),
+        port: parseInteger(options.port, "port"),
+      };
+
+      const signature = await (ctx.program.methods as any)
+        .updateNodeEndpoint(args)
+        .accountsPartial({
+          nodeOwner: ctx.wallet.publicKey,
+          nodeOperator,
+        })
+        .rpc();
+
+      writeJson({
+        signature,
+        nodeOperator: nodeOperator.toBase58(),
+        ip: options.ip,
+        port: args.port,
+      });
+    });
+
+  registry
     .command("deactivate")
     .description("Deactivate the signer's node")
     .action(async (_options, command: Command) => {
       const ctx = await getCliContext(command);
+      const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
       const [registryStatePda] = findRegistryStatePda(ctx.programId);
       const registryState = await fetchAccountOrNull<any>(
         ctx.program,
@@ -201,6 +245,7 @@ export function registerRegistryCommands(program: Command): void {
         .deactivateNode()
         .accountsPartial({
           authority: ctx.wallet.publicKey,
+          protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
           removedOperator,
           removedNode,

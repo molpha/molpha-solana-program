@@ -129,7 +129,6 @@ describe("delegate lifecycle", () => {
     assert.equal(delegate.owner.toBase58(), ctx.authority.publicKey.toBase58());
     assert.equal(delegate.delegate.toBase58(), delegateKey.toBase58());
     assert.deepEqual(delegate.status, { active: {} });
-    assert.equal(delegate.maxJobsCreated, 2);
     assert.equal(delegate.maxDataRequests.toString(), "10");
     assert.equal(delegate.maxSigners, 3);
     // Dormant credit-economy fields start zeroed.

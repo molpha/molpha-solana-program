@@ -25,7 +25,6 @@ export function registerPlanCommands(program: Command): void {
       "--subscription-price <amount>",
       "monthly subscription price in USDC base units"
     )
-    .requiredOption("--max-jobs <count>", "max jobs")
     .requiredOption("--max-signers <count>", "max signers")
     .requiredOption(
       "--max-delegates <count>",
@@ -68,7 +67,6 @@ export function registerPlanCommands(program: Command): void {
       "--subscription-price <amount>",
       "monthly subscription price in USDC base units"
     )
-    .option("--max-jobs <count>", "max jobs")
     .option("--max-signers <count>", "max signers")
     .option(
       "--max-delegates <count>",
@@ -149,10 +147,6 @@ function buildPlanArgs(options: Record<string, string | boolean>) {
       ),
       "subscription price"
     ),
-    maxJobs: parseInteger(
-      requireValue(options.maxJobs as string, "Missing --max-jobs"),
-      "max jobs"
-    ),
     maxSigners: parseInteger(
       requireValue(options.maxSigners as string, "Missing --max-signers"),
       "max signers"
@@ -171,7 +165,6 @@ function buildUpdatePlanArgs(
   current: {
     planType: Record<string, object>;
     subscriptionPrice: { toString(): string };
-    maxJobs: number;
     maxSigners: number;
     maxDelegates: number;
     privateApiEnabled: boolean;
@@ -186,10 +179,6 @@ function buildUpdatePlanArgs(
       options.subscriptionPrice !== undefined
         ? bn(options.subscriptionPrice as string, "subscription price")
         : bn(current.subscriptionPrice.toString(), "subscription price"),
-    maxJobs:
-      options.maxJobs !== undefined
-        ? parseInteger(options.maxJobs as string, "max jobs")
-        : current.maxJobs,
     maxSigners:
       options.maxSigners !== undefined
         ? parseInteger(options.maxSigners as string, "max signers")

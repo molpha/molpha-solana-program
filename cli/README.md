@@ -36,7 +36,7 @@ yarn molpha:dev --help
 | Group | Commands |
 |---|---|
 | `init` | initialize protocol |
-| `registry` | `register` \| `deactivate` \| `finalize-transition` |
+| `registry` | `register` \| `update-endpoint` \| `deactivate` \| `finalize-transition` |
 | `plan` | `add` \| `update` \| `show` |
 | `subscription` | `subscribe` \| `extend` |
 | `delegate` | `add` \| `remove` \| `pause` |
@@ -44,7 +44,7 @@ yarn molpha:dev --help
 | `round` | `settle-subscription` \| `settle-agent` \| `finalize` \| `dispute` |
 | `rewards` | `claim-node` |
 | `data` | `sign` \| `submit` \| `verify` (off-chain) |
-| `admin` | `withdraw-subscription-vault` |
+| `admin` | `update-config` |
 | `account` | `protocol-config` \| `registry` \| `node` \| `node-operator` \| `plan` \| `subscription` \| `feed` \| `delegate` \| `gateway` \| `agent-escrow` \| `round` \| `secp-key` |
 
 ## Example Flow
@@ -81,9 +81,10 @@ Create a plan and subscribe:
 yarn molpha plan add \
   --plan-type standard \
   --subscription-price 1000 \
-  --max-jobs 4 \
-  --max-signers 1 \
-  --max-delegates 2
+  --max-signers 3 \
+  --max-delegates 100
+
+yarn molpha plan add --plan-type basic --subscription-price 20000000 --max-signers 3 --max-delegates 10 --private-api-enabled --cluster devnet
 
 yarn molpha subscription subscribe --plan-id 1 --owner-usdc <OWNER_USDC_ATA>
 ```
@@ -119,6 +120,12 @@ Inspect accounts:
 yarn molpha account feed --feed-id <FEED_ID_HEX>
 yarn molpha account gateway --authority <GATEWAY_AUTHORITY>
 yarn molpha account round --address <ROUND_RECORD>
+```
+
+Update protocol config (authority only; omitted fields keep current on-chain values):
+
+```bash
+yarn molpha admin update-config --gateway-bond-min 1000000000
 ```
 
 Gateway + settlement:

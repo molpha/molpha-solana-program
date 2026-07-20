@@ -22,7 +22,10 @@ export function registerGatewayCommands(program: Command): void {
   gateway
     .command("register")
     .description("Bond and register a gateway")
-    .requiredOption("--bond-amount <amount>", "USDC bond amount (base units)")
+    .option(
+      "--bond-amount <amount>",
+      "USDC bond amount (base units); defaults to protocol_config.gateway_bond_min"
+    )
     .option("--ip <dotted>", "IPv4 endpoint", "10.0.0.1")
     .option("--port <number>", "TCP port", "8080")
     .option(
@@ -55,12 +58,15 @@ export function registerGatewayCommands(program: Command): void {
             protocolConfig.usdcMint,
             gatewayAuthority.publicKey
           );
+      const bondAmount = options.bondAmount
+        ? bn(options.bondAmount, "bond amount")
+        : protocolConfig.gatewayBondMin;
 
       const builder = (ctx.program.methods as any)
         .registerGateway({
           ip: parseIpv4(options.ip, "ip"),
           port: parseInteger(options.port, "port"),
-          bondAmount: bn(options.bondAmount, "bond amount"),
+          bondAmount,
         })
         .accountsPartial({
           gatewayAuthority: gatewayAuthority.publicKey,
@@ -82,7 +88,7 @@ export function registerGatewayCommands(program: Command): void {
         signature,
         gatewayAuthority: gatewayAuthority.publicKey.toBase58(),
         gateway: gatewayPda.toBase58(),
-        bondAmount: options.bondAmount,
+        bondAmount: bondAmount.toString(),
       });
     });
 

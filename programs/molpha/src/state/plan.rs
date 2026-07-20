@@ -17,7 +17,6 @@ pub enum PlanType {
 pub struct Plan {
     pub plan_type: PlanType,
     pub subscription_price: u64,
-    pub max_jobs: u32,
     pub max_signers: u8,
     /// Max delegates/agents an owner on this plan may provision.
     pub max_delegates: u32,
@@ -29,7 +28,6 @@ pub struct Plan {
 pub struct PlanInitParams {
     pub plan_type: PlanType,
     pub subscription_price: u64,
-    pub max_jobs: u32,
     pub max_signers: u8,
     pub max_delegates: u32,
     pub private_api_enabled: bool,
@@ -44,7 +42,6 @@ impl Plan {
     pub fn init(&mut self, params: &PlanInitParams) {
         self.plan_type = params.plan_type;
         self.subscription_price = params.subscription_price;
-        self.max_jobs = params.max_jobs;
         self.max_signers = params.max_signers;
         self.max_delegates = params.max_delegates;
         self.private_api_enabled = params.private_api_enabled;
@@ -57,7 +54,6 @@ impl Plan {
         &mut self,
         plan_type: PlanType,
         subscription_price: u64,
-        max_jobs: u32,
         max_signers: u8,
         max_delegates: u32,
         private_api_enabled: bool,
@@ -65,7 +61,6 @@ impl Plan {
     ) {
         self.plan_type = plan_type;
         self.subscription_price = subscription_price;
-        self.max_jobs = max_jobs;
         self.max_signers = max_signers;
         self.max_delegates = max_delegates;
         self.private_api_enabled = private_api_enabled;

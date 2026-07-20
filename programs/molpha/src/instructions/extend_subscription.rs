@@ -65,7 +65,6 @@ pub struct ExtendSubscription<'info> {
         mut,
         seeds = [Subscription::SEED_PREFIX, owner.key().as_ref()],
         bump = subscription.bump,
-        constraint = subscription.owner == owner.key() @ MolphaError::UnauthorisedJobOwner,
     )]
     pub subscription: Account<'info, Subscription>,
 

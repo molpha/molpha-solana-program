@@ -104,13 +104,14 @@ export function hashAgentRequestAuthFields(
   return sha256([DOMAIN_AGENT_REQAUTH, body]);
 }
 
-/** Escrow PDA — seeds ["molpha_agent", authority]. */
+/** Escrow PDA — seeds ["molpha_agent", authority, gateway]. */
 export function findAgentEscrowPda(
   programId: PublicKey,
-  authority: PublicKey
+  authority: PublicKey,
+  gateway: PublicKey
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [AGENT_ESCROW_SEED, authority.toBuffer()],
+    [AGENT_ESCROW_SEED, authority.toBuffer(), gateway.toBuffer()],
     programId
   )[0];
 }
@@ -161,11 +162,12 @@ export async function readTokenAmount(
 
 /**
  * Agent round-record PDA:
- * `["molpha_agent_round", authority, api_config_hash, signatures_required, canonical_timestamp_le]`
+ * `["molpha_agent_round", authority, gateway, api_config_hash, signatures_required, canonical_timestamp_le]`
  */
 export function findAgentRoundPda(
   programId: PublicKey,
   authority: PublicKey,
+  gateway: PublicKey,
   apiConfigHash: Uint8Array | Buffer,
   signaturesRequired: number,
   canonicalTimestamp: number | bigint
@@ -174,6 +176,7 @@ export function findAgentRoundPda(
     [
       AGENT_ROUND_SEED,
       authority.toBuffer(),
+      gateway.toBuffer(),
       Buffer.from(apiConfigHash),
       u8(signaturesRequired),
       u64le(canonicalTimestamp),
@@ -362,24 +365,32 @@ export async function registerBondedGateway(
 export interface X402EscrowSetup {
   /** The paying identity (escrow PDA seed). */
   payer: Keypair;
+  /** The gateway this escrow is scoped to (second escrow PDA seed). */
+  gatewayPda: PublicKey;
   escrowPda: PublicKey;
   escrowAta: PublicKey;
 }
 
 /**
- * Set up an x402-style funded escrow: derive PDA(["molpha_agent", payer]) and write
- * USDC directly into its ATA — no program call. The escrow data account itself is
- * lazily created by the first `settle_agent_round`.
+ * Set up an x402-style funded escrow: derive PDA(["molpha_agent", payer, gateway]) and
+ * write USDC directly into its ATA — no program call. The escrow data account itself is
+ * lazily created by the first `settle_agent_round`. Escrows are scoped per (payer,
+ * gateway) pair, so funding is not fungible across gateways — reuse the same `payer` with
+ * a different `gateway` to get an isolated escrow for that counterparty.
  */
 export function createX402FundedEscrow(
   ctx: TestContext,
   proto: AgentProtocolContext,
+  gateway: BondedGateway | PublicKey,
   opts?: { payer?: Keypair; fundAmount?: number | bigint }
 ): X402EscrowSetup {
+  const gatewayPda =
+    gateway instanceof PublicKey ? gateway : gateway.gatewayPda;
   const payer = opts?.payer ?? Keypair.generate();
   const escrowPda = findAgentEscrowPda(
     proto.program.programId,
-    payer.publicKey
+    payer.publicKey,
+    gatewayPda
   );
   const escrowAta = findEscrowAta(ctx.underlyingTokenMint, escrowPda);
 
@@ -394,7 +405,7 @@ export function createX402FundedEscrow(
     );
   }
 
-  return { payer, escrowPda, escrowAta };
+  return { payer, gatewayPda, escrowPda, escrowAta };
 }
 
 /** Bitmap (EVM u256 layout) with the given bit positions set. */
@@ -432,6 +443,10 @@ export interface SettleAgentRoundParams {
   creditedNodePdas?: PublicKey[];
   /** When false, omit the Ed25519 AgentRequestAuth pre-instruction (negative tests). */
   signAgentRequest?: boolean;
+  /** Force a specific `agent_escrow` account (e.g. another gateway's escrow PDA) to
+   *  exercise the seeds constraint in negative tests. Defaults to the correctly
+   *  derived `(payer, gateway)` escrow. */
+  agentEscrowOverride?: PublicKey;
 }
 
 export async function settleAgentRound(
@@ -440,7 +455,9 @@ export async function settleAgentRound(
   const programId = params.proto.program.programId;
   const authority = params.payer.publicKey;
 
-  const escrowPda = findAgentEscrowPda(programId, authority);
+  const escrowPda =
+    params.agentEscrowOverride ??
+    findAgentEscrowPda(programId, authority, params.gateway.gatewayPda);
   const escrowAta = findEscrowAta(params.proto.usdcMint, escrowPda);
   const feedId = deriveFeedId(
     authority,
@@ -451,6 +468,7 @@ export async function settleAgentRound(
   const roundRecordPda = findAgentRoundPda(
     programId,
     authority,
+    params.gateway.gatewayPda,
     params.apiConfigHash,
     params.signaturesRequired,
     params.canonicalTimestamp

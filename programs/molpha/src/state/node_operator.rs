@@ -53,6 +53,11 @@ impl NodeOperator {
         self.withdrawable_at = 0;
         self.bump = bump;
     }
+
+    pub fn update_endpoint(&mut self, ip: [u8; 4], port: u16) {
+        self.ip = ip;
+        self.port = port;
+    }
 }
 
 #[derive(

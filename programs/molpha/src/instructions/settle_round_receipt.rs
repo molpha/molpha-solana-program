@@ -205,9 +205,6 @@ pub struct SettleRoundReceipt<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    // /// CHECK: SAFETY: required only when `job` is initialized by this settlement.
-    // /// The handler validates this pubkey against the subscription PDA and derived feed id.
-    // pub subscription_owner: Option<UncheckedAccount<'info>>,
     #[account(
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
