@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 use crate::state::AgentStatus;
 
-/// Owner-scoped delegate authorization with persistent job/request quotas.
+/// Owner-scoped delegate authorization with persistent request quotas.
 #[account]
 #[derive(InitSpace)]
 pub struct Delegate {
@@ -10,8 +10,6 @@ pub struct Delegate {
     pub delegate: Pubkey,
     /// Owner pause / protocol freeze backstop.
     pub status: AgentStatus,
-    pub max_jobs_created: u32,
-    pub jobs_created: u32,
     pub max_data_requests: u64,
     pub data_requests_used: u64,
     /// Per-delegate quorum ceiling; clamped to `plan.max_signers` at creation.
@@ -33,7 +31,6 @@ impl Delegate {
         &mut self,
         owner: Pubkey,
         delegate: Pubkey,
-        max_jobs_created: u32,
         max_data_requests: u64,
         max_signers: u8,
         bump: u8,
@@ -41,8 +38,6 @@ impl Delegate {
         self.owner = owner;
         self.delegate = delegate;
         self.status = AgentStatus::Active;
-        self.max_jobs_created = max_jobs_created;
-        self.jobs_created = 0;
         self.max_data_requests = max_data_requests;
         self.data_requests_used = 0;
         self.max_signers = max_signers;
@@ -54,18 +49,6 @@ impl Delegate {
 
     pub fn is_active(&self) -> bool {
         self.status == AgentStatus::Active
-    }
-
-    pub fn try_consume_job(&mut self) -> Result<()> {
-        require!(
-            self.jobs_created < self.max_jobs_created,
-            crate::error::MolphaError::DelegateJobLimitReached
-        );
-        self.jobs_created = self
-            .jobs_created
-            .checked_add(1)
-            .ok_or(crate::error::MolphaError::DelegateJobLimitReached)?;
-        Ok(())
     }
 
     pub fn try_consume_data_request(&mut self) -> Result<()> {

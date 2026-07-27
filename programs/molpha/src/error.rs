@@ -31,6 +31,8 @@ pub enum MolphaError {
     UnauthorisedAuthority,
     #[msg("Gateway endpoint is invalid")]
     InvalidGatewayEndpoint,
+    #[msg("Node endpoint is invalid")]
+    InvalidNodeEndpoint,
     #[msg("treasury token account mismatch")]
     InvalidTreasury,
     #[msg("owner_usdc token account mismatch")]
@@ -57,8 +59,6 @@ pub enum MolphaError {
     DelegateAccountRequired,
     #[msg("delegate account must not be supplied for owner action")]
     UnexpectedDelegateAccount,
-    #[msg("delegate jobs_created >= max_jobs_created")]
-    DelegateJobLimitReached,
     #[msg("delegate data_requests_used >= max_data_requests")]
     DelegateDataRequestLimitReached,
     #[msg("remove_delegate target not found")]
@@ -69,8 +69,6 @@ pub enum MolphaError {
     SignaturesExceedDelegateMax,
     #[msg("subscription delegate_count >= plan.max_delegates")]
     DelegateCapReached,
-    #[msg("job.owner does not match signer")]
-    UnauthorisedJobOwner,
     #[msg("registration_salt must not be zero")]
     InvalidRegistrationSalt,
     #[msg("secp256k1 key fingerprint does not match compressed key")]
@@ -118,7 +116,7 @@ pub enum MolphaError {
     NothingToClaim,
     #[msg("instructions sysvar account is invalid")]
     InvalidInstructionsSysvar,
-    #[msg("consumer authority is not the job owner or a delegate")]
+    #[msg("consumer authority is not the delegate authority")]
     UnauthorisedConsumer,
     #[msg("mismatched or missing credited node account")]
     InvalidCreditNodeAccount,

@@ -11,7 +11,7 @@ pub mod utils;
 use instructions::*;
 use state::{AggregatedSig, PlanType};
 
-declare_id!("MoLF4sBjvfsYYdwE84yU9FcTkpd4WSGvR92rpLQgbpn");
+declare_id!("MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh");
 
 #[program]
 pub mod molpha {
@@ -33,6 +33,13 @@ pub mod molpha {
         instructions::deactivate_node(ctx)
     }
 
+    pub fn update_node_endpoint(
+        ctx: Context<UpdateNodeEndpoint>,
+        args: UpdateNodeEndpointArgs,
+    ) -> Result<()> {
+        instructions::update_node_endpoint(ctx, args)
+    }
+
     pub fn finalize_registry_transition(ctx: Context<FinalizeRegistryTransition>) -> Result<()> {
         instructions::finalize_registry_transition(ctx)
     }
@@ -51,12 +58,6 @@ pub mod molpha {
 
     pub fn extend_subscription(ctx: Context<ExtendSubscription>) -> Result<()> {
         instructions::extend_subscription(ctx)
-    }
-
-    pub fn admin_withdraw_subscription_vault(
-        ctx: Context<AdminWithdrawSubscriptionVault>,
-    ) -> Result<()> {
-        instructions::admin_withdraw_subscription_vault(ctx)
     }
 
     pub fn add_delegate(ctx: Context<AddDelegate>, args: AddDelegateArgs) -> Result<()> {

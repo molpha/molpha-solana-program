@@ -9,7 +9,6 @@ use crate::{
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct AddDelegateArgs {
     pub delegate: Pubkey,
-    pub max_jobs_created: u32,
     pub max_data_requests: u64,
     pub max_signers: u8,
 }
@@ -18,10 +17,6 @@ pub fn add_delegate(ctx: Context<AddDelegate>, args: AddDelegateArgs) -> Result<
     require!(
         args.delegate != ctx.accounts.owner.key(),
         MolphaError::DelegateCannotBeOwner
-    );
-    require!(
-        args.max_jobs_created > 0,
-        MolphaError::InvalidDelegateLimits
     );
     require!(
         args.max_data_requests > 0,
@@ -41,7 +36,6 @@ pub fn add_delegate(ctx: Context<AddDelegate>, args: AddDelegateArgs) -> Result<
     delegate_account.init(
         ctx.accounts.owner.key(),
         args.delegate,
-        args.max_jobs_created,
         args.max_data_requests,
         args.max_signers,
         ctx.bumps.delegate_account,
@@ -50,7 +44,6 @@ pub fn add_delegate(ctx: Context<AddDelegate>, args: AddDelegateArgs) -> Result<
     emit!(DelegateAdded {
         owner: ctx.accounts.owner.key(),
         delegate: args.delegate,
-        max_jobs_created: args.max_jobs_created,
         max_data_requests: args.max_data_requests,
         max_signers: args.max_signers,
         delegate_count: subscription.delegate_count,

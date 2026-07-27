@@ -70,6 +70,7 @@ pub fn settle_agent_round<'info>(
         emit!(AgentEscrowCreated {
             agent: escrow.key(),
             authority: escrow.authority,
+            gateway: gateway.key(),
         });
     }
 
@@ -119,9 +120,15 @@ pub fn settle_agent_round<'info>(
         MolphaError::InsufficientAgentCredits
     );
 
-    let (authority_key, escrow_bump) = { (escrow.authority, escrow.bump) };
+    let (authority_key, gateway_key, escrow_bump) =
+        { (escrow.authority, gateway.key(), escrow.bump) };
     let bump = [escrow_bump];
-    let signer_seeds: &[&[u8]] = &[AgentEscrow::SEED_PREFIX, authority_key.as_ref(), &bump];
+    let signer_seeds: &[&[u8]] = &[
+        AgentEscrow::SEED_PREFIX,
+        authority_key.as_ref(),
+        gateway_key.as_ref(),
+        &bump,
+    ];
     token::transfer(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.key(),
@@ -237,6 +244,7 @@ pub struct SettleAgentRound<'info> {
         seeds = [
             AgentEscrow::SEED_PREFIX,
             args.authority.as_ref(),
+            gateway.key().as_ref(),
         ],
         bump
     )]
@@ -271,6 +279,7 @@ pub struct SettleAgentRound<'info> {
         seeds = [
             RoundReceiptRecord::AGENT_SEED_PREFIX,
             args.authority.as_ref(),
+            gateway.key().as_ref(),
             args.api_config_hash.as_ref(),
             args.signatures_required.to_le_bytes().as_ref(),
             args.canonical_timestamp.to_le_bytes().as_ref(),

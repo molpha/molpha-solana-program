@@ -32,12 +32,13 @@ const API_CONFIG_HASH = Uint8Array.from(Buffer.alloc(32, 0x24));
 
 /**
  * x402 / self-funded pay-per-request: the client pays USDC to the deterministic
- * escrow ATA `ATA(PDA(["molpha_agent", payer]), USDC)` and signs
+ * escrow ATA `ATA(PDA(["molpha_agent", payer, gateway]), USDC)` and signs
  * `AgentRequestAuth` (agent, gateway, feed_id, canonical_timestamp, amount).
  * Settlement verifies the signature via Ed25519 introspection, requires
  * `escrow_ata.amount >= price` and `amount == price`, then moves `price` into
- * the treasury. Replay is guarded by the round-record PDA keyed by
- * `(authority, api_config_hash, signatures_required, canonical_timestamp)`.
+ * the treasury. Escrows are scoped per (payer, gateway) pair, so funding is not
+ * fungible across gateways. Replay is guarded by the round-record PDA keyed by
+ * `(authority, gateway, api_config_hash, signatures_required, canonical_timestamp)`.
  */
 describe("settle_agent_round (x402 / self-funded rail)", () => {
   let ctx: TestContext;
@@ -72,7 +73,11 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
 
   const payer = Keypair.generate();
   const escrowPda = () =>
-    findAgentEscrowPda(proto.program.programId, payer.publicKey);
+    findAgentEscrowPda(
+      proto.program.programId,
+      payer.publicKey,
+      gateway.gatewayPda
+    );
   const escrowAta = () => findEscrowAta(proto.usdcMint, escrowPda());
 
   const fundExact = (sigs = SIGS_REQUIRED) => {
@@ -145,6 +150,7 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
       findAgentRoundPda(
         proto.program.programId,
         payer.publicKey,
+        gateway.gatewayPda,
         API_CONFIG_HASH,
         SIGS_REQUIRED,
         params.canonicalTimestamp
@@ -174,7 +180,8 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
     const poorPayer = Keypair.generate();
     const poorEscrow = findAgentEscrowPda(
       proto.program.programId,
-      poorPayer.publicKey
+      poorPayer.publicKey,
+      gateway.gatewayPda
     );
     const poorAta = findEscrowAta(proto.usdcMint, poorEscrow);
     fundAtaInBankrun(ctx, poorAta, proto.usdcMint, poorEscrow, 500);
@@ -296,5 +303,132 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
     } catch (e: any) {
       assert.include(e.toString(), "InvalidRegistryVersion");
     }
+  });
+
+  describe("per-gateway escrow scoping", () => {
+    it("does not let a second gateway spend a payer's escrow funded for the first", async () => {
+      const gatewayB = await registerBondedGateway(ctx, proto);
+      const localPayer = Keypair.generate();
+      const t = ++ts;
+      const price = freshRoundPrice(SIGS_REQUIRED);
+
+      const escrowA = findAgentEscrowPda(
+        proto.program.programId,
+        localPayer.publicKey,
+        gateway.gatewayPda
+      );
+      const ataA = findEscrowAta(proto.usdcMint, escrowA);
+      fundAtaInBankrun(ctx, ataA, proto.usdcMint, escrowA, price);
+
+      // Gateway B's escrow ATA must exist (even empty) to reach the balance
+      // check at all — an entirely uninitialized ATA fails account resolution
+      // (`AccountNotInitialized`) before the handler runs.
+      const escrowB = findAgentEscrowPda(
+        proto.program.programId,
+        localPayer.publicKey,
+        gatewayB.gatewayPda
+      );
+      fundAtaInBankrun(
+        ctx,
+        findEscrowAta(proto.usdcMint, escrowB),
+        proto.usdcMint,
+        escrowB,
+        0
+      );
+
+      try {
+        await settleAgentRound(
+          baseParams({
+            payer: localPayer,
+            canonicalTimestamp: t,
+            gateway: gatewayB,
+          })
+        );
+        assert.fail("expected InsufficientAgentCredits");
+      } catch (e: any) {
+        assert.include(e.toString(), "InsufficientAgentCredits");
+      }
+
+      // Gateway A's escrow is untouched by the failed attempt through gateway B.
+      assert.equal(await readTokenAmount(ctx, ataA), BigInt(price));
+    });
+
+    it("lets two gateways independently settle the same (payer, api_config, sigs, timestamp)", async () => {
+      const gatewayB = await registerBondedGateway(ctx, proto);
+      const localPayer = Keypair.generate();
+      const t = ++ts;
+      const price = freshRoundPrice(SIGS_REQUIRED);
+
+      for (const gw of [gateway, gatewayB]) {
+        const escrowPdaX = findAgentEscrowPda(
+          proto.program.programId,
+          localPayer.publicKey,
+          gw.gatewayPda
+        );
+        fundAtaInBankrun(
+          ctx,
+          findEscrowAta(proto.usdcMint, escrowPdaX),
+          proto.usdcMint,
+          escrowPdaX,
+          price
+        );
+      }
+
+      const recordA = await settleAgentRound(
+        baseParams({ payer: localPayer, canonicalTimestamp: t, gateway })
+      );
+      const recordB = await settleAgentRound(
+        baseParams({
+          payer: localPayer,
+          canonicalTimestamp: t,
+          gateway: gatewayB,
+        })
+      );
+
+      assert.notEqual(recordA.toBase58(), recordB.toBase58());
+      const recA = await proto.program.account.roundReceiptRecord.fetch(
+        recordA
+      );
+      const recB = await proto.program.account.roundReceiptRecord.fetch(
+        recordB
+      );
+      assert.equal(recA.gateway.toBase58(), gateway.gatewayPda.toBase58());
+      assert.equal(recB.gateway.toBase58(), gatewayB.gatewayPda.toBase58());
+    });
+
+    it("rejects a mismatched escrow account (another gateway's PDA) via the seeds constraint", async () => {
+      const gatewayB = await registerBondedGateway(ctx, proto);
+      const localPayer = Keypair.generate();
+      const t = ++ts;
+
+      const wrongEscrow = findAgentEscrowPda(
+        proto.program.programId,
+        localPayer.publicKey,
+        gatewayB.gatewayPda
+      );
+      // The escrow ATA must exist for account resolution to reach the seeds
+      // constraint on `agent_escrow` at all (see the isolation test above).
+      fundAtaInBankrun(
+        ctx,
+        findEscrowAta(proto.usdcMint, wrongEscrow),
+        proto.usdcMint,
+        wrongEscrow,
+        0
+      );
+
+      try {
+        await settleAgentRound(
+          baseParams({
+            payer: localPayer,
+            canonicalTimestamp: t,
+            gateway, // settling via gateway A ...
+            agentEscrowOverride: wrongEscrow, // ... but naming gateway B's escrow
+          })
+        );
+        assert.fail("expected a seeds constraint failure");
+      } catch (e: any) {
+        assert.include(e.toString(), "ConstraintSeeds");
+      }
+    });
   });
 });

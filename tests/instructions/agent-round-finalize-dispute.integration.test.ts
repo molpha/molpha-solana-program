@@ -61,6 +61,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
   let gateway: BondedGateway;
   let victimGateway: BondedGateway;
   let escrow: X402EscrowSetup;
+  let victimEscrow: X402EscrowSetup;
   let material: ReturnType<typeof generateE2eSignerMaterial>;
   let registryVersion: number;
   let ts = 1_700_200_000;
@@ -88,19 +89,25 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     registryVersion = registry.currentVersion;
     gateway = await registerBondedGateway(ctx, proto);
     victimGateway = await registerBondedGateway(ctx, proto);
-    escrow = createX402FundedEscrow(ctx, proto, { fundAmount: 0 });
+    escrow = createX402FundedEscrow(ctx, proto, gateway, { fundAmount: 0 });
+    // Escrows are scoped per (payer, gateway) — the fabricated-round test settles
+    // through `victimGateway`, so it needs its own escrow for the same payer.
+    victimEscrow = createX402FundedEscrow(ctx, proto, victimGateway, {
+      payer: escrow.payer,
+      fundAmount: 0,
+    });
   }, 180_000);
 
   function feedIdForPayer(): Uint8Array {
     return deriveFeedId(escrow.payer.publicKey, API_CONFIG_HASH, SIGS_REQUIRED);
   }
 
-  function fundEscrowExact() {
+  function fundEscrowExact(target: X402EscrowSetup = escrow) {
     fundAtaInBankrun(
       ctx,
-      escrow.escrowAta,
+      target.escrowAta,
       proto.usdcMint,
-      escrow.escrowPda,
+      target.escrowPda,
       freshRoundPrice(SIGS_REQUIRED)
     );
   }
@@ -162,6 +169,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       findAgentRoundPda(
         proto.program.programId,
         escrow.payer.publicKey,
+        gateway.gatewayPda,
         API_CONFIG_HASH,
         SIGS_REQUIRED,
         t
@@ -255,11 +263,11 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     const bits = bitsOf(selection);
     const fabricatedSig = zeroedAggSig(selection);
 
-    fundEscrowExact();
+    fundEscrowExact(victimEscrow);
     const recordPda = await settleAgentRound({
       proto,
       gateway: victimGateway,
-      payer: escrow.payer,
+      payer: victimEscrow.payer,
       amount: freshRoundPrice(SIGS_REQUIRED),
       apiConfigHash: API_CONFIG_HASH,
       canonicalTimestamp: t,

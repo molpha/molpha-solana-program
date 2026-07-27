@@ -14,10 +14,9 @@ export function registerDelegateCommands(program: Command): void {
   delegate
     .command("add")
     .description(
-      "Add a delegate with custom job/request limits (requires an active subscription)"
+      "Add a delegate with custom request and signer limits (requires an active subscription)"
     )
     .requiredOption("--delegate <pubkey>", "delegate pubkey")
-    .requiredOption("--max-jobs <number>", "max jobs the delegate may create")
     .requiredOption(
       "--max-data-requests <number>",
       "max data requests the delegate may authorize"
@@ -49,7 +48,6 @@ export function registerDelegateCommands(program: Command): void {
         );
       }
 
-      const maxJobsCreated = parseInteger(options.maxJobs, "max jobs");
       const maxDataRequests = parseInteger(
         options.maxDataRequests,
         "max data requests"
@@ -59,7 +57,6 @@ export function registerDelegateCommands(program: Command): void {
       const signature = await (ctx.program.methods as any)
         .addDelegate({
           delegate: delegateKey,
-          maxJobsCreated,
           maxDataRequests: new BN(maxDataRequests),
           maxSigners,
         })
@@ -77,7 +74,6 @@ export function registerDelegateCommands(program: Command): void {
         delegate: delegateKey.toBase58(),
         delegateAccount: delegatePda.toBase58(),
         subscription: subscriptionPda.toBase58(),
-        maxJobsCreated,
         maxDataRequests,
         maxSigners,
       });

@@ -1,6 +1,5 @@
 pub mod add_delegate;
 pub mod add_plan;
-pub mod admin_withdraw_subscription_vault;
 pub mod claim_gateway_rewards;
 pub mod claim_node_rewards;
 pub mod deactivate_node;
@@ -18,11 +17,11 @@ pub mod settle_round_receipt;
 pub mod submit_data_update;
 pub mod subscribe;
 pub mod update_config;
+pub mod update_node_endpoint;
 pub mod update_plan;
 
 pub use add_delegate::*;
 pub use add_plan::*;
-pub use admin_withdraw_subscription_vault::*;
 pub use claim_gateway_rewards::*;
 pub use claim_node_rewards::*;
 pub use deactivate_node::*;
@@ -40,4 +39,5 @@ pub use settle_round_receipt::*;
 pub use submit_data_update::*;
 pub use subscribe::*;
 pub use update_config::*;
+pub use update_node_endpoint::*;
 pub use update_plan::*;

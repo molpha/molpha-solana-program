@@ -10,7 +10,6 @@ use crate::{
 pub struct UpdatePlanArgs {
     pub plan_type: PlanType,
     pub subscription_price: u64,
-    pub max_jobs: u32,
     pub max_signers: u8,
     pub max_delegates: u32,
     pub private_api_enabled: bool,
@@ -27,7 +26,6 @@ pub fn update_plan(ctx: Context<UpdatePlan>, args: UpdatePlanArgs) -> Result<()>
     ctx.accounts.plan.update(
         args.plan_type,
         args.subscription_price,
-        args.max_jobs,
         args.max_signers,
         args.max_delegates,
         args.private_api_enabled,
@@ -37,7 +35,6 @@ pub fn update_plan(ctx: Context<UpdatePlan>, args: UpdatePlanArgs) -> Result<()>
     emit!(PlanUpdated {
         plan_type: args.plan_type as u8,
         subscription_price: args.subscription_price,
-        max_jobs: args.max_jobs,
         max_signers: args.max_signers,
         max_delegates: args.max_delegates,
         private_api_enabled: args.private_api_enabled,

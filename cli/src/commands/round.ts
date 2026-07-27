@@ -231,7 +231,11 @@ export function registerRoundCommands(program: Command): void {
         ctx.programId,
         gatewayAuthority.publicKey
       );
-      const [escrowPda] = findAgentEscrowPda(ctx.programId, payer.publicKey);
+      const [escrowPda] = findAgentEscrowPda(
+        ctx.programId,
+        payer.publicKey,
+        gatewayPda
+      );
       const escrowAta = getAssociatedTokenAddressSync(
         protocolConfig.usdcMint,
         escrowPda,
@@ -273,6 +277,7 @@ export function registerRoundCommands(program: Command): void {
       const [roundRecordPda] = findAgentRoundPda(
         ctx.programId,
         payer.publicKey,
+        gatewayPda,
         apiConfigHash,
         signaturesRequired,
         canonicalTimestamp

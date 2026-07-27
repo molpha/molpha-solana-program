@@ -7,7 +7,7 @@
  * Prerequisites:
  *   - `anchor build` (target/idl/molpha.json)
  *   - Protocol initialized (`yarn molpha init`)
- *   - Admin wallet funded (ANCHOR_WALLET): SOL + USDC for node deposits
+ *   - Admin wallet funded (ANCHOR_WALLET): SOL (for owner funding + fees) + USDC for node deposits
  *
  * Usage:
  *   node scripts/generate-and-register-nodes.js [options]
@@ -30,7 +30,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const anchor = require("@coral-xyz/anchor");
-const { BN, Program } = require("@coral-xyz/anchor");
+const { Program } = require("@coral-xyz/anchor");
 const {
   Keypair,
   PublicKey,
@@ -60,7 +60,7 @@ const NODE_SEED = Buffer.from("molpha_node");
 const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
 const DEFAULT_COUNT = 5;
 const DEFAULT_OUTPUT = path.resolve(process.cwd(), "generated-nodes.json");
-const OWNER_SOL_LAMPORTS = 0.05 * LAMPORTS_PER_SOL;
+const OWNER_SOL_LAMPORTS = LAMPORTS_PER_SOL;
 const DEPOSIT_BUFFER_BPS = 11000; // 110% of minimum deposit
 const ANCHOR_TOML_PATH = path.resolve(__dirname, "../Anchor.toml");
 
@@ -280,23 +280,20 @@ function findNodePda(programId, index) {
 }
 
 function buildRegisterNodeArgs({
-  newIndex,
+  index,
   registrationSalt,
   secpCompressed,
   popSigR,
   popSigS,
-  securityDeposit,
 }) {
   return {
-    newIndex,
     registrationSalt: Array.from(registrationSalt),
     ip: [127, 0, 0, 1],
-    port: 8080 + newIndex,
+    port: 8080 + index,
     secp256K1PubkeyCompressed: Array.from(secpCompressed),
     secp256K1KeyFingerprint: Array.from(keccak_256(secpCompressed)),
     popSigR: Array.from(popSigR),
     popSigS: Array.from(popSigS),
-    securityDeposit,
   };
 }
 
@@ -358,18 +355,26 @@ async function ensureOwnerFunded(
   tokenAmount
 ) {
   const balance = await connection.getBalance(owner.publicKey);
-  if (balance < OWNER_SOL_LAMPORTS) {
-    const needed = OWNER_SOL_LAMPORTS - balance;
-    console.log(`Airdropping ${needed} SOL to ${owner.publicKey.toBase58()}`);
-    const sig = await connection.requestAirdrop(owner.publicKey, needed);
-    await connection.confirmTransaction(sig, "confirmed");
-  }
-
   const ownerAta = getAssociatedTokenAddressSync(usdcMint, owner.publicKey);
   const payerAta = getAssociatedTokenAddressSync(usdcMint, payer.publicKey);
 
   const ataInfo = await connection.getAccountInfo(ownerAta);
   const tx = new Transaction();
+  if (balance < OWNER_SOL_LAMPORTS) {
+    const needed = OWNER_SOL_LAMPORTS - balance;
+    console.log(
+      `Transferring ${
+        needed / LAMPORTS_PER_SOL
+      } SOL from ${payer.publicKey.toBase58()} to ${owner.publicKey.toBase58()}`
+    );
+    tx.add(
+      SystemProgram.transfer({
+        fromPubkey: payer.publicKey,
+        toPubkey: owner.publicKey,
+        lamports: needed,
+      })
+    );
+  }
   if (!ataInfo) {
     tx.add(
       createAssociatedTokenAccountInstruction(
@@ -589,7 +594,6 @@ async function main() {
   let startIndex = 0;
   let depositPerNode =
     opts.securityDeposit !== null ? BigInt(opts.securityDeposit) : null;
-  let securityDepositBn = null;
   let usdcMint = null;
   let treasury = null;
 
@@ -629,7 +633,6 @@ async function main() {
 
     usdcMint = protocolConfig.usdcMint;
     treasury = protocolConfig.treasury;
-    securityDepositBn = new BN(depositPerNode.toString());
   } else {
     startIndex = 0;
     depositPerNode =
@@ -787,21 +790,20 @@ async function main() {
         secp256k1PrivateKey: item.secpPrivateKey,
       });
       const registerNodeArgs = buildRegisterNodeArgs({
-        newIndex: chainIndex,
+        index: chainIndex,
         registrationSalt: item.registrationSalt,
         secpCompressed: item.secpCompressed,
         popSigR: pop.popSigR,
         popSigS: pop.popSigS,
-        securityDeposit: securityDepositBn,
       });
 
       const signature = await program.methods
-        .registerNode(registerNodeArgs, Array.from(item.nodeId))
+        .registerNode(registerNodeArgs)
         .accountsPartial({
-          adminAuthority: admin.publicKey,
+          authority: admin.publicKey,
           nodeOwner: item.solanaOwner.publicKey,
           protocolConfig: protocolConfigPda,
-          registryState: registryStatePda,
+          registry: registryStatePda,
           nodeOperator: nodeOperatorPda,
           node: nodePda,
           secp256K1KeyClaim: keyClaimPda,
@@ -834,7 +836,8 @@ async function main() {
       .finalizeRegistryTransition()
       .accountsPartial({
         registryState: registryStatePda,
-        virtualRegistryIndex: null,
+        virtualNode: null,
+        nodeOperator: null,
         rentReceiver: admin.publicKey,
       })
       .rpc();

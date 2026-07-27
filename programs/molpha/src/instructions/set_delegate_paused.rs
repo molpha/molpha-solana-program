@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    error::MolphaError,
     events::DelegateStatusChanged,
     state::{AgentStatus, Delegate},
 };
@@ -40,7 +39,6 @@ pub struct SetDelegatePaused<'info> {
             delegate_account.delegate.as_ref(),
         ],
         bump = delegate_account.bump,
-        constraint = delegate_account.owner == owner.key() @ MolphaError::UnauthorisedJobOwner,
     )]
     pub delegate_account: Account<'info, Delegate>,
 }

@@ -179,7 +179,6 @@ describe("Molpha instruction coverage integration", () => {
       .rpc();
 
     const plan = await program.account.plan.fetch(planPda);
-    assert.equal(plan.maxJobs, 4);
     assert.equal(plan.subscriptionPrice.toString(), "3000000");
     assert.equal(plan.maxDelegates, 3);
 
@@ -238,22 +237,18 @@ describe("Molpha instruction coverage integration", () => {
     await program.methods
       .addDelegate({
         delegate,
-        maxJobsCreated: 2,
         maxDataRequests: new BN(10),
         maxSigners: 2,
       })
       .accountsPartial({
         owner: ctx.authority.publicKey,
         subscription: subscriptionPda,
-        plan: planPda,
         delegateAccount: delegatePda,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
 
     let delegateAccount = await program.account.delegate.fetch(delegatePda);
-    assert.equal(delegateAccount.jobsCreated, 0);
-    assert.equal(delegateAccount.maxJobsCreated, 2);
     assert.equal(delegateAccount.maxDataRequests.toString(), "10");
     assert.equal(delegateAccount.maxSigners, 2);
     assert.deepEqual(delegateAccount.status, { active: {} });

@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    error::MolphaError,
     events::DelegateRemoved,
     state::{Delegate, Subscription},
 };
@@ -14,24 +13,12 @@ pub struct RemoveDelegateArgs {
 pub fn remove_delegate(ctx: Context<RemoveDelegate>, args: RemoveDelegateArgs) -> Result<()> {
     let delegate_account = &ctx.accounts.delegate_account;
 
-    require_keys_eq!(
-        delegate_account.owner,
-        ctx.accounts.owner.key(),
-        MolphaError::UnauthorisedJobOwner
-    );
-    require_keys_eq!(
-        delegate_account.delegate,
-        args.delegate,
-        MolphaError::DelegateNotFound
-    );
-
     let subscription = &mut ctx.accounts.subscription;
     subscription.release_delegate();
 
     emit!(DelegateRemoved {
         owner: ctx.accounts.owner.key(),
         delegate: args.delegate,
-        jobs_created: delegate_account.jobs_created,
         data_requests_used: delegate_account.data_requests_used,
         delegate_count: subscription.delegate_count,
     });
