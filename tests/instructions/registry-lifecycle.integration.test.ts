@@ -14,12 +14,13 @@ import { Clock } from "solana-bankrun";
 import { setupTestContext, TestContext } from "../setup";
 import {
   EVM_FIXTURE_NODE_PUBKEYS,
-  findNodePdaByOwner,
-  findRegistryIndexPda,
+  findNodeOperatorPda,
+  findNodePda,
   getProtocolTreasury,
   registerNodesForE2e,
+  signerMaterialForVerifyAnswerEvm,
   VIRTUAL_INDEX,
-} from "../helpers/evm-submit-data-update";
+} from "../helpers/submit-data-update";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
@@ -54,7 +55,10 @@ async function initializeRegistry(
     [REGISTRY_STATE_SEED],
     program.programId
   );
-  const treasury = getProtocolTreasury(protocolConfigPda, ctx.underlyingTokenMint);
+  const treasury = getProtocolTreasury(
+    protocolConfigPda,
+    ctx.underlyingTokenMint
+  );
 
   await program.methods
     .initialize({
@@ -70,6 +74,9 @@ async function initializeRegistry(
       protocolFeeBps: 100,
       maxReceiptDelaySlots: new BN(256),
       usdcMint: ctx.underlyingTokenMint,
+      agentRoundBase: new BN(1_000),
+      agentRoundPerSig: new BN(15),
+      agentEpochLenSecs: new BN(86_400),
     })
     .accountsPartial({
       protocolConfig: protocolConfigPda,
@@ -102,18 +109,22 @@ async function deactivateNodeAtIndex(
   const lastIndex = nodeCount - 1;
 
   const nodeOwner = ctx.nodes[removedIndex];
-  const removedNode = findNodePdaByOwner(program.programId, nodeOwner.publicKey);
-  const removedIndexAccount = findRegistryIndexPda(program.programId, removedIndex);
-  const virtualRegistryIndex = findRegistryIndexPda(program.programId, VIRTUAL_INDEX);
+  const removedOperator = findNodeOperatorPda(
+    program.programId,
+    nodeOwner.publicKey
+  );
+  const removedNode = findNodePda(program.programId, removedIndex);
+  const virtualNode = findNodePda(program.programId, VIRTUAL_INDEX);
 
-  let lastIndexAccount: PublicKey = SystemProgram.programId;
-  let movedNode: PublicKey = SystemProgram.programId;
+  let lastNode: PublicKey = SystemProgram.programId;
+  let movedOperator: PublicKey = SystemProgram.programId;
   if (removedIndex !== lastIndex) {
-    lastIndexAccount = findRegistryIndexPda(program.programId, lastIndex);
-    const lastIndexData = await (program.account as any).registryIndex.fetch(
-      lastIndexAccount
+    lastNode = findNodePda(program.programId, lastIndex);
+    const lastNodeData = await (program.account as any).node.fetch(lastNode);
+    movedOperator = findNodeOperatorPda(
+      program.programId,
+      lastNodeData.owner as PublicKey
     );
-    movedNode = lastIndexData.node as PublicKey;
   }
 
   try {
@@ -123,11 +134,11 @@ async function deactivateNodeAtIndex(
         authority: nodeOwner.publicKey,
         protocolConfig: accounts.protocolConfigPda,
         registryState: accounts.registryStatePda,
+        removedOperator,
         removedNode,
-        removedIndexAccount,
-        virtualRegistryIndex,
-        lastIndexAccount,
-        movedNode,
+        virtualNode,
+        lastNode,
+        movedOperator,
         rentReceiver: ctx.authority.publicKey,
         systemProgram: SystemProgram.programId,
       })
@@ -146,6 +157,7 @@ describe("registry lifecycle", () => {
       await initializeRegistry(ctx, 8);
 
     await advanceClock(ctx, 5);
+    const fixtureMaterial = signerMaterialForVerifyAnswerEvm();
     await registerNodesForE2e(
       ctx,
       program,
@@ -156,7 +168,13 @@ describe("registry lifecycle", () => {
         ownerUsdc: ctx.userTokenAccount,
         treasury,
       },
-      EVM_FIXTURE_NODE_PUBKEYS.slice(0, nodeCount),
+      {
+        privKeys: fixtureMaterial.privKeys.slice(0, nodeCount),
+        compressedPubkeys: fixtureMaterial.compressedPubkeys.slice(
+          0,
+          nodeCount
+        ),
+      },
       advanceClock
     );
 
@@ -166,10 +184,15 @@ describe("registry lifecycle", () => {
 
     await advanceClock(ctx, 5);
 
-    await deactivateNodeAtIndex(ctx, program, {
-      protocolConfigPda,
-      registryStatePda,
-    }, 0);
+    await deactivateNodeAtIndex(
+      ctx,
+      program,
+      {
+        protocolConfigPda,
+        registryStatePda,
+      },
+      0
+    );
 
     const afterDeactivate = await program.account.registryState.fetch(
       registryStatePda
@@ -180,19 +203,18 @@ describe("registry lifecycle", () => {
 
     await advanceClock(ctx, 5);
 
-    const [virtualRegistryIndex] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("molpha_registry_index"),
-        Buffer.from(new Uint32Array([VIRTUAL_INDEX]).buffer),
-      ],
-      program.programId
+    const virtualNode = findNodePda(program.programId, VIRTUAL_INDEX);
+    const deactivatedOperator = findNodeOperatorPda(
+      program.programId,
+      ctx.nodes[0].publicKey
     );
 
     await program.methods
       .finalizeRegistryTransition()
       .accountsPartial({
         registryState: registryStatePda,
-        virtualRegistryIndex,
+        virtualNode,
+        nodeOperator: deactivatedOperator,
         rentReceiver: ctx.authority.publicKey,
       })
       .rpc();

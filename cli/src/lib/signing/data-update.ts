@@ -5,11 +5,13 @@ import * as secp256k1 from "@noble/secp256k1";
 import { Point } from "@noble/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
 import { RemoveTransitionInfo } from "../accounts";
-import { findRegistryIndexPda } from "../pdas";
+import { findNodePda } from "../pdas";
 import { bytesToHex, hexToBytes, parseBigIntString } from "../utils";
 import { VerifyDataUpdateFixture } from "./fixtures";
 
-const MESSAGE_PREFIX = Buffer.from(keccak_256(Buffer.from("MOLPHA_MESSAGE_V1")));
+const MESSAGE_PREFIX = Buffer.from(
+  keccak_256(Buffer.from("MOLPHA_MESSAGE_V1"))
+);
 const SELECTION_SEED_PREFIX = Buffer.from(
   keccak_256(Buffer.from("MOLPHA_SELECTION_V1"))
 );
@@ -35,14 +37,14 @@ export type E2eDataUpdateFields = {
 
 export type SignedDataUpdate = {
   submitArgs: {
-    jobId: number[];
+    feedId: number[];
     registryVersion: number;
-    signersBitmap: number[];
-    value: number[];
+    value: Buffer;
     canonicalTimestamp: BN;
-    aggSigR: number[];
+    signaturesRequired: number;
     aggSigS: number[];
     commitmentAddr: number[];
+    signersBitmap: number[];
   };
   signersBitmap: Uint8Array;
   aggSigS: Uint8Array;
@@ -61,10 +63,14 @@ function bigintFromBytesBE(bytes: Uint8Array): bigint {
 function bytes32FromBigintBE(value: bigint): Uint8Array {
   let normalized = value;
   if (normalized < 0n) {
-    normalized = (normalized % SECP256K1_ORDER_N + SECP256K1_ORDER_N) % SECP256K1_ORDER_N;
+    normalized =
+      ((normalized % SECP256K1_ORDER_N) + SECP256K1_ORDER_N) %
+      SECP256K1_ORDER_N;
   }
   normalized %= SECP256K1_ORDER_N;
-  return Uint8Array.from(Buffer.from(normalized.toString(16).padStart(64, "0"), "hex"));
+  return Uint8Array.from(
+    Buffer.from(normalized.toString(16).padStart(64, "0"), "hex")
+  );
 }
 
 function keccakConcat(chunks: Uint8Array[]): Uint8Array {
@@ -171,7 +177,10 @@ export function evmUint256BitmapForFirstN(count: number): Uint8Array {
   return bitmap;
 }
 
-export function evmBitmapBitSet(signersBitmap: number[] | Uint8Array, bit: number): boolean {
+export function evmBitmapBitSet(
+  signersBitmap: number[] | Uint8Array,
+  bit: number
+): boolean {
   const byteIndex = 31 - Math.floor(bit / 8);
   const bitInByte = bit % 8;
   const byte = signersBitmap[byteIndex] ?? 0;
@@ -219,14 +228,14 @@ export function deriveGroupBitmap(
 }
 
 export function deriveSelectionSeed(
-  jobId: Uint8Array,
+  feedId: Uint8Array,
   registryVersion: number,
   canonicalTimestamp: number
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
       SELECTION_SEED_PREFIX,
-      Buffer.from(jobId),
+      Buffer.from(feedId),
       Buffer.from(u32be(registryVersion)),
       Buffer.from(u64be(canonicalTimestamp)),
     ])
@@ -243,7 +252,7 @@ export function effectiveSelectionSize(
 }
 
 export function deriveSignersBitmapForJob(
-  jobId: Uint8Array,
+  feedId: Uint8Array,
   registryVersion: number,
   nodeCount: number,
   signaturesRequired: number,
@@ -256,7 +265,7 @@ export function deriveSignersBitmapForJob(
     nodeCount
   );
   return deriveGroupBitmap(
-    deriveSelectionSeed(jobId, registryVersion, canonicalTimestamp),
+    deriveSelectionSeed(feedId, registryVersion, canonicalTimestamp),
     nodeCount,
     selectionSize
   );
@@ -271,7 +280,11 @@ export function generateE2eSignerMaterialFromSeed(
 
   for (let index = 0; index < signerCount; index += 1) {
     const skSeed = keccak_256(
-      Buffer.concat([Buffer.from(seed), Buffer.from([signerCount]), Buffer.from([index])])
+      Buffer.concat([
+        Buffer.from(seed),
+        Buffer.from([signerCount]),
+        Buffer.from([index]),
+      ])
     );
     const ecdh = crypto.createECDH("secp256k1");
     ecdh.setPrivateKey(Buffer.from(skSeed));
@@ -284,7 +297,7 @@ export function generateE2eSignerMaterialFromSeed(
 }
 
 function computeMessageHash(params: {
-  jobId: Uint8Array;
+  feedId: Uint8Array;
   registryVersion: number;
   signaturesRequired: number;
   signersBitmap: Uint8Array;
@@ -293,7 +306,7 @@ function computeMessageHash(params: {
 }): Uint8Array {
   return keccakConcat([
     MESSAGE_PREFIX,
-    params.jobId,
+    params.feedId,
     u32be(params.registryVersion),
     u32be(params.signaturesRequired),
     params.signersBitmap,
@@ -336,7 +349,7 @@ export function signE2eDataUpdate(
   registryVersion: number,
   signerMaterial: E2eSignerMaterial,
   signerCountOrBitmap: number | Uint8Array,
-  jobId: Uint8Array,
+  feedId: Uint8Array,
   dataUpdate: E2eDataUpdateFields,
   signaturesRequired?: number
 ): SignedDataUpdate {
@@ -347,7 +360,7 @@ export function signE2eDataUpdate(
   const signerCount = bitmapPopcountEvm(signersBitmap);
   const required = signaturesRequired ?? signerCount;
   const messageHash = computeMessageHash({
-    jobId,
+    feedId,
     registryVersion,
     signaturesRequired: required,
     signersBitmap,
@@ -364,9 +377,13 @@ export function signE2eDataUpdate(
     if (bit >= signerMaterial.privKeys.length) {
       throw new Error(`Missing signer material for registry index ${bit}`);
     }
-    coalitionSecretKey = modN(coalitionSecretKey + signerMaterial.privKeys[bit]);
+    coalitionSecretKey = modN(
+      coalitionSecretKey + signerMaterial.privKeys[bit]
+    );
     coalitionPoint = coalitionPoint.add(
-      Point.fromHex(Buffer.from(signerMaterial.compressedPubkeys[bit]).toString("hex"))
+      Point.fromHex(
+        Buffer.from(signerMaterial.compressedPubkeys[bit]).toString("hex")
+      )
     );
   }
 
@@ -379,14 +396,14 @@ export function signE2eDataUpdate(
 
   return {
     submitArgs: {
-      jobId: Array.from(jobId),
+      feedId: Array.from(feedId),
       registryVersion,
-      signersBitmap: Array.from(signersBitmap),
-      value: Array.from(dataUpdate.value),
+      value: Buffer.from(dataUpdate.value),
       canonicalTimestamp: new BN(dataUpdate.canonicalTimestamp),
-      aggSigR: Array.from(new Uint8Array(32)),
+      signaturesRequired: required,
       aggSigS: Array.from(s),
       commitmentAddr: Array.from(commitmentAddr),
+      signersBitmap: Array.from(signersBitmap),
     },
     signersBitmap,
     aggSigS: s,
@@ -395,18 +412,30 @@ export function signE2eDataUpdate(
 }
 
 export function buildSubmitArgsFromFixture(fixture: VerifyDataUpdateFixture) {
-  const signersBitmap = uint256BE(BigInt(fixture.schnorrSignature.signersBitmap));
+  const signersBitmap = uint256BE(
+    BigInt(fixture.schnorrSignature.signersBitmap)
+  );
+  const signaturesRequired =
+    fixture.dataUpdate.signaturesRequired ?? bitmapPopcountEvm(signersBitmap);
   return {
-    jobId: Array.from(hexToBytes(fixture.dataUpdate.jobId, 32, "job id")),
+    feedId: Array.from(hexToBytes(fixture.dataUpdate.feedId, 32, "feed id")),
     registryVersion: fixture.dataUpdate.registryVersion,
-    signersBitmap: Array.from(signersBitmap),
-    value: Array.from(hexToBytes(fixture.dataUpdate.value, 32, "value")),
-    canonicalTimestamp: new BN(fixture.dataUpdate.canonicalTimestamp),
-    aggSigR: Array.from(new Uint8Array(32)),
-    aggSigS: Array.from(hexToBytes(fixture.schnorrSignature.signature, 32, "signature")),
-    commitmentAddr: Array.from(
-      hexToBytes(fixture.schnorrSignature.commitment.toLowerCase(), 20, "commitment")
+    value: Buffer.from(
+      hexToBytes(fixture.dataUpdate.value, undefined, "value")
     ),
+    canonicalTimestamp: new BN(fixture.dataUpdate.canonicalTimestamp),
+    signaturesRequired,
+    aggSigS: Array.from(
+      hexToBytes(fixture.schnorrSignature.signature, 32, "signature")
+    ),
+    commitmentAddr: Array.from(
+      hexToBytes(
+        fixture.schnorrSignature.commitment.toLowerCase(),
+        20,
+        "commitment"
+      )
+    ),
+    signersBitmap: Array.from(signersBitmap),
   };
 }
 
@@ -422,7 +451,7 @@ function uint256BE(value: bigint): Uint8Array {
 
 export function expectedVerifyDataUpdateReturnBytes(
   value: Uint8Array,
-  canonicalTimestamp: number,
+  canonicalTimestamp: number
 ): Uint8Array {
   const out = new Uint8Array(VERIFY_DATA_UPDATE_RETURN_LEN);
   out.set(value.subarray(0, 32), 0);
@@ -443,7 +472,7 @@ export function signerRemainingAccounts(
 
     const effectiveIndex = expectedRegistryIndex(bit, transition);
     remaining.push({
-      pubkey: findRegistryIndexPda(programId, effectiveIndex)[0],
+      pubkey: findNodePda(programId, effectiveIndex)[0],
       isSigner: false,
       isWritable: false,
     });
@@ -471,15 +500,21 @@ export function expectedRegistryIndex(
   return bit;
 }
 
-export function signerMaterialFromFixture(fixture: VerifyDataUpdateFixture): E2eSignerMaterial {
-  const compressedPubkeys = fixture.nodePubkeys.map((value) => hexToBytes(value, 33, "node pubkey"));
+export function signerMaterialFromFixture(
+  fixture: VerifyDataUpdateFixture
+): E2eSignerMaterial {
+  const compressedPubkeys = fixture.nodePubkeys.map((value) =>
+    hexToBytes(value, 33, "node pubkey")
+  );
   const scalarStrings = fixture.secretKeys ?? fixture.nodePrivkeys;
   if (!scalarStrings || scalarStrings.length === 0) {
     throw new Error("Fixture must contain secretKeys or nodePrivkeys");
   }
 
   const privKeys = scalarStrings.map((value) =>
-    value.startsWith("0x") ? bigintFromBytesBE(hexToBytes(value, 32, "node privkey")) : parseBigIntString(value, "secret key")
+    value.startsWith("0x")
+      ? bigintFromBytesBE(hexToBytes(value, 32, "node privkey"))
+      : parseBigIntString(value, "secret key")
   );
 
   return { privKeys, compressedPubkeys };
@@ -502,7 +537,10 @@ export function buildBitmapFromFlag(value: string): Uint8Array {
 }
 
 const SECP256K1_ORDER_BYTES = Uint8Array.from(
-  Buffer.from("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", "hex")
+  Buffer.from(
+    "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141",
+    "hex"
+  )
 );
 
 export function evmSchnorrEcdsaInputs(params: {

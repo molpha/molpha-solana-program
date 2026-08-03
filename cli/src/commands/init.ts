@@ -7,7 +7,14 @@ import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import { getCliContext } from "../lib/client";
 import { findProtocolConfigPda, findRegistryStatePda } from "../lib/pdas";
-import { bn, optionOrConfig, parsePublicKey, readJsonFile, requireValue, writeJson } from "../lib/utils";
+import {
+  bn,
+  optionOrConfig,
+  parsePublicKey,
+  readJsonFile,
+  requireValue,
+  writeJson,
+} from "../lib/utils";
 
 type InitConfig = {
   registryCooldownSecs?: string;
@@ -21,7 +28,14 @@ type InitConfig = {
   receiptSubmitterBonus?: string;
   protocolFeeBps?: number;
   maxReceiptDelaySlots?: string;
+  protocolFee?: string;
+  disputeWindowSlots?: string;
+  gatewayBondMin?: string;
+  challengerBountyBps?: number;
   usdcMint?: string;
+  agentRoundBase?: string;
+  agentRoundPerSig?: string;
+  agentEpochLenSecs?: string;
 };
 
 export function registerInitCommand(program: Command): void {
@@ -33,24 +47,42 @@ export function registerInitCommand(program: Command): void {
     .option("--previous-grace-secs <seconds>", "previous registry grace period")
     .option("--withdrawal-cooldown-secs <seconds>", "node withdrawal cooldown")
     .option("--max-node-count <count>", "max registry size")
-    .option("--redundancy-buffer <count>", "extra selection slots beyond signatures_required")
+    .option(
+      "--redundancy-buffer <count>",
+      "extra selection slots beyond signatures_required"
+    )
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
     .option("--gateway-fee <amount>", "gateway fee")
     .option("--receipt-submitter-bonus <amount>", "receipt submitter bonus")
     .option("--protocol-fee-bps <bps>", "protocol fee in basis points")
     .option("--max-receipt-delay-slots <slots>", "max receipt delay")
+    .option("--protocol-fee <amount>", "fixed protocol fee per round")
+    .option("--dispute-window-slots <slots>", "settled round dispute window")
+    .option("--gateway-bond-min <amount>", "minimum gateway bond")
+    .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
     .option("--usdc-mint <pubkey>", "USDC mint")
+    .option("--agent-round-base <amount>", "base agent fresh-round price")
+    .option(
+      "--agent-round-per-sig <amount>",
+      "per-required-signature agent fresh-round price"
+    )
+    .option("--agent-epoch-len-secs <seconds>", "agent spend accounting epoch")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const config = options.config ? readJsonFile<InitConfig>(options.config) : {};
+      const config = options.config
+        ? readJsonFile<InitConfig>(options.config)
+        : {};
       const [protocolConfig] = findProtocolConfigPda(ctx.programId);
       const [registryState] = findRegistryStatePda(ctx.programId);
 
       const args = {
         registryCooldownSecs: bn(
           requireValue(
-            optionOrConfig(options.registryCooldownSecs, config.registryCooldownSecs),
+            optionOrConfig(
+              options.registryCooldownSecs,
+              config.registryCooldownSecs
+            ),
             "Missing --registry-cooldown-secs"
           ),
           "registry cooldown"
@@ -64,55 +96,140 @@ export function registerInitCommand(program: Command): void {
         ),
         withdrawalCooldownSecs: bn(
           requireValue(
-            optionOrConfig(options.withdrawalCooldownSecs, config.withdrawalCooldownSecs),
+            optionOrConfig(
+              options.withdrawalCooldownSecs,
+              config.withdrawalCooldownSecs
+            ),
             "Missing --withdrawal-cooldown-secs"
           ),
           "withdrawal cooldown"
         ),
         maxNodeCount: Number(
-          requireValue(optionOrConfig(options.maxNodeCount, config.maxNodeCount), "Missing --max-node-count")
+          requireValue(
+            optionOrConfig(options.maxNodeCount, config.maxNodeCount),
+            "Missing --max-node-count"
+          )
         ),
         redundancyBuffer: Number(
           optionOrConfig(options.redundancyBuffer, config.redundancyBuffer) ?? 2
         ),
         minimumNodeDeposit: bn(
           requireValue(
-            optionOrConfig(options.minimumNodeDeposit, config.minimumNodeDeposit),
+            optionOrConfig(
+              options.minimumNodeDeposit,
+              config.minimumNodeDeposit
+            ),
             "Missing --minimum-node-deposit"
           ),
           "minimum node deposit"
         ),
         rewardPerSignature: bn(
           requireValue(
-            optionOrConfig(options.rewardPerSignature, config.rewardPerSignature),
+            optionOrConfig(
+              options.rewardPerSignature,
+              config.rewardPerSignature
+            ),
             "Missing --reward-per-signature"
           ),
           "reward per signature"
         ),
         gatewayFee: bn(
-          requireValue(optionOrConfig(options.gatewayFee, config.gatewayFee), "Missing --gateway-fee"),
+          requireValue(
+            optionOrConfig(options.gatewayFee, config.gatewayFee),
+            "Missing --gateway-fee"
+          ),
           "gateway fee"
         ),
         receiptSubmitterBonus: bn(
           requireValue(
-            optionOrConfig(options.receiptSubmitterBonus, config.receiptSubmitterBonus),
+            optionOrConfig(
+              options.receiptSubmitterBonus,
+              config.receiptSubmitterBonus
+            ),
             "Missing --receipt-submitter-bonus"
           ),
           "receipt submitter bonus"
         ),
         protocolFeeBps: Number(
-          requireValue(optionOrConfig(options.protocolFeeBps, config.protocolFeeBps), "Missing --protocol-fee-bps")
+          requireValue(
+            optionOrConfig(options.protocolFeeBps, config.protocolFeeBps),
+            "Missing --protocol-fee-bps"
+          )
         ),
         maxReceiptDelaySlots: bn(
           requireValue(
-            optionOrConfig(options.maxReceiptDelaySlots, config.maxReceiptDelaySlots),
+            optionOrConfig(
+              options.maxReceiptDelaySlots,
+              config.maxReceiptDelaySlots
+            ),
             "Missing --max-receipt-delay-slots"
           ),
           "max receipt delay"
         ),
-        usdcMint: parsePubkeyOption(optionOrConfig(options.usdcMint, config.usdcMint), "usdc mint"),
+        protocolFee: bn(
+          requireValue(
+            optionOrConfig(options.protocolFee, config.protocolFee),
+            "Missing --protocol-fee"
+          ),
+          "protocol fee"
+        ),
+        disputeWindowSlots: bn(
+          requireValue(
+            optionOrConfig(
+              options.disputeWindowSlots,
+              config.disputeWindowSlots
+            ),
+            "Missing --dispute-window-slots"
+          ),
+          "dispute window"
+        ),
+        gatewayBondMin: bn(
+          requireValue(
+            optionOrConfig(options.gatewayBondMin, config.gatewayBondMin),
+            "Missing --gateway-bond-min"
+          ),
+          "gateway bond minimum"
+        ),
+        challengerBountyBps: Number(
+          requireValue(
+            optionOrConfig(
+              options.challengerBountyBps,
+              config.challengerBountyBps
+            ),
+            "Missing --challenger-bounty-bps"
+          )
+        ),
+        usdcMint: parsePubkeyOption(
+          optionOrConfig(options.usdcMint, config.usdcMint),
+          "usdc mint"
+        ),
+        agentRoundBase: bn(
+          requireValue(
+            optionOrConfig(options.agentRoundBase, config.agentRoundBase),
+            "Missing --agent-round-base"
+          ),
+          "agent round base"
+        ),
+        agentRoundPerSig: bn(
+          requireValue(
+            optionOrConfig(options.agentRoundPerSig, config.agentRoundPerSig),
+            "Missing --agent-round-per-sig"
+          ),
+          "agent round per signature"
+        ),
+        agentEpochLenSecs: bn(
+          requireValue(
+            optionOrConfig(options.agentEpochLenSecs, config.agentEpochLenSecs),
+            "Missing --agent-epoch-len-secs"
+          ),
+          "agent epoch length"
+        ),
       };
-      const treasury = getAssociatedTokenAddressSync(args.usdcMint, protocolConfig, true);
+      const treasury = getAssociatedTokenAddressSync(
+        args.usdcMint,
+        protocolConfig,
+        true
+      );
 
       const signature = await (ctx.program.methods as any)
         .initialize(args)
@@ -137,6 +254,12 @@ export function registerInitCommand(program: Command): void {
     });
 }
 
-function parsePubkeyOption(value: string | undefined, label: string): PublicKey {
-  return parsePublicKey(requireValue(value, `Missing --${label.replace(/\s+/g, "-")}`), label);
+function parsePubkeyOption(
+  value: string | undefined,
+  label: string
+): PublicKey {
+  return parsePublicKey(
+    requireValue(value, `Missing --${label.replace(/\s+/g, "-")}`),
+    label
+  );
 }

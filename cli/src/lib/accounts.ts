@@ -1,9 +1,13 @@
 import { BN, Program } from "@coral-xyz/anchor";
 import { AccountMeta, PublicKey } from "@solana/web3.js";
-import { findVirtualRegistryIndexPda } from "./pdas";
+import { findVirtualNodePda } from "./pdas";
 import { normalizeForJson } from "./utils";
 
-export type RegistryTransitionKind = "none" | "add" | "removeTail" | "removeSwap";
+export type RegistryTransitionKind =
+  | "none"
+  | "add"
+  | "removeTail"
+  | "removeSwap";
 
 export type RemoveTransitionInfo = {
   removedOldIndex: number;
@@ -23,7 +27,10 @@ export async function fetchAccountOrNull<T = any>(
   }
 }
 
-export async function accountExists(program: Program, address: PublicKey): Promise<boolean> {
+export async function accountExists(
+  program: Program,
+  address: PublicKey
+): Promise<boolean> {
   const info = await program.provider.connection.getAccountInfo(address);
   return info !== null;
 }
@@ -44,8 +51,12 @@ export function registryTransitionKind(value: any): RegistryTransitionKind {
   return "none";
 }
 
-export function removeTransitionInfoFromRegistry(registryState: any): RemoveTransitionInfo | undefined {
-  const transitionKind = registryTransitionKind(registryState.lastTransitionType);
+export function removeTransitionInfoFromRegistry(
+  registryState: any
+): RemoveTransitionInfo | undefined {
+  const transitionKind = registryTransitionKind(
+    registryState.lastTransitionType
+  );
   if (transitionKind !== "removeTail" && transitionKind !== "removeSwap") {
     return undefined;
   }
@@ -81,7 +92,9 @@ export async function resolveTransitionForRegistryVersion(
     );
   }
 
-  const transitionKind = registryTransitionKind(registryState.lastTransitionType);
+  const transitionKind = registryTransitionKind(
+    registryState.lastTransitionType
+  );
   if (transitionKind === "none" || transitionKind === "add") {
     return { remainingTransition: undefined };
   }
@@ -94,21 +107,26 @@ export async function resolveTransitionForRegistryVersion(
   return { remainingTransition };
 }
 
-export async function finalizeTransitionAccounts(program: Program, registryState: any): Promise<{
-  virtualRegistryIndex: PublicKey | null;
+export async function finalizeTransitionAccounts(
+  program: Program,
+  registryState: any
+): Promise<{
+  virtualNode: PublicKey | null;
 }> {
-  const transitionKind = registryTransitionKind(registryState.lastTransitionType);
+  const transitionKind = registryTransitionKind(
+    registryState.lastTransitionType
+  );
   if (transitionKind === "removeTail" || transitionKind === "removeSwap") {
-    const virtualRegistryIndex = findVirtualRegistryIndexPda(program.programId)[0];
+    const virtualNode = findVirtualNodePda(program.programId)[0];
     return {
-      virtualRegistryIndex: (await accountExists(program, virtualRegistryIndex))
-        ? virtualRegistryIndex
+      virtualNode: (await accountExists(program, virtualNode))
+        ? virtualNode
         : null,
     };
   }
 
   return {
-    virtualRegistryIndex: null,
+    virtualNode: null,
   };
 }
 
@@ -116,23 +134,6 @@ export function accountJson(address: PublicKey, data: any): unknown {
   return {
     address: address.toBase58(),
     account: normalizeForJson(data),
-  };
-}
-
-export function decodeVerifyReturnData(bytes: Uint8Array): {
-  raw: string;
-  value: string;
-  canonicalTimestamp: string;
-} {
-  if (bytes.length !== 72) {
-    throw new Error(`Expected 72 bytes of return data, got ${bytes.length}`);
-  }
-
-  const timestamp = Buffer.from(bytes.slice(32, 40)).readBigInt64BE(0);
-  return {
-    raw: `0x${Buffer.from(bytes).toString("hex")}`,
-    value: `0x${Buffer.from(bytes.slice(0, 32)).toString("hex")}`,
-    canonicalTimestamp: timestamp.toString(),
   };
 }
 

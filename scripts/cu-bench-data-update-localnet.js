@@ -22,6 +22,7 @@
 const anchor = require("@coral-xyz/anchor");
 const {
   Keypair,
+  SystemProgram,
   Transaction,
   ComputeBudgetProgram,
 } = require("@solana/web3.js");
@@ -38,7 +39,7 @@ const {
   FIXTURE_VALUE,
   FIXTURE_CANONICAL_TIMESTAMP,
   benchConfigHash,
-  deriveJobId,
+  deriveFeedId,
   loadProgramId,
   loadIdl,
   registryIndexRemainingAccounts,
@@ -63,7 +64,9 @@ function loadPayerKeypair() {
   const walletPath =
     process.env.ANCHOR_WALLET ||
     path.join(os.homedir(), ".config", "solana", "id.json");
-  const secretKey = Uint8Array.from(JSON.parse(fs.readFileSync(walletPath, "utf8")));
+  const secretKey = Uint8Array.from(
+    JSON.parse(fs.readFileSync(walletPath, "utf8"))
+  );
   return Keypair.fromSecretKey(secretKey);
 }
 
@@ -113,7 +116,10 @@ function startLocalValidator(programId, accountDir) {
     "--account-dir",
     path.resolve(accountDir),
   ];
-  console.log("starting validator:", ["solana-test-validator", ...args].join(" "));
+  console.log(
+    "starting validator:",
+    ["solana-test-validator", ...args].join(" ")
+  );
   const child = spawn("solana-test-validator", args, {
     detached: true,
     stdio: ["ignore", logFd, logFd],
@@ -121,7 +127,12 @@ function startLocalValidator(programId, accountDir) {
   child.unref();
 }
 
-async function bootstrapValidatorForSignerCount(program, programId, payer, signerCount) {
+async function bootstrapValidatorForSignerCount(
+  program,
+  programId,
+  payer,
+  signerCount
+) {
   const signerMaterial = generateSignerMaterial(NODE_COUNT);
 
   const accountDir = await writeAccountDir(
@@ -149,9 +160,13 @@ async function ensureProgramDeployed(connection, programId) {
 }
 
 async function benchAccountsPresent(connection, programId, payer, signerCount) {
-  const jobId = deriveJobId(payer.publicKey, benchConfigHash(signerCount));
+  const feedId = deriveFeedId(
+    payer.publicKey,
+    benchConfigHash(signerCount),
+    signerCount
+  );
   const [jobPda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("molpha_job"), jobId],
+    [Buffer.from("molpha_job"), feedId],
     programId
   );
   const info = await connection.getAccountInfo(jobPda, "processed");
@@ -174,7 +189,9 @@ async function simulateIx(connection, payer, ix) {
   });
   if (sim.value.err) {
     throw new Error(
-      `simulation failed: ${JSON.stringify(sim.value.err)}\nlogs:\n${(sim.value.logs || []).join("\n")}`
+      `simulation failed: ${JSON.stringify(sim.value.err)}\nlogs:\n${(
+        sim.value.logs || []
+      ).join("\n")}`
     );
   }
   if (typeof sim.value.unitsConsumed !== "number") {
@@ -183,9 +200,15 @@ async function simulateIx(connection, payer, ix) {
   return sim.value.unitsConsumed;
 }
 
-async function measureForSignerCount(connection, program, programId, payer, signerCount) {
+async function measureForSignerCount(
+  connection,
+  program,
+  programId,
+  payer,
+  signerCount
+) {
   const configHash = benchConfigHash(signerCount);
-  const jobId = deriveJobId(payer.publicKey, configHash);
+  const feedId = deriveFeedId(payer.publicKey, configHash, signerCount);
 
   const signerMaterial = generateSignerMaterial(NODE_COUNT);
 
@@ -193,7 +216,7 @@ async function measureForSignerCount(connection, program, programId, payer, sign
     signerCount,
     privKeys: signerMaterial.privKeys,
     compressedPubkeys: signerMaterial.compressedPubkeys,
-    jobId,
+    feedId,
     registryVersion: 1,
     configHash,
     value: FIXTURE_VALUE,
@@ -205,45 +228,37 @@ async function measureForSignerCount(connection, program, programId, payer, sign
     programId
   );
   const [jobPda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("molpha_job"), jobId],
+    [Buffer.from("molpha_job"), feedId],
     programId
   );
   const [feedPda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("molpha_feed"), jobId],
-    programId
-  );
-  const [protocolConfigPda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("molpha_config")],
+    [Buffer.from("molpha_feed"), feedId],
     programId
   );
 
-  const args = buildSubmitArgs(signerCount, signatureMaterial, jobId);
+  const args = buildSubmitArgs(signerCount, signatureMaterial, feedId);
   const signersBitmapBuf = signatureMaterial.signersBitmap;
   const remainingAccounts = registryIndexRemainingAccounts(
     programId,
     signersBitmapBuf
   );
 
-  const verifyIx = await program.methods
-    .verifyDataUpdate(args)
-    .accountsPartial({
-      registryState: registryStatePda,
-    })
-    .remainingAccounts(remainingAccounts)
-    .instruction();
-
   const submitIx = await program.methods
-    .submitDataUpdate(args)
+    .submitDataUpdate(args, null)
     .accountsPartial({
       submitter: payer.publicKey,
-      protocolConfig: protocolConfigPda,
+      jobOwner: null,
+      plan: null,
+      subscription: null,
+      delegate: null,
+      job: jobPda,
       registryState: registryStatePda,
       feed: feedPda,
+      systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(remainingAccounts)
     .instruction();
 
-  const verifyCu = await simulateIx(connection, payer, verifyIx);
   const submitCu = await simulateIx(connection, payer, submitIx);
   return { verifyCu, submitCu };
 }
@@ -302,7 +317,13 @@ async function main() {
     for (const n of SIGNER_COUNTS) {
       const signerMaterial =
         n === 8 ? { compressedPubkeys: [] } : generateSignerMaterial(n);
-      const dir = await writeAccountDir(program, programId, payer, n, signerMaterial);
+      const dir = await writeAccountDir(
+        program,
+        programId,
+        payer,
+        n,
+        signerMaterial
+      );
       console.log("wrote accounts", { signerCount: n, dir });
     }
     console.log(

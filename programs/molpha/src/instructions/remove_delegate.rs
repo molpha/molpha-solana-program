@@ -1,39 +1,26 @@
 use anchor_lang::prelude::*;
 
-use crate::{error::MolphaError, events::DelegateRemoved, state::Job};
+use crate::{
+    events::DelegateRemoved,
+    state::{Delegate, Subscription},
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct RemoveDelegateArgs {
-    pub job_id: [u8; 32],
     pub delegate: Pubkey,
 }
 
 pub fn remove_delegate(ctx: Context<RemoveDelegate>, args: RemoveDelegateArgs) -> Result<()> {
-    let job = &mut ctx.accounts.job;
+    let delegate_account = &ctx.accounts.delegate_account;
 
-    require_keys_eq!(
-        job.owner,
-        ctx.accounts.owner.key(),
-        MolphaError::UnauthorisedJobOwner
-    );
-
-    let active = job.delegate_count as usize;
-    let pos = job.delegates[..active]
-        .iter()
-        .position(|d| *d == args.delegate)
-        .ok_or(MolphaError::DelegateNotFound)?;
-
-    let last = active - 1;
-    if pos != last {
-        job.delegates[pos] = job.delegates[last];
-    }
-    job.delegates[last] = Pubkey::default();
-    job.delegate_count -= 1;
+    let subscription = &mut ctx.accounts.subscription;
+    subscription.release_delegate();
 
     emit!(DelegateRemoved {
-        job_id: job.job_id,
+        owner: ctx.accounts.owner.key(),
         delegate: args.delegate,
-        delegate_count: job.delegate_count,
+        data_requests_used: delegate_account.data_requests_used,
+        delegate_count: subscription.delegate_count,
     });
 
     Ok(())
@@ -42,12 +29,25 @@ pub fn remove_delegate(ctx: Context<RemoveDelegate>, args: RemoveDelegateArgs) -
 #[derive(Accounts)]
 #[instruction(args: RemoveDelegateArgs)]
 pub struct RemoveDelegate<'info> {
+    #[account(mut)]
     pub owner: Signer<'info>,
 
     #[account(
         mut,
-        seeds = [Job::SEED_PREFIX, args.job_id.as_ref()],
-        bump = job.bump,
+        seeds = [Subscription::SEED_PREFIX, owner.key().as_ref()],
+        bump = subscription.bump,
     )]
-    pub job: Account<'info, Job>,
+    pub subscription: Account<'info, Subscription>,
+
+    #[account(
+        mut,
+        close = owner,
+        seeds = [
+            Delegate::SEED_PREFIX,
+            owner.key().as_ref(),
+            args.delegate.as_ref(),
+        ],
+        bump = delegate_account.bump,
+    )]
+    pub delegate_account: Account<'info, Delegate>,
 }

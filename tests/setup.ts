@@ -1,7 +1,12 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program, BN, AnchorError, Wallet } from "@coral-xyz/anchor";
 import { Molpha } from "../target/types/molpha";
-import { Keypair, SystemProgram, PublicKey, ComputeBudgetProgram } from "@solana/web3.js";
+import {
+  Keypair,
+  SystemProgram,
+  PublicKey,
+  ComputeBudgetProgram,
+} from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
@@ -308,63 +313,21 @@ export async function initializeProtocol(ctx: TestContext): Promise<void> {
   }
 }
 
-// Helper function to register a node with security deposit
-export async function registerNodeWithDeposit(
-  ctx: TestContext,
-  nodePubkey: PublicKey,
-  evmPubkey: Buffer,
-  url: string = "https://example.com/node",
-): Promise<PublicKey> {
-  const [nodePDA] = PublicKey.findProgramAddressSync(
-    [Buffer.from("node"), nodePubkey.toBuffer()],
-    ctx.molphaProgram.programId
-  );
-
-  // Get the ATA for the node's security deposit
-  const nodeSecurityDepositAccount = getAssociatedTokenAddressSync(
-    ctx.underlyingTokenMint,
-    nodePDA,
-    true // allowOwnerOffCurve - since nodePDA is a PDA
-  );
-
-  await ctx.molphaProgram.methods
-    .registerNode(nodePubkey, evmPubkey, url)
-    .accountsPartial({
-      node: nodePDA,
-      protocolConfig: ctx.protocolConfigPDA,
-      underlyingToken: ctx.underlyingTokenMint,
-      nodeOperatorTokenAccount: ctx.userTokenAccount,
-      nodeSecurityDepositAccount: nodeSecurityDepositAccount,
-      authority: ctx.authority.publicKey,
-      systemProgram: SystemProgram.programId,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-    })
-    .preInstructions([
-      // Node registration performs one secp256k1 pubkey decompression (sqrt in BPF),
-      // so we need a higher CU limit than the bankrun default.
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-    ])
-    .rpc();
-
-  return nodePDA;
-}
-
 // Helper function to create feed parameters
 export function createFeedParams(
-  jobId: string,
+  feedId: string,
   feedType: { public: {} } | { personal: {} }
 ) {
   // Convert hex string to byte array properly and pad to 32 bytes
-  const hexString = jobId.startsWith("0x") ? jobId.slice(2) : jobId;
+  const hexString = feedId.startsWith("0x") ? feedId.slice(2) : feedId;
 
   // Pad to 32 bytes (64 hex characters) if needed
   const paddedHexString = hexString.padStart(64, "0");
-  const paddedJobIdBytes = Array.from(Buffer.from(paddedHexString, "hex"));
+  const paddedFeedIdBytes = Array.from(Buffer.from(paddedHexString, "hex"));
 
   return {
-    name: jobId.slice(0, 32), // Truncate name to 32 characters for PDA generation
-    jobId: paddedJobIdBytes,
+    name: feedId.slice(0, 32), // Truncate name to 32 characters for PDA generation
+    feedId: paddedFeedIdBytes,
     feedType: feedType,
     minSignaturesThreshold: 2,
     frequency: new anchor.BN(300), // 5 minutes as BN

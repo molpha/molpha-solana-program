@@ -1,5 +1,5 @@
 /**
- * Full on-chain e2e: plan → nodes → subscription → job → submit_data_update.
+ * Full on-chain e2e: plan → nodes → subscription → submit_data_update.
  * Uses a seeded random payload (not verify-answer-evm.json) and writes a
  * compatible JSON fixture for EVM / CU benches / offline verification.
  *
@@ -25,13 +25,15 @@ import {
   writeVerifyAnswerEvmFixture,
 } from "../helpers/e2e-fixture-export";
 import {
-  createJobViaInstruction,
+  deriveFeedId,
+  findFeedPda,
+  findJobPda,
   generateE2eSignerMaterialFromSeed,
   signerRemainingAccounts,
   getProtocolTreasury,
   registerNodesForE2e,
   signE2eDataUpdate,
-} from "../helpers/evm-submit-data-update";
+} from "../helpers/submit-data-update";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
@@ -81,7 +83,10 @@ describe("e2e generate verify-answer-evm fixture", () => {
       program.programId
     );
 
-    const treasury = getProtocolTreasury(protocolConfigPda, ctx.underlyingTokenMint);
+    const treasury = getProtocolTreasury(
+      protocolConfigPda,
+      ctx.underlyingTokenMint
+    );
 
     // initialize
     await program.methods
@@ -98,6 +103,9 @@ describe("e2e generate verify-answer-evm fixture", () => {
         protocolFeeBps: 100,
         maxReceiptDelaySlots: new BN(256),
         usdcMint: ctx.underlyingTokenMint,
+        agentRoundBase: new BN(1_000),
+        agentRoundPerSig: new BN(15),
+        agentEpochLenSecs: new BN(86_400),
       })
       .accountsPartial({
         protocolConfig: protocolConfigPda,
@@ -118,6 +126,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
         subscriptionPrice: new BN(3_000_000),
         maxJobs: 4,
         maxSigners: SIGNATURES_REQUIRED,
+        maxDelegates: 2,
         privateApiEnabled: true,
         isActive: true,
       })
@@ -143,11 +152,13 @@ describe("e2e generate verify-answer-evm fixture", () => {
         ownerUsdc: ctx.userTokenAccount,
         treasury,
       },
-      signerMaterial.compressedPubkeys,
+      signerMaterial,
       advanceClock
     );
 
-    const registry = await program.account.registryState.fetch(registryStatePda);
+    const registry = await program.account.registryState.fetch(
+      registryStatePda
+    );
     assert.equal(registry.currentNodeCount, NODE_COUNT);
 
     // subscribe
@@ -166,20 +177,19 @@ describe("e2e generate verify-answer-evm fixture", () => {
       })
       .rpc();
 
-    // create_job with random config hash
-    const { jobPda, feedPda, jobId } = await createJobViaInstruction(
-      ctx,
-      program,
-      { protocolConfigPda, planPda, subscriptionPda },
+    const feedId = deriveFeedId(
+      ctx.authority.publicKey,
       scenario.configHash,
-      { signaturesRequired: SIGNATURES_REQUIRED }
+      SIGNATURES_REQUIRED
     );
+    const jobPda = findJobPda(program.programId, feedId);
+    const feedPda = findFeedPda(program.programId, feedId);
 
     const signed = signE2eDataUpdate(
       registry.currentVersion,
       signerMaterial,
       NODE_COUNT,
-      jobId,
+      feedId,
       {
         configHash: scenario.configHash,
         value: scenario.value,
@@ -191,15 +201,26 @@ describe("e2e generate verify-answer-evm fixture", () => {
     );
 
     await program.methods
-      .submitDataUpdate(signed.submitArgs)
+      .submitDataUpdate(signed.submitArgs, {
+        apiConfigHash: Array.from(scenario.configHash),
+        decimals: 8,
+      })
       .accountsPartial({
         submitter: ctx.authority.publicKey,
+        jobOwner: ctx.authority.publicKey,
+        plan: planPda,
+        subscription: subscriptionPda,
+        delegate: null,
         registryState: registryStatePda,
         job: jobPda,
         feed: feedPda,
+        systemProgram: SystemProgram.programId,
       })
       .remainingAccounts(
-        signerRemainingAccounts(program.programId, signed.submitArgs.signersBitmap)
+        signerRemainingAccounts(
+          program.programId,
+          signed.submitArgs.signersBitmap
+        )
       )
       .preInstructions([
         anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({
@@ -210,16 +231,16 @@ describe("e2e generate verify-answer-evm fixture", () => {
 
     const feed = await program.account.feed.fetch(feedPda);
     assert.deepEqual(Array.from(feed.value), Array.from(scenario.value));
+    assert.deepEqual(feed.valueKind, { value: {} });
     assert.equal(feed.registryVersion, registry.currentVersion);
     assert.equal(
       feed.canonicalTimestamp.toString(),
       String(scenario.canonicalTimestamp)
     );
-    
+
     console.log("feed.value", feed.value);
     console.log("registry.currentVersion", registry.currentVersion);
     console.log("signed", signed);
-
 
     const fixture = buildVerifyAnswerEvmFixture({
       registeredNodeCount: NODE_COUNT,
@@ -228,7 +249,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
       nodePubkeys: signerMaterial.compressedPubkeys,
       nodePrivkeys: signerMaterial.privKeys,
       signaturesRequired: SIGNATURES_REQUIRED,
-      jobId,
+      feedId,
       dataUpdate: {
         configHash: scenario.configHash,
         value: scenario.value,
@@ -245,7 +266,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
         seed,
         outputPath,
         registryVersion: registry.currentVersion,
-        jobId: fixture.dataUpdate.jobId,
+        feedId: fixture.dataUpdate.feedId,
       })
     );
 

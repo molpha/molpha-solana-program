@@ -13,11 +13,14 @@ import {
   buildRegisterNodeArgs,
   deriveNodeId,
   EVM_FIXTURE_NODE_PUBKEYS,
-  findNodePdaByOwner,
+  findNodeOperatorPda,
+  findNodePda,
+  findSecp256k1KeyClaimPda,
   fundNodeOwnerInBankrun,
   registerNodesForE2e,
   getProtocolTreasury,
-} from "../helpers/evm-submit-data-update";
+  signerMaterialForVerifyAnswerEvm,
+} from "../helpers/submit-data-update";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
@@ -25,9 +28,9 @@ const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
-const REGISTRY_INDEX_SEED = Buffer.from("molpha_registry_index");
+const DELEGATE_SEED = Buffer.from("molpha_delegate");
 
-const JOB_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
+const FEED_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
 const SECONDS_PER_MONTH = 30 * 24 * 60 * 60;
 
 function hexToBytes(hex: string): Uint8Array {
@@ -35,10 +38,30 @@ function hexToBytes(hex: string): Uint8Array {
   return Uint8Array.from(Buffer.from(clean, "hex"));
 }
 
-function deriveJobId(owner: PublicKey, apiConfigHash: Uint8Array): Uint8Array {
+function deriveFeedId(
+  owner: PublicKey,
+  apiConfigHash: Uint8Array,
+  signaturesRequired: number
+): Uint8Array {
   return keccak_256(
-    Buffer.concat([JOB_ID_PREFIX, owner.toBuffer(), Buffer.from(apiConfigHash)])
+    Buffer.concat([
+      FEED_ID_PREFIX,
+      owner.toBuffer(),
+      Buffer.from(apiConfigHash),
+      Buffer.from([signaturesRequired]),
+    ])
   );
+}
+
+function findDelegatePda(
+  programId: PublicKey,
+  owner: PublicKey,
+  delegate: PublicKey
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [DELEGATE_SEED, owner.toBuffer(), delegate.toBuffer()],
+    programId
+  )[0];
 }
 
 async function advanceClock(ctx: TestContext, seconds: number): Promise<void> {
@@ -75,7 +98,10 @@ describe("Molpha instruction coverage integration", () => {
       [SUBSCRIPTION_SEED, ctx.authority.publicKey.toBuffer()],
       program.programId
     );
-    const treasury = getProtocolTreasury(protocolConfigPda, ctx.underlyingTokenMint);
+    const treasury = getProtocolTreasury(
+      protocolConfigPda,
+      ctx.underlyingTokenMint
+    );
 
     // 1) initialize
     await program.methods
@@ -92,6 +118,9 @@ describe("Molpha instruction coverage integration", () => {
         protocolFeeBps: 100,
         maxReceiptDelaySlots: new BN(256),
         usdcMint: ctx.underlyingTokenMint,
+        agentRoundBase: new BN(1_000),
+        agentRoundPerSig: new BN(15),
+        agentEpochLenSecs: new BN(86_400),
       })
       .accountsPartial({
         protocolConfig: protocolConfigPda,
@@ -119,8 +148,8 @@ describe("Molpha instruction coverage integration", () => {
         planType: { standard: {} },
         subscriptionPrice: new BN(2_000_000),
         maxJobs: 3,
-        signaturesRequired: 1,
         maxSigners: 2,
+        maxDelegates: 2,
         privateApiEnabled: false,
         isActive: true,
       })
@@ -138,6 +167,7 @@ describe("Molpha instruction coverage integration", () => {
         subscriptionPrice: new BN(3_000_000),
         maxJobs: 4,
         maxSigners: 3,
+        maxDelegates: 3,
         privateApiEnabled: true,
         isActive: true,
       })
@@ -149,8 +179,8 @@ describe("Molpha instruction coverage integration", () => {
       .rpc();
 
     const plan = await program.account.plan.fetch(planPda);
-    assert.equal(plan.maxJobs, 4);
     assert.equal(plan.subscriptionPrice.toString(), "3000000");
+    assert.equal(plan.maxDelegates, 3);
 
     // 3) subscribe + extend_subscription
     await program.methods
@@ -182,93 +212,92 @@ describe("Molpha instruction coverage integration", () => {
       })
       .rpc();
 
-    const subscription = await program.account.subscription.fetch(subscriptionPda);
+    const subscription = await program.account.subscription.fetch(
+      subscriptionPda
+    );
     assert.equal(subscription.prepaidUsdc.toString(), "6000000");
     const clock = await ctx.provider.context.banksClient.getClock();
     const now = Number(clock.unixTimestamp);
     assert.isAbove(Number(subscription.validUntil), now + SECONDS_PER_MONTH);
 
-    // 4) create_job
     const apiConfigHash = Uint8Array.from(Buffer.alloc(32, 7));
-    const jobId = deriveJobId(ctx.authority.publicKey, apiConfigHash);
-    const [jobPda] = PublicKey.findProgramAddressSync(
-      [JOB_SEED, Buffer.from(jobId)],
-      program.programId
-    );
+    const feedId = deriveFeedId(ctx.authority.publicKey, apiConfigHash, 1);
     const [feedPda] = PublicKey.findProgramAddressSync(
-      [FEED_SEED, Buffer.from(jobId)],
+      [FEED_SEED, Buffer.from(feedId)],
       program.programId
     );
 
+    // 5) add_delegate + remove_delegate
+    const delegate = PublicKey.unique();
+    const delegatePda = findDelegatePda(
+      program.programId,
+      ctx.authority.publicKey,
+      delegate
+    );
     await program.methods
-      .createJob(
-        {
-          apiConfigHash: Array.from(apiConfigHash),
-          signaturesRequired: 1,
-          decimals: 8,
-        },
-        Array.from(jobId)
-      )
+      .addDelegate({
+        delegate,
+        maxDataRequests: new BN(10),
+        maxSigners: 2,
+      })
       .accountsPartial({
         owner: ctx.authority.publicKey,
-        protocolConfig: protocolConfigPda,
-        plan: planPda,
-        job: jobPda,
         subscription: subscriptionPda,
-        feed: feedPda,
+        delegateAccount: delegatePda,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
 
-    const createdJob = await program.account.job.fetch(jobPda);
-    assert.equal(createdJob.delegateCount, 0);
-    const createdFeed = await program.account.feed.fetch(feedPda);
-    assert.equal(createdFeed.canonicalTimestamp.toString(), "0");
+    let delegateAccount = await program.account.delegate.fetch(delegatePda);
+    assert.equal(delegateAccount.maxDataRequests.toString(), "10");
+    assert.equal(delegateAccount.maxSigners, 2);
+    assert.deepEqual(delegateAccount.status, { active: {} });
 
-    // 5) add_delegate + remove_delegate
-    const delegate = PublicKey.unique();
-    await program.methods
-      .addDelegate({
-        jobId: Array.from(jobId),
-        delegate,
-      })
-      .accountsPartial({
-        owner: ctx.authority.publicKey,
-        job: jobPda,
-      })
-      .rpc();
-
-    let jobAfterAdd = await program.account.job.fetch(jobPda);
-    assert.equal(jobAfterAdd.delegateCount, 1);
+    let subscriptionAfterDelegate = await program.account.subscription.fetch(
+      subscriptionPda
+    );
+    assert.equal(subscriptionAfterDelegate.delegateCount, 1);
 
     await program.methods
       .removeDelegate({
-        jobId: Array.from(jobId),
         delegate,
       })
       .accountsPartial({
         owner: ctx.authority.publicKey,
-        job: jobPda,
+        subscription: subscriptionPda,
+        delegateAccount: delegatePda,
       })
       .rpc();
 
-    const jobAfterRemove = await program.account.job.fetch(jobPda);
-    assert.equal(jobAfterRemove.delegateCount, 0);
+    subscriptionAfterDelegate = await program.account.subscription.fetch(
+      subscriptionPda
+    );
+    assert.equal(subscriptionAfterDelegate.delegateCount, 0);
+
+    try {
+      await program.account.delegate.fetch(delegatePda);
+      assert.fail("expected delegate account to be closed");
+    } catch (error: any) {
+      assert.ok(String(error));
+    }
 
     // 6) submit_data_update + verify_data_update (failure-path coverage)
-    const badJobId = Uint8Array.from(Buffer.alloc(32, 4));
+    const badFeedId = Uint8Array.from(Buffer.alloc(32, 4));
     const dataUpdateArgs = {
-      jobId: Array.from(jobId),
+      feedId: Array.from(feedId),
       registryVersion: 0,
       signaturesRequired: 1,
       signersBitmap: Array.from(Buffer.alloc(32, 0)),
-      value: Array.from(Buffer.alloc(32, 1)),
+      value: Buffer.alloc(32, 1),
       canonicalTimestamp: new BN(1),
       aggSigR: Array.from(Buffer.alloc(32, 0)),
       aggSigS: Array.from(Buffer.alloc(32, 0)),
       commitmentAddr: Array.from(Buffer.alloc(20, 0)),
     };
-    const badDataUpdateArgs = { ...dataUpdateArgs, jobId: Array.from(badJobId) };
+    const badDataUpdateArgs = {
+      ...dataUpdateArgs,
+      feedId: Array.from(badFeedId),
+    };
 
     try {
       await program.methods
@@ -276,29 +305,15 @@ describe("Molpha instruction coverage integration", () => {
         .accountsPartial({
           submitter: ctx.authority.publicKey,
           registryState: registryStatePda,
-          job: jobPda,
           feed: feedPda,
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
-      assert.fail("submit_data_update should fail with invalid aggregate signature");
+      assert.fail(
+        "submit_data_update should fail with invalid aggregate signature"
+      );
     } catch (error: any) {
       assert.include(String(error), "InvalidAggregateSignature");
-    }
-
-    try {
-      await program.methods
-        .verifyDataUpdate(badDataUpdateArgs)
-        .accountsPartial({
-          registryState: registryStatePda,
-        })
-        .rpc();
-      assert.fail("verify_data_update should fail for invalid signature");
-    } catch (error: any) {
-      const err = String(error);
-      assert.ok(
-        err.includes("InvalidAggregateSignature"),
-        `expected invalid aggregate signature, got: ${err}`
-      );
     }
 
     // 7) register_node rejects when registry is at capacity
@@ -308,6 +323,7 @@ describe("Molpha instruction coverage integration", () => {
         subscriptionPrice: new BN(3_000_000),
         maxJobs: 4,
         maxSigners: 8,
+        maxDelegates: 3,
         privateApiEnabled: true,
         isActive: true,
       })
@@ -320,6 +336,7 @@ describe("Molpha instruction coverage integration", () => {
 
     await advanceClock(ctx, 5);
 
+    const fixtureMaterial = signerMaterialForVerifyAnswerEvm();
     await registerNodesForE2e(
       ctx,
       program,
@@ -330,7 +347,10 @@ describe("Molpha instruction coverage integration", () => {
         ownerUsdc: ctx.userTokenAccount,
         treasury,
       },
-      EVM_FIXTURE_NODE_PUBKEYS.slice(0, 8),
+      {
+        privKeys: fixtureMaterial.privKeys.slice(0, 8),
+        compressedPubkeys: fixtureMaterial.compressedPubkeys.slice(0, 8),
+      },
       advanceClock
     );
 
@@ -347,17 +367,19 @@ describe("Molpha instruction coverage integration", () => {
       extraCompressed,
       extraSalt
     );
-    const extraNodePda = findNodePdaByOwner(program.programId, capNodeOwner.publicKey);
+    const extraOperatorPda = findNodeOperatorPda(
+      program.programId,
+      capNodeOwner.publicKey
+    );
     const capOwnerUsdc = await fundNodeOwnerInBankrun(
       ctx,
       capNodeOwner,
       ctx.underlyingTokenMint
     );
-    const fullIndexBytes = Buffer.alloc(4);
-    fullIndexBytes.writeUInt32LE(8);
-    const [registryIndexPda] = PublicKey.findProgramAddressSync(
-      [REGISTRY_INDEX_SEED, fullIndexBytes],
-      program.programId
+    const extraNodePda = findNodePda(program.programId, 8);
+    const extraKeyClaimPda = findSecp256k1KeyClaimPda(
+      program.programId,
+      extraCompressed
     );
 
     try {
@@ -367,16 +389,18 @@ describe("Molpha instruction coverage integration", () => {
             newIndex: 8,
             registrationSalt: extraSalt,
             secp256k1PubkeyCompressed: extraCompressed,
-          }),
-          Array.from(extraNodeId)
+            popSigR: Buffer.alloc(32),
+            popSigS: Buffer.alloc(32),
+          })
         )
         .accountsPartial({
-          adminAuthority: ctx.authority.publicKey,
+          authority: ctx.authority.publicKey,
           nodeOwner: capNodeOwner.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
+          nodeOperator: extraOperatorPda,
           node: extraNodePda,
-          registryIndex: registryIndexPda,
+          secp256K1KeyClaim: extraKeyClaimPda,
           usdcMint: ctx.underlyingTokenMint,
           ownerUsdc: capOwnerUsdc,
           treasury,
@@ -410,7 +434,7 @@ describe("Molpha instruction coverage integration", () => {
         .rpc();
       assert.fail("deactivate_node should fail without registered node");
     } catch (error: any) {
-      assert.include(String(error), "Account");
+      assert.match(String(error), /account/i);
     }
 
     const registryAfterFlow = await program.account.registryState.fetch(
@@ -419,5 +443,4 @@ describe("Molpha instruction coverage integration", () => {
     assert.equal(registryAfterFlow.currentNodeCount, 8);
     assert.equal(registryAfterFlow.previousExpiresAt.toString(), "0");
   });
-
 });

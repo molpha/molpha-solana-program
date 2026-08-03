@@ -2,7 +2,12 @@ import { AnchorProvider, Idl, Program, Wallet } from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import fs from "fs";
 import { Command } from "commander";
-import { CliGlobalOptions, ResolvedCliOptions, ensureIdlPresent, resolveCliOptions } from "./config";
+import {
+  CliGlobalOptions,
+  ResolvedCliOptions,
+  ensureIdlPresent,
+  resolveCliOptions,
+} from "./config";
 import { loadKeypair, readJsonFile } from "./utils";
 
 export type CliContext = {

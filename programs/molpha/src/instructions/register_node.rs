@@ -4,40 +4,28 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::{
     error::MolphaError,
     events::NodeRegistered,
-    state::{
-        Node, NodeStatus, ProtocolConfig, RegistryIndex, RegistryState, RegistryTransitionType,
+    state::{Node, NodeOperator, ProtocolConfig, RegistryState, Secp256k1KeyClaim},
+    utils::registry::{
+        derive_node_id, secp256k1_key_fingerprint, validate_secp256k1_pubkey, verify_node_pop,
     },
-    utils::registry::verify_pop_stub,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct RegisterNodeArgs {
-    pub new_index: u32,
     pub registration_salt: [u8; 32],
     pub ip: [u8; 4],
     pub port: u16,
-    pub pub_key_x: [u8; 32],
-    pub pub_key_y: [u8; 32],
+    pub secp256k1_pubkey_compressed: [u8; 33],
+    pub secp256k1_key_fingerprint: [u8; 32],
     pub pop_sig_r: [u8; 32],
     pub pop_sig_s: [u8; 32],
-    pub security_deposit: u64,
 }
 
-pub fn register_node(
-    ctx: Context<RegisterNode>,
-    args: RegisterNodeArgs,
-    node_id: [u8; 32],
-) -> Result<()> {
+pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Result<()> {
     let clock = Clock::get()?;
     let now = clock.unix_timestamp;
 
-    require_keys_eq!(
-        ctx.accounts.admin_authority.key(),
-        ctx.accounts.registry_state.authority,
-        MolphaError::UnauthorisedAuthority
-    );
-
-    let registry = &mut ctx.accounts.registry_state;
+    let registry = &mut ctx.accounts.registry;
     require!(
         now > registry.previous_expires_at,
         MolphaError::TransitionStillInGrace
@@ -47,66 +35,81 @@ pub fn register_node(
         registry.current_node_count < config.max_node_count,
         MolphaError::NodeCapExceeded
     );
-    require!(
-        args.new_index == registry.current_node_count,
-        MolphaError::InvalidNewIndex
-    );
-
-    // TODO: full Schnorr PoP verification (MOLPHA_NODE_POP_V1); stub checks scalar shape only.
-    let _pop_r = args.pop_sig_r;
-    verify_pop_stub(&args.pop_sig_s)?;
+    let node_index = registry.current_node_count;
 
     require!(
-        args.security_deposit >= config.minimum_node_deposit,
-        MolphaError::InsufficientDeposit
+        args.registration_salt != [0u8; 32],
+        MolphaError::InvalidRegistrationSalt
     );
+    let (pub_key_x, pub_key_y) = validate_secp256k1_pubkey(&args.secp256k1_pubkey_compressed)?;
+    let node_id = derive_node_id(
+        ctx.accounts.node_owner.key(),
+        &args.secp256k1_pubkey_compressed,
+        &args.registration_salt,
+    );
+    verify_node_pop(
+        ctx.program_id,
+        &node_id,
+        &args.secp256k1_pubkey_compressed,
+        &args.pop_sig_r,
+        &args.pop_sig_s,
+    )?;
+
+    let key_fingerprint = secp256k1_key_fingerprint(&args.secp256k1_pubkey_compressed);
+    require!(
+        args.secp256k1_key_fingerprint == key_fingerprint,
+        MolphaError::InvalidSecp256k1KeyFingerprint
+    );
+    require!(
+        !ctx.accounts.secp256k1_key_claim.claimed,
+        MolphaError::NodeAlreadyRegistered
+    );
+
     token::transfer(
         CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.owner_usdc.to_account_info(),
                 to: ctx.accounts.treasury.to_account_info(),
                 authority: ctx.accounts.node_owner.to_account_info(),
             },
         ),
-        args.security_deposit,
+        config.minimum_node_deposit,
     )?;
 
-    let node = &mut ctx.accounts.node;
-    node.owner = ctx.accounts.node_owner.key();
-    node.current_index = args.new_index;
-    node.status = NodeStatus::Active;
-    node.locked_amount = args.security_deposit;
-    node.pending_rewards = 0;
-    node.registered_at = now;
-    node.deactivated_at = 0;
-    node.withdrawable_at = 0;
-    node.bump = ctx.bumps.node;
+    let owner_key = ctx.accounts.node_owner.key();
+    ctx.accounts.node_operator.init(
+        owner_key,
+        node_index,
+        args.ip,
+        args.port,
+        config.minimum_node_deposit,
+        now,
+        ctx.bumps.node_operator,
+    );
 
-    let index = &mut ctx.accounts.registry_index;
-    index.index = args.new_index;
-    index.node = ctx.accounts.node.key();
-    index.secp256k1_pubkey_x = args.pub_key_x;
-    index.secp256k1_pubkey_y = args.pub_key_y;
-    index.bump = ctx.bumps.registry_index;
+    ctx.accounts
+        .node
+        .init(node_index, owner_key, pub_key_x, pub_key_y, ctx.bumps.node);
 
-    let current_version = registry.current_version;
-    registry.previous_version = current_version;
-    registry.previous_node_count = registry.current_node_count;
-    registry.previous_expires_at = now.saturating_add(registry.grace_secs);
-    registry.current_version = current_version.saturating_add(1);
-    registry.current_node_count = registry.current_node_count.saturating_add(1);
-    registry.last_transition_type = RegistryTransitionType::Add;
-    registry.clear_remove_transition_metadata();
+    ctx.accounts.secp256k1_key_claim.init(
+        key_fingerprint,
+        args.secp256k1_pubkey_compressed,
+        owner_key,
+        node_id,
+        ctx.bumps.secp256k1_key_claim,
+    );
+
+    registry.record_add_transition(now);
 
     emit!(NodeRegistered {
         node_id,
-        new_index: args.new_index,
+        new_index: node_index,
         owner: ctx.accounts.node_owner.key(),
         ip: args.ip,
         port: args.port,
         current_version: registry.current_version,
-        security_deposit: args.security_deposit,
+        security_deposit: config.minimum_node_deposit,
         registered_at: now,
     });
 
@@ -114,9 +117,9 @@ pub fn register_node(
 }
 
 #[derive(Accounts)]
-#[instruction(args: RegisterNodeArgs, node_id: [u8; 32])]
+#[instruction(args: RegisterNodeArgs)]
 pub struct RegisterNode<'info> {
-    pub admin_authority: Signer<'info>,
+    pub authority: Signer<'info>,
 
     #[account(mut)]
     pub node_owner: Signer<'info>,
@@ -129,31 +132,44 @@ pub struct RegisterNode<'info> {
 
     #[account(
         mut,
+        has_one = authority @ MolphaError::UnauthorisedAuthority,
         seeds = [RegistryState::SEED_PREFIX],
-        bump = registry_state.bump,
+        bump = registry.bump,
     )]
-    pub registry_state: Box<Account<'info, RegistryState>>,
+    pub registry: Box<Account<'info, RegistryState>>,
+
+    #[account(
+        init,
+        payer = node_owner,
+        space = NodeOperator::SPACE,
+        seeds = [NodeOperator::SEED_PREFIX, node_owner.key().as_ref()],
+        bump
+    )]
+    pub node_operator: Box<Account<'info, NodeOperator>>,
 
     #[account(
         init,
         payer = node_owner,
         space = Node::SPACE,
-        seeds = [Node::SEED_PREFIX, node_owner.key().as_ref()],
+        seeds = [
+            Node::SEED_PREFIX,
+            registry.current_node_count.to_le_bytes().as_ref(),
+        ],
         bump
     )]
     pub node: Box<Account<'info, Node>>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = node_owner,
-        space = RegistryIndex::SPACE,
+        space = Secp256k1KeyClaim::SPACE,
         seeds = [
-            RegistryIndex::SEED_PREFIX,
-            args.new_index.to_le_bytes().as_ref(),
+            Secp256k1KeyClaim::SEED_PREFIX,
+            args.secp256k1_key_fingerprint.as_ref(),
         ],
         bump
     )]
-    pub registry_index: Box<Account<'info, RegistryIndex>>,
+    pub secp256k1_key_claim: Box<Account<'info, Secp256k1KeyClaim>>,
 
     #[account(
         constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidOwnerUsdc

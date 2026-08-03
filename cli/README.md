@@ -4,7 +4,7 @@
 
 ## Prerequisites
 
-- `anchor build` or `yarn build:molpha`
+- `anchor build -p molpha --ignore-keys` (or `yarn build:molpha` after keys are synced)
 - `yarn build:cli`
 - A funded wallet (`ANCHOR_WALLET` or `--wallet`)
 - A reachable RPC (`--rpc` or `ANCHOR_PROVIDER_URL`)
@@ -21,13 +21,11 @@ By default the CLI reads:
 yarn build:cli
 ```
 
-Run the built CLI:
-
 ```bash
 yarn molpha --help
 ```
 
-Or use the TypeScript entrypoint during development:
+Development entrypoint:
 
 ```bash
 yarn molpha:dev --help
@@ -35,21 +33,26 @@ yarn molpha:dev --help
 
 ## Command Groups
 
-- `molpha init`
-- `molpha registry register|deactivate|finalize-transition`
-- `molpha plan add|update`
-- `molpha subscription subscribe|top-up`
-- `molpha job create`
-- `molpha delegate add|remove`
-- `molpha data sign|submit|verify`
-- `molpha account protocol-config|registry|node|plan|subscription|job|feed|registry-index|registry-transition`
+| Group | Commands |
+|---|---|
+| `init` | initialize protocol |
+| `registry` | `register` \| `update-endpoint` \| `deactivate` \| `finalize-transition` |
+| `plan` | `add` \| `update` \| `show` |
+| `subscription` | `subscribe` \| `extend` |
+| `delegate` | `add` \| `remove` \| `pause` |
+| `gateway` | `register` \| `claim` |
+| `round` | `settle-subscription` \| `settle-agent` \| `finalize` \| `dispute` |
+| `rewards` | `claim-node` |
+| `data` | `sign` \| `submit` \| `verify` (off-chain) |
+| `admin` | `update-config` |
+| `account` | `protocol-config` \| `registry` \| `node` \| `node-operator` \| `plan` \| `subscription` \| `feed` \| `delegate` \| `gateway` \| `agent-escrow` \| `round` \| `secp-key` |
 
 ## Example Flow
 
 Initialize protocol state:
 
 ```bash
-yarn molpha --idl "/Users/vitaliikoval/dev/molpha-solana-program/target/idl/molpha.json" init \
+yarn molpha init \
   --registry-cooldown-secs 1 \
   --previous-grace-secs 1 \
   --withdrawal-cooldown-secs 1 \
@@ -60,69 +63,100 @@ yarn molpha --idl "/Users/vitaliikoval/dev/molpha-solana-program/target/idl/molp
   --receipt-submitter-bonus 5 \
   --protocol-fee-bps 100 \
   --max-receipt-delay-slots 256 \
+  --protocol-fee 0 \
+  --dispute-window-slots 256 \
+  --gateway-bond-min 500000000 \
+  --challenger-bounty-bps 500 \
+  --agent-round-base 1000 \
+  --agent-round-per-sig 15 \
+  --agent-epoch-len-secs 86400 \
   --usdc-mint <MINT>
 ```
 
-`init` now derives and creates the protocol treasury ATA automatically from
-`protocol_config` + `usdc_mint`. The command output includes the treasury
-address.
+`init` derives and creates the protocol treasury ATA from `protocol_config` + `usdc_mint`.
 
 Create a plan and subscribe:
 
 ```bash
 yarn molpha plan add \
-  --plan-id 1 \
   --plan-type standard \
-  --subscription-price-per-round 1000 \
-  --max-jobs 4 \
-  --group-size 1 \
-  --signatures-required 1 \
-  --max-signers 1
+  --subscription-price 1000 \
+  --max-signers 3 \
+  --max-delegates 100
 
-yarn molpha subscription subscribe --plan-id 1 --rounds 5 --owner-usdc <OWNER_USDC_ATA>
+yarn molpha plan add --plan-type basic --subscription-price 20000000 --max-signers 3 --max-delegates 10 --private-api-enabled --cluster devnet
+
+yarn molpha subscription subscribe --plan-id 1 --owner-usdc <OWNER_USDC_ATA>
 ```
 
-Register a node, create a job, and submit data:
+Register a node and submit data. The first submit lazy-inits the feed:
 
 ```bash
 yarn molpha registry register \
   --secp-pubkey <COMPRESSED_SECP256K1_PUBKEY> \
   --registration-salt <32_BYTE_HEX> \
-  --owner-usdc <OWNER_USDC_ATA> \
-  --security-deposit 1000000
-
-yarn molpha job create \
-  --api-config-hash <32_BYTE_HEX> \
-  --decimals 8
+  --pop-sig-r <32_BYTE_EVEN_NONCE_X_HEX> \
+  --pop-sig-s <32_BYTE_RESPONSE_SCALAR_HEX> \
+  --owner-usdc <OWNER_USDC_ATA>
 
 yarn molpha data submit \
-  --job-id <JOB_ID_HEX> \
+  --feed-id <FEED_ID_HEX> \
   --registry-version 1 \
   --config-hash <32_BYTE_HEX> \
   --value <32_BYTE_HEX> \
   --canonical-timestamp 1700000123 \
   --signer-count 1 \
+  --signatures-required 1 \
   --signer-seed molpha-cli-e2e-signers
 ```
 
-Verify and inspect:
+Node PoP is generated off chain over
+`keccak256("MOLPHA_NODE_POP_V1" || program_id || node_id)`. The CLI accepts only the
+resulting signature — never the secp256k1 private key.
+
+Inspect accounts:
 
 ```bash
-yarn molpha data verify \
-  --job-id <JOB_ID_HEX> \
-  --registry-version 1 \
-  --config-hash <32_BYTE_HEX> \
-  --value <32_BYTE_HEX> \
-  --canonical-timestamp 1700000123 \
-  --signer-count 1 \
-  --signer-seed molpha-cli-e2e-signers
+yarn molpha account feed --feed-id <FEED_ID_HEX>
+yarn molpha account gateway --authority <GATEWAY_AUTHORITY>
+yarn molpha account round --address <ROUND_RECORD>
+```
 
-yarn molpha account feed --job-id <JOB_ID_HEX>
+Update protocol config (authority only; omitted fields keep current on-chain values):
+
+```bash
+yarn molpha admin update-config --gateway-bond-min 1000000000
+```
+
+Gateway + settlement:
+
+```bash
+yarn molpha gateway register --bond-amount 500000000 --ip 10.0.0.1 --port 8080
+
+yarn molpha round settle-subscription \
+  --api-config-hash <32_BYTE_HEX> \
+  --timestamp 1700000123 \
+  --signatures-required 1 \
+  --registry-version 1 \
+  --gateway-authority <GATEWAY_AUTHORITY> \
+  --credited-bits 0 \
+  --consumer-wallet <CONSUMER_KEYPAIR>
+
+yarn molpha round finalize \
+  --round-record <ROUND_RECORD> \
+  --gateway-authority <GATEWAY_AUTHORITY>
+
+yarn molpha rewards claim-node
+yarn molpha gateway claim
 ```
 
 ## Notes
 
-- The CLI uses the current v0.3 seeds (`molpha_config`, `molpha_registry`, `molpha_job`, `molpha_feed`, etc.).
-- Subscription top-ups, node deposits, and admin withdrawals all use the same protocol treasury ATA.
-- Legacy `scripts/*.js` are still present, but `yarn molpha` is the canonical operator interface now.
-- `data sign`, `data submit`, and `data verify` can also consume fixtures with `--fixture`.
+- Seeds match the current program: `molpha_config`, `molpha_registry`, `molpha_feed`,
+  `molpha_gateway`, `molpha_round`, `molpha_agent`, `molpha_agent_round`, etc.
+- There is no `Job` account or `create_job` / `verify_data_update` instruction.
+  Feeds are created via `init_if_needed` inside `submit_data_update`.
+- `data verify` only rebuilds/prints submit args off chain; verification happens on submit.
+- Subscription payment uses monthly `subscribe` / `extend` (not per-round top-ups).
+- Settlement requires an Ed25519 RequestAuth / AgentRequestAuth pre-instruction; provide
+  `--consumer-wallet` / `--payer-wallet` so the CLI can sign the auth message.

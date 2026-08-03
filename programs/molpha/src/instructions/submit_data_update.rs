@@ -1,62 +1,96 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    error::MolphaError,
+    error::{map_data_update_err, MolphaError},
     events::FeedUpdated,
-    instructions::data_update_core::build_coalition_and_verify,
-    state::{Feed, RegistryState},
+    state::{collect_node_entries, Feed, FeedInitParams, FeedUpdateParams, RegistryState},
 };
+use molpha_verifier::DataUpdate;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SubmitDataUpdateArgs {
-    pub job_id: [u8; 32],
-    pub signatures_required: u8,
+    pub feed_id: [u8; 32],
     pub registry_version: u32,
-    pub signers_bitmap: [u8; 32],
-    pub value: [u8; 32],
+    pub value: Vec<u8>,
     pub canonical_timestamp: i64,
+    pub signatures_required: u8,
+
     /// Schnorr signature R component
     pub agg_sig_s: [u8; 32],
     pub commitment_addr: [u8; 20],
+    pub signers_bitmap: [u8; 32],
+}
+
+impl From<&SubmitDataUpdateArgs> for DataUpdate {
+    fn from(args: &SubmitDataUpdateArgs) -> Self {
+        Self {
+            feed_id: args.feed_id,
+            registry_version: args.registry_version,
+            value: args.value.clone(),
+            canonical_timestamp: args.canonical_timestamp,
+            signatures_required: args.signatures_required,
+            agg_sig_s: args.agg_sig_s,
+            commitment_addr: args.commitment_addr,
+            signers_bitmap: args.signers_bitmap,
+        }
+    }
 }
 
 pub fn submit_data_update(
     ctx: Context<SubmitDataUpdate>,
     args: SubmitDataUpdateArgs,
 ) -> Result<()> {
-    let feed = &mut ctx.accounts.feed;
-    let registry = &ctx.accounts.registry_state;
-
-    require!(
-        args.canonical_timestamp > feed.canonical_timestamp,
-        MolphaError::FeedNotNewer
-    );
+    let (stored_value, value_kind) = Feed::encode_stored_value(&args.value)?;
 
     let clock = Clock::get()?;
+    let payload: DataUpdate = (&args).into();
+    let feed = &mut ctx.accounts.feed;
+    let registry = &ctx.accounts.registry_state;
     let now = clock.unix_timestamp;
 
-    build_coalition_and_verify(
-        &args,
-        registry,
-        now,
-        ctx.remaining_accounts,
-        ctx.program_id,
-        args.signatures_required,
-        registry.redundancy_buffer,
-    )?;
+    // if feed is not initialized, initialize it
+    if feed.feed_id == [0u8; 32] {
+        feed.init(&FeedInitParams {
+            feed_id: args.feed_id,
+            value: stored_value.clone(),
+            value_kind,
+            canonical_timestamp: args.canonical_timestamp,
+            signatures_required: args.signatures_required,
+            registry_version: args.registry_version,
+            signers_bitmap: args.signers_bitmap,
+            bump: ctx.bumps.feed,
+        });
+    } else {
+        require!(
+            args.canonical_timestamp > feed.canonical_timestamp,
+            MolphaError::FeedNotNewer
+        );
+        feed.update(&FeedUpdateParams {
+            value: stored_value.clone(),
+            value_kind,
+            canonical_timestamp: args.canonical_timestamp,
+            registry_version: args.registry_version,
+            signers_bitmap: args.signers_bitmap,
+            bump: ctx.bumps.feed,
+        });
+    }
 
-    feed.value = args.value;
-    feed.canonical_timestamp = args.canonical_timestamp;
-    feed.registry_version = args.registry_version;
-    feed.signers_bitmap = args.signers_bitmap;
-    feed.signatures_required = args.signatures_required;
-    feed.last_updated_slot = clock.slot;
+    let entries = collect_node_entries(ctx.remaining_accounts, ctx.program_id)?;
+    molpha_verifier::verify_data_update_resolved(
+        &payload,
+        &registry.view(),
+        registry.redundancy_buffer,
+        now,
+        &entries,
+    )
+    .map_err(map_data_update_err)?;
 
     emit!(FeedUpdated {
-        job_id: args.job_id,
+        feed_id: args.feed_id,
         registry_version: args.registry_version,
         canonical_timestamp: args.canonical_timestamp,
-        value: args.value,
+        value: stored_value,
+        value_kind,
         signers_bitmap: args.signers_bitmap,
         last_updated_slot: clock.slot,
     });
@@ -67,6 +101,7 @@ pub fn submit_data_update(
 #[derive(Accounts)]
 #[instruction(args: SubmitDataUpdateArgs)]
 pub struct SubmitDataUpdate<'info> {
+    #[account(mut)]
     pub submitter: Signer<'info>,
 
     #[account(
@@ -76,28 +111,34 @@ pub struct SubmitDataUpdate<'info> {
     pub registry_state: Account<'info, RegistryState>,
 
     #[account(
-        mut,
-        seeds = [Feed::SEED_PREFIX, args.job_id.as_ref()],
-        bump = feed.bump,
-        constraint = feed.job_id == args.job_id @ MolphaError::DataUpdateJobMismatch,
+        init_if_needed,
+        payer = submitter,
+        space = Feed::SPACE,
+        seeds = [
+            Feed::SEED_PREFIX,
+            args.feed_id.as_ref()
+        ],
+        bump
     )]
     pub feed: Account<'info, Feed>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::SubmitDataUpdateArgs;
-    use anchor_lang::{AnchorDeserialize, AnchorSerialize};
 
-    const ARGS_SERIALIZED_LEN: usize = 224;
+    /// Borsh size for a 32-byte `value` (u32 length prefix + 32 bytes + fixed fields).
+    const ARGS_SERIALIZED_LEN_32: usize = 165;
 
     fn fixture_args() -> SubmitDataUpdateArgs {
         SubmitDataUpdateArgs {
-            job_id: [0x11; 32],
+            feed_id: [0x11; 32],
             signatures_required: 3,
             registry_version: 7,
             signers_bitmap: [0x33; 32],
-            value: [0x44; 32],
+            value: vec![0x44; 32],
             canonical_timestamp: 1_700_000_000,
             agg_sig_s: [0x66; 32],
             commitment_addr: [0x77; 20],
@@ -107,13 +148,11 @@ mod tests {
     #[test]
     fn submit_data_update_args_roundtrip() {
         let args = fixture_args();
-        let bytes = args
-            .try_to_vec()
-            .expect("SubmitDataUpdateArgs should serialize");
-        let decoded = SubmitDataUpdateArgs::try_from_slice(&bytes)
+        let bytes = borsh::to_vec(&args).expect("SubmitDataUpdateArgs should serialize");
+        let decoded = borsh::from_slice::<SubmitDataUpdateArgs>(&bytes)
             .expect("SubmitDataUpdateArgs should deserialize");
 
-        assert_eq!(decoded.job_id, args.job_id);
+        assert_eq!(decoded.feed_id, args.feed_id);
         assert_eq!(decoded.registry_version, args.registry_version);
         assert_eq!(decoded.signers_bitmap, args.signers_bitmap);
         assert_eq!(decoded.value, args.value);
@@ -124,20 +163,16 @@ mod tests {
 
     #[test]
     fn submit_data_update_args_serialized_len_is_stable() {
-        let bytes = fixture_args()
-            .try_to_vec()
-            .expect("SubmitDataUpdateArgs should serialize");
-        assert_eq!(bytes.len(), ARGS_SERIALIZED_LEN);
+        let bytes = borsh::to_vec(&fixture_args()).expect("SubmitDataUpdateArgs should serialize");
+        assert_eq!(bytes.len(), ARGS_SERIALIZED_LEN_32);
     }
 
     #[test]
     fn submit_data_update_args_preserves_negative_timestamp() {
         let mut args = fixture_args();
         args.canonical_timestamp = -123_456_789;
-        let bytes = args
-            .try_to_vec()
-            .expect("SubmitDataUpdateArgs should serialize");
-        let decoded = SubmitDataUpdateArgs::try_from_slice(&bytes)
+        let bytes = borsh::to_vec(&args).expect("SubmitDataUpdateArgs should serialize");
+        let decoded = borsh::from_slice::<SubmitDataUpdateArgs>(&bytes)
             .expect("SubmitDataUpdateArgs should deserialize");
         assert_eq!(decoded.canonical_timestamp, -123_456_789);
     }

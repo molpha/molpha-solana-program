@@ -1,30 +1,128 @@
 use anchor_lang::prelude::*;
+use solana_keccak_hasher::hashv;
+
+/// Whether [`Feed::value`] holds the raw oracle payload or a digest of a longer payload.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
+pub enum FeedValueKind {
+    /// `value` is the submitted payload (`len <= 32`).
+    Value,
+    /// `value` is `keccak256(payload)` for payloads longer than 32 bytes.
+    Hash,
+}
 
 #[account]
 #[derive(InitSpace)]
 pub struct Feed {
-    pub job_id: [u8; 32],
-    pub registry_version: u32,
+    pub feed_id: [u8; 32],
+    /// Stored oracle bytes: raw payload (`FeedValueKind::Value`) or keccak digest
+    /// (`FeedValueKind::Hash`). Never longer than [`Feed::STORED_VALUE_LEN`].
+    #[max_len(32)]
+    pub value: Vec<u8>,
+    pub value_kind: FeedValueKind,
     pub canonical_timestamp: i64,
-    pub value: [u8; 32],
-    pub signers_bitmap: [u8; 32],
     pub signatures_required: u8,
-    pub last_updated_slot: u64,
+    pub signers_bitmap: [u8; 32],
+    pub registry_version: u32,
+    pub bump: u8,
+}
+
+pub struct FeedInitParams {
+    pub feed_id: [u8; 32],
+    pub value: Vec<u8>,
+    pub value_kind: FeedValueKind,
+    pub canonical_timestamp: i64,
+    pub signatures_required: u8,
+    pub registry_version: u32,
+    pub signers_bitmap: [u8; 32],
+    pub bump: u8,
+}
+
+pub struct FeedUpdateParams {
+    pub value: Vec<u8>,
+    pub value_kind: FeedValueKind,
+    pub canonical_timestamp: i64,
+    pub registry_version: u32,
+    pub signers_bitmap: [u8; 32],
     pub bump: u8,
 }
 
 impl Feed {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_feed";
+    /// Max bytes stored on the account (raw value or hash digest).
+    pub const STORED_VALUE_LEN: usize = 32;
+    /// Upper bound for submitted instruction payloads (hashed when longer than 32).
+    pub const MAX_VALUE_LEN: usize = 256;
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
-    pub fn init(&mut self, job_id: [u8; 32], bump: u8) {
-        self.job_id = job_id;
-        self.registry_version = 0;
-        self.canonical_timestamp = 0;
-        self.value = [0u8; 32];
-        self.signers_bitmap = [0u8; 32];
-        self.signatures_required = 0;
-        self.last_updated_slot = 0;
-        self.bump = bump;
+    /// Compact a submitted payload for on-chain storage.
+    ///
+    /// - `len <= 32` → store bytes as-is, [`FeedValueKind::Value`]
+    /// - `len > 32` → store `keccak256(payload)`, [`FeedValueKind::Hash`]
+    pub fn encode_stored_value(raw: &[u8]) -> Result<(Vec<u8>, FeedValueKind)> {
+        require!(
+            raw.len() <= Self::MAX_VALUE_LEN,
+            crate::error::MolphaError::InvalidValueLength
+        );
+        if raw.len() <= Self::STORED_VALUE_LEN {
+            Ok((raw.to_vec(), FeedValueKind::Value))
+        } else {
+            Ok((hashv(&[raw]).to_bytes().to_vec(), FeedValueKind::Hash))
+        }
+    }
+
+    pub fn init(&mut self, params: &FeedInitParams) {
+        self.feed_id = params.feed_id;
+        self.value = params.value.clone();
+        self.value_kind = params.value_kind;
+        self.canonical_timestamp = params.canonical_timestamp;
+        self.signatures_required = params.signatures_required;
+        self.registry_version = params.registry_version;
+        self.signers_bitmap = params.signers_bitmap;
+        self.bump = params.bump;
+    }
+
+    pub fn update(&mut self, params: &FeedUpdateParams) {
+        self.value = params.value.clone();
+        self.value_kind = params.value_kind;
+        self.canonical_timestamp = params.canonical_timestamp;
+        self.registry_version = params.registry_version;
+        self.signers_bitmap = params.signers_bitmap;
+        self.bump = params.bump;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_short_value_stores_raw_bytes() {
+        let raw = vec![0xabu8; 16];
+        let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
+        assert_eq!(kind, FeedValueKind::Value);
+        assert_eq!(stored, raw);
+    }
+
+    #[test]
+    fn encode_exact_32_stores_raw_bytes() {
+        let raw = vec![0x11u8; 32];
+        let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
+        assert_eq!(kind, FeedValueKind::Value);
+        assert_eq!(stored, raw);
+    }
+
+    #[test]
+    fn encode_long_value_stores_keccak_hash() {
+        let raw = vec![0x22u8; 64];
+        let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
+        assert_eq!(kind, FeedValueKind::Hash);
+        assert_eq!(stored, hashv(&[&raw]).to_bytes().to_vec());
+        assert_eq!(stored.len(), 32);
+    }
+
+    #[test]
+    fn encode_rejects_over_max_len() {
+        let raw = vec![0u8; Feed::MAX_VALUE_LEN + 1];
+        assert!(Feed::encode_stored_value(&raw).is_err());
     }
 }

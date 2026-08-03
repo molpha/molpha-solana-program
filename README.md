@@ -10,7 +10,7 @@ Molpha on Solana provides:
 - **Plans & subscriptions** — USDC-paid plans that cap jobs and define signing thresholds
 - **Jobs & feeds** — Each job owns a feed PDA; updates carry a 32-byte value, coalition bitmap, and aggregate Schnorr signature
 - **Data updates** — `submit_data_update` writes feed state; `verify_data_update` runs the same checks without writing (72-byte return data for CPI consumers)
-- **Delegates** — Job owners can authorize up to five delegates to submit on their behalf
+- **Delegates** — Subscription owners can authorize delegates (including owner-provisioned agents), capped by their plan's `max_delegates`
 - **Protocol governance** — Admin config for fees, registry cooldowns, gateway allowlists, and treasury
 
 For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP.md`](WP.md) and the operator-focused [**Node Operator Guide**](NODE_OPERATOR_GUIDE.md).
@@ -19,15 +19,18 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 
 ### Node registry
 
-- `register_node` / `deactivate_node` with versioned `RegistryState` and `RegistryIndex` entries
-- secp256k1 signing keys stored in the registry index (EVM-parity message hashing)
+- `register_node` / `deactivate_node` with versioned `RegistryState` and slot-keyed `Node` entries
+- canonical compressed secp256k1 keys are validated on registration, stored as affine coordinates,
+  and permanently reserved by a key-claim PDA
+- registration requires a domain-separated Schnorr proof of possession bound to the program and
+  derived node identity; verifier hot paths rely on this registration invariant
 - `finalize_registry_transition` after batch registry changes
 
 ### Jobs, plans, and subscriptions
 
 - Admin-defined **plans** (`add_plan`, `update_plan`) with per-round pricing and signer limits
 - **Subscribe** / **extend_subscription** in USDC
-- **create_job** binds a `job_id` to a feed and API config hash
+- Jobs are bound to a `feed_id`, feed, and API config hash; `submit_data_update` initializes the job/feed on first submit, while `create_job` remains available for explicit pre-creation.
 
 ### Data publication
 
@@ -38,7 +41,7 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 ### Tooling
 
 - TypeScript **CLI** (`yarn molpha`) for init, registry, plans, jobs, delegates, and data flows
-- Scripts for local setup, node generation, CU benchmarks, and end-to-end job submission
+- Scripts for node generation, CU benchmarks, and end-to-end job submission
 
 ## Program structure
 
@@ -70,12 +73,11 @@ programs/
 │       ├── events.rs
 │       ├── error.rs
 │       └── lib.rs
-└── faucet/                       # Test USDC faucet (localnet / devnet)
 ```
 
 ```
 cli/                                # TypeScript operator CLI
-scripts/                            # Setup, registration, benchmarks, e2e flows
+scripts/                            # Benchmarks, batch registration, e2e flows
 tests/                              # Jest + bankrun instruction tests
 ```
 
@@ -83,12 +85,12 @@ tests/                              # Jest + bankrun instruction tests
 
 ### For integrators and feed consumers
 
-| Goal | Document |
-|------|----------|
-| Quick integration | [QUICK_START.md](QUICK_START.md) |
-| Full product usage | [MOLPHA_USER_GUIDE.md](MOLPHA_USER_GUIDE.md) |
+| Goal                     | Document                                     |
+| ------------------------ | -------------------------------------------- |
+| Quick integration        | [QUICK_START.md](QUICK_START.md)             |
+| Full product usage       | [MOLPHA_USER_GUIDE.md](MOLPHA_USER_GUIDE.md) |
 | Step-by-step integration | [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) |
-| API & account reference | [API_REFERENCE.md](API_REFERENCE.md) |
+| API & account reference  | [API_REFERENCE.md](API_REFERENCE.md)         |
 
 ### For oracle node operators
 
@@ -119,7 +121,7 @@ yarn build:cli
 yarn molpha --help
 ```
 
-See [`cli/README.md`](cli/README.md) for command groups and an end-to-end example (`init` → plan → subscribe → job → submit).
+See [`cli/README.md`](cli/README.md) for command groups and an end-to-end example (`init` → plan → subscribe → submit).
 
 **Deploy (devnet):**
 
@@ -134,36 +136,33 @@ Program IDs are defined in [`Anchor.toml`](Anchor.toml) (see below).
 Bankrun/localnet measurements (May 2026 — details in [NODE_OPERATOR_GUIDE.md §10](NODE_OPERATOR_GUIDE.md#10-compute-budgets-and-limits)):
 
 | Signers | `verify_data_update` | `submit_data_update` |
-|---------|----------------------|----------------------|
-| 3 | ~296K | ~300K |
-| 8 | ~384K | ~387K |
-| 18 | ~529K | ~532K |
+| ------- | -------------------- | -------------------- |
+| 3       | ~296K                | ~300K                |
+| 8       | ~384K                | ~387K                |
+| 18      | ~529K                | ~532K                |
 
 Use `ComputeBudgetProgram.setComputeUnitLimit` ≥ **550_000** for large coalitions. CI enforces ceilings via `yarn cu:data-update:bankrun`.
 
 ### Example: read feed via CLI
 
 ```bash
-yarn molpha account feed --job-id <64_hex_job_id>
+yarn molpha account feed --feed-id <64_hex_feed_id>
 ```
 
 Off-chain signing and submission:
 
 ```bash
-yarn molpha data sign --job-id <hex> --registry-version 1 --value <hex> ...
+yarn molpha data sign --feed-id <hex> --registry-version 1 --value <hex> ...
 yarn molpha data submit ...
 ```
-
-See [`scripts/subscribe-create-job-submit.js`](scripts/subscribe-create-job-submit.js) (`yarn job-flow`) for a full devnet/localnet path.
 
 ## Program IDs
 
 From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 
-| Program | ID |
-|---------|-----|
+| Program    | ID                                            |
+| ---------- | --------------------------------------------- |
 | **Molpha** | `MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8` |
-| **Faucet** | `AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ` |
 
 ## Documentation
 
@@ -185,49 +184,46 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 ### Deployment & project notes
 
 - [Devnet Deployment](DEVNET_DEPLOYMENT.md)
-- [Faucet README](FAUCET_README.md)
 - [Migration Guide](MIGRATION_GUIDE.md)
 - [Scripts README](scripts/README.md)
 
 ## Scripts & yarn commands
 
-| Command | Purpose |
-|---------|---------|
-| `yarn molpha` | Operator CLI (after `yarn build:cli`) |
-| `yarn register-nodes` | `scripts/generate-and-register-nodes.js` |
-| `yarn job-flow` | Subscribe → create job → submit update |
-| `yarn cu:data-update:bankrun` | CU benchmark (bankrun) |
-| `yarn setup-test-faucet` | Local test USDC faucet |
+| Command                       | Purpose                                        |
+| ----------------------------- | ---------------------------------------------- |
+| `yarn molpha`                 | Operator CLI (after `yarn build:cli`)          |
+| `yarn register-nodes`         | `scripts/generate-and-register-nodes.js`       |
+| `yarn cu:data-update:bankrun` | CU benchmark (bankrun)                         |
 
-Key scripts under `scripts/`: `initialize.js`, `generate-and-register-nodes.js`, `subscribe-create-job-submit.js`, `oracle-client.ts`, `pda-helpers.js`, and CU bench utilities.
+Key scripts under `scripts/`: `generate-and-register-nodes.js`, `subscribe-create-job-submit.js`, `oracle-client.ts`, and CU bench utilities. Use `yarn molpha` for all on-chain operations.
 
 ## Architecture
 
 ### Data flow (current on-chain path)
 
 ```
-Job owner subscribes → create_job (feed PDA)
+Job owner subscribes
         ↓
 Off-chain coalition signs (secp256k1 / Schnorr, EVM-compatible message)
         ↓
-submit_data_update → verify bitmap + signature → update Feed
+submit_data_update → init job/feed if needed → verify bitmap + signature → update Feed
         ↓
 Consumers read Feed account OR CPI verify_data_update (no write, return data)
 ```
 
 ### PDA seeds
 
-| Account | Seed prefix | Additional seeds |
-|---------|-------------|------------------|
-| Protocol config | `molpha_config` | — |
-| Registry state | `molpha_registry` | — |
-| Registry index | `molpha_registry_index` | version, index |
-| Node | `molpha_node` | node owner |
-| Plan | `molpha_plan` | plan type byte |
-| Subscription | `molpha_subscription` | subscriber owner |
-| Job | `molpha_job` | `job_id` (32 bytes) |
-| Feed | `molpha_feed` | `job_id` (32 bytes) |
-| Gateway | `molpha_gateway` | IP + port |
+| Account         | Seed prefix             | Additional seeds     |
+| --------------- | ----------------------- | -------------------- |
+| Protocol config | `molpha_config`         | —                    |
+| Registry state  | `molpha_registry`       | —                    |
+| Registry index  | `molpha_registry_index` | version, index       |
+| Node            | `molpha_node`           | node owner           |
+| Plan            | `molpha_plan`           | plan type byte       |
+| Subscription    | `molpha_subscription`   | subscriber owner     |
+| Job             | `molpha_job`            | `feed_id` (32 bytes) |
+| Feed            | `molpha_feed`           | `feed_id` (32 bytes) |
+| Gateway         | `molpha_gateway`        | IP + port            |
 
 Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_GUIDE.md#3-on-chain-accounts-and-pdas).
 

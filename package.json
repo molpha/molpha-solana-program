@@ -4,8 +4,8 @@
     "molpha": "cli/dist/index.js"
   },
   "scripts": {
-    "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
-    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
+    "lint:fix": "prettier --no-config */*.js \"*/**/*{.js,.ts}\" -w",
+    "lint": "prettier --no-config */*.js \"*/**/*{.js,.ts}\" --check",
     "build:molpha": "anchor build -p molpha",
     "build:cli": "tsc -p cli/tsconfig.json",
     "test": "yarn build:molpha && cp target/deploy/molpha.so tests/fixtures && RUST_LOG= jest --runInBand --verbose --forceExit",
@@ -20,15 +20,14 @@
     "test:integration": "anchor test --skip-deploy tests/integration/integration.test.ts",
     "test:instructions": "anchor test --skip-deploy tests/instructions/",
     "test:all": "anchor test",
-    "setup-test-faucet": "node scripts/setup-test-faucet.js",
     "cu:verify-answer-alt:localnet": "node scripts/cu-bench-verify-answer-alt.js",
     "cu:data-update:bankrun": "node scripts/cu-bench-data-update-bankrun.js",
     "cu:data-update:localnet": "node scripts/cu-bench-data-update-localnet.js",
+    "cu:settle-round-receipt:localnet": "node scripts/cu-bench-settle-round-receipt-localnet.js",
     "build:molpha:cu-bench": "mkdir -p target/deploy && cargo build-sbf --manifest-path programs/molpha/Cargo.toml --sbf-out-dir target/deploy -- --features cu-bench",
     "molpha": "node cli/dist/index.js",
     "molpha:dev": "ts-node -r tsconfig-paths/register cli/src/index.ts",
     "register-nodes": "node scripts/generate-and-register-nodes.js",
-    "job-flow": "node scripts/subscribe-create-job-submit.js",
     "test:e2e-fixture": "yarn build:molpha && cp target/deploy/molpha.so tests/fixtures && RUST_LOG= jest --runInBand --verbose --forceExit --testPathIgnorePatterns=/node_modules/ --testPathPatterns=e2e-generate-fixture"
   },
   "dependencies": {

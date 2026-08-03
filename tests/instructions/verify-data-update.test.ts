@@ -82,16 +82,16 @@ function bitmapToNodeIndexesOneBased(bitmap: bigint): number[] {
  *   keccak256(utf8("MOLPHA_MESSAGE_V1"))
  */
 const EXPECTED_MESSAGE_PREFIX = Buffer.from([
-  0xa7, 0x55, 0x23, 0xa2, 0xab, 0x7b, 0x71, 0x8d, 0x9c, 0xff, 0xd2, 0xfa,
-  0x97, 0xed, 0x06, 0x9f, 0xc1, 0x21, 0x84, 0xea, 0xbe, 0xe7, 0xd5, 0x07,
-  0x85, 0x4d, 0x09, 0x22, 0xf7, 0x0e, 0x7f, 0xe7,
+  0xa7, 0x55, 0x23, 0xa2, 0xab, 0x7b, 0x71, 0x8d, 0x9c, 0xff, 0xd2, 0xfa, 0x97,
+  0xed, 0x06, 0x9f, 0xc1, 0x21, 0x84, 0xea, 0xbe, 0xe7, 0xd5, 0x07, 0x85, 0x4d,
+  0x09, 0x22, 0xf7, 0x0e, 0x7f, 0xe7,
 ]);
 
 // ---------------------------------------------------------------------------
 // Fixture data (decoded once, used across tests)
 // ---------------------------------------------------------------------------
 
-const jobId = hexToBytes(fixture.dataUpdate.jobId);
+const feedId = hexToBytes(fixture.dataUpdate.feedId);
 const value = hexToBytes(fixture.dataUpdate.value);
 const registryVersion: number = fixture.dataUpdate.registryVersion;
 const signaturesRequired: number = fixture.dataUpdate.signaturesRequired;
@@ -126,7 +126,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
    * ```
    * keccak256(abi.encodePacked(
    *   MESSAGE_PREFIX,
-   *   jobId,
+   *   feedId,
    *   registryVersion (uint32 BE),
    *   signaturesRequired (uint32 BE),
    *   signersBitmap (uint256 BE),
@@ -142,7 +142,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
   function buildMessagePreimage(): Uint8Array {
     return concat(
       EXPECTED_MESSAGE_PREFIX,
-      jobId,
+      feedId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
       signersBitmap,
@@ -164,7 +164,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
     const base = computeMessageHash();
     const altered = concat(
       EXPECTED_MESSAGE_PREFIX,
-      jobId,
+      feedId,
       u32BE(registryVersion + 1),
       u32BE(signaturesRequired),
       signersBitmap,
@@ -180,7 +180,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
     mutValue[0] ^= 0xff;
     const altered = concat(
       EXPECTED_MESSAGE_PREFIX,
-      jobId,
+      feedId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
       signersBitmap,
@@ -196,7 +196,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
     mutBitmap[31] ^= 0x01;
     const altered = concat(
       EXPECTED_MESSAGE_PREFIX,
-      jobId,
+      feedId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
       mutBitmap,

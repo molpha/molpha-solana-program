@@ -1,5 +1,29 @@
 use anchor_lang::prelude::*;
 
+use crate::state::FeedValueKind;
+
+#[event]
+pub struct ProtocolConfigUpdated {
+    pub reward_per_signature: u64,
+    pub gateway_fee: u64,
+    pub receipt_submitter_bonus: u64,
+    pub protocol_fee_bps: u16,
+    pub max_receipt_delay_slots: u64,
+    pub protocol_fee: u64,
+    pub dispute_window_slots: u64,
+    pub gateway_bond_min: u64,
+    pub challenger_bounty_bps: u16,
+    pub registry_cooldown_secs: i64,
+    pub previous_grace_secs: i64,
+    pub max_node_count: u32,
+    pub redundancy_buffer: u8,
+    pub minimum_node_deposit: u64,
+    pub withdrawal_cooldown_secs: i64,
+    pub agent_round_base: u64,
+    pub agent_round_per_sig: u64,
+    pub agent_epoch_len_secs: i64,
+}
+
 #[event]
 pub struct ProtocolInitialized {
     pub protocol_config: Pubkey,
@@ -20,6 +44,14 @@ pub struct NodeRegistered {
     pub current_version: u32,
     pub security_deposit: u64,
     pub registered_at: i64,
+}
+
+#[event]
+pub struct NodeEndpointUpdated {
+    pub owner: Pubkey,
+    pub current_index: u32,
+    pub ip: [u8; 4],
+    pub port: u16,
 }
 
 #[event]
@@ -52,8 +84,8 @@ pub struct NodeSlotFinalized {
 pub struct PlanAdded {
     pub plan_type: u8,
     pub subscription_price: u64,
-    pub max_jobs: u32,
     pub max_signers: u8,
+    pub max_delegates: u32,
     pub private_api_enabled: bool,
     pub is_active: bool,
 }
@@ -62,8 +94,8 @@ pub struct PlanAdded {
 pub struct PlanUpdated {
     pub plan_type: u8,
     pub subscription_price: u64,
-    pub max_jobs: u32,
     pub max_signers: u8,
+    pub max_delegates: u32,
     pub private_api_enabled: bool,
     pub is_active: bool,
 }
@@ -93,47 +125,112 @@ pub struct SubscriptionVaultWithdrawn {
 }
 
 #[event]
-pub struct GatewayAdded {
+pub struct GatewayRegistered {
+    pub authority: Pubkey,
     pub ip: [u8; 4],
     pub port: u16,
+    pub bond: u64,
     pub registered_at: i64,
 }
 
 #[event]
-pub struct GatewayRemoved {
-    pub ip: [u8; 4],
-    pub port: u16,
-}
-
-#[event]
-pub struct JobCreated {
-    pub job_id: [u8; 32],
-    pub owner: Pubkey,
-    pub plan_type: u8,
-    pub signatures_required: u8,
-    pub created_at: i64,
-}
-
-#[event]
 pub struct DelegateAdded {
-    pub job_id: [u8; 32],
+    pub owner: Pubkey,
     pub delegate: Pubkey,
-    pub delegate_count: u8,
+    pub max_data_requests: u64,
+    pub max_signers: u8,
+    /// Subscription delegate count after this addition.
+    pub delegate_count: u32,
 }
 
 #[event]
 pub struct DelegateRemoved {
-    pub job_id: [u8; 32],
+    pub owner: Pubkey,
     pub delegate: Pubkey,
-    pub delegate_count: u8,
+    pub data_requests_used: u64,
+    /// Subscription delegate count after this removal.
+    pub delegate_count: u32,
+}
+
+#[event]
+pub struct DelegateStatusChanged {
+    pub delegate_account: Pubkey,
+    pub owner: Pubkey,
+    pub delegate: Pubkey,
+    pub old_status: u8,
+    pub new_status: u8,
+    pub by: Pubkey,
 }
 
 #[event]
 pub struct FeedUpdated {
-    pub job_id: [u8; 32],
+    pub feed_id: [u8; 32],
     pub registry_version: u32,
     pub canonical_timestamp: i64,
-    pub value: [u8; 32],
+    /// Compacted payload stored on the feed (raw ≤32 bytes, or keccak digest).
+    pub value: Vec<u8>,
+    pub value_kind: FeedValueKind,
     pub signers_bitmap: [u8; 32],
     pub last_updated_slot: u64,
+}
+
+#[event]
+pub struct RoundSettled {
+    pub gateway: Pubkey,
+    pub feed_id: [u8; 32],
+    pub timestamp: u64,
+    pub signers_bitmap: [u8; 32],
+    pub credited_count: u32,
+    pub reward_per_signature: u64,
+    pub gateway_fee: u64,
+    pub recorded_slot: u64,
+}
+
+#[event]
+pub struct RoundFinalized {
+    pub feed_id: [u8; 32],
+    pub timestamp: u64,
+    pub credited_count: u32,
+    pub finalized_slot: u64,
+}
+
+#[event]
+pub struct RoundDisputed {
+    pub feed_id: [u8; 32],
+    pub timestamp: u64,
+    pub gateway: Pubkey,
+    pub slashed_bond: u64,
+    pub challenger_bounty: u64,
+}
+
+#[event]
+pub struct RewardsClaimed {
+    pub beneficiary: Pubkey,
+    pub destination: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct AgentEscrowCreated {
+    pub agent: Pubkey,
+    pub authority: Pubkey,
+    pub gateway: Pubkey,
+}
+
+#[event]
+pub struct AgentEscrowClosed {
+    pub agent: Pubkey,
+    pub owner: Pubkey,
+}
+
+#[event]
+pub struct AgentRoundSettled {
+    pub agent: Pubkey,
+    pub price: u64,
+    pub feed_id: [u8; 32],
+    pub timestamp: u64,
+    pub gateway: Pubkey,
+    pub signers_bitmap: [u8; 32],
+    pub credited_count: u32,
+    pub recorded_slot: u64,
 }

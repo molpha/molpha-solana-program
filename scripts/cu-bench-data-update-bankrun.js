@@ -24,7 +24,7 @@ const toml = require("toml");
 
 const {
   NODE_COUNT,
-  FIXTURE_JOB_ID,
+  FIXTURE_FEED_ID,
   FIXTURE_CONFIG_HASH,
   FIXTURE_VALUE,
   FIXTURE_REGISTRY_VERSION,
@@ -36,7 +36,9 @@ const {
   findRegistryIndexPda,
 } = require("./lib/cu-bench-data-update-common");
 
-const MESSAGE_PREFIX = Buffer.from(keccak_256(Buffer.from("MOLPHA_MESSAGE_V1")));
+const MESSAGE_PREFIX = Buffer.from(
+  keccak_256(Buffer.from("MOLPHA_MESSAGE_V1"))
+);
 
 const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
@@ -57,7 +59,6 @@ const CU_CEILINGS = {
   verify_data_update: { 3: 296_000, 8: 384_000, 18: 529_000 },
   submit_data_update: { 3: 300_000, 8: 387_000, 18: 532_000 },
 };
-
 
 function hexToBuffer(hex) {
   const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
@@ -113,7 +114,8 @@ function modN(x) {
 
 function bytes32FromBigintBE(x) {
   let v = x;
-  if (v < 0n) v = (v % SECP256K1_ORDER_N + SECP256K1_ORDER_N) % SECP256K1_ORDER_N;
+  if (v < 0n)
+    v = ((v % SECP256K1_ORDER_N) + SECP256K1_ORDER_N) % SECP256K1_ORDER_N;
   v %= SECP256K1_ORDER_N;
   return Buffer.from(v.toString(16).padStart(64, "0"), "hex");
 }
@@ -129,7 +131,9 @@ function commitmentAddrFromPoint(R) {
 }
 
 function decompressSecp256k1(compressed) {
-  const point = secp256k1.Point.fromHex(Buffer.from(compressed).toString("hex"));
+  const point = secp256k1.Point.fromHex(
+    Buffer.from(compressed).toString("hex")
+  );
   const uncompressed = point.toRawBytes(false);
   return {
     x: uncompressed.subarray(1, 33),
@@ -137,7 +141,11 @@ function decompressSecp256k1(compressed) {
   };
 }
 
-function schnorrSignForVerifier({ coalitionPubkeyCompressed, messageHash, coalitionPrivkey }) {
+function schnorrSignForVerifier({
+  coalitionPubkeyCompressed,
+  messageHash,
+  coalitionPrivkey,
+}) {
   const px = coalitionPubkeyCompressed.subarray(1, 33);
   const recoveryId = coalitionPubkeyCompressed[0] & 1;
 
@@ -160,7 +168,7 @@ function schnorrSignForVerifier({ coalitionPubkeyCompressed, messageHash, coalit
 }
 
 function computeMessageHash({
-  jobId,
+  feedId,
   registryVersion,
   signaturesRequired,
   signersBitmap,
@@ -169,7 +177,7 @@ function computeMessageHash({
 }) {
   return keccakConcat([
     MESSAGE_PREFIX,
-    jobId,
+    feedId,
     u32be(registryVersion),
     u32be(signaturesRequired),
     signersBitmap,
@@ -179,7 +187,9 @@ function computeMessageHash({
 }
 
 function loadProgramId() {
-  const anchorToml = toml.parse(fs.readFileSync(path.join(__dirname, "..", "Anchor.toml"), "utf8"));
+  const anchorToml = toml.parse(
+    fs.readFileSync(path.join(__dirname, "..", "Anchor.toml"), "utf8")
+  );
   return new PublicKey(anchorToml.programs.localnet.molpha);
 }
 
@@ -189,7 +199,13 @@ function loadIdl() {
   return { idl: raw, programId: new PublicKey(raw.address) };
 }
 
-async function setProgramAccount(context, program, address, accountName, fields) {
+async function setProgramAccount(
+  context,
+  program,
+  address,
+  accountName,
+  fields
+) {
   const data = await program.coder.accounts.encode(accountName, fields);
   context.setAccount(address, {
     lamports: ACCOUNT_LAMPORTS,
@@ -208,17 +224,29 @@ async function seedRegistryIndices(context, program, compressedPubkeys) {
       program.programId
     )[1];
 
-    await setProgramAccount(context, program, registryIndexPda, "registryIndex", {
-      index,
-      node: PublicKey.unique(),
-      secp256K1PubkeyX: Array.from(x),
-      secp256K1PubkeyY: Array.from(y),
-      bump,
-    });
+    await setProgramAccount(
+      context,
+      program,
+      registryIndexPda,
+      "registryIndex",
+      {
+        index,
+        node: PublicKey.unique(),
+        secp256K1PubkeyX: Array.from(x),
+        secp256K1PubkeyY: Array.from(y),
+        bump,
+      }
+    );
   }
 }
 
-async function seedBenchAccounts(context, program, payer, signerCount, signerMaterial) {
+async function seedBenchAccounts(
+  context,
+  program,
+  payer,
+  signerCount,
+  signerMaterial
+) {
   const [protocolConfigPda, protocolBump] = PublicKey.findProgramAddressSync(
     [PROTOCOL_CONFIG_SEED],
     program.programId
@@ -228,33 +256,41 @@ async function seedBenchAccounts(context, program, payer, signerCount, signerMat
     program.programId
   );
   const [jobPda, jobBump] = PublicKey.findProgramAddressSync(
-    [JOB_SEED, FIXTURE_JOB_ID],
+    [JOB_SEED, FIXTURE_FEED_ID],
     program.programId
   );
+  const canonicalTimestampLe = Buffer.alloc(8);
+  canonicalTimestampLe.writeBigInt64LE(BigInt(FIXTURE_CANONICAL_TIMESTAMP));
   const [feedPda, feedBump] = PublicKey.findProgramAddressSync(
-    [FEED_SEED, FIXTURE_JOB_ID],
+    [FEED_SEED, FIXTURE_FEED_ID],
     program.programId
   );
 
-  await setProgramAccount(context, program, protocolConfigPda, "protocolConfig", {
-    authority: payer.publicKey,
-    pendingAuthority: null,
-    usdcMint: PublicKey.default,
-    treasury: PublicKey.default,
-    rewardPerSignature: new anchor.BN(0),
-    gatewayFee: new anchor.BN(0),
-    receiptSubmitterBonus: new anchor.BN(0),
-    protocolFeeBps: 0,
-    maxReceiptDelaySlots: new anchor.BN(0),
-    registryCooldownSecs: new anchor.BN(0),
-    previousGraceSecs: new anchor.BN(0),
-    maxNodeCount: NODE_COUNT,
-    redundancyBuffer: 2,
-    minimumNodeDeposit: new anchor.BN(0),
-    timelockExpiresAt: null,
-    pendingChange: null,
-    bump: protocolBump,
-  });
+  await setProgramAccount(
+    context,
+    program,
+    protocolConfigPda,
+    "protocolConfig",
+    {
+      authority: payer.publicKey,
+      pendingAuthority: null,
+      usdcMint: PublicKey.default,
+      treasury: PublicKey.default,
+      rewardPerSignature: new anchor.BN(0),
+      gatewayFee: new anchor.BN(0),
+      receiptSubmitterBonus: new anchor.BN(0),
+      protocolFeeBps: 0,
+      maxReceiptDelaySlots: new anchor.BN(0),
+      registryCooldownSecs: new anchor.BN(0),
+      previousGraceSecs: new anchor.BN(0),
+      maxNodeCount: NODE_COUNT,
+      redundancyBuffer: 2,
+      minimumNodeDeposit: new anchor.BN(0),
+      timelockExpiresAt: null,
+      pendingChange: null,
+      bump: protocolBump,
+    }
+  );
 
   await setProgramAccount(context, program, registryStatePda, "registryState", {
     authority: payer.publicKey,
@@ -274,38 +310,48 @@ async function seedBenchAccounts(context, program, payer, signerCount, signerMat
   });
 
   await setProgramAccount(context, program, jobPda, "job", {
-    jobId: Array.from(FIXTURE_JOB_ID),
+    feedId: Array.from(FIXTURE_FEED_ID),
     owner: payer.publicKey,
-    delegates: Array(5).fill(PublicKey.default),
-    delegateCount: 0,
     apiConfigHash: Array.from(FIXTURE_CONFIG_HASH),
     decimals: 8,
     signaturesRequired: signerCount,
     createdAt: new anchor.BN(0),
+    lastRequestTimestamp: new anchor.BN(0),
     bump: jobBump,
   });
 
   await setProgramAccount(context, program, feedPda, "feed", {
-    jobId: Array.from(FIXTURE_JOB_ID),
+    feedId: Array.from(FIXTURE_FEED_ID),
     registryVersion: 0,
     canonicalTimestamp: new anchor.BN(0),
-    value: Array.from(Buffer.alloc(32)),
+    value: Buffer.alloc(32),
     signersBitmap: Array.from(Buffer.alloc(32)),
     signaturesRequired: 0,
     lastUpdatedSlot: new anchor.BN(0),
     bump: feedBump,
   });
 
-  await seedRegistryIndices(context, program, signerMaterial.compressedPubkeys.slice(0, NODE_COUNT));
+  await seedRegistryIndices(
+    context,
+    program,
+    signerMaterial.compressedPubkeys.slice(0, NODE_COUNT)
+  );
 
   return { protocolConfigPda, registryStatePda, jobPda, feedPda };
 }
 
-async function simulateIx(provider, payer, ix, { skipComputeBudget = false } = {}) {
+async function simulateIx(
+  provider,
+  payer,
+  ix,
+  { skipComputeBudget = false } = {}
+) {
   const [blockhash] = await provider.context.banksClient.getLatestBlockhash();
   const tx = new Transaction();
   if (!skipComputeBudget) {
-    tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT }));
+    tx.add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT })
+    );
   }
   tx.add(ix);
   tx.feePayer = payer.publicKey;
@@ -316,14 +362,19 @@ async function simulateIx(provider, payer, ix, { skipComputeBudget = false } = {
   try {
     sim = await provider.context.banksClient.simulateTransaction(tx);
   } catch (err) {
-    if (!skipComputeBudget && String(err?.message || err).includes("Transaction too large")) {
+    if (
+      !skipComputeBudget &&
+      String(err?.message || err).includes("Transaction too large")
+    ) {
       return simulateIx(provider, payer, ix, { skipComputeBudget: true });
     }
     throw err;
   }
   if (sim.result !== null) {
     throw new Error(
-      `simulation failed: ${sim.result}\nlogs:\n${(sim.meta?.logMessages || []).join("\n")}`
+      `simulation failed: ${sim.result}\nlogs:\n${(
+        sim.meta?.logMessages || []
+      ).join("\n")}`
     );
   }
   if (!sim.meta) {
@@ -339,49 +390,39 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     signerCount,
     privKeys: signerMaterial.privKeys,
     compressedPubkeys: signerMaterial.compressedPubkeys,
-    jobId: FIXTURE_JOB_ID,
+    feedId: FIXTURE_FEED_ID,
     registryVersion: FIXTURE_REGISTRY_VERSION,
     configHash: FIXTURE_CONFIG_HASH,
     value: FIXTURE_VALUE,
     canonicalTimestamp: FIXTURE_CANONICAL_TIMESTAMP,
   });
 
-  const { protocolConfigPda, registryStatePda, jobPda, feedPda } =
-    await seedBenchAccounts(
-      provider.context,
-      program,
-      payer,
-      signerCount,
-      signerMaterial
-    );
+  const { registryStatePda, jobPda, feedPda } = await seedBenchAccounts(
+    provider.context,
+    program,
+    payer,
+    signerCount,
+    signerMaterial
+  );
 
-  const args = buildSubmitArgs(signerCount, signatureMaterial, FIXTURE_JOB_ID);
+  const args = buildSubmitArgs(signerCount, signatureMaterial, FIXTURE_FEED_ID);
   const signersBitmapBuf = signatureMaterial.signersBitmap;
   const remainingAccounts = registryIndexRemainingAccounts(
     program.programId,
     signersBitmapBuf
   );
 
-  const verifyIx = await program.methods
-    .verifyDataUpdate(args)
-    .accountsPartial({
-      registryState: registryStatePda,
-    })
-    .remainingAccounts(remainingAccounts)
-    .instruction();
-
   const submitIx = await program.methods
     .submitDataUpdate(args)
     .accountsPartial({
       submitter: payer.publicKey,
-      protocolConfig: protocolConfigPda,
       registryState: registryStatePda,
       feed: feedPda,
+      systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(remainingAccounts)
     .instruction();
 
-  const verifyCu = await simulateIx(provider, payer, verifyIx);
   let submitCu;
   try {
     submitCu = await simulateIx(provider, payer, submitIx);
@@ -396,19 +437,29 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     }
   }
 
-  return { verifyCu, submitCu };
+  return { submitCu };
 }
 
 async function main() {
   const repoRoot = path.join(__dirname, "..");
   const soPath = path.join(repoRoot, "target", "deploy", "molpha.so");
-  const bitmapSrc = path.join(repoRoot, "programs", "molpha", "src", "utils", "bitmap.rs");
+  const bitmapSrc = path.join(
+    repoRoot,
+    "programs",
+    "molpha",
+    "src",
+    "utils",
+    "bitmap.rs"
+  );
   if (!fs.existsSync(soPath)) {
     throw new Error(
       "target/deploy/molpha.so missing — run `yarn build:molpha` first (anchor build alone does not refresh the .so)"
     );
   }
-  if (fs.existsSync(bitmapSrc) && fs.statSync(bitmapSrc).mtimeMs > fs.statSync(soPath).mtimeMs) {
+  if (
+    fs.existsSync(bitmapSrc) &&
+    fs.statSync(bitmapSrc).mtimeMs > fs.statSync(soPath).mtimeMs
+  ) {
     throw new Error(
       "target/deploy/molpha.so is older than programs/molpha/src/utils/bitmap.rs — run `yarn build:molpha`"
     );

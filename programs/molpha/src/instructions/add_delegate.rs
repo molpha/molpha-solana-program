@@ -1,38 +1,52 @@
 use anchor_lang::prelude::*;
 
-use crate::{error::MolphaError, events::DelegateAdded, state::Job};
+use crate::{
+    error::MolphaError,
+    events::DelegateAdded,
+    state::{Delegate, Subscription},
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct AddDelegateArgs {
-    pub job_id: [u8; 32],
     pub delegate: Pubkey,
+    pub max_data_requests: u64,
+    pub max_signers: u8,
 }
 
 pub fn add_delegate(ctx: Context<AddDelegate>, args: AddDelegateArgs) -> Result<()> {
-    let job = &mut ctx.accounts.job;
+    require!(
+        args.delegate != ctx.accounts.owner.key(),
+        MolphaError::DelegateCannotBeOwner
+    );
+    require!(
+        args.max_data_requests > 0,
+        MolphaError::InvalidDelegateLimits
+    );
 
-    require_keys_eq!(
-        job.owner,
+    let subscription = &mut ctx.accounts.subscription;
+
+    require!(subscription.is_active(), MolphaError::SubscriptionNotActive);
+    require!(
+        args.max_signers > 0 && args.max_signers <= subscription.max_signers,
+        MolphaError::SignaturesExceedSubscriptionMax
+    );
+    subscription.try_add_delegate()?;
+
+    let delegate_account = &mut ctx.accounts.delegate_account;
+    delegate_account.init(
         ctx.accounts.owner.key(),
-        MolphaError::UnauthorisedJobOwner
+        args.delegate,
+        args.max_data_requests,
+        args.max_signers,
+        ctx.bumps.delegate_account,
     );
-    require!(
-        job.delegate_count < Job::MAX_DELEGATES as u8,
-        MolphaError::DelegateLimitReached
-    );
-    require!(
-        !job.has_delegate(&args.delegate),
-        MolphaError::DelegateAlreadyPresent
-    );
-
-    let idx = job.delegate_count as usize;
-    job.delegates[idx] = args.delegate;
-    job.delegate_count += 1;
 
     emit!(DelegateAdded {
-        job_id: job.job_id,
+        owner: ctx.accounts.owner.key(),
         delegate: args.delegate,
-        delegate_count: job.delegate_count,
+        max_data_requests: args.max_data_requests,
+        max_signers: args.max_signers,
+        delegate_count: subscription.delegate_count,
     });
 
     Ok(())
@@ -41,12 +55,28 @@ pub fn add_delegate(ctx: Context<AddDelegate>, args: AddDelegateArgs) -> Result<
 #[derive(Accounts)]
 #[instruction(args: AddDelegateArgs)]
 pub struct AddDelegate<'info> {
+    #[account(mut)]
     pub owner: Signer<'info>,
 
     #[account(
         mut,
-        seeds = [Job::SEED_PREFIX, args.job_id.as_ref()],
-        bump = job.bump,
+        seeds = [Subscription::SEED_PREFIX, owner.key().as_ref()],
+        bump = subscription.bump,
     )]
-    pub job: Account<'info, Job>,
+    pub subscription: Account<'info, Subscription>,
+
+    #[account(
+        init,
+        payer = owner,
+        space = Delegate::SPACE,
+        seeds = [
+            Delegate::SEED_PREFIX,
+            owner.key().as_ref(),
+            args.delegate.as_ref(),
+        ],
+        bump
+    )]
+    pub delegate_account: Account<'info, Delegate>,
+
+    pub system_program: Program<'info, System>,
 }

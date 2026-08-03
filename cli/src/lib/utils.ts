@@ -24,7 +24,9 @@ export function expandHome(input: string): string {
 
 export function resolveFromCwd(input: string): string {
   const expanded = expandHome(input);
-  return path.isAbsolute(expanded) ? expanded : path.resolve(process.cwd(), expanded);
+  return path.isAbsolute(expanded)
+    ? expanded
+    : path.resolve(process.cwd(), expanded);
 }
 
 export function readUtf8(filePath: string): string {
@@ -43,7 +45,11 @@ export function normalizeForJson(value: unknown): JsonValue {
   if (value === null || value === undefined) {
     return null;
   }
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return value;
   }
   if (typeof value === "bigint") {
@@ -63,7 +69,9 @@ export function normalizeForJson(value: unknown): JsonValue {
   }
   if (typeof value === "object") {
     const out: Record<string, JsonValue> = {};
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, entry] of Object.entries(
+      value as Record<string, unknown>
+    )) {
       out[key] = normalizeForJson(entry);
     }
     return out;
@@ -108,21 +116,30 @@ export function bn(value: string | number | bigint, label: string): BN {
   }
 }
 
-export function optionalNumber(value: string | undefined, fallback?: number): number | undefined {
+export function optionalNumber(
+  value: string | undefined,
+  fallback?: number
+): number | undefined {
   if (value === undefined) {
     return fallback;
   }
   return parseInteger(value, "number");
 }
 
-export function hexToBytes(value: string, expectedLength?: number, label = "hex"): Uint8Array {
+export function hexToBytes(
+  value: string,
+  expectedLength?: number,
+  label = "hex"
+): Uint8Array {
   const clean = value.startsWith("0x") ? value.slice(2) : value;
   if (!/^[0-9a-fA-F]*$/.test(clean) || clean.length % 2 !== 0) {
     throw new Error(`Invalid ${label}: ${value}`);
   }
   const bytes = Uint8Array.from(Buffer.from(clean, "hex"));
   if (expectedLength !== undefined && bytes.length !== expectedLength) {
-    throw new Error(`${label} must be ${expectedLength} bytes, got ${bytes.length}`);
+    throw new Error(
+      `${label} must be ${expectedLength} bytes, got ${bytes.length}`
+    );
   }
   return bytes;
 }
@@ -142,14 +159,22 @@ export function bytesToHex(bytes: Uint8Array): string {
   return `0x${Buffer.from(bytes).toString("hex")}`;
 }
 
-export function fixedBytes(bytes: Uint8Array, length: number, label: string): Uint8Array {
+export function fixedBytes(
+  bytes: Uint8Array,
+  length: number,
+  label: string
+): Uint8Array {
   if (bytes.length !== length) {
     throw new Error(`${label} must be ${length} bytes, got ${bytes.length}`);
   }
   return bytes;
 }
 
-export function readHexFile(filePath: string, expectedLength?: number, label?: string): Uint8Array {
+export function readHexFile(
+  filePath: string,
+  expectedLength?: number,
+  label?: string
+): Uint8Array {
   return hexToBytes(readUtf8(filePath).trim(), expectedLength, label);
 }
 
@@ -174,7 +199,43 @@ export function u32Le(value: number): Buffer {
   return out;
 }
 
-export function requireValue<T>(value: T | undefined | null, message: string): T {
+export function u64Le(value: number | bigint): Buffer {
+  const out = Buffer.alloc(8);
+  out.writeBigUInt64LE(BigInt(value), 0);
+  return out;
+}
+
+/** Parse dotted IPv4 (`127.0.0.1`) into four octets. */
+export function parseIpv4(value: string, label = "ip"): number[] {
+  const parts = value.split(".").map((part) => Number(part));
+  if (
+    parts.length !== 4 ||
+    parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
+  ) {
+    throw new Error(`Invalid ${label}: ${value}`);
+  }
+  return parts;
+}
+
+/** Parse comma-separated bit indices (`0,1,3`) into a sorted unique list. */
+export function parseBitList(value: string, label = "bits"): number[] {
+  const bits = value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => parseInteger(part, label));
+  for (const bit of bits) {
+    if (bit < 0 || bit > 255) {
+      throw new Error(`${label} must be in 0..255, got ${bit}`);
+    }
+  }
+  return [...new Set(bits)].sort((a, b) => a - b);
+}
+
+export function requireValue<T>(
+  value: T | undefined | null,
+  message: string
+): T {
   if (value === undefined || value === null) {
     throw new Error(message);
   }
@@ -182,10 +243,16 @@ export function requireValue<T>(value: T | undefined | null, message: string): T
 }
 
 export function defaultWalletPath(): string {
-  return process.env.ANCHOR_WALLET || path.join(os.homedir(), ".config/solana/id.json");
+  return (
+    process.env.ANCHOR_WALLET ||
+    path.join(os.homedir(), ".config/solana/id.json")
+  );
 }
 
-export function optionOrConfig<T>(optionValue: T | undefined, configValue: T | undefined): T | undefined {
+export function optionOrConfig<T>(
+  optionValue: T | undefined,
+  configValue: T | undefined
+): T | undefined {
   return optionValue !== undefined ? optionValue : configValue;
 }
 

@@ -4,7 +4,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::{
     error::MolphaError,
     events::Subscribed,
-    state::{Plan, PlanType, ProtocolConfig, Subscription},
+    state::{Plan, PlanType, ProtocolConfig, Subscription, SubscriptionInitArgs},
 };
 
 pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
@@ -13,7 +13,7 @@ pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
 
     token::transfer(
         CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.owner_usdc.to_account_info(),
                 to: ctx.accounts.treasury.to_account_info(),
@@ -23,13 +23,15 @@ pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
         plan.subscription_price,
     )?;
 
-    ctx.accounts.subscription.init(
-        ctx.accounts.owner.key(),
+    ctx.accounts.subscription.init(SubscriptionInitArgs {
+        owner: ctx.accounts.owner.key(),
         plan_type,
-        plan.subscription_price,
+        monthly_price: plan.subscription_price,
+        max_delegates: plan.max_delegates,
+        max_signers: plan.max_signers,
         now,
-        ctx.bumps.subscription,
-    );
+        bump: ctx.bumps.subscription,
+    });
 
     emit!(Subscribed {
         owner: ctx.accounts.owner.key(),

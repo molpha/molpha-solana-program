@@ -4,12 +4,12 @@ import * as path from "path";
 import { keccak_256 } from "@noble/hashes/sha3";
 import {
   bytesToHex0x,
-  deriveJobId,
+  deriveFeedId,
   E2eDataUpdateFields,
   evmSignersBitmapNumberFromBytes,
   E2eSignerMaterial,
   SignedE2eDataUpdate,
-} from "./evm-submit-data-update";
+} from "./submit-data-update";
 
 /** JSON shape compatible with `tests/fixtures-json/verify-answer-evm.json`. */
 export type VerifyAnswerEvmFixture = {
@@ -23,7 +23,7 @@ export type VerifyAnswerEvmFixture = {
   /** Hex-encoded privkeys from bankrun e2e export (optional). */
   nodePrivkeys?: string[];
   dataUpdate: {
-    jobId: string;
+    feedId: string;
     registryVersion: number;
     signaturesRequired: number;
     configHash: string;
@@ -75,15 +75,20 @@ export function buildVerifyAnswerEvmFixture(params: {
   nodePubkeys: Uint8Array[];
   nodePrivkeys: bigint[];
   signaturesRequired: number;
-  jobId: Uint8Array;
+  feedId: Uint8Array;
   dataUpdate: E2eDataUpdateFields;
-  signed: Pick<SignedE2eDataUpdate, "aggSigS" | "commitmentAddr" | "signersBitmap">;
+  signed: Pick<
+    SignedE2eDataUpdate,
+    "aggSigS" | "commitmentAddr" | "signersBitmap"
+  >;
 }): VerifyAnswerEvmFixture {
   const nodeIndexesOneBased = Array.from(
     { length: params.registeredNodeCount },
     (_, i) => i + 1
   );
-  const signersBitmap = evmSignersBitmapNumberFromBytes(params.signed.signersBitmap);
+  const signersBitmap = evmSignersBitmapNumberFromBytes(
+    params.signed.signersBitmap
+  );
 
   return {
     registeredNodeCount: params.registeredNodeCount,
@@ -93,7 +98,7 @@ export function buildVerifyAnswerEvmFixture(params: {
     nodePubkeys: params.nodePubkeys.map((pk) => bytesToHex0x(pk)),
     secretKeys: params.nodePrivkeys.map((sk) => sk.toString()),
     dataUpdate: {
-      jobId: bytesToHex0x(params.jobId),
+      feedId: bytesToHex0x(params.feedId),
       registryVersion: params.registryVersion,
       signaturesRequired: params.signaturesRequired,
       configHash: bytesToHex0x(params.dataUpdate.configHash),
@@ -133,6 +138,10 @@ export function defaultE2eFixtureOutputPath(seed: string): string {
   );
 }
 
-export function jobIdForOwner(owner: import("@solana/web3.js").PublicKey, configHash: Uint8Array) {
-  return deriveJobId(owner, configHash);
+export function feedIdForOwner(
+  owner: import("@solana/web3.js").PublicKey,
+  configHash: Uint8Array,
+  signaturesRequired: number
+) {
+  return deriveFeedId(owner, configHash, signaturesRequired);
 }

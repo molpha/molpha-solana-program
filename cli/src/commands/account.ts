@@ -1,20 +1,26 @@
 import { Command } from "commander";
-import {
-  accountJson,
-  fetchAccountOrNull,
-} from "../lib/accounts";
+import { accountJson, fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import {
+  findAgentEscrowPda,
+  findDelegatePda,
   findFeedPda,
-  findJobPda,
+  findGatewayPda,
+  findNodeOperatorPda,
   findNodePda,
   findPlanPda,
   findProtocolConfigPda,
-  findRegistryIndexPda,
   findRegistryStatePda,
+  findSecp256k1KeyClaimPda,
   findSubscriptionPda,
 } from "../lib/pdas";
-import { hexToBytes, parseInteger, parsePublicKey, requireValue, writeJson } from "../lib/utils";
+import {
+  hexToBytes,
+  parseInteger,
+  parsePublicKey,
+  requireValue,
+  writeJson,
+} from "../lib/utils";
 
 async function printNamedAccount(
   command: Command,
@@ -31,7 +37,9 @@ async function printNamedAccount(
 }
 
 export function registerAccountCommands(program: Command): void {
-  const account = program.command("account").description("Read Molpha accounts");
+  const account = program
+    .command("account")
+    .description("Read Molpha accounts");
 
   account
     .command("protocol-config")
@@ -39,7 +47,8 @@ export function registerAccountCommands(program: Command): void {
     .option("--address <pubkey>", "override PDA")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const address = options.address ?? findProtocolConfigPda(ctx.programId)[0].toBase58();
+      const address =
+        options.address ?? findProtocolConfigPda(ctx.programId)[0].toBase58();
       await printNamedAccount(command, "protocolConfig", address);
     });
 
@@ -49,21 +58,41 @@ export function registerAccountCommands(program: Command): void {
     .option("--address <pubkey>", "override PDA")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const address = options.address ?? findRegistryStatePda(ctx.programId)[0].toBase58();
+      const address =
+        options.address ?? findRegistryStatePda(ctx.programId)[0].toBase58();
       await printNamedAccount(command, "registryState", address);
     });
 
   account
     .command("node")
-    .description("Fetch node account")
+    .description("Fetch slot-keyed node account")
     .option("--address <pubkey>", "node account address")
-    .option("--node-id <hex>", "32-byte node id")
+    .option("--index <number>", "registry slot index")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const address =
         options.address ??
-        findJobOrNodeAddress("node", ctx.programId, options.nodeId).toBase58();
-      await printNamedAccount(command, "nodeAccount", address);
+        findNodePda(
+          ctx.programId,
+          parseInteger(requireValue(options.index, "Missing --index"), "index")
+        )[0].toBase58();
+      await printNamedAccount(command, "node", address);
+    });
+
+  account
+    .command("node-operator")
+    .description("Fetch owner-keyed node operator account")
+    .option("--address <pubkey>", "node operator address")
+    .option("--owner <pubkey>", "node operator owner")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const address =
+        options.address ??
+        findNodeOperatorPda(
+          ctx.programId,
+          parsePublicKey(requireValue(options.owner, "Missing --owner"))
+        )[0].toBase58();
+      await printNamedAccount(command, "nodeOperator", address);
     });
 
   account
@@ -75,7 +104,13 @@ export function registerAccountCommands(program: Command): void {
       const ctx = await getCliContext(command);
       const address =
         options.address ??
-        findPlanPda(ctx.programId, parseInteger(requireValue(options.planId, "Missing --plan-id"), "plan id"))[0].toBase58();
+        findPlanPda(
+          ctx.programId,
+          parseInteger(
+            requireValue(options.planId, "Missing --plan-id"),
+            "plan id"
+          )
+        )[0].toBase58();
       await printNamedAccount(command, "plan", address);
     });
 
@@ -86,56 +121,127 @@ export function registerAccountCommands(program: Command): void {
     .option("--owner <pubkey>", "subscription owner")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const owner = options.owner ? parsePublicKey(options.owner, "owner") : ctx.wallet.publicKey;
+      const owner = options.owner
+        ? parsePublicKey(options.owner, "owner")
+        : ctx.wallet.publicKey;
       const address =
-        options.address ?? findSubscriptionPda(ctx.programId, owner)[0].toBase58();
+        options.address ??
+        findSubscriptionPda(ctx.programId, owner)[0].toBase58();
       await printNamedAccount(command, "subscription", address);
-    });
-
-  account
-    .command("job")
-    .description("Fetch job account")
-    .option("--address <pubkey>", "job address")
-    .option("--job-id <hex>", "32-byte job id")
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const address =
-        options.address ?? findJobOrNodeAddress("job", ctx.programId, options.jobId).toBase58();
-      await printNamedAccount(command, "job", address);
     });
 
   account
     .command("feed")
     .description("Fetch feed account")
     .option("--address <pubkey>", "feed address")
-    .option("--job-id <hex>", "32-byte job id")
+    .option("--feed-id <hex>", "32-byte feed id")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const jobId = hexToBytes(requireValue(options.jobId, "Missing --job-id"), 32, "job id");
-      const address = options.address ?? findFeedPda(ctx.programId, jobId)[0].toBase58();
+      const feedId = hexToBytes(
+        requireValue(options.feedId, "Missing --feed-id"),
+        32,
+        "feed id"
+      );
+      const address =
+        options.address ?? findFeedPda(ctx.programId, feedId)[0].toBase58();
       await printNamedAccount(command, "feed", address);
     });
 
   account
-    .command("registry-index")
-    .description("Fetch registry index account")
-    .option("--address <pubkey>", "registry index address")
-    .option("--index <number>", "registry index")
+    .command("delegate")
+    .description("Fetch delegate account")
+    .option("--address <pubkey>", "delegate account address")
+    .option("--owner <pubkey>", "subscription owner")
+    .option("--delegate <pubkey>", "delegate pubkey")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const address =
         options.address ??
-        findRegistryIndexPda(
+        findDelegatePda(
           ctx.programId,
-          parseInteger(requireValue(options.index, "Missing --index"), "index")
+          parsePublicKey(
+            requireValue(options.owner, "Missing --owner"),
+            "owner"
+          ),
+          parsePublicKey(
+            requireValue(options.delegate, "Missing --delegate"),
+            "delegate"
+          )
         )[0].toBase58();
-      await printNamedAccount(command, "registryIndexAccount", address);
+      await printNamedAccount(command, "delegate", address);
     });
 
-}
+  account
+    .command("gateway")
+    .description("Fetch gateway account")
+    .option("--address <pubkey>", "gateway address")
+    .option("--authority <pubkey>", "gateway authority")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const address =
+        options.address ??
+        findGatewayPda(
+          ctx.programId,
+          parsePublicKey(
+            requireValue(options.authority, "Missing --authority"),
+            "authority"
+          )
+        )[0].toBase58();
+      await printNamedAccount(command, "gateway", address);
+    });
 
-function findJobOrNodeAddress(kind: "job" | "node", programId: ReturnType<typeof parsePublicKey>, idHex: string) {
-  const label = kind === "job" ? "job" : "node";
-  const bytes = hexToBytes(requireValue(idHex, `Missing --${label}-id`), 32, `${label} id`);
-  return kind === "job" ? findJobPda(programId, bytes)[0] : findNodePda(programId, bytes)[0];
+  account
+    .command("agent-escrow")
+    .description("Fetch agent escrow account")
+    .option("--address <pubkey>", "escrow address")
+    .option("--authority <pubkey>", "escrow authority / x402 payer")
+    .option("--gateway <pubkey>", "gateway authority the escrow is scoped to")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const address =
+        options.address ??
+        findAgentEscrowPda(
+          ctx.programId,
+          parsePublicKey(
+            requireValue(options.authority, "Missing --authority"),
+            "authority"
+          ),
+          findGatewayPda(
+            ctx.programId,
+            parsePublicKey(
+              requireValue(options.gateway, "Missing --gateway"),
+              "gateway"
+            )
+          )[0]
+        )[0].toBase58();
+      await printNamedAccount(command, "agentEscrow", address);
+    });
+
+  account
+    .command("round")
+    .description("Fetch round receipt record by address")
+    .requiredOption("--address <pubkey>", "round receipt record address")
+    .action(async (options, command: Command) => {
+      await printNamedAccount(command, "roundReceiptRecord", options.address);
+    });
+
+  account
+    .command("secp-key")
+    .description("Fetch secp256k1 key claim")
+    .option("--address <pubkey>", "claim address")
+    .option("--secp-pubkey <hex>", "33-byte compressed secp256k1 pubkey")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const address =
+        options.address ??
+        findSecp256k1KeyClaimPda(
+          ctx.programId,
+          hexToBytes(
+            requireValue(options.secpPubkey, "Missing --secp-pubkey"),
+            33,
+            "secp pubkey"
+          )
+        )[0].toBase58();
+      await printNamedAccount(command, "secp256k1KeyClaim", address);
+    });
 }

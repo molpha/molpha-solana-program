@@ -3,15 +3,15 @@ use anchor_lang::prelude::*;
 use crate::{
     error::MolphaError,
     events::PlanAdded,
-    state::{Plan, PlanType, ProtocolConfig},
+    state::{Plan, PlanInitParams, PlanType, ProtocolConfig},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct AddPlanArgs {
     pub plan_type: PlanType,
     pub subscription_price: u64,
-    pub max_jobs: u32,
     pub max_signers: u8,
+    pub max_delegates: u32,
     pub private_api_enabled: bool,
     pub is_active: bool,
 }
@@ -23,21 +23,21 @@ pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
         MolphaError::UnauthorisedAuthority
     );
 
-    ctx.accounts.plan.init(
-        args.plan_type,
-        args.subscription_price,
-        args.max_jobs,
-        args.max_signers,
-        args.private_api_enabled,
-        args.is_active,
-        ctx.bumps.plan,
-    );
+    ctx.accounts.plan.init(&PlanInitParams {
+        plan_type: args.plan_type,
+        subscription_price: args.subscription_price,
+        max_signers: args.max_signers,
+        max_delegates: args.max_delegates,
+        private_api_enabled: args.private_api_enabled,
+        is_active: args.is_active,
+        bump: ctx.bumps.plan,
+    });
 
     emit!(PlanAdded {
         plan_type: args.plan_type as u8,
         subscription_price: args.subscription_price,
-        max_jobs: args.max_jobs,
         max_signers: args.max_signers,
+        max_delegates: args.max_delegates,
         private_api_enabled: args.private_api_enabled,
         is_active: args.is_active,
     });

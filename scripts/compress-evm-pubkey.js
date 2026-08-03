@@ -121,7 +121,9 @@ function main() {
     console.log("");
     console.log("💡 Usage with node registration:");
     console.log(
-      `  node scripts/add-node.js <NODE_PUBKEY> 0x${compressed.toString("hex")}`
+      `  yarn molpha registry register --secp-pubkey 0x${compressed.toString(
+        "hex"
+      )} --registration-salt <32_BYTE_HEX> --owner-usdc <ATA>`
     );
     console.log("");
   } catch (error) {

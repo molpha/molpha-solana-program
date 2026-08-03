@@ -14,7 +14,7 @@ pub fn extend_subscription(ctx: Context<ExtendSubscription>) -> Result<()> {
 
     token::transfer(
         CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.owner_usdc.to_account_info(),
                 to: ctx.accounts.treasury.to_account_info(),
@@ -65,7 +65,6 @@ pub struct ExtendSubscription<'info> {
         mut,
         seeds = [Subscription::SEED_PREFIX, owner.key().as_ref()],
         bump = subscription.bump,
-        constraint = subscription.owner == owner.key() @ MolphaError::UnauthorisedJobOwner,
     )]
     pub subscription: Account<'info, Subscription>,
 

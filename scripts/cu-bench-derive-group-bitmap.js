@@ -25,7 +25,7 @@ const toml = require("toml");
 const {
   NODE_COUNT,
   COMPUTE_UNIT_LIMIT,
-  FIXTURE_JOB_ID,
+  FIXTURE_FEED_ID,
   FIXTURE_REGISTRY_VERSION,
   deriveSelectionSeed,
   effectiveSelectionSize,
@@ -48,7 +48,11 @@ function loadProgramId() {
 }
 
 function anchorDiscriminator(ixName) {
-  return crypto.createHash("sha256").update(`global:${ixName}`).digest().subarray(0, 8);
+  return crypto
+    .createHash("sha256")
+    .update(`global:${ixName}`)
+    .digest()
+    .subarray(0, 8);
 }
 
 function encodeNoopIx() {
@@ -74,7 +78,9 @@ async function simulateIxCu(provider, payer, programId, data) {
   });
   const [blockhash] = await provider.context.banksClient.getLatestBlockhash();
   const tx = new Transaction();
-  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT }));
+  tx.add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT })
+  );
   tx.add(ix);
   tx.feePayer = payer.publicKey;
   tx.recentBlockhash = blockhash;
@@ -86,7 +92,14 @@ async function simulateIxCu(provider, payer, programId, data) {
   return Number(sim.meta.computeUnitsConsumed);
 }
 
-async function measureDeriveCu(provider, payer, programId, seed, nodeCount, groupSize) {
+async function measureDeriveCu(
+  provider,
+  payer,
+  programId,
+  seed,
+  nodeCount,
+  groupSize
+) {
   const noopCu = await simulateIxCu(provider, payer, programId, encodeNoopIx());
   const deriveIxCu = await simulateIxCu(
     provider,
@@ -128,15 +141,31 @@ async function main() {
   const provider = new BankrunProvider(context);
   provider.wallet = { publicKey: payer.publicKey };
 
-  const noopBaseline = await simulateIxCu(provider, payer, programId, encodeNoopIx());
+  const noopBaseline = await simulateIxCu(
+    provider,
+    payer,
+    programId,
+    encodeNoopIx()
+  );
   console.log(`bench_noop baseline: ${noopBaseline} CU\n`);
 
   const rows = [];
 
-  console.log("=== production-shaped (job selection seed, NODE_COUNT=%d) ===\n", NODE_COUNT);
+  console.log(
+    "=== production-shaped (job selection seed, NODE_COUNT=%d) ===\n",
+    NODE_COUNT
+  );
   for (const sigReq of SIG_REQ_CASES) {
-    const groupSize = effectiveSelectionSize(sigReq, REDUNDANCY_BUFFER, NODE_COUNT);
-    const seed = deriveSelectionSeed(FIXTURE_JOB_ID, FIXTURE_REGISTRY_VERSION, FIXTURE_CANONICAL_TIMESTAMP);
+    const groupSize = effectiveSelectionSize(
+      sigReq,
+      REDUNDANCY_BUFFER,
+      NODE_COUNT
+    );
+    const seed = deriveSelectionSeed(
+      FIXTURE_FEED_ID,
+      FIXTURE_REGISTRY_VERSION,
+      FIXTURE_CANONICAL_TIMESTAMP
+    );
     const { deriveCu, noopCu, deriveIxCu } = await measureDeriveCu(
       provider,
       payer,
@@ -183,8 +212,7 @@ async function main() {
 
   const prodRows = rows.filter((r) => r.label.startsWith("sigReq="));
   const summary = {
-    note:
-      "deriveCu = CU(bench_derive_group_bitmap ix) - CU(bench_noop ix); isolates derive_group_bitmap + Anchor dispatch delta.",
+    note: "deriveCu = CU(bench_derive_group_bitmap ix) - CU(bench_noop ix); isolates derive_group_bitmap + Anchor dispatch delta.",
     noopBaselineCu: noopBaseline,
     nodeCount: NODE_COUNT,
     redundancyBuffer: REDUNDANCY_BUFFER,

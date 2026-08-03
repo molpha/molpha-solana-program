@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::state::VIRTUAL_INDEX;
+pub use molpha_verifier::VIRTUAL_INDEX;
 
 #[account]
 #[derive(InitSpace)]
@@ -9,18 +9,15 @@ pub struct RegistryState {
     pub current_node_count: u32,
     pub grace_secs: i64,
     pub redundancy_buffer: u8,
-    // version metadata
     pub current_version: u32,
     pub previous_version: u32,
     pub previous_expires_at: i64,
-    // transition metadata
     pub previous_node_count: u32,
     pub last_transition_type: RegistryTransitionType,
     pub removed_old_index: u32,
     pub removed_node: Pubkey,
     pub moved_old_index: u32,
     pub moved_node: Pubkey,
-    // bump
     pub bump: u8,
 }
 
@@ -48,6 +45,17 @@ impl RegistryState {
         self.bump = bump;
     }
 
+    pub fn record_add_transition(&mut self, now: i64) {
+        let current_version = self.current_version;
+        self.previous_version = current_version;
+        self.previous_node_count = self.current_node_count;
+        self.previous_expires_at = now.saturating_add(self.grace_secs);
+        self.current_version = current_version.saturating_add(1);
+        self.current_node_count = self.current_node_count.saturating_add(1);
+        self.last_transition_type = RegistryTransitionType::Add;
+        self.clear_remove_transition_metadata();
+    }
+
     pub fn is_accepted_registry_version(&self, version: u32, now: i64) -> bool {
         version == self.current_version
             || (version == self.previous_version && now <= self.previous_expires_at)
@@ -65,6 +73,29 @@ impl RegistryState {
         self.removed_node = Pubkey::default();
         self.moved_old_index = VIRTUAL_INDEX;
         self.moved_node = Pubkey::default();
+    }
+
+    /// Plain, framework-agnostic projection consumed by `molpha_verifier` signer resolution.
+    pub fn view(&self) -> molpha_verifier::RegistryView {
+        molpha_verifier::RegistryView {
+            current_version: self.current_version,
+            previous_version: self.previous_version,
+            previous_expires_at: self.previous_expires_at,
+            current_node_count: self.current_node_count,
+            previous_node_count: self.previous_node_count,
+            last_transition_type: match self.last_transition_type {
+                RegistryTransitionType::None => molpha_verifier::RegistryTransitionType::None,
+                RegistryTransitionType::Add => molpha_verifier::RegistryTransitionType::Add,
+                RegistryTransitionType::RemoveTail => {
+                    molpha_verifier::RegistryTransitionType::RemoveTail
+                }
+                RegistryTransitionType::RemoveSwap => {
+                    molpha_verifier::RegistryTransitionType::RemoveSwap
+                }
+            },
+            removed_old_index: self.removed_old_index,
+            moved_old_index: self.moved_old_index,
+        }
     }
 }
 

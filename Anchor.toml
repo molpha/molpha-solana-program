@@ -1,4 +1,6 @@
 [toolchain]
+anchor_version = "1.1.2"
+solana_version = "4.1.1"
 package_manager = "yarn"
 
 [features]
@@ -6,20 +8,16 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-faucet = "AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ"
-molpha = "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
+molpha = "MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh"
 
 [programs.localnet]
-faucet = "AQdJVWwtCXiJganq5rauEVchijk5wfqwRqEwWgVtKZSJ"
-molpha = "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8"
-
-[registry]
-url = "https://api.apr.dev"
+molpha = "MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-setup-faucet = "yarn setup-test-faucet"
 test = "cp target/deploy/molpha.so tests/fixtures && RUST_LOG= yarn jest --runInBand --verbose --forceExit"
+
+[hooks]
