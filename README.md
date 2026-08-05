@@ -6,12 +6,12 @@ A decentralized oracle network on Solana with an on-chain node registry, subscri
 
 Molpha on Solana provides:
 
-- **Node registry** — Register oracle nodes with USDC deposits, sequential indices, and registry version transitions
+- **Node registry** — Permanent owner-keyed nodes and immutable, versioned membership snapshots
 - **Plans & subscriptions** — USDC-paid plans that cap jobs and define signing thresholds
 - **Jobs & feeds** — Each job owns a feed PDA; updates carry a 32-byte value, coalition bitmap, and aggregate Schnorr signature
 - **Data updates** — `submit_data_update` writes feed state; `verify_data_update` runs the same checks without writing (72-byte return data for CPI consumers)
 - **Delegates** — Subscription owners can authorize delegates (including owner-provisioned agents), capped by their plan's `max_delegates`
-- **Protocol governance** — Admin config for fees, registry cooldowns, gateway allowlists, and treasury
+- **Protocol governance** — Admin config for fees, snapshot policy, gateway allowlists, and treasury
 
 For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP.md`](WP.md) and the operator-focused [**Node Operator Guide**](NODE_OPERATOR_GUIDE.md).
 
@@ -19,12 +19,13 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 
 ### Node registry
 
-- `register_node` / `deactivate_node` with versioned `RegistryState` and slot-keyed `Node` entries
+- `register_node` / `deactivate_node` atomically create immutable `Registry` version `N+1`
+- permanent owner-keyed `Node` identities remain available for historical verification and rewards
 - canonical compressed secp256k1 keys are validated on registration, stored as affine coordinates,
   and permanently reserved by a key-claim PDA
 - registration requires a domain-separated Schnorr proof of possession bound to the program and
   derived node identity; verifier hot paths rely on this registration invariant
-- `finalize_registry_transition` after batch registry changes
+- `update_registry_policy` snapshots redundancy-policy changes without changing membership
 
 ### Jobs, plans, and subscriptions
 
@@ -52,7 +53,7 @@ programs/
 │       ├── instructions/
 │       │   ├── initialize.rs
 │       │   ├── register_node.rs / deactivate_node.rs
-│       │   ├── finalize_registry_transition.rs
+│       │   ├── update_registry_policy.rs
 │       │   ├── add_gateway.rs / remove_gateway.rs
 │       │   ├── add_plan.rs / update_plan.rs
 │       │   ├── subscribe.rs / extend_subscription.rs
@@ -62,7 +63,7 @@ programs/
 │       │   └── data_update_core.rs
 │       ├── state/
 │       │   ├── protocol_config.rs
-│       │   ├── registry_state.rs / registry_index.rs
+│       │   ├── registry_state.rs / node.rs
 │       │   ├── node.rs / gateway.rs
 │       │   ├── plan.rs / subscription.rs
 │       │   ├── job.rs / feed.rs
@@ -217,7 +218,7 @@ Consumers read Feed account OR CPI verify_data_update (no write, return data)
 | --------------- | ----------------------- | -------------------- |
 | Protocol config | `molpha_config`         | —                    |
 | Registry state  | `molpha_registry`       | —                    |
-| Registry index  | `molpha_registry_index` | version, index       |
+| Registry        | `molpha_registry`       | version (`u32` LE)   |
 | Node            | `molpha_node`           | node owner           |
 | Plan            | `molpha_plan`           | plan type byte       |
 | Subscription    | `molpha_subscription`   | subscriber owner     |

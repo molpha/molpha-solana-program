@@ -7,15 +7,20 @@ import {
   SystemProgram,
   SYSVAR_INSTRUCTIONS_PUBKEY,
 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
 import {
   deriveFeedId,
   deriveSignersBitmapForJob,
   evmBitmapBitSet,
+  findRegistryPda,
   fundNodeOwnerInBankrun,
   generateE2eSignerMaterial,
   registerNodesForE2e,
+  registeredNodePda,
   signE2eDataUpdate,
 } from "../helpers/submit-data-update";
 import {
@@ -26,7 +31,6 @@ import {
   createX402FundedEscrow,
   creditedNodePdasForBits,
   findAgentRoundPda,
-  findNodePda,
   findSubscriptionRoundPda,
   freshRoundPrice,
   fundAtaInBankrun,
@@ -64,6 +68,8 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
   let victimEscrow: X402EscrowSetup;
   let material: ReturnType<typeof generateE2eSignerMaterial>;
   let registryVersion: number;
+  let registryPda: PublicKey;
+  let redundancyBuffer = INIT.redundancyBuffer;
   let ts = 1_700_200_000;
 
   beforeAll(async () => {
@@ -87,6 +93,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       proto.registryStatePda
     );
     registryVersion = registry.currentVersion;
+    registryPda = findRegistryPda(proto.program.programId, registryVersion);
     gateway = await registerBondedGateway(ctx, proto);
     victimGateway = await registerBondedGateway(ctx, proto);
     escrow = createX402FundedEscrow(ctx, proto, gateway, { fundAmount: 0 });
@@ -112,6 +119,25 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     );
   }
 
+  async function advanceRegistryPolicy(nextBuffer: number): Promise<void> {
+    const nextVersion = registryVersion + 1;
+    const nextRegistry = findRegistryPda(proto.program.programId, nextVersion);
+    await proto.program.methods
+      .updateRegistryPolicy(nextVersion, nextBuffer)
+      .accountsPartial({
+        authority: ctx.authority.publicKey,
+        protocolConfig: proto.protocolConfigPda,
+        registryState: proto.registryStatePda,
+        currentRegistry: registryPda,
+        newRegistry: nextRegistry,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    registryVersion = nextVersion;
+    registryPda = nextRegistry;
+    redundancyBuffer = nextBuffer;
+  }
+
   async function disputeRound(params: {
     roundRecord: PublicKey;
     gateway: BondedGateway;
@@ -119,13 +145,14 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     challengerUsdc: PublicKey;
     challenger: any;
     nodeBits: number[];
+    registry?: PublicKey;
   }): Promise<void> {
     await proto.program.methods
       .disputeRound(params.aggSig)
       .accountsPartial({
         challenger: params.challenger.publicKey,
         protocolConfig: proto.protocolConfigPda,
-        registryState: proto.registryStatePda,
+        registry: params.registry ?? registryPda,
         roundRecord: params.roundRecord,
         gateway: params.gateway.gatewayPda,
         treasury: proto.treasury,
@@ -134,7 +161,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       })
       .remainingAccounts(
         params.nodeBits.map((bit) => ({
-          pubkey: findNodePda(proto.program.programId, bit),
+          pubkey: registeredNodePda(proto.program.programId, bit),
           isWritable: false,
           isSigner: false,
         }))
@@ -148,6 +175,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
 
   it("finalizes an agent FreshRound after the dispute window", async () => {
     const t = ++ts;
+    const roundRegistry = registryPda;
     fundEscrowExact();
     const recordPda = await settleAgentRound({
       proto,
@@ -182,13 +210,13 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
         .accountsPartial({
           caller: ctx.authority.publicKey,
           protocolConfig: proto.protocolConfigPda,
-          registryState: proto.registryStatePda,
+          registry: roundRegistry,
           roundRecord: recordPda,
           gateway: gateway.gatewayPda,
         })
         .remainingAccounts(
           [0, 1].map((bit) => ({
-            pubkey: findNodePda(proto.program.programId, bit),
+            pubkey: registeredNodePda(proto.program.programId, bit),
             isWritable: true,
             isSigner: false,
           }))
@@ -212,10 +240,12 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       assert.include(e.toString(), "RoundNotFinalizable");
     }
 
+    await advanceRegistryPolicy(1);
+
     await advanceClock(ctx, INIT.disputeWindowSlots + 10);
 
     const nodeBefore = await proto.program.account.node.fetch(
-      findNodePda(proto.program.programId, 0)
+      registeredNodePda(proto.program.programId, 0)
     );
     const gwBefore = await proto.program.account.gateway.fetch(
       gateway.gatewayPda
@@ -225,7 +255,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     await finalize(200_001);
 
     const nodeAfter = await proto.program.account.node.fetch(
-      findNodePda(proto.program.programId, 0)
+      registeredNodePda(proto.program.programId, 0)
     );
     const gwAfter = await proto.program.account.gateway.fetch(
       gateway.gatewayPda
@@ -257,7 +287,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       registryVersion,
       NODE_COUNT,
       SIGS_REQUIRED,
-      INIT.redundancyBuffer,
+      redundancyBuffer,
       t
     );
     const bits = bitsOf(selection);
@@ -285,6 +315,8 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       BigInt(0)
     );
 
+    const roundRegistry = registryPda;
+    await advanceRegistryPolicy(2);
     await disputeRound({
       roundRecord: recordPda,
       gateway: victimGateway,
@@ -292,6 +324,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       challenger,
       challengerUsdc,
       nodeBits: bits,
+      registry: roundRegistry,
     });
 
     const voided = await proto.program.account.roundReceiptRecord.fetch(
@@ -333,7 +366,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       },
       SIGS_REQUIRED,
       NODE_COUNT,
-      INIT.redundancyBuffer
+      redundancyBuffer
     );
     const bits = bitsOf(signed.signersBitmap);
     const validSig = {
@@ -452,6 +485,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
         payer: ctx.authority.publicKey,
         protocolConfig: proto.protocolConfigPda,
         registryState: proto.registryStatePda,
+        registry: registryPda,
         subscription: subscriptionPda,
         consumerDelegate: null,
         gateway: gateway.gatewayPda,
@@ -461,7 +495,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       })
       .remainingAccounts([
         {
-          pubkey: findNodePda(proto.program.programId, 0),
+          pubkey: registeredNodePda(proto.program.programId, 0),
           isWritable: true,
           isSigner: false,
         },
@@ -475,13 +509,13 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       .accountsPartial({
         caller: ctx.authority.publicKey,
         protocolConfig: proto.protocolConfigPda,
-        registryState: proto.registryStatePda,
+        registry: registryPda,
         roundRecord: roundRecordPda,
         gateway: gateway.gatewayPda,
       })
       .remainingAccounts([
         {
-          pubkey: findNodePda(proto.program.programId, 0),
+          pubkey: registeredNodePda(proto.program.programId, 0),
           isWritable: true,
           isSigner: false,
         },
@@ -492,5 +526,61 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       roundRecordPda
     );
     assert.isOk(record.status.finalized);
+  });
+
+  it("allows a permanent node to claim historical rewards after deactivation", async () => {
+    const nodeOwner = ctx.nodes[0];
+    const node = registeredNodePda(proto.program.programId, 0);
+    const current = await proto.program.account.registry.fetch(registryPda);
+    const removeIndex = current.nodes
+      .slice(0, Number(current.nodeCount))
+      .findIndex((value: number[]) =>
+        new PublicKey(Uint8Array.from(value)).equals(node)
+      );
+    assert.isAtLeast(removeIndex, 0);
+
+    const nextVersion = registryVersion + 1;
+    const nextRegistry = findRegistryPda(proto.program.programId, nextVersion);
+    await proto.program.methods
+      .deactivateNode({
+        nodeOwner: nodeOwner.publicKey,
+        removeIndex,
+        newRegistryVersion: nextVersion,
+      })
+      .accountsPartial({
+        authority: nodeOwner.publicKey,
+        protocolConfig: proto.protocolConfigPda,
+        registryState: proto.registryStatePda,
+        currentRegistry: registryPda,
+        newRegistry: nextRegistry,
+        node,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([nodeOwner])
+      .rpc();
+
+    const beforeClaim = await proto.program.account.node.fetch(node);
+    assert.property(beforeClaim.status, "deactivated");
+    assert.isAbove(beforeClaim.claimableRewards.toNumber(), 0);
+
+    const destination = getAssociatedTokenAddressSync(
+      proto.usdcMint,
+      nodeOwner.publicKey
+    );
+    await proto.program.methods
+      .claimNodeRewards()
+      .accountsPartial({
+        owner: nodeOwner.publicKey,
+        protocolConfig: proto.protocolConfigPda,
+        node,
+        treasury: proto.treasury,
+        destination,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([nodeOwner])
+      .rpc();
+
+    const afterClaim = await proto.program.account.node.fetch(node);
+    assert.equal(afterClaim.claimableRewards.toNumber(), 0);
   });
 });

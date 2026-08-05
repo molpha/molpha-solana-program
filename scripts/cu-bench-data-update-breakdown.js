@@ -5,7 +5,6 @@
  */
 const anchor = require("@coral-xyz/anchor");
 const {
-  PublicKey,
   Keypair,
   SystemProgram,
   Transaction,
@@ -14,7 +13,6 @@ const {
 const { BankrunProvider, startAnchor } = require("anchor-bankrun");
 const fs = require("fs");
 const path = require("path");
-const toml = require("toml");
 
 const {
   NODE_COUNT,
@@ -24,25 +22,20 @@ const {
   FIXTURE_VALUE,
   FIXTURE_REGISTRY_VERSION,
   FIXTURE_CANONICAL_TIMESTAMP,
+  REDUNDANCY_BUFFER,
   generateSignerMaterial,
   buildCoalitionSignature,
   buildSubmitArgs,
-  registryIndexRemainingAccounts,
+  nodeRemainingAccounts,
+  buildBenchAccountSet,
   deriveSignersBitmapForJob,
   evmBitmapBitSet,
   loadIdl,
+  loadProgramId,
 } = require("./lib/cu-bench-data-update-common");
 
-const REDUNDANCY_BUFFER = 2;
 const SWEEP = [1, 2, 3, 5, 8, 10, 15, 18, 20, 25, 30, 32];
-const ACCOUNT_LAMPORTS = 10_000_000;
-
-function loadProgramId() {
-  const anchorToml = toml.parse(
-    fs.readFileSync(path.join(__dirname, "..", "Anchor.toml"), "utf8")
-  );
-  return new PublicKey(anchorToml.programs.localnet.molpha);
-}
+const LAMPORTS = 10_000_000;
 
 function remainingPopcount(signersBitmap) {
   let n = 0;
@@ -54,162 +47,77 @@ function selectionSize(sigReq) {
   return Math.min(NODE_COUNT, sigReq + REDUNDANCY_BUFFER);
 }
 
-// --- bankrun helpers (from cu-bench-data-update-bankrun.js) ---
-const secp256k1 = require("@noble/secp256k1");
-const { keccak_256 } = require("@noble/hashes/sha3");
-const REGISTRY_INDEX_SEED = Buffer.from("molpha_registry_index");
-const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
-const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
-const JOB_SEED = Buffer.from("molpha_job");
-const FEED_SEED = Buffer.from("molpha_feed");
-
-function decompressSecp256k1(compressed) {
-  const point = secp256k1.Point.fromHex(
-    Buffer.from(compressed).toString("hex")
-  );
-  const uncompressed = point.toRawBytes(false);
-  return { x: uncompressed.subarray(1, 33), y: uncompressed.subarray(33, 65) };
-}
-
-async function setProgramAccount(
-  context,
-  program,
-  address,
-  accountName,
-  fields
-) {
-  const data = await program.coder.accounts.encode(accountName, fields);
-  context.setAccount(address, {
-    lamports: ACCOUNT_LAMPORTS,
-    owner: program.programId,
-    executable: false,
-    data: Buffer.from(data),
-  });
-}
-
-async function seedRegistryIndices(context, program, compressedPubkeys) {
-  for (let index = 0; index < compressedPubkeys.length; index++) {
-    const { x, y } = decompressSecp256k1(compressedPubkeys[index]);
-    const registryIndexPda = PublicKey.findProgramAddressSync(
-      [REGISTRY_INDEX_SEED, Buffer.from(new Uint8Array([index, 0, 0, 0]))],
-      program.programId
-    )[0];
-    const bump = PublicKey.findProgramAddressSync(
-      [REGISTRY_INDEX_SEED, Buffer.from(new Uint8Array([index, 0, 0, 0]))],
-      program.programId
-    )[1];
-    await setProgramAccount(
-      context,
-      program,
-      registryIndexPda,
-      "registryIndex",
-      {
-        index,
-        node: PublicKey.unique(),
-        secp256K1PubkeyX: Array.from(x),
-        secp256K1PubkeyY: Array.from(y),
-        bump,
-      }
-    );
+async function seedFromAccountSet(context, accountSet) {
+  for (const { pubkey, data, owner } of accountSet.accounts) {
+    context.setAccount(pubkey, {
+      lamports: LAMPORTS,
+      owner,
+      executable: false,
+      data: Buffer.from(data),
+    });
   }
 }
 
-async function seedBenchAccounts(
-  context,
-  program,
-  payer,
-  sigReq,
-  signerMaterial
-) {
-  const [protocolConfigPda, protocolBump] = PublicKey.findProgramAddressSync(
-    [PROTOCOL_CONFIG_SEED],
-    program.programId
-  );
-  const [registryStatePda, registryBump] = PublicKey.findProgramAddressSync(
-    [REGISTRY_STATE_SEED],
-    program.programId
-  );
-  const [jobPda, jobBump] = PublicKey.findProgramAddressSync(
-    [JOB_SEED, FIXTURE_FEED_ID],
-    program.programId
-  );
-  const [feedPda, feedBump] = PublicKey.findProgramAddressSync(
-    [FEED_SEED, FIXTURE_FEED_ID],
-    program.programId
-  );
+async function simulateIx(provider, payer, ix) {
+  const [blockhash] = await provider.context.banksClient.getLatestBlockhash();
+  const tx = new Transaction()
+    .add(ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT }))
+    .add(ix);
+  tx.feePayer = payer.publicKey;
+  tx.recentBlockhash = blockhash;
+  tx.partialSign(payer);
+  const sim = await provider.context.banksClient.simulateTransaction(tx);
+  if (sim.result !== null) {
+    throw new Error(
+      `simulation failed: ${sim.result}\nlogs:\n${(
+        sim.meta?.logMessages || []
+      ).join("\n")}`
+    );
+  }
+  return Number(sim.meta.computeUnitsConsumed);
+}
 
-  await setProgramAccount(
-    context,
+async function measureVerify(provider, program, payer, sigReq) {
+  const signerMaterial = generateSignerMaterial(NODE_COUNT);
+  const signatureMaterial = buildCoalitionSignature({
+    signerCount: sigReq,
+    privKeys: signerMaterial.privKeys,
+    compressedPubkeys: signerMaterial.compressedPubkeys,
+    feedId: FIXTURE_FEED_ID,
+    registryVersion: FIXTURE_REGISTRY_VERSION,
+    configHash: FIXTURE_CONFIG_HASH,
+    value: FIXTURE_VALUE,
+    canonicalTimestamp: FIXTURE_CANONICAL_TIMESTAMP,
+  });
+
+  const accountSet = await buildBenchAccountSet(
     program,
-    protocolConfigPda,
-    "protocolConfig",
+    program.programId,
+    payer,
+    sigReq,
+    signerMaterial,
     {
-      authority: payer.publicKey,
-      pendingAuthority: null,
-      usdcMint: PublicKey.default,
-      treasury: PublicKey.default,
-      rewardPerSignature: new anchor.BN(0),
-      gatewayFee: new anchor.BN(0),
-      receiptSubmitterBonus: new anchor.BN(0),
-      protocolFeeBps: 0,
-      maxReceiptDelaySlots: new anchor.BN(0),
-      registryCooldownSecs: new anchor.BN(0),
-      previousGraceSecs: new anchor.BN(0),
-      maxNodeCount: NODE_COUNT,
-      redundancyBuffer: REDUNDANCY_BUFFER,
-      minimumNodeDeposit: new anchor.BN(0),
-      timelockExpiresAt: null,
-      pendingChange: null,
-      bump: protocolBump,
+      feedId: FIXTURE_FEED_ID,
+      registryVersion: FIXTURE_REGISTRY_VERSION,
     }
   );
+  await seedFromAccountSet(provider.context, accountSet);
 
-  await setProgramAccount(context, program, registryStatePda, "registryState", {
-    authority: payer.publicKey,
-    currentNodeCount: NODE_COUNT,
-    graceSecs: new anchor.BN(0),
-    redundancyBuffer: REDUNDANCY_BUFFER,
-    currentVersion: FIXTURE_REGISTRY_VERSION,
-    previousVersion: 0,
-    previousExpiresAt: new anchor.BN(0),
-    previousNodeCount: 0,
-    lastTransitionType: { none: {} },
-    removedOldIndex: 0,
-    removedNode: PublicKey.default,
-    movedOldIndex: 0xffffffff,
-    movedNode: PublicKey.default,
-    bump: registryBump,
-  });
-
-  await setProgramAccount(context, program, jobPda, "job", {
-    feedId: Array.from(FIXTURE_FEED_ID),
-    owner: payer.publicKey,
-    apiConfigHash: Array.from(FIXTURE_CONFIG_HASH),
-    decimals: 8,
-    signaturesRequired: sigReq,
-    createdAt: new anchor.BN(0),
-    lastRequestTimestamp: new anchor.BN(0),
-    bump: jobBump,
-  });
-
-  await setProgramAccount(context, program, feedPda, "feed", {
-    feedId: Array.from(FIXTURE_FEED_ID),
-    registryVersion: 0,
-    canonicalTimestamp: new anchor.BN(0),
-    value: Buffer.alloc(32),
-    signersBitmap: Array.from(Buffer.alloc(32)),
-    signaturesRequired: 0,
-    lastUpdatedSlot: new anchor.BN(0),
-    bump: feedBump,
-  });
-
-  await seedRegistryIndices(
-    context,
-    program,
-    signerMaterial.compressedPubkeys.slice(0, NODE_COUNT)
+  const args = buildSubmitArgs(sigReq, signatureMaterial, FIXTURE_FEED_ID);
+  const remainingAccounts = nodeRemainingAccounts(
+    accountSet.nodePdas,
+    signatureMaterial.signersBitmap
   );
 
-  return { protocolConfigPda, registryStatePda, jobPda, feedPda };
+  const verifyIx = await program.methods
+    .verifyDataUpdate(args)
+    .accountsPartial({
+      registry: accountSet.registryPda,
+    })
+    .remainingAccounts(remainingAccounts)
+    .instruction();
+
+  return simulateIx(provider, payer, verifyIx);
 }
 
 function linearFit(points) {
@@ -282,7 +190,7 @@ async function main() {
   const fitSig = linearFit(rows.map((r) => ({ x: r.sigReq, y: r.verifyCu })));
 
   const summary = {
-    note: "Bench label sigReq = job.signatures_required; remaining_accounts = popcount(selection_bitmap) = min(32, sigReq+2) unless sigReq>=30.",
+    note: "Bench label sigReq = signatures_required; remaining_accounts = popcount(selection_bitmap) = min(32, sigReq+2).",
     rows,
     linearFitByRemainingAccounts: {
       ...fitRem,
@@ -300,6 +208,7 @@ async function main() {
       sigReq3: rows.find((r) => r.sigReq === 3),
       sigReq8: rows.find((r) => r.sigReq === 8),
       sigReq18: rows.find((r) => r.sigReq === 18),
+      sigReq32: rows.find((r) => r.sigReq === 32),
     },
   };
 

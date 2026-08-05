@@ -1178,6 +1178,7 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "borsh 1.7.0",
+ "bytemuck",
  "ethnum",
  "libsecp256k1",
  "molpha-verifier",

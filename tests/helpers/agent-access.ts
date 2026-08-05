@@ -28,6 +28,8 @@ import {
   fundNodeOwnerInBankrun,
   getProtocolTreasury,
   findNodePda,
+  findRegistryPda,
+  registeredNodePda,
   deriveFeedId,
 } from "./submit-data-update";
 import molphaIdl from "../../target/idl/molpha.json";
@@ -266,11 +268,10 @@ export async function initializeProtocolForAgents(
     protocolConfigPda,
     ctx.underlyingTokenMint
   );
+  const registry = findRegistryPda(program.programId, 0);
 
   await program.methods
     .initialize({
-      registryCooldownSecs: new BN(1),
-      previousGraceSecs: new BN(1),
       withdrawalCooldownSecs: new BN(5),
       maxNodeCount: 8,
       redundancyBuffer: INIT.redundancyBuffer,
@@ -292,6 +293,7 @@ export async function initializeProtocolForAgents(
     .accountsPartial({
       protocolConfig: protocolConfigPda,
       registryState: registryStatePda,
+      registry,
       usdcMint: ctx.underlyingTokenMint,
       treasury,
       authority: ctx.authority.publicKey,
@@ -506,6 +508,7 @@ export async function settleAgentRound(
       gatewayAuthority: params.gateway.gatewayAuthority.publicKey,
       protocolConfig: params.proto.protocolConfigPda,
       registryState: params.proto.registryStatePda,
+      registry: findRegistryPda(programId, params.registryVersion),
       gateway: params.gateway.gatewayPda,
       agentEscrow: escrowPda,
       usdcMint: params.proto.usdcMint,
@@ -519,7 +522,7 @@ export async function settleAgentRound(
     .remainingAccounts(
       (params.creditedNodePdas ?? []).map((pubkey) => ({
         pubkey,
-        isWritable: true,
+        isWritable: false,
         isSigner: false,
       }))
     )
@@ -532,11 +535,16 @@ export async function settleAgentRound(
 
 export function creditedNodePdasForBits(
   programId: PublicKey,
-  bits: number[]
+  bits: number[],
+  owners?: PublicKey[]
 ): PublicKey[] {
   return [...bits]
     .sort((a, b) => a - b)
-    .map((bit) => findNodePda(programId, bit));
+    .map((bit) =>
+      owners?.[bit]
+        ? findNodePda(programId, owners[bit])
+        : registeredNodePda(programId, bit)
+    );
 }
 
 export { findNodePda, deriveFeedId };

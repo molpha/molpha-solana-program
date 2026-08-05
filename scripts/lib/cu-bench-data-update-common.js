@@ -1,11 +1,17 @@
 /* eslint-disable no-console */
 /**
  * Shared helpers for data-update CU benches (bankrun + localnet).
+ *
+ * Matches the current immutable versioned registry:
+ * - `RegistryState` pointer PDA
+ * - versioned zero-copy `Registry` snapshots (`["molpha_registry", version_le]`)
+ * - permanent owner-keyed `Node` PDAs (`["molpha_node", owner]`)
  */
 const anchor = require("@coral-xyz/anchor");
-const { PublicKey } = require("@solana/web3.js");
+const { Keypair, PublicKey } = require("@solana/web3.js");
 const secp256k1 = require("@noble/secp256k1");
 const { keccak_256 } = require("@noble/hashes/sha3");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
@@ -21,20 +27,21 @@ const SECP256K1_ORDER_N = BigInt(
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
-const REGISTRY_INDEX_SEED = Buffer.from("molpha_registry_index");
-const JOB_SEED = Buffer.from("molpha_job");
+const REGISTRY_SEED = Buffer.from("molpha_registry");
+const NODE_SEED = Buffer.from("molpha_node");
 const FEED_SEED = Buffer.from("molpha_feed");
 const FEED_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
 
 const NODE_COUNT = 32;
-const SIGNER_COUNTS = [3, 8, 18];
+const SIGNER_COUNTS = [3, 8, 18, 32];
 const ACCOUNT_LAMPORTS = 10_000_000;
-const COMPUTE_UNIT_LIMIT = 500_000;
+const COMPUTE_UNIT_LIMIT = 1_400_000;
+const REGISTRY_SPACE = 8_208;
 
-/** +10% margin over bankrun baseline (2026-05-27, SHA-256 selection derive). */
+/** Soft ceilings (~10% over bankrun baseline 2026-08-03, versioned Registry + Node PDAs). */
 const CU_CEILINGS = {
-  verify_data_update: { 3: 296_000, 8: 384_000, 18: 529_000 },
-  submit_data_update: { 3: 300_000, 8: 387_000, 18: 532_000 },
+  verify_data_update: { 3: 254_000, 8: 315_000, 18: 436_000, 32: 556_000 },
+  submit_data_update: { 3: 273_000, 8: 334_000, 18: 454_000, 32: 574_000 },
 };
 
 const FIXTURE_FEED_ID = hexToBuffer(EVM_FIXTURE.dataUpdate.feedId);
@@ -42,14 +49,6 @@ const FIXTURE_CONFIG_HASH = hexToBuffer(EVM_FIXTURE.dataUpdate.configHash);
 const FIXTURE_VALUE = hexToBuffer(EVM_FIXTURE.dataUpdate.value);
 const FIXTURE_REGISTRY_VERSION = EVM_FIXTURE.dataUpdate.registryVersion;
 const FIXTURE_CANONICAL_TIMESTAMP = EVM_FIXTURE.dataUpdate.canonicalTimestamp;
-const FIXTURE_SIGNERS_BITMAP = uint256BE(
-  BigInt(EVM_FIXTURE.schnorrSignature.signersBitmap)
-);
-const FIXTURE_SIG_S = hexToBuffer(EVM_FIXTURE.schnorrSignature.signature);
-const FIXTURE_COMMITMENT = hexToBuffer(
-  EVM_FIXTURE.schnorrSignature.commitment.toLowerCase()
-);
-const FIXTURE_NODE_PUBKEYS = EVM_FIXTURE.nodePubkeys.map((h) => hexToBuffer(h));
 
 const ACCOUNTS_ROOT = path.join(__dirname, "..", ".cu-bench-localnet-accounts");
 
@@ -64,30 +63,16 @@ function u32be(x) {
   return b;
 }
 
+function u32le(x) {
+  const b = Buffer.alloc(4);
+  b.writeUInt32LE(x >>> 0, 0);
+  return b;
+}
+
 function u64be(x) {
   const b = Buffer.alloc(8);
   b.writeBigUInt64BE(BigInt(x), 0);
   return b;
-}
-
-function uint256BE(n) {
-  const bm = Buffer.alloc(32, 0);
-  let v = BigInt(n);
-  for (let i = 31; i >= 0 && v > 0n; i--) {
-    bm[i] = Number(v & 0xffn);
-    v >>= 8n;
-  }
-  return bm;
-}
-
-function evmUint256BitmapForFirstN(n) {
-  const bm = Buffer.alloc(32, 0);
-  for (let i = 0; i < n; i++) {
-    const byteIndex = 31 - (i >> 3);
-    const bitMask = 1 << (i & 7);
-    bm[byteIndex] |= bitMask;
-  }
-  return bm;
 }
 
 function evmBitmapBitSet(bitmap, pos) {
@@ -345,33 +330,73 @@ function loadIdl() {
   return { idl: raw, programId };
 }
 
-function findRegistryIndexPda(programId, index) {
-  const indexBytes = Buffer.alloc(4);
-  indexBytes.writeUInt32LE(index);
+function accountDiscriminator(name) {
+  return crypto
+    .createHash("sha256")
+    .update(`account:${name}`)
+    .digest()
+    .subarray(0, 8);
+}
+
+function findRegistryPda(programId, version) {
   return PublicKey.findProgramAddressSync(
-    [REGISTRY_INDEX_SEED, indexBytes],
+    [REGISTRY_SEED, u32le(version)],
     programId
   )[0];
 }
 
-function registryIndexRemainingAccounts(programId, signersBitmap) {
+function findNodePda(programId, owner) {
+  return PublicKey.findProgramAddressSync(
+    [NODE_SEED, owner.toBuffer()],
+    programId
+  )[0];
+}
+
+function findFeedPda(programId, feedId) {
+  return PublicKey.findProgramAddressSync(
+    [FEED_SEED, Buffer.from(feedId)],
+    programId
+  )[0];
+}
+
+/** Deterministic owner keypairs for bench Node PDAs (index 0..slotCount-1). */
+function deterministicNodeOwner(index) {
+  const seed = Buffer.from(
+    keccak_256(
+      Buffer.concat([
+        Buffer.from("molpha-cu-bench-owner"),
+        Buffer.from([index & 0xff]),
+        Buffer.from([(index >> 8) & 0xff]),
+      ])
+    )
+  );
+  return Keypair.fromSeed(seed);
+}
+
+/** One Node PDA per set bit, ascending bit order (matches on-chain resolver). */
+function nodeRemainingAccounts(nodePdas, signersBitmap) {
   const remaining = [];
   for (let bitPos = 0; bitPos < 256; bitPos++) {
-    if (evmBitmapBitSet(signersBitmap, bitPos)) {
-      remaining.push({
-        pubkey: findRegistryIndexPda(programId, bitPos),
-        isSigner: false,
-        isWritable: false,
-      });
+    if (!evmBitmapBitSet(signersBitmap, bitPos)) continue;
+    const pubkey = nodePdas[bitPos];
+    if (!pubkey) {
+      throw new Error(`Missing Node PDA for registry index ${bitPos}`);
     }
+    remaining.push({
+      pubkey,
+      isSigner: false,
+      isWritable: false,
+    });
   }
   return remaining;
 }
 
-/** Deterministic keys indexed by registry slot (0..slotCount-1). */
+/** Deterministic secp keys + owner keypairs indexed by registry slot. */
 function generateSignerMaterial(slotCount = NODE_COUNT) {
   const privKeys = [];
   const compressedPubkeys = [];
+  const owners = [];
+  const nodePdas = [];
   for (let i = 0; i < slotCount; i++) {
     const skBytes = Buffer.from(
       keccak_256(
@@ -384,8 +409,16 @@ function generateSignerMaterial(slotCount = NODE_COUNT) {
     );
     privKeys.push(modN(bigintFromBytesBE(skBytes)));
     compressedPubkeys.push(Buffer.from(secp256k1.getPublicKey(skBytes, true)));
+    owners.push(deterministicNodeOwner(i));
   }
-  return { privKeys, compressedPubkeys };
+  return { privKeys, compressedPubkeys, owners, nodePdas };
+}
+
+function attachNodePdas(programId, signerMaterial) {
+  const nodePdas = signerMaterial.owners.map((owner) =>
+    findNodePda(programId, owner.publicKey)
+  );
+  return { ...signerMaterial, nodePdas };
 }
 
 function buildCoalitionSignature({
@@ -400,6 +433,7 @@ function buildCoalitionSignature({
   nodeCount = NODE_COUNT,
   redundancyBuffer = REDUNDANCY_BUFFER,
 }) {
+  void configHash;
   const signersBitmap = deriveSignersBitmapForJob(
     feedId,
     registryVersion,
@@ -479,6 +513,7 @@ function buildLiveSubmitArgs({
 function signerMaterialFromManifestNodes(nodes, nodeCount) {
   const privKeys = new Array(nodeCount).fill(0n);
   const compressedPubkeys = new Array(nodeCount).fill(null);
+  const owners = new Array(nodeCount).fill(null);
 
   for (const node of nodes) {
     const idx = node.index;
@@ -497,6 +532,14 @@ function signerMaterialFromManifestNodes(nodes, nodeCount) {
     }
     privKeys[idx] = modN(bigintFromBytesBE(Buffer.from(skHex, "hex")));
     compressedPubkeys[idx] = hexToBuffer(pkHex);
+    if (node.owner) {
+      owners[idx] =
+        typeof node.owner === "string"
+          ? { publicKey: new PublicKey(node.owner) }
+          : node.owner;
+    } else {
+      owners[idx] = deterministicNodeOwner(idx);
+    }
   }
 
   for (let i = 0; i < nodeCount; i++) {
@@ -507,7 +550,7 @@ function signerMaterialFromManifestNodes(nodes, nodeCount) {
     }
   }
 
-  return { privKeys, compressedPubkeys, nodeCount };
+  return { privKeys, compressedPubkeys, owners, nodeCount };
 }
 
 function signDataUpdateForRegistry({
@@ -553,6 +596,27 @@ async function encodeAccount(program, accountName, fields) {
   return Buffer.from(data);
 }
 
+/** Manual zero-copy layout for `Registry` / `BenchFullRegistry` (8,208 bytes). */
+function encodeRegistrySnapshot({
+  accountName = "Registry",
+  version,
+  members,
+  bump,
+  redundancyBuffer = REDUNDANCY_BUFFER,
+}) {
+  if (members.length > 256) throw new Error("registry exceeds 256 nodes");
+  const data = Buffer.alloc(REGISTRY_SPACE);
+  accountDiscriminator(accountName).copy(data, 0);
+  data.writeUInt32LE(version >>> 0, 8);
+  data.writeUInt16LE(members.length, 12);
+  data.writeUInt8(redundancyBuffer, 14);
+  data.writeUInt8(bump, 15);
+  members.forEach((member, index) =>
+    member.toBuffer().copy(data, 16 + index * 32)
+  );
+  return data;
+}
+
 function toValidatorAccountJson(
   pubkey,
   data,
@@ -575,38 +639,9 @@ function toValidatorAccountJson(
   );
 }
 
-async function buildBenchAccountSet(
-  program,
-  programId,
-  payer,
-  signerCount,
-  signerMaterial
-) {
-  const configHash = benchConfigHash(signerCount);
-  const feedId = deriveFeedId(payer.publicKey, configHash, signerCount);
-
-  const [protocolConfigPda, protocolBump] = PublicKey.findProgramAddressSync(
-    [PROTOCOL_CONFIG_SEED],
-    programId
-  );
-  const [registryStatePda, registryBump] = PublicKey.findProgramAddressSync(
-    [REGISTRY_STATE_SEED],
-    programId
-  );
-  const [jobPda, jobBump] = PublicKey.findProgramAddressSync(
-    [JOB_SEED, feedId],
-    programId
-  );
-  const [feedPda, feedBump] = PublicKey.findProgramAddressSync(
-    [FEED_SEED, feedId],
-    programId
-  );
-
-  const accounts = [];
-
-  const protocolData = await encodeAccount(program, "protocolConfig", {
+function protocolConfigFields(payer, protocolBump) {
+  return {
     authority: payer.publicKey,
-    pendingAuthority: null,
     usdcMint: PublicKey.default,
     treasury: PublicKey.default,
     rewardPerSignature: new anchor.BN(0),
@@ -614,98 +649,125 @@ async function buildBenchAccountSet(
     receiptSubmitterBonus: new anchor.BN(0),
     protocolFeeBps: 0,
     maxReceiptDelaySlots: new anchor.BN(0),
-    registryCooldownSecs: new anchor.BN(0),
-    previousGraceSecs: new anchor.BN(0),
+    protocolFee: new anchor.BN(0),
+    disputeWindowSlots: new anchor.BN(0),
+    gatewayBondMin: new anchor.BN(0),
+    challengerBountyBps: 0,
     maxNodeCount: NODE_COUNT,
-    redundancyBuffer: 2,
     minimumNodeDeposit: new anchor.BN(0),
-    timelockExpiresAt: null,
-    pendingChange: null,
+    withdrawalCooldownSecs: new anchor.BN(0),
+    agentRoundBase: new anchor.BN(0),
+    agentRoundPerSig: new anchor.BN(0),
+    agentEpochLenSecs: new anchor.BN(86_400),
     bump: protocolBump,
-  });
+  };
+}
+
+async function buildBenchAccountSet(
+  program,
+  programId,
+  payer,
+  signerCount,
+  signerMaterial,
+  opts = {}
+) {
+  const feedId =
+    opts.feedId ??
+    deriveFeedId(payer.publicKey, benchConfigHash(signerCount), signerCount);
+  const registryVersion = opts.registryVersion ?? FIXTURE_REGISTRY_VERSION;
+  const material = attachNodePdas(programId, signerMaterial);
+  const nodeCount = material.compressedPubkeys.length;
+
+  const [protocolConfigPda, protocolBump] = PublicKey.findProgramAddressSync(
+    [PROTOCOL_CONFIG_SEED],
+    programId
+  );
+  const [registryStatePda, registryStateBump] =
+    PublicKey.findProgramAddressSync([REGISTRY_STATE_SEED], programId);
+  const [registryPda, registryBump] = PublicKey.findProgramAddressSync(
+    [REGISTRY_SEED, u32le(registryVersion)],
+    programId
+  );
+  const [feedPda, feedBump] = PublicKey.findProgramAddressSync(
+    [FEED_SEED, feedId],
+    programId
+  );
+  void feedBump;
+
+  const accounts = [];
+
+  const protocolData = await encodeAccount(
+    program,
+    "protocolConfig",
+    protocolConfigFields(payer, protocolBump)
+  );
   accounts.push({
     pubkey: protocolConfigPda,
     data: protocolData,
     owner: programId,
   });
 
-  const registryData = await encodeAccount(program, "registryState", {
-    authority: payer.publicKey,
-    currentNodeCount: NODE_COUNT,
-    graceSecs: new anchor.BN(0),
-    redundancyBuffer: REDUNDANCY_BUFFER,
-    currentVersion: FIXTURE_REGISTRY_VERSION,
-    previousVersion: 0,
-    previousExpiresAt: new anchor.BN(0),
-    previousNodeCount: 0,
-    lastTransitionType: { none: {} },
-    removedOldIndex: 0,
-    removedNode: PublicKey.default,
-    movedOldIndex: 0xffffffff,
-    movedNode: PublicKey.default,
-    bump: registryBump,
+  const registryStateData = await encodeAccount(program, "registryState", {
+    currentVersion: registryVersion,
+    bump: registryStateBump,
   });
   accounts.push({
     pubkey: registryStatePda,
+    data: registryStateData,
+    owner: programId,
+  });
+
+  const registryData = encodeRegistrySnapshot({
+    version: registryVersion,
+    members: material.nodePdas,
+    bump: registryBump,
+    redundancyBuffer: REDUNDANCY_BUFFER,
+  });
+  accounts.push({
+    pubkey: registryPda,
     data: registryData,
     owner: programId,
   });
 
-  const jobData = await encodeAccount(program, "job", {
-    feedId: Array.from(feedId),
-    owner: payer.publicKey,
-    apiConfigHash: Array.from(configHash),
-    decimals: 8,
-    signaturesRequired: signerCount,
-    createdAt: new anchor.BN(0),
-    lastRequestTimestamp: new anchor.BN(0),
-    bump: jobBump,
-  });
-  accounts.push({ pubkey: jobPda, data: jobData, owner: programId });
+  // Do not pre-seed `feed`: `submit_data_update` uses `init_if_needed` with
+  // `Feed::SPACE`. Anchor's account encoder pads `Vec` to `max_len`, which does
+  // not match `InitSpace`, so a coder-encoded feed fails the space constraint.
 
-  const feedData = await encodeAccount(program, "feed", {
-    feedId: Array.from(feedId),
-    registryVersion: 0,
-    canonicalTimestamp: new anchor.BN(0),
-    value: Buffer.alloc(32),
-    signersBitmap: Array.from(Buffer.alloc(32)),
-    signaturesRequired: 0,
-    lastUpdatedSlot: new anchor.BN(0),
-    bump: feedBump,
-  });
-  accounts.push({ pubkey: feedPda, data: feedData, owner: programId });
-
-  const pubkeysToSeed = signerMaterial.compressedPubkeys.slice(0, NODE_COUNT);
-
-  for (let index = 0; index < pubkeysToSeed.length; index++) {
-    const { x, y } = decompressSecp256k1(pubkeysToSeed[index]);
-    const registryIndexPda = findRegistryIndexPda(programId, index);
+  for (let index = 0; index < nodeCount; index++) {
+    const owner = material.owners[index];
+    const nodePda = material.nodePdas[index];
+    const { x, y } = decompressSecp256k1(material.compressedPubkeys[index]);
     const bump = PublicKey.findProgramAddressSync(
-      [REGISTRY_INDEX_SEED, Buffer.from(new Uint8Array([index, 0, 0, 0]))],
+      [NODE_SEED, owner.publicKey.toBuffer()],
       programId
     )[1];
-    const indexData = await encodeAccount(program, "registryIndex", {
-      index,
-      node: PublicKey.unique(),
+    const nodeData = await encodeAccount(program, "node", {
+      owner: owner.publicKey,
       secp256K1PubkeyX: Array.from(x),
       secp256K1PubkeyY: Array.from(y),
+      status: { active: {} },
+      ip: [127, 0, 0, 1],
+      port: 9_000 + index,
+      lockedAmount: new anchor.BN(0),
+      claimableRewards: new anchor.BN(0),
+      registeredAt: new anchor.BN(0),
+      deactivatedAt: new anchor.BN(0),
+      withdrawableAt: new anchor.BN(0),
       bump,
     });
-    accounts.push({
-      pubkey: registryIndexPda,
-      data: indexData,
-      owner: programId,
-    });
+    accounts.push({ pubkey: nodePda, data: nodeData, owner: programId });
   }
 
   return {
     accounts,
     feedId,
-    configHash,
+    registryVersion,
     protocolConfigPda,
     registryStatePda,
-    jobPda,
+    registryPda,
     feedPda,
+    nodePdas: material.nodePdas,
+    signerMaterial: material,
   };
 }
 
@@ -753,13 +815,20 @@ module.exports = {
   SIGNER_COUNTS,
   COMPUTE_UNIT_LIMIT,
   CU_CEILINGS,
+  REGISTRY_SPACE,
   FIXTURE_FEED_ID,
   FIXTURE_VALUE,
   FIXTURE_REGISTRY_VERSION,
   FIXTURE_CANONICAL_TIMESTAMP,
   FIXTURE_CONFIG_HASH,
   ACCOUNTS_ROOT,
+  PROTOCOL_CONFIG_SEED,
+  REGISTRY_STATE_SEED,
+  REGISTRY_SEED,
+  NODE_SEED,
+  FEED_SEED,
   hexToBuffer,
+  u32le,
   evmBitmapBitSet,
   deriveSignersBitmapForJob,
   deriveSelectionSeed,
@@ -768,14 +837,21 @@ module.exports = {
   deriveFeedId,
   loadProgramId,
   loadIdl,
-  findRegistryIndexPda,
-  registryIndexRemainingAccounts,
+  findRegistryPda,
+  findNodePda,
+  findFeedPda,
+  deterministicNodeOwner,
+  nodeRemainingAccounts,
   generateSignerMaterial,
+  attachNodePdas,
   buildCoalitionSignature,
   buildSubmitArgs,
   buildLiveSubmitArgs,
   signerMaterialFromManifestNodes,
   signDataUpdateForRegistry,
+  encodeAccount,
+  encodeRegistrySnapshot,
+  protocolConfigFields,
   buildBenchAccountSet,
   writeAccountDir,
 };

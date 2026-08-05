@@ -5,6 +5,7 @@ import {
 } from "@solana/spl-token";
 import {
   Ed25519Program,
+  PublicKey,
   SystemProgram,
   SYSVAR_INSTRUCTIONS_PUBKEY,
 } from "@solana/web3.js";
@@ -24,8 +25,8 @@ import {
   findAgentRoundPda,
   findDelegatePda,
   findGatewayPda,
-  findNodePda,
   findProtocolConfigPda,
+  findRegistryPda,
   findRegistryStatePda,
   findSubscriptionPda,
   findSubscriptionRoundPda,
@@ -39,6 +40,13 @@ import {
   requireValue,
   writeJson,
 } from "../lib/utils";
+
+function registryNode(registry: any, bit: number): PublicKey {
+  if (bit >= Number(registry.nodeCount)) {
+    throw new Error(`credited bit ${bit} is outside registry node_count`);
+  }
+  return new PublicKey(Uint8Array.from(registry.nodes[bit]));
+}
 
 export function registerRoundCommands(program: Command): void {
   const round = program
@@ -109,6 +117,13 @@ export function registerRoundCommands(program: Command): void {
         options.registryVersion,
         "registry version"
       );
+      const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
+      const registry = await fetchAccountOrNull<any>(
+        ctx.program,
+        "registry",
+        registryPda
+      );
+      if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const value = hexToBytes(options.value, undefined, "value");
       const aggSig = options.aggSig
         ? parseAggregatedSigJson(options.aggSig)
@@ -154,6 +169,7 @@ export function registerRoundCommands(program: Command): void {
           payer: ctx.wallet.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
+          registry: registryPda,
           subscription: subscriptionPda,
           consumerDelegate,
           gateway: gatewayPda,
@@ -163,8 +179,8 @@ export function registerRoundCommands(program: Command): void {
         })
         .remainingAccounts(
           creditedBits.map((bit) => ({
-            pubkey: findNodePda(ctx.programId, bit)[0],
-            isWritable: true,
+            pubkey: registryNode(registry, bit),
+            isWritable: false,
             isSigner: false,
           }))
         )
@@ -259,6 +275,13 @@ export function registerRoundCommands(program: Command): void {
         options.registryVersion,
         "registry version"
       );
+      const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
+      const registry = await fetchAccountOrNull<any>(
+        ctx.program,
+        "registry",
+        registryPda
+      );
+      if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const amount = bn(options.amount, "amount");
       const value = hexToBytes(options.value, undefined, "value");
       const aggSig = options.aggSig
@@ -317,6 +340,7 @@ export function registerRoundCommands(program: Command): void {
           gatewayAuthority: gatewayAuthority.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
+          registry: registryPda,
           gateway: gatewayPda,
           agentEscrow: escrowPda,
           usdcMint: protocolConfig.usdcMint,
@@ -329,8 +353,8 @@ export function registerRoundCommands(program: Command): void {
         })
         .remainingAccounts(
           creditedBits.map((bit) => ({
-            pubkey: findNodePda(ctx.programId, bit)[0],
-            isWritable: true,
+            pubkey: registryNode(registry, bit),
+            isWritable: false,
             isSigner: false,
           }))
         )
@@ -368,7 +392,6 @@ export function registerRoundCommands(program: Command): void {
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
-      const [registryStatePda] = findRegistryStatePda(ctx.programId);
       const roundRecord = parsePublicKey(options.roundRecord, "round record");
       const record = await fetchAccountOrNull<any>(
         ctx.program,
@@ -389,19 +412,27 @@ export function registerRoundCommands(program: Command): void {
             .split(",")
             .map((part: string) => parseInteger(part.trim(), "credited bit"))
         : creditedBitsFromBitmap(Uint8Array.from(record.signersBitmap));
+      const registryVersion = Number(record.registryVersion);
+      const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
+      const registry = await fetchAccountOrNull<any>(
+        ctx.program,
+        "registry",
+        registryPda
+      );
+      if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
 
       const signature = await (ctx.program.methods as any)
         .finalizeRound()
         .accountsPartial({
           caller: ctx.wallet.publicKey,
           protocolConfig: protocolConfigPda,
-          registryState: registryStatePda,
+          registry: registryPda,
           roundRecord,
           gateway: gatewayPda,
         })
         .remainingAccounts(
           creditedBits.map((bit: number) => ({
-            pubkey: findNodePda(ctx.programId, bit)[0],
+            pubkey: registryNode(registry, bit),
             isWritable: true,
             isSigner: false,
           }))
@@ -428,7 +459,6 @@ export function registerRoundCommands(program: Command): void {
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
-      const [registryStatePda] = findRegistryStatePda(ctx.programId);
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
@@ -439,6 +469,21 @@ export function registerRoundCommands(program: Command): void {
       }
 
       const roundRecord = parsePublicKey(options.roundRecord, "round record");
+      const record = await fetchAccountOrNull<any>(
+        ctx.program,
+        "roundReceiptRecord",
+        roundRecord
+      );
+      if (!record)
+        throw new Error(`Round record not found at ${roundRecord.toBase58()}`);
+      const registryVersion = Number(record.registryVersion);
+      const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
+      const registry = await fetchAccountOrNull<any>(
+        ctx.program,
+        "registry",
+        registryPda
+      );
+      if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const gatewayAuthority = parsePublicKey(
         options.gatewayAuthority,
         "gateway authority"
@@ -459,13 +504,22 @@ export function registerRoundCommands(program: Command): void {
         .accountsPartial({
           challenger: ctx.wallet.publicKey,
           protocolConfig: protocolConfigPda,
-          registryState: registryStatePda,
+          registry: registryPda,
           roundRecord,
           gateway: gatewayPda,
           treasury: protocolConfig.treasury,
           challengerUsdc,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
+        .remainingAccounts(
+          creditedBitsFromBitmap(Uint8Array.from(aggSig.signersBitmap)).map(
+            (bit) => ({
+              pubkey: registryNode(registry, bit),
+              isWritable: false,
+              isSigner: false,
+            })
+          )
+        )
         .rpc();
 
       writeJson({

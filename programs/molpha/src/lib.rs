@@ -29,8 +29,49 @@ pub mod molpha {
         instructions::register_node(ctx, args)
     }
 
-    pub fn deactivate_node(ctx: Context<DeactivateNode>) -> Result<()> {
-        instructions::deactivate_node(ctx)
+    pub fn deactivate_node(ctx: Context<DeactivateNode>, args: DeactivateNodeArgs) -> Result<()> {
+        instructions::deactivate_node(ctx, args)
+    }
+
+    #[cfg(feature = "cu-bench")]
+    pub fn bench_resolve_synthetic(ctx: Context<BenchRegistry>, node_count: u16) -> Result<()> {
+        instructions::bench_resolve_synthetic(ctx, node_count)
+    }
+
+    #[cfg(feature = "cu-bench")]
+    pub fn bench_resolve_accounts(
+        ctx: Context<BenchRegistry>,
+        signers_bitmap: [u8; 32],
+    ) -> Result<()> {
+        instructions::bench_resolve_accounts(ctx, signers_bitmap)
+    }
+
+    #[cfg(feature = "cu-bench")]
+    pub fn bench_full_registry_transition(
+        ctx: Context<BenchFullRegistryTransition>,
+        old_version: u32,
+        next_version: u32,
+        mutation: u8,
+        node: Pubkey,
+        remove_index: u16,
+    ) -> Result<()> {
+        instructions::bench_full_registry_transition(
+            ctx,
+            old_version,
+            next_version,
+            mutation,
+            node,
+            remove_index,
+        )
+    }
+
+    #[cfg(feature = "cu-bench")]
+    pub fn bench_resolve_full_registry(
+        ctx: Context<BenchResolveFullRegistry>,
+        version: u32,
+        signers_bitmap: [u8; 32],
+    ) -> Result<()> {
+        instructions::bench_resolve_full_registry(ctx, version, signers_bitmap)
     }
 
     pub fn update_node_endpoint(
@@ -40,8 +81,12 @@ pub mod molpha {
         instructions::update_node_endpoint(ctx, args)
     }
 
-    pub fn finalize_registry_transition(ctx: Context<FinalizeRegistryTransition>) -> Result<()> {
-        instructions::finalize_registry_transition(ctx)
+    pub fn update_registry_policy(
+        ctx: Context<UpdateRegistryPolicy>,
+        new_registry_version: u32,
+        redundancy_buffer: u8,
+    ) -> Result<()> {
+        instructions::update_registry_policy(ctx, new_registry_version, redundancy_buffer)
     }
 
     pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
@@ -77,6 +122,13 @@ pub mod molpha {
         args: SubmitDataUpdateArgs,
     ) -> Result<()> {
         instructions::submit_data_update(ctx, args)
+    }
+
+    pub fn verify_data_update(
+        ctx: Context<VerifyDataUpdate>,
+        args: SubmitDataUpdateArgs,
+    ) -> Result<()> {
+        instructions::verify_data_update(ctx, args)
     }
 
     pub fn register_gateway(

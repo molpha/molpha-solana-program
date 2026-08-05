@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-03T11:35:16.014Z",
+  "environment": {
+    "runtime": "solana-bankrun 0.4.0",
+    "anchorBankrun": "0.5.0",
+    "anchorCli": "1.1.2",
+    "anchorTs": "0.32.1",
+    "solanaCli": "4.1.1",
+    "node": "22.23.0",
+    "computeUnitLimit": 1400000,
+    "programBuild": "Anchor SBF platform-tools 1.54 with cu-bench feature"
+  },
+  "definitions": {
+    "populatedNodeCount": "Registry current_node_count immediately before the measured registration/removal instruction.",
+    "resolvedSignerCount": "Number of selected Node accounts passed to signer resolution; this is the bitmap population count, not total registry capacity.",
+    "computeUnits": "Bankrun simulated units_consumed for a transaction containing one setComputeUnitLimit instruction and the measured program instruction."
+  },
+  "registration": [
+    { "populatedNodeCount": 0, "computeUnits": 363445, "status": "success" },
+    { "populatedNodeCount": 32, "computeUnits": 363292, "status": "success" },
+    { "populatedNodeCount": 128, "computeUnits": 362555, "status": "success" },
+    { "populatedNodeCount": 255, "computeUnits": 366892, "status": "success" }
+  ],
+  "removal": {
+    "tail": [
+      { "populatedNodeCount": 2, "computeUnits": 23256, "status": "success" },
+      { "populatedNodeCount": 32, "computeUnits": 23256, "status": "success" },
+      { "populatedNodeCount": 128, "computeUnits": 23256, "status": "success" },
+      { "populatedNodeCount": 256, "computeUnits": 23287, "status": "success" }
+    ],
+    "swap": [
+      { "populatedNodeCount": 2, "computeUnits": 27884, "status": "success" },
+      { "populatedNodeCount": 32, "computeUnits": 30884, "status": "success" },
+      { "populatedNodeCount": 128, "computeUnits": 39884, "status": "success" },
+      { "populatedNodeCount": 256, "computeUnits": 29384, "status": "success" }
+    ]
+  },
+  "resolution": {
+    "synthetic": {
+      "description": "Feature-gated instruction constructs NodeEntry values and runs resolve_ordered_signers without loading Node accounts.",
+      "successful": [
+        { "resolvedSignerCount": 1, "computeUnits": 3489 },
+        { "resolvedSignerCount": 8, "computeUnits": 4854 },
+        { "resolvedSignerCount": 16, "computeUnits": 6414 },
+        { "resolvedSignerCount": 32, "computeUnits": 9534 },
+        { "resolvedSignerCount": 64, "computeUnits": 15774 },
+        { "resolvedSignerCount": 128, "computeUnits": 28958 },
+        { "resolvedSignerCount": 192, "computeUnits": 41502 },
+        { "resolvedSignerCount": 224, "computeUnits": 48382 },
+        { "resolvedSignerCount": 240, "computeUnits": 51534 },
+        { "resolvedSignerCount": 241, "computeUnits": 51731 },
+        { "resolvedSignerCount": 242, "computeUnits": 51928 },
+        { "resolvedSignerCount": 243, "computeUnits": 52125 },
+        { "resolvedSignerCount": 244, "computeUnits": 52322 },
+        { "resolvedSignerCount": 245, "computeUnits": 52519 },
+        { "resolvedSignerCount": 246, "computeUnits": 52716 },
+        { "resolvedSignerCount": 247, "computeUnits": 52913 }
+      ],
+      "failed": [
+        { "resolvedSignerCount": 248, "failure": "heap allocation failed" },
+        { "resolvedSignerCount": 256, "failure": "heap allocation failed" }
+      ],
+      "leastSquares": {
+        "slopeCuPerSigner": 201.45938363940513,
+        "interceptCu": 3142.6019093896466
+      }
+    },
+    "accountBacked": {
+      "description": "Feature-gated instruction loads and deserializes current Node remaining accounts, constructs NodeEntry values, and runs resolve_ordered_signers in a v0 transaction using an address lookup table.",
+      "successful": [
+        { "resolvedSignerCount": 1, "computeUnits": 4063 },
+        { "resolvedSignerCount": 8, "computeUnits": 9274 },
+        { "resolvedSignerCount": 16, "computeUnits": 15201 },
+        { "resolvedSignerCount": 32, "computeUnits": 26880 },
+        { "resolvedSignerCount": 64, "computeUnits": 50063 },
+        { "resolvedSignerCount": 72, "computeUnits": 56589 },
+        { "resolvedSignerCount": 80, "computeUnits": 62357 },
+        { "resolvedSignerCount": 81, "computeUnits": 63078 },
+        { "resolvedSignerCount": 82, "computeUnits": 63799 },
+        { "resolvedSignerCount": 83, "computeUnits": 64520 },
+        { "resolvedSignerCount": 84, "computeUnits": 65241 }
+      ],
+      "failed": [
+        { "resolvedSignerCount": 85, "failure": "heap allocation failed" },
+        { "resolvedSignerCount": 86, "failure": "heap allocation failed" },
+        { "resolvedSignerCount": 87, "failure": "heap allocation failed" },
+        { "resolvedSignerCount": 88, "failure": "heap allocation failed" },
+        { "resolvedSignerCount": 96, "failure": "heap allocation failed" },
+        { "resolvedSignerCount": 120, "failure": "heap allocation failed" },
+        {
+          "resolvedSignerCount": 127,
+          "failure": "Bankrun transaction account-lock limit"
+        },
+        {
+          "resolvedSignerCount": 128,
+          "failure": "Bankrun transaction account-lock limit"
+        },
+        {
+          "resolvedSignerCount": 256,
+          "failure": "v0 transaction account-index overflow during compilation"
+        }
+      ],
+      "leastSquares": {
+        "slopeCuPerSigner": 736.966995681678,
+        "interceptCu": 3333.9910549043775
+      }
+    }
+  }
+}

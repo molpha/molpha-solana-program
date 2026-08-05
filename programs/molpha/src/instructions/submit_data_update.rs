@@ -3,7 +3,9 @@ use anchor_lang::prelude::*;
 use crate::{
     error::{map_data_update_err, MolphaError},
     events::FeedUpdated,
-    state::{collect_node_entries, Feed, FeedInitParams, FeedUpdateParams, RegistryState},
+    state::{
+        resolve_registry_signers, Feed, FeedInitParams, FeedUpdateParams, Registry, RegistryState,
+    },
 };
 use molpha_verifier::DataUpdate;
 
@@ -45,8 +47,10 @@ pub fn submit_data_update(
     let clock = Clock::get()?;
     let payload: DataUpdate = (&args).into();
     let feed = &mut ctx.accounts.feed;
-    let registry = &ctx.accounts.registry_state;
-    let now = clock.unix_timestamp;
+    require!(
+        args.registry_version == ctx.accounts.registry_state.current_version,
+        MolphaError::InvalidRegistryVersion
+    );
 
     // if feed is not initialized, initialize it
     if feed.feed_id == [0u8; 32] {
@@ -75,13 +79,22 @@ pub fn submit_data_update(
         });
     }
 
-    let entries = collect_node_entries(ctx.remaining_accounts, ctx.program_id)?;
-    molpha_verifier::verify_data_update_resolved(
+    let registry = ctx.accounts.registry.load()?;
+    require!(
+        registry.version == args.registry_version,
+        MolphaError::InvalidRegistryVersion
+    );
+    let ordered = resolve_registry_signers(
+        ctx.remaining_accounts,
+        ctx.program_id,
+        &registry,
+        &args.signers_bitmap,
+    )?;
+    molpha_verifier::verify_data_update(
         &payload,
-        &registry.view(),
+        u32::from(registry.node_count),
         registry.redundancy_buffer,
-        now,
-        &entries,
+        &ordered,
     )
     .map_err(map_data_update_err)?;
 
@@ -109,6 +122,12 @@ pub struct SubmitDataUpdate<'info> {
         bump = registry_state.bump,
     )]
     pub registry_state: Account<'info, RegistryState>,
+
+    #[account(
+        seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub registry: AccountLoader<'info, Registry>,
 
     #[account(
         init_if_needed,

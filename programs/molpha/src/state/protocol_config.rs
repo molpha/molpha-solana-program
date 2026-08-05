@@ -19,12 +19,7 @@ pub struct ProtocolConfig {
     pub gateway_bond_min: u64,
     /// Challenger reward, in bps of the slashed bond, on a successful dispute.
     pub challenger_bounty_bps: u16,
-    /// Monotonic counter assigning `gateway_index` to bonded gateways.
-    pub registry_cooldown_secs: i64,
-    /// Grace period after activation during which the previous registry version remains valid.
-    pub previous_grace_secs: i64,
     pub max_node_count: u32,
-    pub redundancy_buffer: u8,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_secs: i64,
     // ---- Agent pay-per-request pricing and policy (agent-access spec v1). ----
@@ -32,7 +27,7 @@ pub struct ProtocolConfig {
     pub agent_round_base: u64,
     /// Per-required-signature price component of a `FreshRound` request.
     /// Solvency invariant (ops-enforced): `agent_round_per_sig >= reward_per_signature`
-    /// and `agent_round_base >= redundancy_buffer * reward_per_signature + gateway_fee`.
+    /// and `agent_round_base >= registry.redundancy_buffer * reward_per_signature + gateway_fee`.
     pub agent_round_per_sig: u64,
     /// Length of the agent spend epoch (e.g. 86_400 for daily); must be > 0.
     pub agent_epoch_len_secs: i64,

@@ -18,12 +18,11 @@ import { setupTestContext, TestContext } from "../setup";
 import {
   buildRegisterNodeArgs,
   deriveNodeId,
-  findNodeOperatorPda,
   findNodePda,
+  findRegistryPda,
   findSecp256k1KeyClaimPda,
   fundNodeOwnerInBankrun,
   getProtocolTreasury,
-  VIRTUAL_INDEX,
 } from "../helpers/submit-data-update";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
@@ -70,8 +69,6 @@ async function initializeRegistry(ctx: TestContext) {
   );
   await program.methods
     .initialize({
-      registryCooldownSecs: new BN(1),
-      previousGraceSecs: new BN(1),
       withdrawalCooldownSecs: new BN(5),
       maxNodeCount: 8,
       redundancyBuffer: 2,
@@ -153,8 +150,9 @@ describe("register_node cryptographic validation", () => {
           nodeOwner: owner.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
-          nodeOperator: findNodeOperatorPda(program.programId, owner.publicKey),
-          node: findNodePda(program.programId, params.newIndex),
+          currentRegistry: findRegistryPda(program.programId, params.newIndex),
+          newRegistry: findRegistryPda(program.programId, params.newIndex + 1),
+          node: findNodePda(program.programId, owner.publicKey),
           secp256K1KeyClaim: findSecp256k1KeyClaimPda(
             program.programId,
             params.compressed
@@ -166,7 +164,7 @@ describe("register_node cryptographic validation", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .preInstructions([
-          ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 450_000 }),
         ])
         .signers([owner])
         .rpc();
@@ -214,8 +212,14 @@ describe("register_node cryptographic validation", () => {
       assert.include(String(error), "PubkeyNotOnCurve");
     }
 
-    let registry = await program.account.registryState.fetch(registryStatePda);
-    assert.equal(registry.currentNodeCount, 0);
+    let registryState = await program.account.registryState.fetch(
+      registryStatePda
+    );
+    assert.equal(registryState.currentVersion, 0);
+    let registry = await program.account.registry.fetch(
+      findRegistryPda(program.programId, registryState.currentVersion)
+    );
+    assert.equal(registry.nodeCount, 0);
     assert.isNull(
       await ctx.provider.context.banksClient.getAccount(
         findSecp256k1KeyClaimPda(program.programId, compressed)
@@ -230,7 +234,7 @@ describe("register_node cryptographic validation", () => {
       salt: new Uint8Array(32).fill(1),
     });
     const node = await program.account.node.fetch(
-      findNodePda(program.programId, 0)
+      findNodePda(program.programId, ctx.nodes[0].publicKey)
     );
     const full = Point.fromHex(Buffer.from(compressed)).toRawBytes(false);
     assert.deepEqual(node.secp256K1PubkeyX, Array.from(full.subarray(1, 33)));
@@ -251,20 +255,18 @@ describe("register_node cryptographic validation", () => {
     }
 
     await program.methods
-      .deactivateNode()
+      .deactivateNode({
+        nodeOwner: ctx.nodes[0].publicKey,
+        removeIndex: 0,
+        newRegistryVersion: 2,
+      })
       .accountsPartial({
         authority: ctx.nodes[0].publicKey,
         protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
-        removedOperator: findNodeOperatorPda(
-          program.programId,
-          ctx.nodes[0].publicKey
-        ),
-        removedNode: findNodePda(program.programId, 0),
-        virtualNode: findNodePda(program.programId, VIRTUAL_INDEX),
-        lastNode: ctx.authority.publicKey,
-        movedOperator: ctx.authority.publicKey,
-        rentReceiver: ctx.authority.publicKey,
+        currentRegistry: findRegistryPda(program.programId, 1),
+        newRegistry: findRegistryPda(program.programId, 2),
+        node: findNodePda(program.programId, ctx.nodes[0].publicKey),
         systemProgram: SystemProgram.programId,
       })
       .signers([ctx.nodes[0]])
@@ -274,7 +276,7 @@ describe("register_node cryptographic validation", () => {
     try {
       await submitRegistration({
         ownerIndex: 1,
-        newIndex: 0,
+        newIndex: 2,
         secret,
         compressed,
         salt: new Uint8Array(32).fill(3),
@@ -284,8 +286,12 @@ describe("register_node cryptographic validation", () => {
       assert.include(String(error), "NodeAlreadyRegistered");
     }
 
-    registry = await program.account.registryState.fetch(registryStatePda);
-    assert.equal(registry.currentNodeCount, 0);
+    registryState = await program.account.registryState.fetch(registryStatePda);
+    assert.equal(registryState.currentVersion, 2);
+    registry = await program.account.registry.fetch(
+      findRegistryPda(program.programId, 2)
+    );
+    assert.equal(registry.nodeCount, 0);
     const claim = await program.account.secp256K1KeyClaim.fetch(
       findSecp256k1KeyClaimPda(program.programId, compressed)
     );

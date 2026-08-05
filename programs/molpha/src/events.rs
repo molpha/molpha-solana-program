@@ -13,10 +13,7 @@ pub struct ProtocolConfigUpdated {
     pub dispute_window_slots: u64,
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
-    pub registry_cooldown_secs: i64,
-    pub previous_grace_secs: i64,
     pub max_node_count: u32,
-    pub redundancy_buffer: u8,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_secs: i64,
     pub agent_round_base: u64,
@@ -28,6 +25,7 @@ pub struct ProtocolConfigUpdated {
 pub struct ProtocolInitialized {
     pub protocol_config: Pubkey,
     pub registry_state: Pubkey,
+    pub registry: Pubkey,
     pub treasury: Pubkey,
     pub authority: Pubkey,
     pub usdc_mint: Pubkey,
@@ -48,36 +46,36 @@ pub struct NodeRegistered {
 
 #[event]
 pub struct NodeEndpointUpdated {
+    pub node: Pubkey,
     pub owner: Pubkey,
-    pub current_index: u32,
     pub ip: [u8; 4],
     pub port: u16,
 }
 
 #[event]
 pub struct NodeDeactivated {
+    pub node: Pubkey,
     pub owner: Pubkey,
     pub removed_index: u32,
-    pub moved_node: Pubkey,
-    pub moved_old_index_or_virtual: u32,
     pub current_version: u32,
     pub deactivated_at: i64,
 }
 
 #[event]
-pub struct RegistryVersionActivated {
+pub struct RegistryVersionCreated {
     pub previous_version: u32,
-    pub active_version: u32,
-    pub previous_expires_at: i64,
-    pub activated_at: i64,
+    pub new_version: u32,
+    pub node_count: u16,
+    pub redundancy_buffer: u8,
+    pub reason: RegistryVersionReason,
+    pub created_at: i64,
 }
 
-#[event]
-pub struct NodeSlotFinalized {
-    pub node_index: u32,
-    pub old_status: u8,
-    pub new_status: u8,
-    pub finalized_at: i64,
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug)]
+pub enum RegistryVersionReason {
+    NodeAdded,
+    NodeRemoved,
+    PolicyChanged,
 }
 
 #[event]

@@ -3,16 +3,12 @@ use molpha_verifier::DataUpdateError;
 
 #[error_code]
 pub enum MolphaError {
-    #[msg("Registry change attempted while previous version is still accepted")]
-    TransitionStillInGrace,
+    #[msg("registry version counter overflow")]
+    RegistryVersionOverflow,
     #[msg("Signer index outside node_count(version)")]
     InvalidNodeIndex,
     #[msg("Node account does not match expected index/owner")]
     InvalidNodeAccount,
-    #[msg("Previous-after-remove verification requires remove-transition metadata")]
-    InvalidTransitionAccount,
-    #[msg("moved_operator does not match the last-slot node's owner")]
-    MovedNodeMismatch,
     #[msg("Caller is not node.owner or registry.authority")]
     UnauthorizedNodeAuthority,
     #[msg("secp256k1_pubkey matches existing active node")]
@@ -25,8 +21,10 @@ pub enum MolphaError {
     NodeNotActive,
     #[msg("Submitted compressed pubkey does not decompress to a valid curve point")]
     PubkeyNotOnCurve,
-    #[msg("registry_version is neither active_version nor grace-valid previous_version")]
+    #[msg("registry version or version-addressed registry account is invalid")]
     InvalidRegistryVersion,
+    #[msg("new redundancy buffer must differ from the current registry policy")]
+    RegistryPolicyUnchanged,
     #[msg("Caller is not ProtocolConfig.authority")]
     UnauthorisedAuthority,
     #[msg("Gateway endpoint is invalid")]
@@ -159,8 +157,6 @@ pub(crate) fn map_data_update_err(error: DataUpdateError) -> anchor_lang::error:
         }
         DataUpdateError::InvalidRegistryVersion => error!(MolphaError::InvalidRegistryVersion),
         DataUpdateError::InvalidNodeIndex => error!(MolphaError::InvalidNodeIndex),
-        DataUpdateError::InvalidTransitionAccount => {
-            error!(MolphaError::InvalidTransitionAccount)
-        }
+        DataUpdateError::InvalidTransitionAccount => error!(MolphaError::InvalidRegistryVersion),
     }
 }

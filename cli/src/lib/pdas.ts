@@ -4,10 +4,9 @@ import { u32Le, u64Le } from "./utils";
 
 export const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 export const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
-/** Slot-keyed registry/workflow account (`Node`). */
+export const REGISTRY_SEED = Buffer.from("molpha_registry");
+/** Permanent owner-keyed node identity and reward account. */
 export const NODE_SEED = Buffer.from("molpha_node");
-/** Owner-keyed management account (`NodeOperator`). */
-export const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
 export const SECP256K1_KEY_CLAIM_SEED = Buffer.from("molpha_secp_key");
 export const PLAN_SEED = Buffer.from("molpha_plan");
 export const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
@@ -17,7 +16,6 @@ export const GATEWAY_SEED = Buffer.from("molpha_gateway");
 export const AGENT_ESCROW_SEED = Buffer.from("molpha_agent");
 export const AGENT_ROUND_SEED = Buffer.from("molpha_agent_round");
 export const ROUND_SEED = Buffer.from("molpha_round");
-export const VIRTUAL_INDEX = 0xffffffff;
 
 export function findProtocolConfigPda(
   programId: PublicKey
@@ -31,25 +29,23 @@ export function findRegistryStatePda(
   return PublicKey.findProgramAddressSync([REGISTRY_STATE_SEED], programId);
 }
 
-/** Slot-keyed `Node` account (the per-round workflow account). */
-export function findNodePda(
+export function findRegistryPda(
   programId: PublicKey,
-  index: number
+  version: number
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([NODE_SEED, u32Le(index)], programId);
+  return PublicKey.findProgramAddressSync(
+    [REGISTRY_SEED, u32Le(version)],
+    programId
+  );
 }
 
-export function findVirtualNodePda(programId: PublicKey): [PublicKey, number] {
-  return findNodePda(programId, VIRTUAL_INDEX);
-}
-
-/** Owner-keyed `NodeOperator` account (management/lifecycle). */
-export function findNodeOperatorPda(
+/** Permanent owner-keyed `Node` account. */
+export function findNodePda(
   programId: PublicKey,
   owner: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [NODE_OPERATOR_SEED, owner.toBuffer()],
+    [NODE_SEED, owner.toBuffer()],
     programId
   );
 }

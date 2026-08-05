@@ -12,7 +12,7 @@ import {
 import { Clock } from "solana-bankrun";
 import { setupTestContext, TestContext } from "../setup";
 import {
-  findNodeOperatorPda,
+  findPermanentNodePda,
   getProtocolTreasury,
   registerNodesForE2e,
   signerMaterialForVerifyAnswerEvm,
@@ -52,8 +52,6 @@ describe("update_node_endpoint", () => {
 
     await program.methods
       .initialize({
-        registryCooldownSecs: new BN(1),
-        previousGraceSecs: new BN(1),
         withdrawalCooldownSecs: new BN(5),
         maxNodeCount: 8,
         redundancyBuffer: 2,
@@ -100,8 +98,8 @@ describe("update_node_endpoint", () => {
     );
 
     const nodeOwner = ctx.nodes[0].publicKey;
-    const nodeOperator = findNodeOperatorPda(program.programId, nodeOwner);
-    const before = await program.account.nodeOperator.fetch(nodeOperator);
+    const node = findPermanentNodePda(program.programId, nodeOwner);
+    const before = await program.account.node.fetch(node);
     assert.deepEqual(Array.from(before.ip), [127, 0, 0, 1]);
     assert.equal(before.port, 8080);
 
@@ -113,7 +111,7 @@ describe("update_node_endpoint", () => {
         })
         .accountsPartial({
           nodeOwner,
-          nodeOperator,
+          node,
         })
         .signers([ctx.nodes[0]])
         .rpc();
@@ -132,12 +130,12 @@ describe("update_node_endpoint", () => {
       })
       .accountsPartial({
         nodeOwner,
-        nodeOperator,
+        node,
       })
       .signers([ctx.nodes[0]])
       .rpc();
 
-    const after = await program.account.nodeOperator.fetch(nodeOperator);
+    const after = await program.account.node.fetch(node);
     assert.deepEqual(Array.from(after.ip), newIp);
     assert.equal(after.port, newPort);
   });

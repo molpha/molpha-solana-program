@@ -2,13 +2,13 @@ use crate::{
     error::MolphaError,
     events::RoundSettled,
     state::{
-        hash_agg_sig, hash_request_auth_fields, AggregatedSig, Delegate, Feed, Gateway, Node,
-        ProtocolConfig, RegistryState, RoundReceiptRecord, Subscription,
+        hash_agg_sig, hash_request_auth_fields, resolve_registry_signers, AggregatedSig, Delegate,
+        Feed, Gateway, ProtocolConfig, Registry, RegistryState, RoundReceiptRecord, Subscription,
     },
     utils::{ed25519::verify_ed25519_signature, registry::derive_feed_id},
 };
 use anchor_lang::prelude::*;
-use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
+use molpha_verifier::bitmap::bitmap_load;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleRoundArgs {
@@ -29,8 +29,9 @@ pub fn settle_round_receipt<'info>(
     let now_slot = clock.slot;
     let subscription = &ctx.accounts.subscription;
     let config = &ctx.accounts.protocol_config;
-    let registry = &ctx.accounts.registry_state;
     let gateway = &mut ctx.accounts.gateway;
+
+    let registry = ctx.accounts.registry.load()?;
 
     require!(
         subscription.is_active() && subscription.has_round_quota(),
@@ -44,7 +45,8 @@ pub fn settle_round_receipt<'info>(
     );
 
     require!(
-        args.registry_version == registry.current_version,
+        args.registry_version == ctx.accounts.registry_state.current_version
+            && registry.version == args.registry_version,
         MolphaError::InvalidRegistryVersion
     );
 
@@ -102,31 +104,12 @@ pub fn settle_round_receipt<'info>(
     // ---- Validate credited nodes; rewards are recorded on the round receipt only. ----
     let reward_per_signature = config.reward_per_signature;
     let gateway_fee = config.gateway_fee;
-    let program_id = ctx.program_id;
-
-    require!(
-        ctx.remaining_accounts.len() == credited_count as usize,
-        MolphaError::InvalidCreditNodeAccount
-    );
-
-    let mut cursor = 0usize;
-    for_each_set_bit_u256(credited, |bit_pos| {
-        let node_ai = ctx
-            .remaining_accounts
-            .get(cursor)
-            .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-        cursor += 1;
-
-        require!(
-            node_ai.owner == program_id,
-            MolphaError::InvalidCreditNodeAccount
-        );
-        let node: Account<Node> = Account::try_from(node_ai)?;
-        // Settlement is current-version-only, so the bit position is the slot index directly.
-        require!(node.index == bit_pos as u32, MolphaError::InvalidNodeIndex);
-
-        Ok(())
-    })?;
+    resolve_registry_signers(
+        ctx.remaining_accounts,
+        ctx.program_id,
+        &registry,
+        &args.agg_sig.signers_bitmap,
+    )?;
 
     ctx.accounts.subscription.consume_round()?;
 
@@ -216,6 +199,12 @@ pub struct SettleRoundReceipt<'info> {
         bump = registry_state.bump,
     )]
     pub registry_state: Account<'info, RegistryState>,
+
+    #[account(
+        seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub registry: AccountLoader<'info, Registry>,
 
     #[account(mut)]
     pub subscription: Account<'info, Subscription>,

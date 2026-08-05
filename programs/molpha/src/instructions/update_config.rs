@@ -3,16 +3,13 @@ use anchor_lang::prelude::*;
 use crate::{
     error::MolphaError,
     events::ProtocolConfigUpdated,
-    state::{ProtocolConfig, RegistryState},
+    state::{ProtocolConfig, MAX_REGISTRY_NODES},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct UpdateConfigArgs {
-    pub registry_cooldown_secs: i64,
-    pub previous_grace_secs: i64,
     pub withdrawal_cooldown_secs: i64,
     pub max_node_count: u32,
-    pub redundancy_buffer: u8,
     pub minimum_node_deposit: u64,
     pub reward_per_signature: u64,
     pub gateway_fee: u64,
@@ -35,6 +32,10 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
         MolphaError::UnauthorisedAuthority
     );
     require!(args.agent_epoch_len_secs > 0, MolphaError::InvalidAgentCaps);
+    require!(
+        args.max_node_count > 0 && args.max_node_count <= MAX_REGISTRY_NODES as u32,
+        MolphaError::NodeCapExceeded
+    );
 
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.reward_per_signature = args.reward_per_signature;
@@ -46,19 +47,12 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
     protocol_config.dispute_window_slots = args.dispute_window_slots;
     protocol_config.gateway_bond_min = args.gateway_bond_min;
     protocol_config.challenger_bounty_bps = args.challenger_bounty_bps;
-    protocol_config.registry_cooldown_secs = args.registry_cooldown_secs;
-    protocol_config.previous_grace_secs = args.previous_grace_secs;
     protocol_config.max_node_count = args.max_node_count;
-    protocol_config.redundancy_buffer = args.redundancy_buffer;
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_secs = args.withdrawal_cooldown_secs;
     protocol_config.agent_round_base = args.agent_round_base;
     protocol_config.agent_round_per_sig = args.agent_round_per_sig;
     protocol_config.agent_epoch_len_secs = args.agent_epoch_len_secs;
-
-    let registry_state = &mut ctx.accounts.registry_state;
-    registry_state.redundancy_buffer = args.redundancy_buffer;
-    registry_state.grace_secs = args.previous_grace_secs;
 
     emit!(ProtocolConfigUpdated {
         reward_per_signature: args.reward_per_signature,
@@ -70,10 +64,7 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
         dispute_window_slots: args.dispute_window_slots,
         gateway_bond_min: args.gateway_bond_min,
         challenger_bounty_bps: args.challenger_bounty_bps,
-        registry_cooldown_secs: args.registry_cooldown_secs,
-        previous_grace_secs: args.previous_grace_secs,
         max_node_count: args.max_node_count,
-        redundancy_buffer: args.redundancy_buffer,
         minimum_node_deposit: args.minimum_node_deposit,
         withdrawal_cooldown_secs: args.withdrawal_cooldown_secs,
         agent_round_base: args.agent_round_base,
@@ -93,13 +84,6 @@ pub struct UpdateConfig<'info> {
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
-    #[account(
-        mut,
-        seeds = [RegistryState::SEED_PREFIX],
-        bump = registry_state.bump,
-    )]
-    pub registry_state: Account<'info, RegistryState>,
-
     pub authority: Signer<'info>,
 }
 
@@ -110,11 +94,8 @@ mod tests {
 
     fn fixture_args() -> UpdateConfigArgs {
         UpdateConfigArgs {
-            registry_cooldown_secs: 1,
-            previous_grace_secs: 2,
             withdrawal_cooldown_secs: 3,
             max_node_count: 8,
-            redundancy_buffer: 2,
             minimum_node_deposit: 100_000_000,
             reward_per_signature: 10,
             gateway_fee: 20,
@@ -137,8 +118,6 @@ mod tests {
         let bytes = borsh::to_vec(&args).expect("serialize");
         let decoded = borsh::from_slice::<UpdateConfigArgs>(&bytes).expect("deserialize");
 
-        assert_eq!(decoded.registry_cooldown_secs, args.registry_cooldown_secs);
-        assert_eq!(decoded.previous_grace_secs, args.previous_grace_secs);
         assert_eq!(decoded.max_node_count, args.max_node_count);
         assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
         assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
@@ -161,8 +140,7 @@ mod tests {
     fn update_config_instruction_data_serializes_args() {
         let args = fixture_args();
         let data = crate::instruction::UpdateConfig { args: args.clone() }.data();
-        // Same payload size as initialize args minus the 32-byte usdc_mint pubkey.
-        assert_eq!(data.len(), 137 + 24 - 32);
+        assert_eq!(data.len(), 112);
 
         let decoded = borsh::from_slice::<UpdateConfigArgs>(&data[8..]).expect("deserialize args");
         assert_eq!(decoded.max_node_count, args.max_node_count);

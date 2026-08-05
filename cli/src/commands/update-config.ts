@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
-import { findProtocolConfigPda, findRegistryStatePda } from "../lib/pdas";
+import { findProtocolConfigPda } from "../lib/pdas";
 import {
   bn,
   optionOrConfig,
@@ -11,11 +11,8 @@ import {
 } from "../lib/utils";
 
 type UpdateConfigFile = {
-  registryCooldownSecs?: string;
-  previousGraceSecs?: string;
   withdrawalCooldownSecs?: string;
   maxNodeCount?: number;
-  redundancyBuffer?: number;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
   gatewayFee?: string;
@@ -32,11 +29,8 @@ type UpdateConfigFile = {
 };
 
 type ProtocolConfigAccount = {
-  registryCooldownSecs: { toString(): string };
-  previousGraceSecs: { toString(): string };
   withdrawalCooldownSecs: { toString(): string };
   maxNodeCount: number;
-  redundancyBuffer: number;
   minimumNodeDeposit: { toString(): string };
   rewardPerSignature: { toString(): string };
   gatewayFee: { toString(): string };
@@ -57,14 +51,8 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .command("update-config")
     .description("Update protocol config (authority only)")
     .option("--config <path>", "json config file with fields to override")
-    .option("--registry-cooldown-secs <seconds>", "registry cooldown")
-    .option("--previous-grace-secs <seconds>", "previous registry grace period")
     .option("--withdrawal-cooldown-secs <seconds>", "node withdrawal cooldown")
     .option("--max-node-count <count>", "max registry size")
-    .option(
-      "--redundancy-buffer <count>",
-      "extra selection slots beyond signatures_required"
-    )
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
     .option("--gateway-fee <amount>", "gateway fee")
@@ -87,7 +75,6 @@ export function registerUpdateConfigCommand(admin: Command): void {
         ? readJsonFile<UpdateConfigFile>(options.config)
         : {};
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
-      const [registryStatePda] = findRegistryStatePda(ctx.programId);
 
       const current = await fetchAccountOrNull<ProtocolConfigAccount>(
         ctx.program,
@@ -104,7 +91,6 @@ export function registerUpdateConfigCommand(admin: Command): void {
         .updateConfig(args)
         .accountsPartial({
           protocolConfig: protocolConfigPda,
-          registryState: registryStatePda,
           authority: ctx.wallet.publicKey,
         })
         .rpc();
@@ -112,7 +98,6 @@ export function registerUpdateConfigCommand(admin: Command): void {
       writeJson({
         signature,
         protocolConfig: protocolConfigPda.toBase58(),
-        registryState: registryStatePda.toBase58(),
       });
     });
 }
@@ -123,26 +108,6 @@ function buildUpdateConfigArgs(
   current: ProtocolConfigAccount
 ) {
   return {
-    registryCooldownSecs: bn(
-      requireValue(
-        optionOrConfig(
-          options.registryCooldownSecs as string | undefined,
-          config.registryCooldownSecs
-        ) ?? current.registryCooldownSecs.toString(),
-        "registry cooldown"
-      ),
-      "registry cooldown"
-    ),
-    previousGraceSecs: bn(
-      requireValue(
-        optionOrConfig(
-          options.previousGraceSecs as string | undefined,
-          config.previousGraceSecs
-        ) ?? current.previousGraceSecs.toString(),
-        "previous grace"
-      ),
-      "previous grace"
-    ),
     withdrawalCooldownSecs: bn(
       requireValue(
         optionOrConfig(
@@ -158,11 +123,6 @@ function buildUpdateConfigArgs(
         options.maxNodeCount as number | undefined,
         config.maxNodeCount
       ) ?? current.maxNodeCount,
-    redundancyBuffer:
-      optionOrConfig(
-        options.redundancyBuffer as number | undefined,
-        config.redundancyBuffer
-      ) ?? current.redundancyBuffer,
     minimumNodeDeposit: bn(
       requireValue(
         optionOrConfig(

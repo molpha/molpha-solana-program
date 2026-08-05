@@ -1,0 +1,38 @@
+{
+  "generatedAt": "2026-08-03T13:53:29.611Z",
+  "runtime": "solana-bankrun / cu-bench feature",
+  "computeUnitLimit": 1400000,
+  "registrySpaceBytes": 8208,
+  "snapshotCreation256": {
+    "ok": true,
+    "computeUnits": 10576,
+    "error": null,
+    "diagnosticLogs": null
+  },
+  "historicalResolution": [
+    {
+      "registryNodeCount": 256,
+      "signerCount": 18,
+      "ok": true,
+      "computeUnits": 20574,
+      "error": null,
+      "diagnosticLogs": null
+    },
+    {
+      "registryNodeCount": 256,
+      "signerCount": 32,
+      "ok": true,
+      "computeUnits": 35638,
+      "error": null,
+      "diagnosticLogs": null
+    },
+    {
+      "registryNodeCount": 256,
+      "signerCount": 64,
+      "ok": true,
+      "computeUnits": 70070,
+      "error": null,
+      "diagnosticLogs": null
+    }
+  ]
+}

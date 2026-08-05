@@ -38,16 +38,21 @@ const {
   ACCOUNTS_ROOT,
   FIXTURE_VALUE,
   FIXTURE_CANONICAL_TIMESTAMP,
+  FIXTURE_REGISTRY_VERSION,
   benchConfigHash,
   deriveFeedId,
   loadProgramId,
   loadIdl,
-  registryIndexRemainingAccounts,
+  nodeRemainingAccounts,
   NODE_COUNT,
   generateSignerMaterial,
   buildCoalitionSignature,
   buildSubmitArgs,
   writeAccountDir,
+  findRegistryPda,
+  findFeedPda,
+  attachNodePdas,
+  REGISTRY_STATE_SEED,
 } = require("./lib/cu-bench-data-update-common");
 
 const WRITE_ACCOUNTS_ONLY = process.argv.includes("--write-accounts");
@@ -160,16 +165,10 @@ async function ensureProgramDeployed(connection, programId) {
 }
 
 async function benchAccountsPresent(connection, programId, payer, signerCount) {
-  const feedId = deriveFeedId(
-    payer.publicKey,
-    benchConfigHash(signerCount),
-    signerCount
-  );
-  const [jobPda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("molpha_job"), feedId],
-    programId
-  );
-  const info = await connection.getAccountInfo(jobPda, "processed");
+  void payer;
+  void signerCount;
+  const registryPda = findRegistryPda(programId, FIXTURE_REGISTRY_VERSION);
+  const info = await connection.getAccountInfo(registryPda, "processed");
   return info !== null && info.owner.equals(programId);
 }
 
@@ -210,55 +209,56 @@ async function measureForSignerCount(
   const configHash = benchConfigHash(signerCount);
   const feedId = deriveFeedId(payer.publicKey, configHash, signerCount);
 
-  const signerMaterial = generateSignerMaterial(NODE_COUNT);
+  const material = attachNodePdas(
+    programId,
+    generateSignerMaterial(NODE_COUNT)
+  );
 
   const signatureMaterial = buildCoalitionSignature({
     signerCount,
-    privKeys: signerMaterial.privKeys,
-    compressedPubkeys: signerMaterial.compressedPubkeys,
+    privKeys: material.privKeys,
+    compressedPubkeys: material.compressedPubkeys,
     feedId,
-    registryVersion: 1,
+    registryVersion: FIXTURE_REGISTRY_VERSION,
     configHash,
     value: FIXTURE_VALUE,
     canonicalTimestamp: FIXTURE_CANONICAL_TIMESTAMP,
   });
 
   const [registryStatePda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("molpha_registry")],
+    [REGISTRY_STATE_SEED],
     programId
   );
-  const [jobPda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("molpha_job"), feedId],
-    programId
-  );
-  const [feedPda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("molpha_feed"), feedId],
-    programId
-  );
+  const registryPda = findRegistryPda(programId, FIXTURE_REGISTRY_VERSION);
+  const feedPda = findFeedPda(programId, feedId);
 
   const args = buildSubmitArgs(signerCount, signatureMaterial, feedId);
-  const signersBitmapBuf = signatureMaterial.signersBitmap;
-  const remainingAccounts = registryIndexRemainingAccounts(
-    programId,
-    signersBitmapBuf
+  const remainingAccounts = nodeRemainingAccounts(
+    material.nodePdas,
+    signatureMaterial.signersBitmap
   );
 
+  const verifyIx = await program.methods
+    .verifyDataUpdate(args)
+    .accountsPartial({
+      registry: registryPda,
+    })
+    .remainingAccounts(remainingAccounts)
+    .instruction();
+
   const submitIx = await program.methods
-    .submitDataUpdate(args, null)
+    .submitDataUpdate(args)
     .accountsPartial({
       submitter: payer.publicKey,
-      jobOwner: null,
-      plan: null,
-      subscription: null,
-      delegate: null,
-      job: jobPda,
       registryState: registryStatePda,
+      registry: registryPda,
       feed: feedPda,
       systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(remainingAccounts)
     .instruction();
 
+  const verifyCu = await simulateIx(connection, payer, verifyIx);
   const submitCu = await simulateIx(connection, payer, submitIx);
   return { verifyCu, submitCu };
 }
@@ -315,8 +315,7 @@ async function main() {
       connection || new anchor.web3.Connection(providerUrl, "processed");
     const program = makeProgram(idl, conn, payer);
     for (const n of SIGNER_COUNTS) {
-      const signerMaterial =
-        n === 8 ? { compressedPubkeys: [] } : generateSignerMaterial(n);
+      const signerMaterial = generateSignerMaterial(NODE_COUNT);
       const dir = await writeAccountDir(
         program,
         programId,

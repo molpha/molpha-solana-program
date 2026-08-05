@@ -17,6 +17,7 @@ import { generateE2eScenario } from "../helpers/e2e-fixture-export";
 import {
   deriveFeedId,
   findFeedPda,
+  findRegistryPda,
   generateE2eSignerMaterialFromSeed,
   getProtocolTreasury,
   registerNodesForE2e,
@@ -77,8 +78,6 @@ describe("submit_data_update (current registry)", () => {
 
     await program.methods
       .initialize({
-        registryCooldownSecs: new BN(1),
-        previousGraceSecs: new BN(1),
         withdrawalCooldownSecs: new BN(5),
         maxNodeCount: SIGNER_COUNT,
         redundancyBuffer: 2,
@@ -143,11 +142,16 @@ describe("submit_data_update (current registry)", () => {
       advanceClock
     );
 
-    const registry = await program.account.registryState.fetch(
+    const registryState = await program.account.registryState.fetch(
       registryStatePda
     );
-    assert.equal(registry.currentNodeCount, SIGNER_COUNT);
-    assert.equal(registry.currentVersion, SIGNER_COUNT);
+    assert.equal(registryState.currentVersion, SIGNER_COUNT);
+    const registryPda = findRegistryPda(
+      program.programId,
+      registryState.currentVersion
+    );
+    const registry = await program.account.registry.fetch(registryPda);
+    assert.equal(registry.nodeCount, SIGNER_COUNT);
 
     await program.methods
       .subscribe({ standard: {} })
@@ -172,7 +176,7 @@ describe("submit_data_update (current registry)", () => {
     );
     const feedPda = findFeedPda(program.programId, feedId);
     const signedValue = signE2eDataUpdate(
-      registry.currentVersion,
+      registry.version,
       signerMaterial,
       SIGNER_COUNT,
       feedId,
@@ -188,6 +192,7 @@ describe("submit_data_update (current registry)", () => {
       .accountsPartial({
         submitter: ctx.authority.publicKey,
         registryState: registryStatePda,
+        registry: registryPda,
         feed: feedPda,
         systemProgram: SystemProgram.programId,
       })
@@ -207,7 +212,7 @@ describe("submit_data_update (current registry)", () => {
     const feedValue = await program.account.feed.fetch(feedPda);
     assert.deepEqual(feedValue.valueKind, { value: {} });
     assert.deepEqual(Array.from(feedValue.value), Array.from(scenario.value));
-    assert.equal(feedValue.registryVersion, registry.currentVersion);
+    assert.equal(feedValue.registryVersion, registry.version);
     assert.equal(
       feedValue.canonicalTimestamp.toString(),
       String(scenario.canonicalTimestamp)
@@ -227,7 +232,7 @@ describe("submit_data_update (current registry)", () => {
     );
     const longFeedPda = findFeedPda(program.programId, longFeedId);
     const signedHash = signE2eDataUpdate(
-      registry.currentVersion,
+      registry.version,
       signerMaterial,
       SIGNER_COUNT,
       longFeedId,
@@ -243,6 +248,7 @@ describe("submit_data_update (current registry)", () => {
       .accountsPartial({
         submitter: ctx.authority.publicKey,
         registryState: registryStatePda,
+        registry: registryPda,
         feed: longFeedPda,
         systemProgram: SystemProgram.programId,
       })

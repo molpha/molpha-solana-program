@@ -11,8 +11,8 @@ import {
 } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
 import {
+  findRegistryPda,
   getProtocolTreasury,
-  VIRTUAL_INDEX,
 } from "../helpers/submit-data-update";
 import molphaIdl from "../../target/idl/molpha.json";
 
@@ -24,8 +24,6 @@ const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 
 const INIT_ARGS = {
-  registryCooldownSecs: new BN(1),
-  previousGraceSecs: new BN(2),
   withdrawalCooldownSecs: new BN(5),
   maxNodeCount: 8,
   redundancyBuffer: 2,
@@ -165,35 +163,28 @@ describe("protocol initialization", () => {
     assert.equal(protocolConfig.disputeWindowSlots.toString(), "1024");
     assert.equal(protocolConfig.gatewayBondMin.toString(), "500000000");
     assert.equal(protocolConfig.challengerBountyBps, 500);
-    assert.equal(protocolConfig.registryCooldownSecs.toString(), "1");
-    assert.equal(protocolConfig.previousGraceSecs.toString(), "2");
     assert.equal(protocolConfig.maxNodeCount, 8);
-    assert.equal(protocolConfig.redundancyBuffer, 2);
     assert.equal(protocolConfig.minimumNodeDeposit.toString(), "100000000");
     assert.equal(protocolConfig.withdrawalCooldownSecs.toString(), "5");
     assert.equal(protocolConfig.agentRoundBase.toString(), "1000");
     assert.equal(protocolConfig.agentRoundPerSig.toString(), "15");
     assert.equal(protocolConfig.agentEpochLenSecs.toString(), "86400");
 
-    const registry = await program.account.registryState.fetch(
+    const registryState = await program.account.registryState.fetch(
       registryStatePda
     );
-    assert.equal(
-      registry.authority.toBase58(),
-      ctx.authority.publicKey.toBase58()
-    );
-    assert.equal(registry.currentNodeCount, 0);
-    assert.equal(registry.previousNodeCount, 0);
-    assert.equal(registry.currentVersion, 0);
-    assert.equal(registry.previousVersion, 0);
-    assert.equal(registry.previousExpiresAt.toString(), "0");
-    assert.equal(registry.graceSecs.toString(), "2");
+    assert.equal(registryState.currentVersion, 0);
+
+    const registryPda = findRegistryPda(program.programId, 0);
+    const registry = await program.account.registry.fetch(registryPda);
+    assert.equal(registry.version, 0);
+    assert.equal(registry.nodeCount, 0);
     assert.equal(registry.redundancyBuffer, 2);
-    assert.deepEqual(registry.lastTransitionType, { none: {} });
-    assert.equal(registry.removedOldIndex, 0);
-    assert.equal(registry.removedNode.toBase58(), PublicKey.default.toBase58());
-    assert.equal(registry.movedOldIndex, VIRTUAL_INDEX);
-    assert.equal(registry.movedNode.toBase58(), PublicKey.default.toBase58());
+    assert.equal(
+      (await ctx.provider.context.banksClient.getAccount(registryPda))!.data
+        .length,
+      8_208
+    );
 
     const treasuryAccount = await ctx.provider.context.banksClient.getAccount(
       treasury
@@ -304,4 +295,16 @@ describe("protocol initialization", () => {
       assert.include(String(error), "InvalidAgentCaps");
     }
   });
+
+  for (const maxNodeCount of [0, 257]) {
+    it(`rejects max_node_count=${maxNodeCount}`, async () => {
+      const ctx = await setupTestContext();
+      try {
+        await initializeProtocol(ctx, { args: { maxNodeCount } });
+        assert.fail("expected invalid max node count to fail");
+      } catch (error: any) {
+        assert.include(String(error), "NodeCapExceeded");
+      }
+    });
+  }
 });

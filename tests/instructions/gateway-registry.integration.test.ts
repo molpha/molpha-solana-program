@@ -58,8 +58,6 @@ async function initializeProtocol(ctx: TestContext): Promise<{
 
   await program.methods
     .initialize({
-      registryCooldownSecs: new BN(1),
-      previousGraceSecs: new BN(1),
       withdrawalCooldownSecs: new BN(5),
       maxNodeCount: 8,
       redundancyBuffer: 2,
