@@ -93,7 +93,7 @@ pub fn resolve_registry_signers(
     let mut ordered = Vec::with_capacity(signer_count);
     let mut cursor = 0usize;
     for_each_set_bit_u256(signers, |bit_pos| {
-        let registry_index = bit_pos as usize;
+        let registry_index = bit_pos;
         require!(
             registry_index < usize::from(registry.node_count),
             MolphaError::InvalidSignersBitmap
