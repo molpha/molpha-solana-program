@@ -35,7 +35,6 @@ const SECP256K1_KEY_CLAIM_SEED = Buffer.from("molpha_secp_key");
 
 const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
-const FEED_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
 const SELECTION_SEED_PREFIX = Buffer.from(
   keccak_256(Buffer.from("MOLPHA_SELECTION_V1"))
 );
@@ -45,7 +44,12 @@ const DERIVE_GROUP_BITMAP_MAX_ROUNDS = 65_536;
 const ACCOUNT_LAMPORTS = 1_000_000_000;
 const REGISTERED_NODE_PDAS = new Map<string, PublicKey[]>();
 
-export const EVM_FIXTURE_FEED_ID = hexToBytes(evmFixture.dataUpdate.feedId);
+export const EVM_FIXTURE_SOURCE_ID = hexToBytes(
+  (evmFixture.dataUpdate as { sourceId?: string; feedId: string }).sourceId ??
+    evmFixture.dataUpdate.feedId
+);
+/** @deprecated Use `EVM_FIXTURE_SOURCE_ID`. */
+export const EVM_FIXTURE_FEED_ID = EVM_FIXTURE_SOURCE_ID;
 export const EVM_FIXTURE_CONFIG_HASH = hexToBytes(
   evmFixture.dataUpdate.configHash
 );
@@ -94,7 +98,7 @@ export function buildSignedVerifyAnswerEvmArgs(
     registryVersion,
     signerMaterialForVerifyAnswerEvm(),
     evmUint256BitmapForFirstN(evmFixture.dataUpdate.signaturesRequired),
-    EVM_FIXTURE_FEED_ID,
+    EVM_FIXTURE_SOURCE_ID,
     {
       configHash: EVM_FIXTURE_CONFIG_HASH,
       value: EVM_FIXTURE_VALUE,
@@ -246,14 +250,14 @@ export function deriveGroupBitmap(
 }
 
 export function deriveSelectionSeed(
-  feedId: Uint8Array,
+  sourceId: Uint8Array,
   registryVersion: number,
   canonicalTimestamp: number
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
       SELECTION_SEED_PREFIX,
-      Buffer.from(feedId),
+      Buffer.from(sourceId),
       Buffer.from(u32be(registryVersion)),
       Buffer.from(u64be(canonicalTimestamp)),
     ])
@@ -270,7 +274,7 @@ export function effectiveSelectionSize(
 }
 
 export function deriveSignersBitmapForJob(
-  feedId: Uint8Array,
+  sourceId: Uint8Array,
   registryVersion: number,
   nodeCount: number,
   signaturesRequired: number,
@@ -282,7 +286,7 @@ export function deriveSignersBitmapForJob(
     redundancyBuffer,
     nodeCount
   );
-  const seed = deriveSelectionSeed(feedId, registryVersion, canonicalTimestamp);
+  const seed = deriveSelectionSeed(sourceId, registryVersion, canonicalTimestamp);
   return deriveGroupBitmap(seed, nodeCount, selectionSize);
 }
 
@@ -579,7 +583,7 @@ export function computeFixtureMessageHash(
     BigInt(fixture.schnorrSignature.signersBitmap)
   );
   return computeMessageHash({
-    feedId: hexToBytes(fixture.dataUpdate.feedId),
+    sourceId: hexToBytes(fixture.dataUpdate.feedId),
     registryVersion: fixture.dataUpdate.registryVersion,
     signaturesRequired: fixture.dataUpdate.signaturesRequired,
     signersBitmap,
@@ -657,7 +661,7 @@ export function buildSubmitArgsFromE2eFixture(fixture: LoadedE2eFixture) {
 }
 
 function computeMessageHash(params: {
-  feedId: Uint8Array;
+  sourceId: Uint8Array;
   registryVersion: number;
   signaturesRequired: number;
   signersBitmap: Uint8Array;
@@ -666,7 +670,7 @@ function computeMessageHash(params: {
 }): Uint8Array {
   return keccakConcat([
     MESSAGE_PREFIX,
-    params.feedId,
+    params.sourceId,
     u32be(params.registryVersion),
     u32be(params.signaturesRequired),
     params.signersBitmap,
@@ -719,7 +723,7 @@ export function signE2eDataUpdate(
   registryVersion: number,
   signerMaterial: E2eSignerMaterial,
   signerCountOrBitmap: number | Uint8Array,
-  feedId: Uint8Array,
+  sourceId: Uint8Array,
   dataUpdate: E2eDataUpdateFields,
   signaturesRequired?: number,
   nodeCount?: number,
@@ -729,7 +733,7 @@ export function signE2eDataUpdate(
   const signersBitmap =
     typeof signerCountOrBitmap === "number"
       ? deriveSignersBitmapForJob(
-          feedId,
+          sourceId,
           registryVersion,
           nodeCount ?? signerCountOrBitmap,
           signaturesRequired ?? signerCountOrBitmap,
@@ -740,7 +744,7 @@ export function signE2eDataUpdate(
   const signerCount = bitmapPopcountEvm(signersBitmap);
   const required = signaturesRequired ?? signerCount;
   const messageHash = computeMessageHash({
-    feedId,
+    sourceId,
     registryVersion,
     signaturesRequired: required,
     signersBitmap,
@@ -772,7 +776,7 @@ export function signE2eDataUpdate(
   });
 
   const submitArgs = {
-    feedId: Array.from(feedId),
+    sourceId: Array.from(sourceId),
     registryVersion,
     signaturesRequired: required,
     signersBitmap: Array.from(signersBitmap),
@@ -860,7 +864,7 @@ export function buildSignedEvmSubmitDataUpdateArgs(
   registryVersion: number,
   signerMaterial: E2eSignerMaterial,
   signerCount = 8,
-  feedId: Uint8Array = EVM_FIXTURE_FEED_ID,
+  sourceId: Uint8Array = EVM_FIXTURE_SOURCE_ID,
   dataUpdate: E2eDataUpdateFields = {
     configHash: EVM_FIXTURE_CONFIG_HASH,
     value: EVM_FIXTURE_VALUE,
@@ -873,7 +877,7 @@ export function buildSignedEvmSubmitDataUpdateArgs(
     registryVersion,
     signerMaterial,
     signerCount,
-    feedId,
+    sourceId,
     dataUpdate,
     signerCount,
     nodeCount,
@@ -1076,6 +1080,7 @@ export function registeredNodePda(
   return node;
 }
 
+/** @deprecated Jobs removed from program; retained for legacy fixture tooling only. */
 export async function createJobViaInstruction(
   ctx: TestContext,
   program: Program,
@@ -1084,27 +1089,27 @@ export async function createJobViaInstruction(
     planPda: PublicKey;
     subscriptionPda: PublicKey;
   },
-  apiConfigHash: Uint8Array,
+  sourceId: Uint8Array,
   opts?: { decimals?: number; signaturesRequired?: number }
-): Promise<{ jobPda: PublicKey; feedPda: PublicKey; feedId: Uint8Array }> {
+): Promise<{ jobPda: PublicKey; feedPda: PublicKey; sourceId: Uint8Array }> {
   const decimals = opts?.decimals ?? 8;
   const signaturesRequired = opts?.signaturesRequired ?? 8;
-  const feedId = deriveFeedId(
-    ctx.authority.publicKey,
-    apiConfigHash,
-    signaturesRequired
+  const jobPda = findJobPda(program.programId, sourceId);
+  const feedPda = findFeedPda(
+    program.programId,
+    sourceId,
+    signaturesRequired,
+    ctx.authority.publicKey
   );
-  const jobPda = findJobPda(program.programId, feedId);
-  const feedPda = findFeedPda(program.programId, feedId);
 
   await program.methods
     .createJob(
       {
-        apiConfigHash: Array.from(apiConfigHash),
+        apiConfigHash: Array.from(sourceId),
         signaturesRequired,
         decimals,
       },
-      Array.from(feedId)
+      Array.from(sourceId)
     )
     .accountsPartial({
       creator: ctx.authority.publicKey,
@@ -1119,7 +1124,7 @@ export async function createJobViaInstruction(
     })
     .rpc();
 
-  return { jobPda, feedPda, feedId };
+  return { jobPda, feedPda, sourceId };
 }
 
 export async function createEvmFixtureJobViaInstruction(
@@ -1130,7 +1135,7 @@ export async function createEvmFixtureJobViaInstruction(
     planPda: PublicKey;
     subscriptionPda: PublicKey;
   }
-): Promise<{ jobPda: PublicKey; feedPda: PublicKey; feedId: Uint8Array }> {
+): Promise<{ jobPda: PublicKey; feedPda: PublicKey; sourceId: Uint8Array }> {
   return createJobViaInstruction(
     ctx,
     program,
@@ -1139,58 +1144,43 @@ export async function createEvmFixtureJobViaInstruction(
   );
 }
 
-export function deriveFeedId(
-  owner: PublicKey,
-  apiConfigHash: Uint8Array,
-  signaturesRequired: number
-): Uint8Array {
-  return keccak_256(
-    Buffer.concat([
-      FEED_ID_PREFIX,
-      owner.toBuffer(),
-      Buffer.from(apiConfigHash),
-      Buffer.from([signaturesRequired]),
-    ])
-  );
-}
-
-/** On-chain feed id for the EVM fixture config hash and a given owner. */
-export function deriveEvmFixtureFeedId(owner: PublicKey): Uint8Array {
-  return deriveFeedId(
-    owner,
-    EVM_FIXTURE_CONFIG_HASH,
-    evmFixture.dataUpdate.signaturesRequired
-  );
-}
-
 export function findJobPda(
   programId: PublicKey,
-  feedId: Uint8Array
+  sourceId: Uint8Array
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [JOB_SEED, Buffer.from(feedId)],
+    [JOB_SEED, Buffer.from(sourceId)],
     programId
   )[0];
 }
 
 export function findFeedPda(
   programId: PublicKey,
-  feedId: Uint8Array
+  sourceId: Uint8Array,
+  signaturesRequired: number,
+  submitter: PublicKey
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [FEED_SEED, Buffer.from(feedId)],
+    [
+      FEED_SEED,
+      Buffer.from(sourceId),
+      Buffer.from([signaturesRequired & 0xff]),
+      submitter.toBuffer(),
+    ],
     programId
   )[0];
 }
 
-/** @deprecated Prefer `findJobPda(programId, deriveEvmFixtureFeedId(owner))`. */
+/** @deprecated Prefer `findJobPda(programId, EVM_FIXTURE_SOURCE_ID)`. */
 export function findEvmJobPda(programId: PublicKey): PublicKey {
-  return findJobPda(programId, EVM_FIXTURE_FEED_ID);
+  return findJobPda(programId, EVM_FIXTURE_SOURCE_ID);
 }
 
-/** @deprecated Prefer `findFeedPda(programId, deriveEvmFixtureFeedId(owner))`. */
+/** @deprecated Use `findFeedPda` with submitter + signatures_required. */
 export function findEvmFeedPda(programId: PublicKey): PublicKey {
-  return findFeedPda(programId, EVM_FIXTURE_FEED_ID);
+  throw new Error(
+    "findEvmFeedPda is deprecated; call findFeedPda(programId, sourceId, signaturesRequired, submitter)"
+  );
 }
 
 /** Permanent owner-keyed Node PDA. */

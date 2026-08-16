@@ -36,13 +36,8 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         .registry_state
         .require_next_version(args.new_registry_version)?;
 
-    let current_version = ctx.accounts.registry_state.current_version;
     let node_index = {
         let registry = ctx.accounts.current_registry.load()?;
-        require!(
-            registry.version == current_version,
-            MolphaError::InvalidRegistryVersion
-        );
         require!(
             u32::from(registry.node_count) < ctx.accounts.protocol_config.max_node_count,
             MolphaError::NodeCapExceeded
@@ -134,7 +129,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         registered_at: now,
     });
     emit!(RegistryVersionCreated {
-        previous_version: current_version,
+        previous_version: ctx.accounts.registry_state.current_version,
         new_version: args.new_registry_version,
         node_count,
         redundancy_buffer,

@@ -28,7 +28,9 @@ import {
 } from "../lib/utils";
 
 type SubmitArgsShape = {
-  feedId: number[] | string;
+  sourceId?: number[] | string;
+  /** @deprecated Alias preserved for older args JSON. */
+  feedId?: number[] | string;
   registryVersion: number | string;
   signaturesRequired: number | string;
   signersBitmap: number[] | string;
@@ -47,9 +49,12 @@ export function registerDataCommands(program: Command): void {
     .command("sign")
     .description("Produce signed SubmitDataUpdate args")
     .option("--fixture <path>", "fixture file")
-    .option("--feed-id <hex>", "32-byte feed id")
+    .option("--source-id <hex>", "32-byte source identifier")
     .option("--registry-version <number>", "registry version")
-    .option("--config-hash <hex>", "32-byte config hash (signing metadata)")
+    .option(
+      "--config-hash <hex>",
+      "optional 32-byte config hash (fixture metadata)"
+    )
     .option("--value <hex>", "oracle value bytes (hex)")
     .option("--canonical-timestamp <number>", "unix timestamp")
     .option("--signer-count <number>", "number of signers to include", "8")
@@ -74,9 +79,12 @@ export function registerDataCommands(program: Command): void {
     .description("Submit a signed data update (lazy-inits the feed if needed)")
     .option("--fixture <path>", "fixture file")
     .option("--args <path>", "json file with submit args")
-    .option("--feed-id <hex>", "32-byte feed id")
+    .option("--source-id <hex>", "32-byte source identifier")
     .option("--registry-version <number>", "registry version")
-    .option("--config-hash <hex>", "32-byte config hash (signing metadata)")
+    .option(
+      "--config-hash <hex>",
+      "optional 32-byte config hash (fixture metadata)"
+    )
     .option("--value <hex>", "oracle value bytes (hex)")
     .option("--canonical-timestamp <number>", "unix timestamp")
     .option("--signer-count <number>", "number of signers to include", "8")
@@ -101,8 +109,11 @@ export function registerDataCommands(program: Command): void {
       }
 
       const submitArgs = resolveSubmitArgs(options, ctx.programId);
-      const feedId = bytesFromField(submitArgs.feedId, 32, "feed id");
-      const [feedPda] = findFeedPda(ctx.programId, feedId);
+      const [feedPda] = feedPdaFromSubmitArgs(
+        ctx.programId,
+        submitArgs,
+        ctx.wallet.publicKey
+      );
       const registryVersion = Number(submitArgs.registryVersion);
       const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
       const registry = await fetchAccountOrNull<any>(
@@ -146,9 +157,12 @@ export function registerDataCommands(program: Command): void {
     .description("Verify a data update against any historical registry")
     .option("--fixture <path>", "fixture file")
     .option("--args <path>", "json file with submit args")
-    .option("--feed-id <hex>", "32-byte feed id")
+    .option("--source-id <hex>", "32-byte source identifier")
     .option("--registry-version <number>", "registry version")
-    .option("--config-hash <hex>", "32-byte config hash (signing metadata)")
+    .option(
+      "--config-hash <hex>",
+      "optional 32-byte config hash (fixture metadata)"
+    )
     .option("--value <hex>", "oracle value bytes (hex)")
     .option("--canonical-timestamp <number>", "unix timestamp")
     .option("--signer-count <number>", "number of signers to include", "8")
@@ -162,8 +176,11 @@ export function registerDataCommands(program: Command): void {
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const submitArgs = resolveSubmitArgs(options, ctx.programId);
-      const feedId = bytesFromField(submitArgs.feedId, 32, "feed id");
-      const [feedPda] = findFeedPda(ctx.programId, feedId);
+      const [feedPda] = feedPdaFromSubmitArgs(
+        ctx.programId,
+        submitArgs,
+        ctx.wallet.publicKey
+      );
       const feed = await fetchAccountOrNull<any>(ctx.program, "feed", feedPda);
       const registryVersion = Number(submitArgs.registryVersion);
       const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
@@ -240,16 +257,14 @@ function buildSignedPayload(
     signerMaterial,
     signersBitmap ?? signerCount,
     hexToBytes(
-      requireValue(options.feedId, "Missing --feed-id"),
+      requireValue(options.sourceId, "Missing --source-id"),
       32,
-      "feed id"
+      "source id"
     ),
     {
-      configHash: hexToBytes(
-        requireValue(options.configHash, "Missing --config-hash"),
-        32,
-        "config hash"
-      ),
+      configHash: options.configHash
+        ? hexToBytes(options.configHash, 32, "config hash")
+        : undefined,
       value: hexToBytes(
         requireValue(options.value, "Missing --value"),
         undefined,
@@ -287,9 +302,30 @@ function resolveSubmitArgs(
   return buildSignedPayload(options, programId).payload.submitArgs;
 }
 
+function feedPdaFromSubmitArgs(
+  programId: PublicKey,
+  submitArgs: { sourceId: number[]; signaturesRequired: number },
+  submitter: PublicKey
+) {
+  return findFeedPda(
+    programId,
+    bytesFromField(submitArgs.sourceId, 32, "source id"),
+    submitArgs.signaturesRequired,
+    submitter
+  );
+}
+
+function sourceIdFromArgs(value: SubmitArgsShape): number[] {
+  const raw = value.sourceId ?? value.feedId;
+  if (raw === undefined) {
+    throw new Error("Missing source id");
+  }
+  return Array.from(bytesFromField(raw, 32, "source id"));
+}
+
 function normalizeSubmitArgs(value: SubmitArgsShape) {
   return {
-    feedId: Array.from(bytesFromField(value.feedId, 32, "feed id")),
+    sourceId: sourceIdFromArgs(value),
     registryVersion:
       typeof value.registryVersion === "number"
         ? value.registryVersion

@@ -1,6 +1,6 @@
 # Molpha Oracle Solana Program
 
-A decentralized oracle network on Solana with an on-chain node registry, subscription-based jobs, and Schnorr-verified data updates aligned with Molpha’s EVM contracts.
+A decentralized oracle network on Solana with an on-chain node registry, subscription-based feeds, and Schnorr-verified data updates aligned with Molpha’s EVM contracts.
 
 ## Overview
 
@@ -8,8 +8,9 @@ Molpha on Solana provides:
 
 - **Node registry** — Permanent owner-keyed nodes and immutable, versioned membership snapshots
 - **Plans & subscriptions** — USDC-paid plans that cap jobs and define signing thresholds
-- **Jobs & feeds** — Each job owns a feed PDA; updates carry a 32-byte value, coalition bitmap, and aggregate Schnorr signature
-- **Data updates** — `submit_data_update` writes feed state; `verify_data_update` runs the same checks without writing (72-byte return data for CPI consumers)
+- **Feeds** — PDAs keyed by a 32-byte `source_id`, quorum (`signatures_required`), and submitter; updates store a payload (raw ≤32 bytes, or keccak digest), coalition bitmap, and aggregate Schnorr signature
+- **Data updates** — `submit_data_update` writes feed state; `verify_data_update` runs the same checks without writing (for CPI / historical-registry consumers)
+- **Rounds & settlement** — Gateways settle subscription and agent rounds against `source_id`; request-auth hashes bind `source_id` + `signatures_required` + timestamp
 - **Delegates** — Subscription owners can authorize delegates (including owner-provisioned agents), capped by their plan's `max_delegates`
 - **Protocol governance** — Admin config for fees, snapshot policy, gateway allowlists, and treasury
 
@@ -27,22 +28,27 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
   derived node identity; verifier hot paths rely on this registration invariant
 - `update_registry_policy` snapshots redundancy-policy changes without changing membership
 
-### Jobs, plans, and subscriptions
+### Plans, subscriptions, and feeds
 
 - Admin-defined **plans** (`add_plan`, `update_plan`) with per-round pricing and signer limits
 - **Subscribe** / **extend_subscription** in USDC
-- Jobs are bound to a `feed_id`, feed, and API config hash; `submit_data_update` initializes the job/feed on first submit, while `create_job` remains available for explicit pre-creation.
+- Feeds are identified by a caller-provided 32-byte **`source_id`** (not a keccak-derived `feed_id`). `submit_data_update` lazy-inits the feed PDA on first submit. There is no `Job` account or `create_job` instruction.
 
 ### Data publication
 
-- Coalition **Schnorr** verification with on-chain bitmap re-derivation (matches EVM `NodeGroupBitmapLib`)
-- Optional **verify-only** path for pull oracles that read return data in the same transaction
-- Off-chain signing helpers in the CLI and `scripts/lib/cu-bench-data-update-common.js`
+- Coalition **Schnorr** verification with on-chain bitmap re-derivation (matches EVM `NodeGroupBitmapLib`); selection seed and message hash bind `source_id`
+- Optional **verify-only** path (`verify_data_update`) against any retained historical registry
+- Off-chain signing helpers in the CLI (`yarn molpha data sign` / `submit`) and `scripts/lib/cu-bench-data-update-common.js`
+
+### Rounds
+
+- `settle_round_receipt` / `settle_agent_round` take `source_id` (replacing `api_config_hash` / derived `feed_id`)
+- `RequestAuth` is `H(source_id, signatures_required, timestamp)`; `AgentRequestAuth` includes the same pair plus agent, gateway, timestamp, and amount
 
 ### Tooling
 
-- TypeScript **CLI** (`yarn molpha`) for init, registry, plans, jobs, delegates, and data flows
-- Scripts for node generation, CU benchmarks, and end-to-end job submission
+- TypeScript **CLI** (`yarn molpha`) for init, registry, plans, delegates, feeds, rounds, and data flows
+- Scripts for node generation, CU benchmarks, and end-to-end feed submission
 
 ## Program structure
 
@@ -51,22 +57,24 @@ programs/
 ├── molpha/                         # Main oracle program
 │   └── src/
 │       ├── instructions/
-│       │   ├── initialize.rs
-│       │   ├── register_node.rs / deactivate_node.rs
+│       │   ├── initialize.rs / update_config.rs
+│       │   ├── register_node.rs / deactivate_node.rs / update_node_endpoint.rs
 │       │   ├── update_registry_policy.rs
-│       │   ├── add_gateway.rs / remove_gateway.rs
+│       │   ├── register_gateway.rs
 │       │   ├── add_plan.rs / update_plan.rs
 │       │   ├── subscribe.rs / extend_subscription.rs
-│       │   ├── create_job.rs
-│       │   ├── add_delegate.rs / remove_delegate.rs
+│       │   ├── add_delegate.rs / remove_delegate.rs / set_delegate_paused.rs
 │       │   ├── submit_data_update.rs / verify_data_update.rs
-│       │   └── data_update_core.rs
+│       │   ├── settle_round_receipt.rs / settle_agent_round.rs
+│       │   ├── finalize_round.rs / dispute_round.rs
+│       │   └── claim_node_rewards.rs / claim_gateway_rewards.rs
 │       ├── state/
 │       │   ├── protocol_config.rs
-│       │   ├── registry_state.rs / node.rs
-│       │   ├── node.rs / gateway.rs
-│       │   ├── plan.rs / subscription.rs
-│       │   ├── job.rs / feed.rs
+│       │   ├── registry_state.rs / node.rs / secp256k1_key_claim.rs
+│       │   ├── plan.rs / subscription.rs / delegate.rs
+│       │   ├── feed.rs
+│       │   ├── gateway.rs / agent_escrow.rs
+│       │   └── round_receipt.rs / receipt.rs
 │       ├── utils/
 │       │   ├── bitmap.rs          # Group selection (EVM parity)
 │       │   ├── schnorr.rs
@@ -122,7 +130,7 @@ yarn build:cli
 yarn molpha --help
 ```
 
-See [`cli/README.md`](cli/README.md) for command groups and an end-to-end example (`init` → plan → subscribe → submit).
+See [`cli/README.md`](cli/README.md) for command groups and an end-to-end example (`init` → plan → subscribe → submit). Feeds and rounds take `--source-id` (not `--feed-id` / `--api-config-hash`).
 
 **Deploy (devnet):**
 
@@ -147,14 +155,16 @@ Use `ComputeBudgetProgram.setComputeUnitLimit` ≥ **550_000** for large coaliti
 ### Example: read feed via CLI
 
 ```bash
-yarn molpha account feed --feed-id <64_hex_feed_id>
+yarn molpha account feed --source-id <SOURCE_ID_HEX> --signatures-required 1
 ```
+
+The feed PDA is `[molpha_feed, source_id, signatures_required, submitter]` (`--submitter` defaults to the wallet).
 
 Off-chain signing and submission:
 
 ```bash
-yarn molpha data sign --feed-id <hex> --registry-version 1 --value <hex> ...
-yarn molpha data submit ...
+yarn molpha data sign --source-id <hex> --registry-version 1 --value <hex> ...
+yarn molpha data submit --source-id <hex> --registry-version 1 --value <hex> ...
 ```
 
 ## Program IDs
@@ -163,7 +173,7 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 
 | Program    | ID                                            |
 | ---------- | --------------------------------------------- |
-| **Molpha** | `MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8` |
+| **Molpha** | `MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh` |
 
 ## Documentation
 
@@ -196,35 +206,41 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 | `yarn register-nodes`         | `scripts/generate-and-register-nodes.js`       |
 | `yarn cu:data-update:bankrun` | CU benchmark (bankrun)                         |
 
-Key scripts under `scripts/`: `generate-and-register-nodes.js`, `subscribe-create-job-submit.js`, `oracle-client.ts`, and CU bench utilities. Use `yarn molpha` for all on-chain operations.
+Key scripts under `scripts/`: `generate-and-register-nodes.js`, `oracle-client.ts`, and CU bench utilities. Use `yarn molpha` for all on-chain operations.
 
 ## Architecture
 
 ### Data flow (current on-chain path)
 
 ```
-Job owner subscribes
+Subscriber / agent authorizes a source_id
         ↓
-Off-chain coalition signs (secp256k1 / Schnorr, EVM-compatible message)
+Off-chain coalition signs (secp256k1 / Schnorr; message binds source_id)
         ↓
-submit_data_update → init job/feed if needed → verify bitmap + signature → update Feed
+submit_data_update → init feed if needed → verify bitmap + signature → update Feed
         ↓
-Consumers read Feed account OR CPI verify_data_update (no write, return data)
+Consumers read Feed account OR CPI verify_data_update (no write)
+        ↓
+Gateway settle_round_receipt / settle_agent_round (source_id + signatures_required)
 ```
 
 ### PDA seeds
 
-| Account         | Seed prefix             | Additional seeds     |
-| --------------- | ----------------------- | -------------------- |
-| Protocol config | `molpha_config`         | —                    |
-| Registry state  | `molpha_registry`       | —                    |
-| Registry        | `molpha_registry`       | version (`u32` LE)   |
-| Node            | `molpha_node`           | node owner           |
-| Plan            | `molpha_plan`           | plan type byte       |
-| Subscription    | `molpha_subscription`   | subscriber owner     |
-| Job             | `molpha_job`            | `feed_id` (32 bytes) |
-| Feed            | `molpha_feed`           | `feed_id` (32 bytes) |
-| Gateway         | `molpha_gateway`        | IP + port            |
+| Account             | Seed prefix            | Additional seeds                                              |
+| ------------------- | ---------------------- | ------------------------------------------------------------- |
+| Protocol config     | `molpha_config`        | —                                                             |
+| Registry state      | `molpha_registry`      | —                                                             |
+| Registry            | `molpha_registry`      | version (`u32` LE)                                            |
+| Node                | `molpha_node`          | node owner                                                    |
+| Secp key claim      | `molpha_secp_key`      | keccak256(compressed pubkey)                                  |
+| Plan                | `molpha_plan`          | plan type byte                                                |
+| Subscription        | `molpha_subscription`  | subscriber owner                                              |
+| Delegate            | `molpha_delegate`      | owner, delegate                                               |
+| Feed                | `molpha_feed`          | `source_id` (32), `signatures_required` (u8), submitter       |
+| Gateway             | `molpha_gateway`       | gateway authority                                             |
+| Agent escrow        | `molpha_agent`         | authority, gateway                                            |
+| Subscription round  | `molpha_round`         | consumer, `source_id`, `signatures_required` (u8), ts (`u64` LE) |
+| Agent round         | `molpha_agent_round`   | authority, gateway, `source_id`, `signatures_required` (u8), ts (`u64` LE) |
 
 Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_GUIDE.md#3-on-chain-accounts-and-pdas).
 

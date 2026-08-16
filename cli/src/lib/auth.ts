@@ -13,32 +13,39 @@ function sha256(parts: Buffer[]): Buffer {
   return hash.digest();
 }
 
-/** `H(RequestAuth)` — domain-separated SHA-256 over borsh `(feed_id, timestamp)`. */
+/** `H(RequestAuth)` — domain-separated SHA-256 over borsh `(source_id, signatures_required, timestamp)`. */
 export function hashRequestAuthFields(
-  feedId: Uint8Array,
+  sourceId: Uint8Array,
+  signaturesRequired: number,
   timestamp: number | bigint
 ): Buffer {
   return sha256([
     DOMAIN_REQAUTH,
-    Buffer.concat([Buffer.from(feedId), u64Le(timestamp)]),
+    Buffer.concat([
+      Buffer.from(sourceId),
+      Buffer.from([signaturesRequired & 0xff]),
+      u64Le(timestamp),
+    ]),
   ]);
 }
 
 /**
  * `H(AgentRequestAuth)` — domain-separated SHA-256 over borsh
- * `(agent, gateway, feed_id, canonical_timestamp, amount)`.
+ * `(agent, gateway, source_id, signatures_required, canonical_timestamp, amount)`.
  */
 export function hashAgentRequestAuthFields(
   agent: PublicKey,
   gateway: PublicKey,
-  feedId: Uint8Array,
+  sourceId: Uint8Array,
+  signaturesRequired: number,
   canonicalTimestamp: number | bigint,
   amount: number | bigint
 ): Buffer {
   const body = Buffer.concat([
     agent.toBuffer(),
     gateway.toBuffer(),
-    Buffer.from(feedId),
+    Buffer.from(sourceId),
+    Buffer.from([signaturesRequired & 0xff]),
     u64Le(canonicalTimestamp),
     u64Le(amount),
   ]);

@@ -162,7 +162,7 @@ pub struct DelegateStatusChanged {
 
 #[event]
 pub struct FeedUpdated {
-    pub feed_id: [u8; 32],
+    pub source_id: [u8; 32],
     pub registry_version: u32,
     pub canonical_timestamp: i64,
     /// Compacted payload stored on the feed (raw ≤32 bytes, or keccak digest).
@@ -175,7 +175,7 @@ pub struct FeedUpdated {
 #[event]
 pub struct RoundSettled {
     pub gateway: Pubkey,
-    pub feed_id: [u8; 32],
+    pub source_id: [u8; 32],
     pub timestamp: u64,
     pub signers_bitmap: [u8; 32],
     pub credited_count: u32,
@@ -186,7 +186,7 @@ pub struct RoundSettled {
 
 #[event]
 pub struct RoundFinalized {
-    pub feed_id: [u8; 32],
+    pub source_id: [u8; 32],
     pub timestamp: u64,
     pub credited_count: u32,
     pub finalized_slot: u64,
@@ -194,7 +194,7 @@ pub struct RoundFinalized {
 
 #[event]
 pub struct RoundDisputed {
-    pub feed_id: [u8; 32],
+    pub source_id: [u8; 32],
     pub timestamp: u64,
     pub gateway: Pubkey,
     pub slashed_bond: u64,
@@ -225,7 +225,7 @@ pub struct AgentEscrowClosed {
 pub struct AgentRoundSettled {
     pub agent: Pubkey,
     pub price: u64,
-    pub feed_id: [u8; 32],
+    pub source_id: [u8; 32],
     pub timestamp: u64,
     pub gateway: Pubkey,
     pub signers_bitmap: [u8; 32],

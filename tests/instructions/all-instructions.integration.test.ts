@@ -30,28 +30,7 @@ const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
 const DELEGATE_SEED = Buffer.from("molpha_delegate");
 
-const FEED_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
 const SECONDS_PER_MONTH = 30 * 24 * 60 * 60;
-
-function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
-  return Uint8Array.from(Buffer.from(clean, "hex"));
-}
-
-function deriveFeedId(
-  owner: PublicKey,
-  apiConfigHash: Uint8Array,
-  signaturesRequired: number
-): Uint8Array {
-  return keccak_256(
-    Buffer.concat([
-      FEED_ID_PREFIX,
-      owner.toBuffer(),
-      Buffer.from(apiConfigHash),
-      Buffer.from([signaturesRequired]),
-    ])
-  );
-}
 
 function findDelegatePda(
   programId: PublicKey,
@@ -218,10 +197,14 @@ describe("Molpha instruction coverage integration", () => {
     const now = Number(clock.unixTimestamp);
     assert.isAbove(Number(subscription.validUntil), now + SECONDS_PER_MONTH);
 
-    const apiConfigHash = Uint8Array.from(Buffer.alloc(32, 7));
-    const feedId = deriveFeedId(ctx.authority.publicKey, apiConfigHash, 1);
+    const sourceId = Uint8Array.from(Buffer.alloc(32, 7));
     const [feedPda] = PublicKey.findProgramAddressSync(
-      [FEED_SEED, Buffer.from(feedId)],
+      [
+        FEED_SEED,
+        Buffer.from(sourceId),
+        Buffer.from([1]),
+        ctx.authority.publicKey.toBuffer(),
+      ],
       program.programId
     );
 
@@ -280,9 +263,9 @@ describe("Molpha instruction coverage integration", () => {
     }
 
     // 6) submit_data_update + verify_data_update (failure-path coverage)
-    const badFeedId = Uint8Array.from(Buffer.alloc(32, 4));
+    const badSourceId = Uint8Array.from(Buffer.alloc(32, 4));
     const dataUpdateArgs = {
-      feedId: Array.from(feedId),
+      sourceId: Array.from(sourceId),
       registryVersion: 0,
       signaturesRequired: 1,
       signersBitmap: Array.from(Buffer.alloc(32, 0)),
@@ -294,7 +277,7 @@ describe("Molpha instruction coverage integration", () => {
     };
     const badDataUpdateArgs = {
       ...dataUpdateArgs,
-      feedId: Array.from(badFeedId),
+      sourceId: Array.from(badSourceId),
     };
 
     try {

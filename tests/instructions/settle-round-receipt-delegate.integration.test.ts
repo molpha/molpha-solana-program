@@ -10,7 +10,6 @@ import {
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
 import {
-  deriveFeedId,
   generateE2eSignerMaterial,
   registerNodesForE2e,
 } from "../helpers/submit-data-update";
@@ -21,16 +20,14 @@ import {
   bitmapWithBits,
   creditedNodePdasForBits,
   findSubscriptionRoundPda,
+  hashRequestAuthFields,
   initializeProtocolForAgents,
   registerBondedGateway,
-  sha256,
-  u64le,
   zeroedAggSig,
 } from "../helpers/agent-access";
 
 const NODE_COUNT = 4;
 const SIGS_REQUIRED = 2;
-const DOMAIN_REQAUTH = Buffer.from("MOLPHA_REQAUTH_V1", "utf8");
 const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 const DELEGATE_SEED = Buffer.from("molpha_delegate");
@@ -65,9 +62,9 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
   let delegateHotKey: Keypair;
   let delegatePda: PublicKey;
   let ts = 1_700_300_000;
-  let feedByte = 0;
+  let sourceByte = 0;
 
-  const nextApiConfigHash = () => Buffer.alloc(32, ++feedByte);
+  const nextSourceId = () => Buffer.alloc(32, ++sourceByte);
 
   const addPlan = (planType: any, planId: number, maxSigners: number) => {
     const [pda] = PublicKey.findProgramAddressSync(
@@ -118,7 +115,7 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
 
   interface SettleReceiptParams {
     timestamp: number;
-    apiConfigHash: Uint8Array;
+    sourceId: Uint8Array;
     signaturesRequired?: number;
     /** Consumer keypair that signs H(RequestAuth). Defaults to the delegate hot key. */
     consumer?: Keypair;
@@ -135,16 +132,11 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
     const bits =
       params.creditedBits ??
       Array.from({ length: signaturesRequired }, (_, i) => i);
-    const feedId = deriveFeedId(
-      consumer.publicKey,
-      params.apiConfigHash,
-      signaturesRequired
+    const requestAuthHash = hashRequestAuthFields(
+      params.sourceId,
+      signaturesRequired,
+      params.timestamp
     );
-
-    const requestAuthHash = sha256([
-      DOMAIN_REQAUTH,
-      Buffer.concat([feedId, u64le(params.timestamp)]),
-    ]);
     const consumerSigIx = Ed25519Program.createInstructionWithPrivateKey({
       privateKey: consumer.secretKey,
       message: requestAuthHash,
@@ -152,7 +144,7 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
     const roundRecordPda = findSubscriptionRoundPda(
       proto.program.programId,
       consumer.publicKey,
-      params.apiConfigHash,
+      params.sourceId,
       signaturesRequired,
       params.timestamp
     );
@@ -160,7 +152,7 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
     await proto.program.methods
       .settleRoundReceipt({
         timestamp: new BN(params.timestamp),
-        apiConfigHash: Array.from(params.apiConfigHash),
+        sourceId: Array.from(params.sourceId),
         signaturesRequired,
         registryVersion,
         aggSig: zeroedAggSig(bitmapWithBits(bits)),
@@ -253,9 +245,9 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
       subscriptionPda
     );
 
-    const apiConfigHash = nextApiConfigHash();
+    const sourceId = nextSourceId();
     const t = ++ts;
-    const recordPda = await settleReceipt({ apiConfigHash, timestamp: t });
+    const recordPda = await settleReceipt({ sourceId, timestamp: t });
 
     const after = await proto.program.account.delegate.fetch(delegatePda);
     assert.equal(
@@ -274,21 +266,16 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
       recordPda
     );
 
-    const feedId = deriveFeedId(
-      delegateHotKey.publicKey,
-      apiConfigHash,
-      SIGS_REQUIRED
-    );
     assert.equal(record.price.toNumber(), 0); // subscription-funded, no per-request USDC
-    assert.deepEqual(Array.from(record.feedId), Array.from(feedId));
+    assert.deepEqual(Array.from(record.sourceId), Array.from(sourceId));
   });
 
-  it("blocks replay of the same (consumer, api_config, sigs, timestamp) via the record PDA", async () => {
-    const apiConfigHash = nextApiConfigHash();
+  it("blocks replay of the same (consumer, source_id, sigs, timestamp) via the record PDA", async () => {
+    const sourceId = nextSourceId();
     const t = ++ts;
-    await settleReceipt({ apiConfigHash, timestamp: t });
+    await settleReceipt({ sourceId, timestamp: t });
     try {
-      await settleReceipt({ apiConfigHash, timestamp: t });
+      await settleReceipt({ sourceId, timestamp: t });
       assert.fail("expected duplicate record PDA failure");
     } catch (e: any) {
       assert.ok(e);
@@ -305,7 +292,7 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
       .rpc();
     try {
       await settleReceipt({
-        apiConfigHash: nextApiConfigHash(),
+        sourceId: nextSourceId(),
         timestamp: ++ts,
       });
       assert.fail("expected DelegateNotActive");
@@ -325,7 +312,7 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
   it("caps delegate rounds at delegate.max_signers", async () => {
     try {
       await settleReceipt({
-        apiConfigHash: nextApiConfigHash(),
+        sourceId: nextSourceId(),
         timestamp: ++ts,
         signaturesRequired: DELEGATE_MAX_SIGNERS + 1,
       });
@@ -345,14 +332,14 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
       throttledKey.publicKey
     );
     await settleReceipt({
-      apiConfigHash: nextApiConfigHash(),
+      sourceId: nextSourceId(),
       timestamp: ++ts,
       consumer: throttledKey,
       delegate: throttledPda,
     });
     try {
       await settleReceipt({
-        apiConfigHash: nextApiConfigHash(),
+        sourceId: nextSourceId(),
         timestamp: ++ts,
         consumer: throttledKey,
         delegate: throttledPda,
@@ -365,7 +352,7 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
 
   it("owner-direct settles without a delegate account", async () => {
     await settleReceipt({
-      apiConfigHash: nextApiConfigHash(),
+      sourceId: nextSourceId(),
       timestamp: ++ts,
       consumer: ctx.authority.payer,
       delegate: null,
@@ -375,7 +362,7 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
   it("caps owner-direct rounds at subscription.max_signers", async () => {
     try {
       await settleReceipt({
-        apiConfigHash: nextApiConfigHash(),
+        sourceId: nextSourceId(),
         timestamp: ++ts,
         signaturesRequired: PLAN_MAX_SIGNERS + 1,
         consumer: ctx.authority.payer,

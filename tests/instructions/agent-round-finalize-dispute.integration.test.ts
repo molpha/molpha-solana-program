@@ -13,7 +13,6 @@ import {
 } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
 import {
-  deriveFeedId,
   deriveSignersBitmapForJob,
   evmBitmapBitSet,
   findRegistryPda,
@@ -34,20 +33,18 @@ import {
   findSubscriptionRoundPda,
   freshRoundPrice,
   fundAtaInBankrun,
+  hashRequestAuthFields,
   INIT,
   initializeProtocolForAgents,
   registerBondedGateway,
   settleAgentRound,
-  sha256,
-  u64le,
   X402EscrowSetup,
   zeroedAggSig,
 } from "../helpers/agent-access";
 
 const NODE_COUNT = 4;
 const SIGS_REQUIRED = 2;
-const API_CONFIG_HASH = Uint8Array.from(Buffer.alloc(32, 0x66));
-const DOMAIN_REQAUTH = Buffer.from("MOLPHA_REQAUTH_V1", "utf8");
+const SOURCE_ID = Uint8Array.from(Buffer.alloc(32, 0x66));
 const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 
@@ -104,10 +101,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       fundAmount: 0,
     });
   }, 180_000);
-
-  function feedIdForPayer(): Uint8Array {
-    return deriveFeedId(escrow.payer.publicKey, API_CONFIG_HASH, SIGS_REQUIRED);
-  }
 
   function fundEscrowExact(target: X402EscrowSetup = escrow) {
     fundAtaInBankrun(
@@ -182,7 +175,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       gateway,
       payer: escrow.payer,
       amount: freshRoundPrice(SIGS_REQUIRED),
-      apiConfigHash: API_CONFIG_HASH,
+      sourceId: SOURCE_ID,
       canonicalTimestamp: t,
       signaturesRequired: SIGS_REQUIRED,
       registryVersion,
@@ -198,7 +191,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
         proto.program.programId,
         escrow.payer.publicKey,
         gateway.gatewayPda,
-        API_CONFIG_HASH,
+        SOURCE_ID,
         SIGS_REQUIRED,
         t
       ).toBase58()
@@ -279,11 +272,8 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
 
   it("voids a fabricated agent round on dispute and slashes the gateway bond", async () => {
     const t = ++ts;
-    const feedId = feedIdForPayer();
-    // The credited set must be the deterministically derived selection so the dispute
-    // reaches Schnorr verification (which then fails on the garbage signature).
     const selection = deriveSignersBitmapForJob(
-      feedId,
+      SOURCE_ID,
       registryVersion,
       NODE_COUNT,
       SIGS_REQUIRED,
@@ -299,7 +289,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       gateway: victimGateway,
       payer: victimEscrow.payer,
       amount: freshRoundPrice(SIGS_REQUIRED),
-      apiConfigHash: API_CONFIG_HASH,
+      sourceId: SOURCE_ID,
       canonicalTimestamp: t,
       signaturesRequired: SIGS_REQUIRED,
       registryVersion,
@@ -351,16 +341,13 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
   it("fails to dispute a genuinely valid full-participation agent round", async () => {
     const t = ++ts;
     const value = Uint8Array.from(Buffer.alloc(32, 0x99));
-    const feedId = feedIdForPayer();
-    // Full participation: signers == derived selection. Before the subset-check fix this
-    // was falsely adjudicated as fraud; it must now fail with DisputeSignatureValid.
     const signed = signE2eDataUpdate(
       registryVersion,
       material,
       NODE_COUNT,
-      feedId,
+      SOURCE_ID,
       {
-        configHash: API_CONFIG_HASH,
+        configHash: SOURCE_ID,
         value,
         canonicalTimestamp: t,
       },
@@ -383,7 +370,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       gateway,
       payer: escrow.payer,
       amount: freshRoundPrice(SIGS_REQUIRED),
-      apiConfigHash: API_CONFIG_HASH,
+      sourceId: SOURCE_ID,
       canonicalTimestamp: t,
       signaturesRequired: SIGS_REQUIRED,
       registryVersion,
@@ -453,12 +440,8 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       .rpc();
 
     const t = ++ts;
-    const apiConfig = Buffer.alloc(32, 0x77);
-    const subFeedId = deriveFeedId(ctx.authority.publicKey, apiConfig, 1);
-    const requestAuthHash = sha256([
-      DOMAIN_REQAUTH,
-      Buffer.concat([subFeedId, u64le(t)]),
-    ]);
+    const sourceId = Buffer.alloc(32, 0x77);
+    const requestAuthHash = hashRequestAuthFields(sourceId, 1, t);
     const consumerSigIx = Ed25519Program.createInstructionWithPrivateKey({
       privateKey: ctx.authority.payer.secretKey,
       message: requestAuthHash,
@@ -466,7 +449,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     const roundRecordPda = findSubscriptionRoundPda(
       proto.program.programId,
       ctx.authority.publicKey,
-      apiConfig,
+      sourceId,
       1,
       t
     );
@@ -474,7 +457,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     await proto.program.methods
       .settleRoundReceipt({
         timestamp: new BN(t),
-        apiConfigHash: Array.from(apiConfig),
+        sourceId: Array.from(sourceId),
         signaturesRequired: 1,
         registryVersion,
         aggSig: zeroedAggSig(bitmapWithBits([0])),

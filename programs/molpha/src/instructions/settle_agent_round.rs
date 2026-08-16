@@ -6,7 +6,7 @@ use crate::{
         AgentStatus, AggregatedSig, Feed, Gateway, ProtocolConfig, Registry, RegistryState,
         RoundReceiptRecord,
     },
-    utils::{ed25519::verify_ed25519_signature, registry::derive_feed_id},
+    utils::ed25519::verify_ed25519_signature,
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
@@ -16,7 +16,7 @@ use molpha_verifier::bitmap::bitmap_load;
 pub struct SettleAgentRoundArgs {
     pub authority: Pubkey,
     pub amount: u64,
-    pub api_config_hash: [u8; 32],
+    pub source_id: [u8; 32],
     pub canonical_timestamp: u64,
     pub signatures_required: u8,
     pub registry_version: u32,
@@ -44,12 +44,6 @@ pub fn settle_agent_round<'info>(
     let config = &ctx.accounts.protocol_config;
     let registry = ctx.accounts.registry.load()?;
     let gateway = &ctx.accounts.gateway;
-    let feed_id = derive_feed_id(
-        args.authority,
-        args.api_config_hash,
-        args.signatures_required,
-    );
-
     let clock = Clock::get()?;
     let now_slot = clock.slot;
 
@@ -81,11 +75,12 @@ pub fn settle_agent_round<'info>(
         MolphaError::AgentNotActive
     );
 
-    // Payer must have signed AgentRequestAuth over (agent, gateway, feed_id, ts, amount).
+    // Payer must have signed AgentRequestAuth over (agent, gateway, source_id, ts, amount).
     let auth_hash = hash_agent_request_auth_fields(
         &escrow.key(),
         &gateway.key(),
-        &feed_id,
+        &args.source_id,
+        args.signatures_required,
         args.canonical_timestamp,
         args.amount,
     );
@@ -157,7 +152,7 @@ pub fn settle_agent_round<'info>(
     let agg_sig_hash = hash_agg_sig(&args.agg_sig);
     let data_update_message_hash = molpha_verifier::compute_message_hash(
         &molpha_verifier::DataUpdate {
-            feed_id,
+            source_id: args.source_id,
             signatures_required: args.signatures_required,
             registry_version: args.registry_version,
             signers_bitmap: args.agg_sig.signers_bitmap,
@@ -172,7 +167,7 @@ pub fn settle_agent_round<'info>(
     // Record. The price surplus over node + gateway credits is protocol revenue,
     // implicit in the treasury (identical to subscription revenue).
     let record = &mut ctx.accounts.round_record;
-    record.feed_id = feed_id;
+    record.source_id = args.source_id;
     record.timestamp = args.canonical_timestamp;
     record.signatures_required = args.signatures_required;
     record.signers_bitmap = args.agg_sig.signers_bitmap;
@@ -189,7 +184,7 @@ pub fn settle_agent_round<'info>(
     emit!(AgentRoundSettled {
         agent: escrow.key(),
         price,
-        feed_id,
+        source_id: args.source_id,
         timestamp: args.canonical_timestamp,
         gateway: ctx.accounts.gateway.key(),
         signers_bitmap: record.signers_bitmap,
@@ -275,7 +270,7 @@ pub struct SettleAgentRound<'info> {
             RoundReceiptRecord::AGENT_SEED_PREFIX,
             args.authority.as_ref(),
             gateway.key().as_ref(),
-            args.api_config_hash.as_ref(),
+            args.source_id.as_ref(),
             args.signatures_required.to_le_bytes().as_ref(),
             args.canonical_timestamp.to_le_bytes().as_ref(),
         ],

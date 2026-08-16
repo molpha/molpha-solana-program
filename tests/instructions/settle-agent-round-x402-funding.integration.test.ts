@@ -11,7 +11,6 @@ import {
   BondedGateway,
   bitmapWithBits,
   creditedNodePdasForBits,
-  deriveFeedId,
   findAgentEscrowPda,
   findAgentRoundPda,
   findEscrowAta,
@@ -27,17 +26,17 @@ import {
 
 const NODE_COUNT = 4;
 const SIGS_REQUIRED = 2;
-const API_CONFIG_HASH = Uint8Array.from(Buffer.alloc(32, 0x24));
+const API_SOURCE_ID = Uint8Array.from(Buffer.alloc(32, 0x24));
 
 /**
  * x402 / self-funded pay-per-request: the client pays USDC to the deterministic
  * escrow ATA `ATA(PDA(["molpha_agent", payer, gateway]), USDC)` and signs
- * `AgentRequestAuth` (agent, gateway, feed_id, canonical_timestamp, amount).
+ * `AgentRequestAuth` (agent, gateway, source_id, signatures_required, canonical_timestamp, amount).
  * Settlement verifies the signature via Ed25519 introspection, requires
  * `escrow_ata.amount >= price` and `amount == price`, then moves `price` into
  * the treasury. Escrows are scoped per (payer, gateway) pair, so funding is not
  * fungible across gateways. Replay is guarded by the round-record PDA keyed by
- * `(authority, gateway, api_config_hash, signatures_required, canonical_timestamp)`.
+ * `(authority, gateway, source_id, signatures_required, canonical_timestamp)`.
  */
 describe("settle_agent_round (x402 / self-funded rail)", () => {
   let ctx: TestContext;
@@ -94,7 +93,7 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
     gateway,
     payer,
     amount: freshRoundPrice(SIGS_REQUIRED),
-    apiConfigHash: API_CONFIG_HASH,
+    sourceId: API_SOURCE_ID,
     canonicalTimestamp: ++ts,
     signaturesRequired: SIGS_REQUIRED,
     registryVersion,
@@ -139,18 +138,13 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
     assert.equal(escrow.authority.toBase58(), payer.publicKey.toBase58());
     assert.deepEqual(escrow.status, { active: {} });
 
-    const expectedFeedId = deriveFeedId(
-      payer.publicKey,
-      API_CONFIG_HASH,
-      SIGS_REQUIRED
-    );
     assert.equal(
       recordPda.toBase58(),
       findAgentRoundPda(
         proto.program.programId,
         payer.publicKey,
         gateway.gatewayPda,
-        API_CONFIG_HASH,
+        API_SOURCE_ID,
         SIGS_REQUIRED,
         params.canonicalTimestamp
       ).toBase58()
@@ -159,10 +153,10 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
       recordPda
     );
     assert.equal(record.price.toNumber(), price);
-    assert.deepEqual(Array.from(record.feedId), Array.from(expectedFeedId));
+    assert.deepEqual(Array.from(record.sourceId), Array.from(API_SOURCE_ID));
   });
 
-  it("blocks replay of the same (authority, api_config, sigs, timestamp) via the record PDA", async () => {
+  it("blocks replay of the same (authority, source_id, sigs, timestamp) via the record PDA", async () => {
     fundExact();
     const params = baseParams();
     await settleAgentRound(params);

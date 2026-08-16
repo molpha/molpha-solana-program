@@ -86,10 +86,17 @@ export function findSubscriptionPda(
 
 export function findFeedPda(
   programId: PublicKey,
-  feedId: Uint8Array
+  sourceId: Uint8Array,
+  signaturesRequired: number,
+  submitter: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [FEED_SEED, Buffer.from(feedId)],
+    [
+      FEED_SEED,
+      Buffer.from(sourceId),
+      Buffer.from([signaturesRequired & 0xff]),
+      submitter.toBuffer(),
+    ],
     programId
   );
 }
@@ -131,7 +138,7 @@ export function findAgentEscrowPda(
 export function findSubscriptionRoundPda(
   programId: PublicKey,
   consumerAuthority: PublicKey,
-  apiConfigHash: Uint8Array,
+  sourceId: Uint8Array,
   signaturesRequired: number,
   timestamp: number | bigint
 ): [PublicKey, number] {
@@ -139,7 +146,7 @@ export function findSubscriptionRoundPda(
     [
       ROUND_SEED,
       consumerAuthority.toBuffer(),
-      Buffer.from(apiConfigHash),
+      Buffer.from(sourceId),
       Buffer.from([signaturesRequired & 0xff]),
       u64Le(timestamp),
     ],
@@ -152,7 +159,7 @@ export function findAgentRoundPda(
   programId: PublicKey,
   authority: PublicKey,
   gateway: PublicKey,
-  apiConfigHash: Uint8Array,
+  sourceId: Uint8Array,
   signaturesRequired: number,
   canonicalTimestamp: number | bigint
 ): [PublicKey, number] {
@@ -161,7 +168,7 @@ export function findAgentRoundPda(
       AGENT_ROUND_SEED,
       authority.toBuffer(),
       gateway.toBuffer(),
-      Buffer.from(apiConfigHash),
+      Buffer.from(sourceId),
       Buffer.from([signaturesRequired & 0xff]),
       u64Le(canonicalTimestamp),
     ],

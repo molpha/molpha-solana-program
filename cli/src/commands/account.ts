@@ -137,16 +137,34 @@ export function registerAccountCommands(program: Command): void {
     .command("feed")
     .description("Fetch feed account")
     .option("--address <pubkey>", "feed address")
-    .option("--feed-id <hex>", "32-byte feed id")
+    .option("--source-id <hex>", "32-byte source identifier")
+    .option(
+      "--signatures-required <number>",
+      "quorum used when the feed was created"
+    )
+    .option("--submitter <pubkey>", "feed submitter (defaults to wallet)")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const feedId = hexToBytes(
-        requireValue(options.feedId, "Missing --feed-id"),
-        32,
-        "feed id"
-      );
-      const address =
-        options.address ?? findFeedPda(ctx.programId, feedId)[0].toBase58();
+      const address = options.address
+        ? options.address
+        : findFeedPda(
+            ctx.programId,
+            hexToBytes(
+              requireValue(options.sourceId, "Missing --source-id"),
+              32,
+              "source id"
+            ),
+            parseInteger(
+              requireValue(
+                options.signaturesRequired,
+                "Missing --signatures-required"
+              ),
+              "signatures required"
+            ),
+            options.submitter
+              ? parsePublicKey(options.submitter, "submitter")
+              : ctx.wallet.publicKey
+          )[0].toBase58();
       await printNamedAccount(command, "feed", address);
     });
 
