@@ -6,10 +6,10 @@ import {
   findDelegatePda,
   findFeedPda,
   findGatewayPda,
-  findNodeOperatorPda,
   findNodePda,
   findPlanPda,
   findProtocolConfigPda,
+  findRegistryPda,
   findRegistryStatePda,
   findSecp256k1KeyClaimPda,
   findSubscriptionPda,
@@ -54,7 +54,7 @@ export function registerAccountCommands(program: Command): void {
 
   account
     .command("registry")
-    .description("Fetch registry state")
+    .description("Fetch the current-version registry pointer")
     .option("--address <pubkey>", "override PDA")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -64,35 +64,38 @@ export function registerAccountCommands(program: Command): void {
     });
 
   account
+    .command("registry-version")
+    .description("Fetch an immutable registry snapshot")
+    .option("--address <pubkey>", "registry account address")
+    .option("--version <number>", "registry version")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const address =
+        options.address ??
+        findRegistryPda(
+          ctx.programId,
+          parseInteger(
+            requireValue(options.version, "Missing --version"),
+            "version"
+          )
+        )[0].toBase58();
+      await printNamedAccount(command, "registry", address);
+    });
+
+  account
     .command("node")
-    .description("Fetch slot-keyed node account")
+    .description("Fetch a permanent owner-keyed node account")
     .option("--address <pubkey>", "node account address")
-    .option("--index <number>", "registry slot index")
+    .option("--owner <pubkey>", "node owner")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const address =
         options.address ??
         findNodePda(
           ctx.programId,
-          parseInteger(requireValue(options.index, "Missing --index"), "index")
-        )[0].toBase58();
-      await printNamedAccount(command, "node", address);
-    });
-
-  account
-    .command("node-operator")
-    .description("Fetch owner-keyed node operator account")
-    .option("--address <pubkey>", "node operator address")
-    .option("--owner <pubkey>", "node operator owner")
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const address =
-        options.address ??
-        findNodeOperatorPda(
-          ctx.programId,
           parsePublicKey(requireValue(options.owner, "Missing --owner"))
         )[0].toBase58();
-      await printNamedAccount(command, "nodeOperator", address);
+      await printNamedAccount(command, "node", address);
     });
 
   account

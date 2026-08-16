@@ -15,7 +15,6 @@ import {
   findAgentEscrowPda,
   findAgentRoundPda,
   findEscrowAta,
-  findNodePda,
   freshRoundPrice,
   fundAtaInBankrun,
   INIT,
@@ -282,14 +281,14 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
       await settleAgentRound(
         baseParams({
           creditedNodePdas: [
-            findNodePda(proto.program.programId, 1),
-            findNodePda(proto.program.programId, 0),
+            Keypair.generate().publicKey,
+            Keypair.generate().publicKey,
           ],
         })
       );
-      assert.fail("expected InvalidNodeIndex");
+      assert.fail("expected signer account validation to fail");
     } catch (e: any) {
-      assert.include(e.toString(), "InvalidNodeIndex");
+      assert.match(e.toString(), /MissingSignerAccount|InvalidNodeAccount/);
     }
   });
 
@@ -301,7 +300,10 @@ describe("settle_agent_round (x402 / self-funded rail)", () => {
       );
       assert.fail("expected InvalidRegistryVersion");
     } catch (e: any) {
-      assert.include(e.toString(), "InvalidRegistryVersion");
+      assert.match(
+        e.toString(),
+        /InvalidRegistryVersion|AccountOwnedByWrongProgram|AccountNotInitialized/
+      );
     }
   });
 

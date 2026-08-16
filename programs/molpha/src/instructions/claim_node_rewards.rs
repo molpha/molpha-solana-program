@@ -1,12 +1,4 @@
-//! `claim_node_rewards` — withdraw a node's finalized rewards.
-//!
-//! Only `claimable_rewards` (credits from `finalize_round` after the dispute window) are
-//! withdrawable. This is the dispute-window finality gate of the spec's `claim()`.
-//!
-//! While the node is active, `claimable_rewards` live on its slot [`Node`] (passed as the optional
-//! `node`). After deactivation the slot account is gone and the operator's finalized rewards have
-//! been migrated to [`NodeOperator::claimable_rewards`] by `finalize_registry_transition`. Claiming
-//! drains whichever holds a balance.
+//! Withdraw finalized rewards from a permanent Node account.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
@@ -14,22 +6,11 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::{
     error::MolphaError,
     events::RewardsClaimed,
-    state::{Node, NodeOperator, ProtocolConfig},
+    state::{Node, ProtocolConfig},
 };
 
 pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
-    let slot_claimable = ctx
-        .accounts
-        .node
-        .as_ref()
-        .map(|node| node.claimable_rewards)
-        .unwrap_or(0);
-    let amount = ctx
-        .accounts
-        .node_operator
-        .claimable_rewards
-        .checked_add(slot_claimable)
-        .ok_or(error!(MolphaError::NothingToClaim))?;
+    let amount = ctx.accounts.node.claimable_rewards;
     require!(amount > 0, MolphaError::NothingToClaim);
 
     let config = &ctx.accounts.protocol_config;
@@ -47,18 +28,13 @@ pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
         ),
         amount,
     )?;
-
-    ctx.accounts.node_operator.claimable_rewards = 0;
-    if let Some(node) = &mut ctx.accounts.node {
-        node.claimable_rewards = 0;
-    }
+    ctx.accounts.node.claimable_rewards = 0;
 
     emit!(RewardsClaimed {
-        beneficiary: ctx.accounts.node_operator.owner,
+        beneficiary: ctx.accounts.node.owner,
         destination: ctx.accounts.destination.key(),
         amount,
     });
-
     Ok(())
 }
 
@@ -74,21 +50,11 @@ pub struct ClaimNodeRewards<'info> {
 
     #[account(
         mut,
-        seeds = [NodeOperator::SEED_PREFIX, owner.key().as_ref()],
-        bump = node_operator.bump,
-        constraint = node_operator.owner == owner.key() @ MolphaError::UnauthorizedNodeAuthority,
-    )]
-    pub node_operator: Account<'info, NodeOperator>,
-
-    /// The operator's current slot account, holding `claimable_rewards` while active. Omitted once
-    /// the operator is deactivated (its slot has been closed and rewards migrated to `node_operator`).
-    #[account(
-        mut,
-        seeds = [Node::SEED_PREFIX, node_operator.current_index.to_le_bytes().as_ref()],
+        seeds = [Node::SEED_PREFIX, owner.key().as_ref()],
         bump = node.bump,
-        constraint = node.owner == owner.key() @ MolphaError::InvalidNodeAccount,
+        constraint = node.owner == owner.key() @ MolphaError::UnauthorizedNodeAuthority,
     )]
-    pub node: Option<Account<'info, Node>>,
+    pub node: Account<'info, Node>,
 
     #[account(
         mut,

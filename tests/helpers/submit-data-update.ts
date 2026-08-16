@@ -28,14 +28,11 @@ const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
 );
 
-/** Slot-keyed registry/workflow account (`Node`), seeded by `u32` index. */
+/** Permanent owner-keyed Node. */
 const NODE_SEED = Buffer.from("molpha_node");
-/** Owner-keyed management account (`NodeOperator`). */
-const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
+const REGISTRY_SEED = Buffer.from("molpha_registry");
 const SECP256K1_KEY_CLAIM_SEED = Buffer.from("molpha_secp_key");
 
-/** Matches `VIRTUAL_INDEX` in `programs/molpha/src/state/node.rs`. */
-export const VIRTUAL_INDEX = 0xffffffff;
 const JOB_SEED = Buffer.from("molpha_job");
 const FEED_SEED = Buffer.from("molpha_feed");
 const FEED_ID_PREFIX = Buffer.from("MOLPHA_JOB_V1");
@@ -45,7 +42,8 @@ const SELECTION_SEED_PREFIX = Buffer.from(
 const SELECTION_DOMAIN = keccak_256(Buffer.from("MOLPHA_SELECTION_DERIVE"));
 const DERIVE_GROUP_BITMAP_MAX_ROUNDS = 65_536;
 
-const ACCOUNT_LAMPORTS = 10_000_000;
+const ACCOUNT_LAMPORTS = 1_000_000_000;
+const REGISTERED_NODE_PDAS = new Map<string, PublicKey[]>();
 
 export const EVM_FIXTURE_FEED_ID = hexToBytes(evmFixture.dataUpdate.feedId);
 export const EVM_FIXTURE_CONFIG_HASH = hexToBytes(
@@ -809,15 +807,16 @@ export async function executeVerifyDataUpdateReturnData(
   ctx: TestContext,
   program: Program,
   signed: SignedE2eDataUpdate,
-  accounts: {
-    registryStatePda: PublicKey;
-  },
+  _accounts: Record<string, never> = {},
   computeUnitLimit = 1_400_000
 ): Promise<Uint8Array> {
   const verifyIx = await program.methods
     .verifyDataUpdate(signed.submitArgs)
     .accountsPartial({
-      registryState: accounts.registryStatePda,
+      registry: findRegistryPda(
+        program.programId,
+        signed.submitArgs.registryVersion
+      ),
     })
     .remainingAccounts(
       signerRemainingAccounts(
@@ -882,19 +881,18 @@ export function buildSignedEvmSubmitDataUpdateArgs(
   ).submitArgs;
 }
 
-/** NodeOperator PDA (management): `["molpha_node_operator", owner]`. */
-export function findNodeOperatorPda(
+/** Permanent owner-keyed Node PDA. */
+export function findPermanentNodePda(
   programId: PublicKey,
   nodeOwner: PublicKey
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [NODE_OPERATOR_SEED, nodeOwner.toBuffer()],
+    [NODE_SEED, nodeOwner.toBuffer()],
     programId
   )[0];
 }
 
-/** @deprecated Renamed to `findNodeOperatorPda`. */
-export const findNodePdaByOwner = findNodeOperatorPda;
+export const findNodePdaByOwner = findPermanentNodePda;
 
 /** Permanent secp256k1 key reservation PDA. */
 export function findSecp256k1KeyClaimPda(
@@ -953,7 +951,7 @@ export function buildRegisterNodeArgs(params: {
   securityDeposit?: BN;
 }) {
   return {
-    newIndex: params.newIndex,
+    newRegistryVersion: params.newIndex + 1,
     registrationSalt: Array.from(params.registrationSalt),
     ip: params.ip ?? [127, 0, 0, 1],
     port: params.port ?? 8080 + params.newIndex,
@@ -963,7 +961,6 @@ export function buildRegisterNodeArgs(params: {
     ),
     popSigR: Array.from(params.popSigR),
     popSigS: Array.from(params.popSigS),
-    securityDeposit: params.securityDeposit ?? new BN(100_000_000),
   };
 }
 
@@ -989,9 +986,7 @@ export async function registerNodesForE2e(
   advanceClock: (ctx: TestContext, seconds: number) => Promise<void>,
   opts?: { startIndex?: number; finalize?: boolean }
 ): Promise<void> {
-  const graceAdvanceSecs = 2;
   const startIndex = opts?.startIndex ?? 0;
-  const shouldFinalize = opts?.finalize ?? true;
 
   if (
     signerMaterial.privKeys.length !== signerMaterial.compressedPubkeys.length
@@ -1001,10 +996,6 @@ export async function registerNodesForE2e(
 
   for (let i = 0; i < signerMaterial.compressedPubkeys.length; i++) {
     const index = startIndex + i;
-    if (i > 0 || startIndex > 0) {
-      await advanceClock(ctx, graceAdvanceSecs);
-    }
-
     const secpCompressed = signerMaterial.compressedPubkeys[i];
     if (secpCompressed.length !== 33) {
       throw new Error(
@@ -1027,8 +1018,13 @@ export async function registerNodesForE2e(
       nodeId,
       secp256k1PrivateKey: bytes32FromBigintBE(signerMaterial.privKeys[i]),
     });
-    const operatorPda = findNodeOperatorPda(program.programId, nodeOwner);
-    const nodePda = findNodePda(program.programId, index);
+    const nodePda = findNodePda(program.programId, nodeOwner);
+    const registered =
+      REGISTERED_NODE_PDAS.get(program.programId.toBase58()) ?? [];
+    registered[index] = nodePda;
+    REGISTERED_NODE_PDAS.set(program.programId.toBase58(), registered);
+    const currentRegistryPda = findRegistryPda(program.programId, index);
+    const newRegistryPda = findRegistryPda(program.programId, index + 1);
     const keyClaimPda = findSecp256k1KeyClaimPda(
       program.programId,
       secpCompressed
@@ -1049,7 +1045,8 @@ export async function registerNodesForE2e(
         nodeOwner,
         protocolConfig: accounts.protocolConfigPda,
         registryState: accounts.registryStatePda,
-        nodeOperator: operatorPda,
+        currentRegistry: currentRegistryPda,
+        newRegistry: newRegistryPda,
         node: nodePda,
         secp256K1KeyClaim: keyClaimPda,
         usdcMint: accounts.usdcMint,
@@ -1059,24 +1056,24 @@ export async function registerNodesForE2e(
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .preInstructions([
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 450_000 }),
       ])
       .signers([nodeOwnerKp])
       .rpc();
   }
 
-  if (shouldFinalize) {
-    await advanceClock(ctx, graceAdvanceSecs);
-    await program.methods
-      .finalizeRegistryTransition()
-      .accountsPartial({
-        registryState: accounts.registryStatePda,
-        rentReceiver: ctx.authority.publicKey,
-        virtualNode: null,
-        nodeOperator: null,
-      })
-      .rpc();
-  }
+  void advanceClock;
+  void opts?.finalize;
+}
+
+export function registeredNodePda(
+  programId: PublicKey,
+  index: number
+): PublicKey {
+  const node = REGISTERED_NODE_PDAS.get(programId.toBase58())?.[index];
+  if (!node)
+    throw new Error(`No registered Node PDA recorded for index ${index}`);
+  return node;
 }
 
 export async function createJobViaInstruction(
@@ -1196,18 +1193,25 @@ export function findEvmFeedPda(programId: PublicKey): PublicKey {
   return findFeedPda(programId, EVM_FIXTURE_FEED_ID);
 }
 
-/** Slot-keyed `Node` PDA: `["molpha_node", u32Le(index)]`. */
-export function findNodePda(programId: PublicKey, index: number): PublicKey {
-  const indexBytes = Buffer.alloc(4);
-  indexBytes.writeUInt32LE(index);
+/** Permanent owner-keyed Node PDA. */
+export function findNodePda(programId: PublicKey, owner: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [NODE_SEED, indexBytes],
+    [NODE_SEED, owner.toBuffer()],
     programId
   )[0];
 }
 
-/** @deprecated Renamed to `findNodePda` (the slot-keyed `Node`). */
-export const findRegistryIndexPda = findNodePda;
+export function findRegistryPda(
+  programId: PublicKey,
+  version: number
+): PublicKey {
+  const versionBytes = Buffer.alloc(4);
+  versionBytes.writeUInt32LE(version);
+  return PublicKey.findProgramAddressSync(
+    [REGISTRY_SEED, versionBytes],
+    programId
+  )[0];
+}
 
 export function evmBitmapBitSet(
   signersBitmap: number[] | Uint8Array,
@@ -1229,263 +1233,21 @@ export function bitmapPopcountEvm(signersBitmap: Uint8Array): number {
   return count;
 }
 
-export type RemoveTransitionInfo = {
-  removedOldIndex: number;
-  transitionType: "removeTail" | "removeSwap";
-  movedOldIndex?: number;
-};
-
-/** Map a previous-version signer bit to the registry index PDA that holds its pubkey. */
-export function expectedRegistryIndex(
-  bit: number,
-  transition?: RemoveTransitionInfo
-): number {
-  if (!transition) {
-    return bit;
-  }
-  if (bit === transition.removedOldIndex) {
-    return VIRTUAL_INDEX;
-  }
-  if (
-    transition.transitionType === "removeSwap" &&
-    transition.movedOldIndex !== undefined &&
-    bit === transition.movedOldIndex
-  ) {
-    return transition.removedOldIndex;
-  }
-  return bit;
-}
-
-/** One `RegistryIndex` per set bit in `signers_bitmap`, ascending bit order. */
+/** One permanent Node PDA per set bit, in ascending snapshot-bit order. */
 export function signerRemainingAccounts(
   programId: PublicKey,
-  signersBitmap: number[] | Uint8Array,
-  transition?: RemoveTransitionInfo
+  signersBitmap: number[] | Uint8Array
 ) {
   const remaining = [];
   for (let bit = 0; bit < 256; bit++) {
     if (!evmBitmapBitSet(signersBitmap, bit)) {
       continue;
     }
-    const registryIndex = expectedRegistryIndex(bit, transition);
     remaining.push({
-      pubkey: findRegistryIndexPda(programId, registryIndex),
+      pubkey: registeredNodePda(programId, bit),
       isSigner: false,
       isWritable: false,
     });
   }
   return remaining;
-}
-
-/** Current-version path: dense indices `0..signerCount-1` with all bits set. */
-export function evmRegistryIndexRemainingAccounts(
-  programId: PublicKey,
-  signerCount = 8
-) {
-  const signersBitmap = new Array<number>(32).fill(0);
-  signersBitmap[31] = (1 << signerCount) - 1;
-  return signerRemainingAccounts(programId, signersBitmap);
-}
-
-async function setProgramAccount(
-  ctx: TestContext,
-  program: Program,
-  address: PublicKey,
-  accountName: string,
-  fields: Record<string, unknown>
-): Promise<void> {
-  const data = await program.coder.accounts.encode(accountName, fields);
-  ctx.provider.context.setAccount(address, {
-    lamports: ACCOUNT_LAMPORTS,
-    owner: program.programId,
-    executable: false,
-    data: Buffer.from(data),
-  });
-}
-
-/** Registry layout matching `verify-answer-evm.json` (version 1, eight signers). */
-export async function seedEvmRegistryState(
-  ctx: TestContext,
-  program: Program,
-  registryStatePda: PublicKey,
-  registry: {
-    authority: PublicKey;
-    currentVersion: number;
-    previousVersion: number;
-    previousExpiresAt: BN;
-    currentNodeCount: number;
-    previousNodeCount: number;
-    lastTransitionType: Record<string, unknown>;
-    removedOldIndex?: number;
-    removedNode?: PublicKey;
-    movedOldIndex?: number;
-    movedNode?: PublicKey;
-    graceSecs: BN;
-    withdrawalCooldownSecs: BN;
-    maxNodeCount: number;
-    bump: number;
-  },
-  nodeCount = 8,
-  registryVersion = evmFixture.dataUpdate.registryVersion
-): Promise<void> {
-  await setProgramAccount(ctx, program, registryStatePda, "registryState", {
-    ...registry,
-    currentVersion: registryVersion,
-    previousExpiresAt: new BN(0),
-    currentNodeCount: nodeCount,
-    previousNodeCount: 0,
-    lastTransitionType: { none: {} },
-  });
-}
-
-export async function seedEvmRegistryIndices(
-  ctx: TestContext,
-  program: Program,
-  signerCount = 8
-): Promise<void> {
-  for (let index = 0; index < signerCount; index++) {
-    const compressed = EVM_FIXTURE_NODE_PUBKEYS[index];
-    const { x, y } = decompressSecp256k1(compressed);
-    const nodePda = findNodePda(program.programId, index);
-    const bump = PublicKey.findProgramAddressSync(
-      [NODE_SEED, Buffer.from(new Uint8Array([index, 0, 0, 0]))],
-      program.programId
-    )[1];
-
-    await setProgramAccount(ctx, program, nodePda, "node", {
-      index,
-      owner: PublicKey.unique(),
-      secp256K1PubkeyX: Array.from(x),
-      secp256K1PubkeyY: Array.from(y),
-      claimableRewards: new BN(0),
-      bump,
-    });
-  }
-}
-
-export async function seedEvmJobAndFeed(
-  ctx: TestContext,
-  program: Program,
-  owner: PublicKey
-): Promise<{ jobPda: PublicKey; feedPda: PublicKey }> {
-  const jobPda = findEvmJobPda(program.programId);
-  const feedPda = findEvmFeedPda(program.programId);
-  const jobBump = PublicKey.findProgramAddressSync(
-    [JOB_SEED, Buffer.from(EVM_FIXTURE_FEED_ID)],
-    program.programId
-  )[1];
-  const feedBump = PublicKey.findProgramAddressSync(
-    [FEED_SEED, Buffer.from(EVM_FIXTURE_FEED_ID)],
-    program.programId
-  )[1];
-
-  const signaturesRequired = evmFixture.dataUpdate.signaturesRequired;
-  await setProgramAccount(ctx, program, jobPda, "job", {
-    feedId: Array.from(EVM_FIXTURE_FEED_ID),
-    owner,
-    apiConfigHash: Array.from(EVM_FIXTURE_CONFIG_HASH),
-    decimals: 8,
-    signaturesRequired,
-    createdAt: new BN(0),
-    lastRequestTimestamp: new BN(0),
-    bump: jobBump,
-  });
-
-  await setProgramAccount(ctx, program, feedPda, "feed", {
-    feedId: Array.from(EVM_FIXTURE_FEED_ID),
-    registryVersion: 0,
-    canonicalTimestamp: new BN(0),
-    value: Buffer.alloc(0),
-    valueKind: { value: {} },
-    signersBitmap: Array.from(new Uint8Array(32)),
-    signaturesRequired: 0,
-    bump: feedBump,
-  });
-
-  return { jobPda, feedPda };
-}
-
-/** Seed registry + indices for previous-version verify after a RemoveSwap (8-node EVM layout). */
-export async function seedEvmRemoveSwapGraceState(
-  ctx: TestContext,
-  program: Program,
-  registryStatePda: PublicKey,
-  opts: {
-    removedOldIndex: number;
-    movedOldIndex: number;
-    previousVersion: number;
-    currentVersion: number;
-    previousExpiresAt: BN;
-    removedNode?: PublicKey;
-    movedNode?: PublicKey;
-    authority: PublicKey;
-    graceSecs: BN;
-    withdrawalCooldownSecs: BN;
-    maxNodeCount: number;
-    registryBump: number;
-  }
-): Promise<void> {
-  const {
-    removedOldIndex,
-    movedOldIndex,
-    previousVersion,
-    currentVersion,
-    previousExpiresAt,
-  } = opts;
-
-  await setProgramAccount(ctx, program, registryStatePda, "registryState", {
-    authority: opts.authority,
-    currentVersion,
-    previousVersion,
-    previousExpiresAt,
-    currentNodeCount: 7,
-    previousNodeCount: 8,
-    lastTransitionType: { removeSwap: {} },
-    removedOldIndex,
-    removedNode: opts.removedNode ?? PublicKey.unique(),
-    movedOldIndex,
-    movedNode: opts.movedNode ?? PublicKey.unique(),
-    graceSecs: opts.graceSecs,
-    withdrawalCooldownSecs: opts.withdrawalCooldownSecs,
-    maxNodeCount: opts.maxNodeCount,
-    bump: opts.registryBump,
-  });
-
-  await seedEvmRegistryIndices(ctx, program, 7);
-
-  const movedCompressed = EVM_FIXTURE_NODE_PUBKEYS[movedOldIndex];
-  const { x: movedX, y: movedY } = decompressSecp256k1(movedCompressed);
-  const gapPda = findNodePda(program.programId, removedOldIndex);
-  const gapIndexBytes = Buffer.alloc(4);
-  gapIndexBytes.writeUInt32LE(removedOldIndex);
-  const gapBump = PublicKey.findProgramAddressSync(
-    [NODE_SEED, gapIndexBytes],
-    program.programId
-  )[1];
-  await setProgramAccount(ctx, program, gapPda, "node", {
-    index: removedOldIndex,
-    owner: PublicKey.unique(),
-    secp256K1PubkeyX: Array.from(movedX),
-    secp256K1PubkeyY: Array.from(movedY),
-    claimableRewards: new BN(0),
-    bump: gapBump,
-  });
-
-  const removedCompressed = EVM_FIXTURE_NODE_PUBKEYS[removedOldIndex];
-  const { x: removedX, y: removedY } = decompressSecp256k1(removedCompressed);
-  const virtualPda = findNodePda(program.programId, VIRTUAL_INDEX);
-  const virtualIndexBytes = Buffer.alloc(4);
-  virtualIndexBytes.writeUInt32LE(VIRTUAL_INDEX);
-  const virtualBump = PublicKey.findProgramAddressSync(
-    [NODE_SEED, virtualIndexBytes],
-    program.programId
-  )[1];
-  await setProgramAccount(ctx, program, virtualPda, "node", {
-    index: VIRTUAL_INDEX,
-    owner: PublicKey.unique(),
-    secp256K1PubkeyX: Array.from(removedX),
-    secp256K1PubkeyY: Array.from(removedY),
-    claimableRewards: new BN(0),
-    bump: virtualBump,
-  });
 }

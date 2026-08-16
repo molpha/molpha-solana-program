@@ -2,14 +2,14 @@ import { BN } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { ComputeBudgetProgram } from "@solana/web3.js";
 import { Command } from "commander";
-import {
-  accountJson,
-  fetchAccountOrNull,
-  resolveTransitionForRegistryVersion,
-} from "../lib/accounts";
+import { accountJson, fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext, getGlobalOptions } from "../lib/client";
 import { resolveCliOptions } from "../lib/config";
-import { findFeedPda, findRegistryStatePda } from "../lib/pdas";
+import {
+  findFeedPda,
+  findRegistryPda,
+  findRegistryStatePda,
+} from "../lib/pdas";
 import {
   buildBitmapFromFlag,
   buildSubmitArgsFromFixture,
@@ -103,15 +103,17 @@ export function registerDataCommands(program: Command): void {
       const submitArgs = resolveSubmitArgs(options, ctx.programId);
       const feedId = bytesFromField(submitArgs.feedId, 32, "feed id");
       const [feedPda] = findFeedPda(ctx.programId, feedId);
-      const { remainingTransition } = await resolveTransitionForRegistryVersion(
+      const registryVersion = Number(submitArgs.registryVersion);
+      const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
+      const registry = await fetchAccountOrNull<any>(
         ctx.program,
-        registryState,
-        Number(submitArgs.registryVersion)
+        "registry",
+        registryPda
       );
+      if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const remaining = signerRemainingAccounts(
-        ctx.programId,
-        bytesFromField(submitArgs.signersBitmap, 32, "signers bitmap"),
-        remainingTransition
+        registry,
+        bytesFromField(submitArgs.signersBitmap, 32, "signers bitmap")
       );
 
       const signature = await (ctx.program.methods as any)
@@ -119,6 +121,7 @@ export function registerDataCommands(program: Command): void {
         .accountsPartial({
           submitter: ctx.wallet.publicKey,
           registryState: registryStatePda,
+          registry: registryPda,
           feed: feedPda,
           systemProgram: SystemProgram.programId,
         })
@@ -140,9 +143,7 @@ export function registerDataCommands(program: Command): void {
 
   data
     .command("verify")
-    .description(
-      "Off-chain check: rebuild signed SubmitDataUpdate args and print feed PDA"
-    )
+    .description("Verify a data update against any historical registry")
     .option("--fixture <path>", "fixture file")
     .option("--args <path>", "json file with submit args")
     .option("--feed-id <hex>", "32-byte feed id")
@@ -164,6 +165,23 @@ export function registerDataCommands(program: Command): void {
       const feedId = bytesFromField(submitArgs.feedId, 32, "feed id");
       const [feedPda] = findFeedPda(ctx.programId, feedId);
       const feed = await fetchAccountOrNull<any>(ctx.program, "feed", feedPda);
+      const registryVersion = Number(submitArgs.registryVersion);
+      const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
+      const registry = await fetchAccountOrNull<any>(
+        ctx.program,
+        "registry",
+        registryPda
+      );
+      if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
+      const remaining = signerRemainingAccounts(
+        registry,
+        bytesFromField(submitArgs.signersBitmap, 32, "signers bitmap")
+      );
+      await (ctx.program.methods as any)
+        .verifyDataUpdate(submitArgs)
+        .accountsPartial({ registry: registryPda })
+        .remainingAccounts(remaining)
+        .simulate();
 
       writeJson({
         feed: feedPda.toBase58(),
@@ -172,7 +190,8 @@ export function registerDataCommands(program: Command): void {
           ...submitArgs,
           canonicalTimestamp: String(submitArgs.canonicalTimestamp),
         },
-        note: "Verification runs inside submit_data_update; there is no separate verify instruction",
+        registry: registryPda.toBase58(),
+        verified: true,
       });
     });
 }
@@ -199,10 +218,7 @@ function buildSignedPayload(
           "commitment"
         ),
       },
-      remaining: signerRemainingAccounts(
-        programId,
-        bytesFromField(submitArgs.signersBitmap, 32, "signers bitmap")
-      ),
+      remaining: [],
     };
   }
 
@@ -254,7 +270,7 @@ function buildSignedPayload(
 
   return {
     payload,
-    remaining: signerRemainingAccounts(programId, payload.signersBitmap),
+    remaining: [],
   };
 }
 

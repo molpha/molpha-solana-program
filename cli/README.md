@@ -36,16 +36,16 @@ yarn molpha:dev --help
 | Group | Commands |
 |---|---|
 | `init` | initialize protocol |
-| `registry` | `register` \| `update-endpoint` \| `deactivate` \| `finalize-transition` |
+| `registry` | `register` \| `update-endpoint` \| `deactivate` \| `set-buffer` |
 | `plan` | `add` \| `update` \| `show` |
 | `subscription` | `subscribe` \| `extend` |
 | `delegate` | `add` \| `remove` \| `pause` |
 | `gateway` | `register` \| `claim` |
 | `round` | `settle-subscription` \| `settle-agent` \| `finalize` \| `dispute` |
 | `rewards` | `claim-node` |
-| `data` | `sign` \| `submit` \| `verify` (off-chain) |
+| `data` | `sign` \| `submit` \| `verify` (historical, read-only) |
 | `admin` | `update-config` |
-| `account` | `protocol-config` \| `registry` \| `node` \| `node-operator` \| `plan` \| `subscription` \| `feed` \| `delegate` \| `gateway` \| `agent-escrow` \| `round` \| `secp-key` |
+| `account` | `protocol-config` \| `registry` \| `registry-version` \| `node` \| `plan` \| `subscription` \| `feed` \| `delegate` \| `gateway` \| `agent-escrow` \| `round` \| `secp-key` |
 
 ## Example Flow
 
@@ -53,10 +53,9 @@ Initialize protocol state:
 
 ```bash
 yarn molpha init \
-  --registry-cooldown-secs 1 \
-  --previous-grace-secs 1 \
   --withdrawal-cooldown-secs 1 \
   --max-node-count 8 \
+  --redundancy-buffer 2 \
   --minimum-node-deposit 1000000 \
   --reward-per-signature 10 \
   --gateway-fee 20 \

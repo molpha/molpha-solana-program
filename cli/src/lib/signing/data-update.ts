@@ -4,8 +4,6 @@ import * as crypto from "crypto";
 import * as secp256k1 from "@noble/secp256k1";
 import { Point } from "@noble/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
-import { RemoveTransitionInfo } from "../accounts";
-import { findNodePda } from "../pdas";
 import { bytesToHex, hexToBytes, parseBigIntString } from "../utils";
 import { VerifyDataUpdateFixture } from "./fixtures";
 
@@ -22,7 +20,6 @@ const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
 );
 export const VERIFY_DATA_UPDATE_RETURN_LEN = 72;
-export const VIRTUAL_INDEX = 0xffffffff;
 
 export type E2eSignerMaterial = {
   privKeys: bigint[];
@@ -460,9 +457,9 @@ export function expectedVerifyDataUpdateReturnBytes(
 }
 
 export function signerRemainingAccounts(
-  programId: PublicKey,
+  registry: { nodeCount: number; nodes: Array<number[] | Uint8Array> },
   signersBitmap: number[] | Uint8Array,
-  transition?: RemoveTransitionInfo
+  isWritable = false
 ) {
   const remaining = [];
   for (let bit = 0; bit < 256; bit += 1) {
@@ -470,34 +467,16 @@ export function signerRemainingAccounts(
       continue;
     }
 
-    const effectiveIndex = expectedRegistryIndex(bit, transition);
+    if (bit >= Number(registry.nodeCount)) {
+      throw new Error(`signer bit ${bit} is outside registry node_count`);
+    }
     remaining.push({
-      pubkey: findNodePda(programId, effectiveIndex)[0],
+      pubkey: new PublicKey(Uint8Array.from(registry.nodes[bit])),
       isSigner: false,
-      isWritable: false,
+      isWritable,
     });
   }
   return remaining;
-}
-
-export function expectedRegistryIndex(
-  bit: number,
-  transition?: RemoveTransitionInfo
-): number {
-  if (!transition) {
-    return bit;
-  }
-  if (bit === transition.removedOldIndex) {
-    return VIRTUAL_INDEX;
-  }
-  if (
-    transition.transitionType === "removeSwap" &&
-    transition.movedOldIndex !== undefined &&
-    bit === transition.movedOldIndex
-  ) {
-    return transition.removedOldIndex;
-  }
-  return bit;
 }
 
 export function signerMaterialFromFixture(

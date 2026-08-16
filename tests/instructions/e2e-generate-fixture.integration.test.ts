@@ -27,7 +27,7 @@ import {
 import {
   deriveFeedId,
   findFeedPda,
-  findJobPda,
+  findRegistryPda,
   generateE2eSignerMaterialFromSeed,
   signerRemainingAccounts,
   getProtocolTreasury,
@@ -91,8 +91,6 @@ describe("e2e generate verify-answer-evm fixture", () => {
     // initialize
     await program.methods
       .initialize({
-        registryCooldownSecs: new BN(1),
-        previousGraceSecs: new BN(1),
         withdrawalCooldownSecs: new BN(5),
         maxNodeCount: NODE_COUNT,
         redundancyBuffer: REDUNDANCY_BUFFER,
@@ -156,10 +154,15 @@ describe("e2e generate verify-answer-evm fixture", () => {
       advanceClock
     );
 
-    const registry = await program.account.registryState.fetch(
+    const registryState = await program.account.registryState.fetch(
       registryStatePda
     );
-    assert.equal(registry.currentNodeCount, NODE_COUNT);
+    const registryPda = findRegistryPda(
+      program.programId,
+      registryState.currentVersion
+    );
+    const registry = await program.account.registry.fetch(registryPda);
+    assert.equal(registry.nodeCount, NODE_COUNT);
 
     // subscribe
     await program.methods
@@ -182,11 +185,10 @@ describe("e2e generate verify-answer-evm fixture", () => {
       scenario.configHash,
       SIGNATURES_REQUIRED
     );
-    const jobPda = findJobPda(program.programId, feedId);
     const feedPda = findFeedPda(program.programId, feedId);
 
     const signed = signE2eDataUpdate(
-      registry.currentVersion,
+      registry.version,
       signerMaterial,
       NODE_COUNT,
       feedId,
@@ -201,18 +203,11 @@ describe("e2e generate verify-answer-evm fixture", () => {
     );
 
     await program.methods
-      .submitDataUpdate(signed.submitArgs, {
-        apiConfigHash: Array.from(scenario.configHash),
-        decimals: 8,
-      })
+      .submitDataUpdate(signed.submitArgs)
       .accountsPartial({
         submitter: ctx.authority.publicKey,
-        jobOwner: ctx.authority.publicKey,
-        plan: planPda,
-        subscription: subscriptionPda,
-        delegate: null,
         registryState: registryStatePda,
-        job: jobPda,
+        registry: registryPda,
         feed: feedPda,
         systemProgram: SystemProgram.programId,
       })
@@ -232,19 +227,19 @@ describe("e2e generate verify-answer-evm fixture", () => {
     const feed = await program.account.feed.fetch(feedPda);
     assert.deepEqual(Array.from(feed.value), Array.from(scenario.value));
     assert.deepEqual(feed.valueKind, { value: {} });
-    assert.equal(feed.registryVersion, registry.currentVersion);
+    assert.equal(feed.registryVersion, registry.version);
     assert.equal(
       feed.canonicalTimestamp.toString(),
       String(scenario.canonicalTimestamp)
     );
 
     console.log("feed.value", feed.value);
-    console.log("registry.currentVersion", registry.currentVersion);
+    console.log("registry.version", registry.version);
     console.log("signed", signed);
 
     const fixture = buildVerifyAnswerEvmFixture({
       registeredNodeCount: NODE_COUNT,
-      registryVersion: registry.currentVersion,
+      registryVersion: registry.version,
       configHash: scenario.configHash,
       nodePubkeys: signerMaterial.compressedPubkeys,
       nodePrivkeys: signerMaterial.privKeys,
@@ -265,7 +260,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
       JSON.stringify({
         seed,
         outputPath,
-        registryVersion: registry.currentVersion,
+        registryVersion: registry.version,
         feedId: fixture.dataUpdate.feedId,
       })
     );

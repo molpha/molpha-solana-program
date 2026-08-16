@@ -19,7 +19,7 @@ use crate::{
     error::{map_data_update_err, MolphaError},
     events::RoundDisputed,
     state::{
-        collect_node_entries, hash_agg_sig, AggregatedSig, Gateway, ProtocolConfig, RegistryState,
+        hash_agg_sig, resolve_registry_signers, AggregatedSig, Gateway, ProtocolConfig, Registry,
         RoundReceiptRecord, RoundRecordStatus,
     },
 };
@@ -44,26 +44,19 @@ pub fn dispute_round<'info>(
         MolphaError::CreditedBitmapMismatch
     );
 
-    let clock = Clock::get()?;
-    let is_current = record.registry_version == ctx.accounts.registry_state.current_version;
-    let is_previous_live = record.registry_version == ctx.accounts.registry_state.previous_version
-        && clock.unix_timestamp <= ctx.accounts.registry_state.previous_expires_at;
     require!(
-        is_current || is_previous_live,
+        ctx.accounts.registry.load()?.version == record.registry_version,
         MolphaError::InvalidRegistryVersion
     );
-    let node_count = if is_current {
-        ctx.accounts.registry_state.current_node_count
-    } else {
-        ctx.accounts.registry_state.previous_node_count
-    };
+    let registry = ctx.accounts.registry.load()?;
+    let node_count = u32::from(registry.node_count);
     let expected_selection = molpha_verifier::derive_selection_bitmap(
         &record.feed_id,
         record.registry_version,
         record.timestamp as i64,
         node_count,
         record.signatures_required,
-        ctx.accounts.registry_state.redundancy_buffer,
+        registry.redundancy_buffer,
     )
     .map_err(map_data_update_err)?;
     // Fraudulent selection iff the credited set is NOT a subset of the deterministically
@@ -77,16 +70,17 @@ pub fn dispute_round<'info>(
     let is_valid_sig = if selection_mismatch {
         false
     } else {
-        let entries = collect_node_entries(ctx.remaining_accounts, ctx.program_id)?;
-        molpha_verifier::verify_aggregate_over_hash_resolved(
-            &ctx.accounts.registry_state.view(),
-            record.registry_version,
+        let ordered = resolve_registry_signers(
+            ctx.remaining_accounts,
+            ctx.program_id,
+            &registry,
             &agg_sig.signers_bitmap,
+        )?;
+        molpha_verifier::verify_aggregate_over_hash(
+            &ordered,
             &agg_sig.s,
             &agg_sig.commitment_addr,
             &record.data_update_message_hash,
-            clock.unix_timestamp,
-            &entries,
         )
         .map_err(map_data_update_err)?
     };
@@ -152,10 +146,10 @@ pub struct DisputeRound<'info> {
     pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(
-        seeds = [RegistryState::SEED_PREFIX],
-        bump = registry_state.bump,
+        seeds = [Registry::SEED_PREFIX, round_record.registry_version.to_le_bytes().as_ref()],
+        bump,
     )]
-    pub registry_state: Box<Account<'info, RegistryState>>,
+    pub registry: AccountLoader<'info, Registry>,
 
     /// Subscription or agent settlement record. No seeds constraint — same rationale as
     /// `finalize_round` (owner + discriminator).

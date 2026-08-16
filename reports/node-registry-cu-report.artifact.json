@@ -1,0 +1,508 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Node Registry Structure and Compute-Unit Limits",
+    "description": "Current Molpha node-account architecture and Bankrun measurements for registration, removal, and signer resolution through the 256-node design limit.",
+    "generatedAt": "2026-08-03T11:35:16.014Z",
+    "cards": [
+      {
+        "id": "registration_max",
+        "description": "Largest measured registration transaction across registries populated with 0, 32, 128, and 255 nodes.",
+        "dataset": "summary",
+        "sourceId": "cu_benchmark",
+        "metrics": [
+          {
+            "label": "Registration max CU",
+            "field": "registrationMaxCu",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "removal_max",
+        "description": "Largest measured tail or swap removal transaction through 256 populated nodes.",
+        "dataset": "summary",
+        "sourceId": "cu_benchmark",
+        "metrics": [
+          {
+            "label": "Removal max CU",
+            "field": "removalMaxCu",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "account_resolution_max",
+        "description": "Largest signer count that completed on the current account-backed resolution path before heap exhaustion.",
+        "dataset": "summary",
+        "sourceId": "cu_benchmark",
+        "metrics": [
+          {
+            "label": "Account-backed max signers",
+            "field": "accountBackedMax",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "account_resolution_cu",
+        "description": "Compute consumed at the largest successful account-backed signer count; CU was not the binding resource.",
+        "dataset": "summary",
+        "sourceId": "cu_benchmark",
+        "metrics": [
+          {
+            "label": "CU at 84 signers",
+            "field": "accountBackedMaxCu",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "resolution_scaling",
+        "title": "Resolution CU is near-linear until heap exhaustion",
+        "subtitle": "The production-shaped account path costs about 737 CU per signer and fails at 85; the synthetic resolver reaches 247 before failing at 248.",
+        "headerMarkdown": "The line ends at each path's last successful run. Failure boundaries are shown in the limits table below.",
+        "type": "line",
+        "dataset": "resolutionCu",
+        "sourceId": "cu_benchmark",
+        "encodings": {
+          "x": {
+            "field": "signers",
+            "type": "quantitative",
+            "label": "Resolved signer accounts"
+          },
+          "y": {
+            "field": "computeUnits",
+            "type": "quantitative",
+            "label": "Compute units",
+            "format": "number"
+          },
+          "color": {
+            "field": "path",
+            "type": "nominal",
+            "label": "Resolution path"
+          }
+        },
+        "yAxisTitle": "Compute units",
+        "valueFormat": "number",
+        "layout": "full"
+      }
+    ],
+    "tables": [
+      {
+        "id": "account_structure",
+        "title": "Current account structure",
+        "subtitle": "Lifecycle data is separated from the slot-keyed verifier hot path.",
+        "dataset": "accountStructure",
+        "sourceId": "program_source",
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          { "field": "account", "label": "Account", "type": "text" },
+          { "field": "pda", "label": "PDA key", "type": "text" },
+          { "field": "bytes", "label": "Bytes", "format": "number" },
+          { "field": "role", "label": "Role", "type": "text" },
+          { "field": "lifecycle", "label": "Lifecycle", "type": "text" }
+        ]
+      },
+      {
+        "id": "lifecycle_cu",
+        "title": "Registration and removal measurements",
+        "subtitle": "Populated nodes means registry size immediately before the measured instruction.",
+        "dataset": "lifecycleCu",
+        "sourceId": "cu_benchmark",
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          { "field": "operation", "label": "Operation", "type": "text" },
+          {
+            "field": "populatedNodes",
+            "label": "Populated nodes",
+            "format": "number"
+          },
+          {
+            "field": "computeUnits",
+            "label": "Compute units",
+            "format": "number"
+          },
+          { "field": "result", "label": "Result", "type": "text" }
+        ]
+      },
+      {
+        "id": "resolution_limits",
+        "title": "Observed resolution boundaries",
+        "subtitle": "A 256-node registry does not imply that 256 Node accounts can be resolved in one transaction.",
+        "dataset": "resolutionLimits",
+        "sourceId": "cu_benchmark",
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          { "field": "path", "label": "Path", "type": "text" },
+          {
+            "field": "lastSuccess",
+            "label": "Last success",
+            "format": "number"
+          },
+          {
+            "field": "lastSuccessCu",
+            "label": "CU at last success",
+            "format": "number"
+          },
+          {
+            "field": "firstFailure",
+            "label": "First tested failure",
+            "format": "number"
+          },
+          {
+            "field": "bindingLimit",
+            "label": "Observed binding limit",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "cu_benchmark",
+        "label": "Reproducible Bankrun benchmark results",
+        "path": "reports/node-registry-cu-results.json",
+        "query": {
+          "engine": "duckdb",
+          "description": "Reads the captured benchmark result document used for report datasets.",
+          "sql": "SELECT * FROM read_json_auto('reports/node-registry-cu-results.json')"
+        }
+      },
+      {
+        "id": "program_source",
+        "label": "Molpha node and registry account source",
+        "path": "programs/molpha/src/state/node.rs",
+        "query": {
+          "engine": "snapshot",
+          "description": "Projects the reviewed Anchor InitSpace account definitions into the account-structure table.",
+          "sql": "SELECT * FROM (VALUES ('Node',117),('NodeOperator',92),('RegistryState',147),('Secp256k1KeyClaim',139)) AS accounts(account, bytes)"
+        }
+      },
+      {
+        "id": "solana_compute_budget",
+        "label": "Solana compute-budget documentation",
+        "href": "https://solana.com/docs/core/fees/compute-budget"
+      },
+      {
+        "id": "lifecycle_source",
+        "label": "Molpha registration and removal instructions",
+        "path": "programs/molpha/src/instructions/register_node.rs"
+      },
+      {
+        "id": "test_source",
+        "label": "Node-registry Bankrun benchmark harness",
+        "path": "scripts/cu-bench-node-registry-bankrun.js"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Node Registry Structure and Compute-Unit Limits\n\n**Bankrun analysis of the current program, through the 256-node design limit — 3 August 2026**"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "cu_benchmark",
+        "body": "## Technical summary\n\n- **Registration is O(1) in registry size:** 362,555–366,892 CU across 0–255 existing nodes. It exceeds Solana's [200k default for a non-builtin instruction](https://solana.com/docs/core/fees/compute-budget), so callers need an explicit compute budget.\n- **Removal is also O(1):** tail removal used 23,256–23,287 CU and swap removal 27,884–39,884 CU through 256 nodes. Variability is dominated by PDA derivation/bump search, not a registry scan.\n- **Resolution is limited by heap before CU:** the current account-backed path completed 84 signer accounts at 65,241 CU and failed at 85 with heap exhaustion. The isolated synthetic path completed 247 at 52,913 CU and failed at 248.\n- **A one-transaction 256-signer resolution is not viable:** beyond heap use, a v0 message cannot encode the required account indices once fixed instruction accounts are included. The protocol can still store 256 nodes if each round selects a materially smaller signer subset."
+      },
+      {
+        "id": "metrics",
+        "type": "metric-strip",
+        "cardIds": [
+          "registration_max",
+          "removal_max",
+          "account_resolution_max",
+          "account_resolution_cu"
+        ]
+      },
+      {
+        "id": "structure_heading",
+        "type": "markdown",
+        "sourceId": "program_source",
+        "body": "## Account architecture\n\nThe design cleanly splits the verifier hot path from operator lifecycle data. `Node` is keyed by dense slot index and is the only per-node account needed during round verification. `NodeOperator` is keyed by wallet owner and holds endpoint, stake, and status. `RegistryState` is a singleton versioned transition record. `Secp256k1KeyClaim` permanently reserves a coalition key fingerprint to prevent identity replay."
+      },
+      {
+        "id": "structure",
+        "type": "table",
+        "tableId": "account_structure",
+        "layout": "full"
+      },
+      {
+        "id": "lifecycle_findings",
+        "type": "markdown",
+        "sourceId": "lifecycle_source",
+        "body": "## Registration and removal findings\n\nRegistration creates `NodeOperator`, slot-keyed `Node`, and permanent `Secp256k1KeyClaim` accounts; validates and decompresses the secp256k1 key; verifies proof of possession; and transfers the deposit. Its high but flat cost is therefore expected. Removal uses a fixed virtual slot (`u32::MAX`) to preserve rewards during the grace transition. Tail removal closes the tail directly; swap removal moves the last slot into the gap and updates the moved operator."
+      },
+      {
+        "id": "lifecycle_table",
+        "type": "table",
+        "tableId": "lifecycle_cu",
+        "layout": "full"
+      },
+      {
+        "id": "resolution_heading",
+        "type": "markdown",
+        "sourceId": "program_source",
+        "body": "## Signer-resolution findings\n\n`collect_node_entries` deserializes all remaining `Node` accounts into a `Vec<NodeEntry>`. `resolve_ordered_signers` then scans the 256-bit bitmap and allocates a second ordered signer vector. Compute scales approximately linearly, but the two allocations exhaust the SBF heap first. Resolution scales with selected signer accounts (bitmap population), not with total registry population."
+      },
+      {
+        "id": "resolution_chart",
+        "type": "chart",
+        "chartId": "resolution_scaling",
+        "layout": "full"
+      },
+      {
+        "id": "limits",
+        "type": "table",
+        "tableId": "resolution_limits",
+        "layout": "full"
+      },
+      {
+        "id": "scope_method",
+        "type": "markdown",
+        "sourceId": "test_source",
+        "body": "## Scope, definitions, and methodology\n\nThe harness executes the current production registration and deactivation instructions under `solana-bankrun`, plus two feature-gated measurement-only resolver instructions. Each transaction contains a 1,400,000-CU limit instruction, whose small cost is included in reported totals. Registration was measured with 0, 32, 128, and 255 existing nodes; removal with 2, 32, 128, and 256; resolution was swept around observed failure boundaries. Account-backed resolution uses versioned transactions and an address lookup table. Deterministic keys make PDA-bump-dependent results reproducible. Least-squares fits over successful samples are ~201 CU/signer for synthetic resolution and ~737 CU/signer for account-backed resolution."
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "sourceId": "cu_benchmark",
+        "body": "## Limitations and robustness\n\n- These are Bankrun simulations, not validator-side production telemetry; absolute CU can shift with Solana/Anchor/compiler versions.\n- The resolver instructions isolate resolution. Full round verification adds signature/coefficient work and fixed accounts, so 84 is an observed isolated ceiling—not a safe protocol target.\n- Bankrun rejected 127–128 locked accounts in this environment. Cluster account-lock configuration can differ, so that boundary is reported as harness-specific. The 256-account message-index overflow is structural.\n- Registration/removal measurements cover representative counts and both removal branches, not every PDA bump. Their flat control flow and narrow ranges support the O(1) conclusion."
+      },
+      {
+        "id": "recommendations",
+        "type": "markdown",
+        "sourceId": "cu_benchmark",
+        "body": "## Recommended next steps\n\n1. **Separate registry capacity from per-round quorum.** Keep 256 as a storage/selection universe, but set and enforce a materially smaller signer-account cap; 64 is the largest measured point with useful headroom on the isolated account path (50,063 CU).\n2. **Remove the double allocation.** Merge account validation/deserialization with bitmap resolution or use bounded/fixed storage. This should move the heap boundary, although transaction account-index limits still rule out 256 signers in one instruction.\n3. **Add CU regression gates.** Track registration at 255 nodes, tail and swap removal at 256, and account-backed resolution at 32/64 plus an expected-failure boundary test.\n4. **Fix the authority-removal constraint.** `removed_operator` is derived from the transaction authority even though the handler claims to allow registry-authority removal of another owner; the current account constraint makes that admin path unreachable.\n5. **Add a production-shaped tail-removal test.** The CLI correctly aliases the removed node/operator into the tail/moved accounts, while an older helper supplies the System Program for those mutable unchecked accounts."
+      },
+      {
+        "id": "questions",
+        "type": "markdown",
+        "body": "## Further questions\n\n- What is the intended maximum selected signer/quorum count per round?\n- Should the registry authority be able to deactivate any operator, or only its own node?\n- Is serialized registry membership change during the grace window intentional for expected join/leave throughput?"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-03T11:35:16.014Z",
+    "status": "ready",
+    "datasets": {
+      "summary": [
+        {
+          "registrationMaxCu": 366892,
+          "removalMaxCu": 39884,
+          "accountBackedMax": 84,
+          "accountBackedMaxCu": 65241
+        }
+      ],
+      "accountStructure": [
+        {
+          "account": "Node",
+          "pda": "molpha_node + index_le",
+          "bytes": 117,
+          "role": "Slot index, owner, secp256k1 x/y, rewards",
+          "lifecycle": "Created on register; moved/closed on removal"
+        },
+        {
+          "account": "NodeOperator",
+          "pda": "molpha_node_operator + owner",
+          "bytes": 92,
+          "role": "Status, endpoint, deposit, timestamps, migrated rewards",
+          "lifecycle": "Created on register; retained after deactivation"
+        },
+        {
+          "account": "RegistryState",
+          "pda": "molpha_registry",
+          "bytes": 147,
+          "role": "Counts, versions, grace window, add/remove remap metadata",
+          "lifecycle": "Singleton, updated for each transition"
+        },
+        {
+          "account": "Secp256k1KeyClaim",
+          "pda": "molpha_secp_key + key fingerprint",
+          "bytes": 139,
+          "role": "Permanent key and node-ID uniqueness reservation",
+          "lifecycle": "Created on register; intentionally never closed"
+        }
+      ],
+      "lifecycleCu": [
+        {
+          "operation": "Register",
+          "populatedNodes": 0,
+          "computeUnits": 363445,
+          "result": "Success"
+        },
+        {
+          "operation": "Register",
+          "populatedNodes": 32,
+          "computeUnits": 363292,
+          "result": "Success"
+        },
+        {
+          "operation": "Register",
+          "populatedNodes": 128,
+          "computeUnits": 362555,
+          "result": "Success"
+        },
+        {
+          "operation": "Register",
+          "populatedNodes": 255,
+          "computeUnits": 366892,
+          "result": "Success"
+        },
+        {
+          "operation": "Remove tail",
+          "populatedNodes": 2,
+          "computeUnits": 23256,
+          "result": "Success"
+        },
+        {
+          "operation": "Remove tail",
+          "populatedNodes": 32,
+          "computeUnits": 23256,
+          "result": "Success"
+        },
+        {
+          "operation": "Remove tail",
+          "populatedNodes": 128,
+          "computeUnits": 23256,
+          "result": "Success"
+        },
+        {
+          "operation": "Remove tail",
+          "populatedNodes": 256,
+          "computeUnits": 23287,
+          "result": "Success"
+        },
+        {
+          "operation": "Remove swap",
+          "populatedNodes": 2,
+          "computeUnits": 27884,
+          "result": "Success"
+        },
+        {
+          "operation": "Remove swap",
+          "populatedNodes": 32,
+          "computeUnits": 30884,
+          "result": "Success"
+        },
+        {
+          "operation": "Remove swap",
+          "populatedNodes": 128,
+          "computeUnits": 39884,
+          "result": "Success"
+        },
+        {
+          "operation": "Remove swap",
+          "populatedNodes": 256,
+          "computeUnits": 29384,
+          "result": "Success"
+        }
+      ],
+      "resolutionCu": [
+        { "path": "Synthetic", "signers": 1, "computeUnits": 3489 },
+        { "path": "Synthetic", "signers": 8, "computeUnits": 4854 },
+        { "path": "Synthetic", "signers": 16, "computeUnits": 6414 },
+        { "path": "Synthetic", "signers": 32, "computeUnits": 9534 },
+        { "path": "Synthetic", "signers": 64, "computeUnits": 15774 },
+        { "path": "Synthetic", "signers": 128, "computeUnits": 28958 },
+        { "path": "Synthetic", "signers": 192, "computeUnits": 41502 },
+        { "path": "Synthetic", "signers": 224, "computeUnits": 48382 },
+        { "path": "Synthetic", "signers": 240, "computeUnits": 51534 },
+        { "path": "Synthetic", "signers": 247, "computeUnits": 52913 },
+        { "path": "Account-backed", "signers": 1, "computeUnits": 4063 },
+        { "path": "Account-backed", "signers": 8, "computeUnits": 9274 },
+        { "path": "Account-backed", "signers": 16, "computeUnits": 15201 },
+        { "path": "Account-backed", "signers": 32, "computeUnits": 26880 },
+        { "path": "Account-backed", "signers": 64, "computeUnits": 50063 },
+        { "path": "Account-backed", "signers": 72, "computeUnits": 56589 },
+        { "path": "Account-backed", "signers": 80, "computeUnits": 62357 },
+        { "path": "Account-backed", "signers": 81, "computeUnits": 63078 },
+        { "path": "Account-backed", "signers": 82, "computeUnits": 63799 },
+        { "path": "Account-backed", "signers": 83, "computeUnits": 64520 },
+        { "path": "Account-backed", "signers": 84, "computeUnits": 65241 }
+      ],
+      "resolutionLimits": [
+        {
+          "path": "Synthetic resolver",
+          "lastSuccess": 247,
+          "lastSuccessCu": 52913,
+          "firstFailure": 248,
+          "bindingLimit": "SBF heap allocation"
+        },
+        {
+          "path": "Account-backed resolver",
+          "lastSuccess": 84,
+          "lastSuccessCu": 65241,
+          "firstFailure": 85,
+          "bindingLimit": "SBF heap allocation"
+        },
+        {
+          "path": "Account-backed at 256",
+          "lastSuccess": 84,
+          "lastSuccessCu": 65241,
+          "firstFailure": 256,
+          "bindingLimit": "v0 message account-index overflow"
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "cu_benchmark",
+      "label": "Reproducible Bankrun benchmark results",
+      "path": "reports/node-registry-cu-results.json",
+      "query": {
+        "engine": "duckdb",
+        "description": "Runs current node registration/removal plus feature-gated resolver measurements across boundary-focused node counts.",
+        "sql": "SELECT * FROM read_json_auto('reports/node-registry-cu-results.json')",
+        "executed_at": "2026-08-03T11:35:16.014Z",
+        "tables_used": [
+          "RegistryState",
+          "Node",
+          "NodeOperator",
+          "Secp256k1KeyClaim"
+        ]
+      }
+    },
+    {
+      "id": "program_source",
+      "label": "Molpha node and registry account source",
+      "path": "programs/molpha/src/state/node.rs",
+      "query": {
+        "engine": "snapshot",
+        "description": "Projects the reviewed Anchor InitSpace account definitions into the account-structure table.",
+        "sql": "SELECT * FROM (VALUES ('Node',117),('NodeOperator',92),('RegistryState',147),('Secp256k1KeyClaim',139)) AS accounts(account, bytes)"
+      }
+    },
+    {
+      "id": "solana_compute_budget",
+      "label": "Solana compute-budget documentation",
+      "href": "https://solana.com/docs/core/fees/compute-budget"
+    },
+    {
+      "id": "lifecycle_source",
+      "label": "Molpha registration and removal instructions",
+      "path": "programs/molpha/src/instructions/register_node.rs"
+    },
+    {
+      "id": "test_source",
+      "label": "Node-registry Bankrun benchmark harness",
+      "path": "scripts/cu-bench-node-registry-bankrun.js"
+    }
+  ],
+  "package_info": {
+    "root": "reports",
+    "manifestPath": "reports/node-registry-cu-report.artifact.json",
+    "snapshotPath": "reports/node-registry-cu-report.artifact.json"
+  }
+}

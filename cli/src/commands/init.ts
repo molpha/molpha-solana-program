@@ -6,7 +6,11 @@ import {
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import { getCliContext } from "../lib/client";
-import { findProtocolConfigPda, findRegistryStatePda } from "../lib/pdas";
+import {
+  findProtocolConfigPda,
+  findRegistryPda,
+  findRegistryStatePda,
+} from "../lib/pdas";
 import {
   bn,
   optionOrConfig,
@@ -17,8 +21,6 @@ import {
 } from "../lib/utils";
 
 type InitConfig = {
-  registryCooldownSecs?: string;
-  previousGraceSecs?: string;
   withdrawalCooldownSecs?: string;
   maxNodeCount?: number;
   redundancyBuffer?: number;
@@ -43,8 +45,6 @@ export function registerInitCommand(program: Command): void {
     .command("init")
     .description("Initialize the Molpha protocol")
     .option("--config <path>", "json config file")
-    .option("--registry-cooldown-secs <seconds>", "registry cooldown")
-    .option("--previous-grace-secs <seconds>", "previous registry grace period")
     .option("--withdrawal-cooldown-secs <seconds>", "node withdrawal cooldown")
     .option("--max-node-count <count>", "max registry size")
     .option(
@@ -75,25 +75,9 @@ export function registerInitCommand(program: Command): void {
         : {};
       const [protocolConfig] = findProtocolConfigPda(ctx.programId);
       const [registryState] = findRegistryStatePda(ctx.programId);
+      const [registry] = findRegistryPda(ctx.programId, 0);
 
       const args = {
-        registryCooldownSecs: bn(
-          requireValue(
-            optionOrConfig(
-              options.registryCooldownSecs,
-              config.registryCooldownSecs
-            ),
-            "Missing --registry-cooldown-secs"
-          ),
-          "registry cooldown"
-        ),
-        previousGraceSecs: bn(
-          requireValue(
-            optionOrConfig(options.previousGraceSecs, config.previousGraceSecs),
-            "Missing --previous-grace-secs"
-          ),
-          "previous grace"
-        ),
         withdrawalCooldownSecs: bn(
           requireValue(
             optionOrConfig(
@@ -236,6 +220,7 @@ export function registerInitCommand(program: Command): void {
         .accountsPartial({
           protocolConfig,
           registryState,
+          registry,
           usdcMint: args.usdcMint,
           treasury,
           authority: ctx.wallet.publicKey,
@@ -249,6 +234,7 @@ export function registerInitCommand(program: Command): void {
         signature,
         protocolConfig: protocolConfig.toBase58(),
         registryState: registryState.toBase58(),
+        registry: registry.toBase58(),
         treasury: treasury.toBase58(),
       });
     });

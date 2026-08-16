@@ -2,14 +2,15 @@ use crate::{
     error::MolphaError,
     events::{AgentEscrowCreated, AgentRoundSettled},
     state::{
-        hash_agent_request_auth_fields, hash_agg_sig, AgentEscrow, AgentStatus, AggregatedSig,
-        Feed, Gateway, Node, ProtocolConfig, RegistryState, RoundReceiptRecord,
+        hash_agent_request_auth_fields, hash_agg_sig, resolve_registry_signers, AgentEscrow,
+        AgentStatus, AggregatedSig, Feed, Gateway, ProtocolConfig, Registry, RegistryState,
+        RoundReceiptRecord,
     },
     utils::{ed25519::verify_ed25519_signature, registry::derive_feed_id},
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
+use molpha_verifier::bitmap::bitmap_load;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleAgentRoundArgs {
@@ -41,7 +42,7 @@ pub fn settle_agent_round<'info>(
     args: SettleAgentRoundArgs,
 ) -> Result<()> {
     let config = &ctx.accounts.protocol_config;
-    let registry = &ctx.accounts.registry_state;
+    let registry = ctx.accounts.registry.load()?;
     let gateway = &ctx.accounts.gateway;
     let feed_id = derive_feed_id(
         args.authority,
@@ -53,7 +54,8 @@ pub fn settle_agent_round<'info>(
     let now_slot = clock.slot;
 
     require!(
-        args.registry_version == registry.current_version,
+        args.registry_version == ctx.accounts.registry_state.current_version
+            && registry.version == args.registry_version,
         MolphaError::InvalidRegistryVersion
     );
 
@@ -145,25 +147,12 @@ pub fn settle_agent_round<'info>(
     // Credit + commitment hashes.
     let reward_per_signature = config.reward_per_signature;
 
-    let mut cursor = 0usize;
-    for_each_set_bit_u256(credited, |bit_pos| {
-        let node_ai = ctx
-            .remaining_accounts
-            .get(cursor)
-            .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-        cursor += 1;
-
-        require!(
-            node_ai.owner == ctx.program_id,
-            MolphaError::InvalidCreditNodeAccount
-        );
-        let node: Account<Node> = Account::try_from(node_ai)?;
-        // Settlement is current-version-only, so the bit position is the slot
-        // index directly.
-        require!(node.index == bit_pos as u32, MolphaError::InvalidNodeIndex);
-
-        Ok(())
-    })?;
+    resolve_registry_signers(
+        ctx.remaining_accounts,
+        ctx.program_id,
+        &registry,
+        &args.agg_sig.signers_bitmap,
+    )?;
 
     let agg_sig_hash = hash_agg_sig(&args.agg_sig);
     let data_update_message_hash = molpha_verifier::compute_message_hash(
@@ -228,6 +217,12 @@ pub struct SettleAgentRound<'info> {
         bump = registry_state.bump,
     )]
     pub registry_state: Box<Account<'info, RegistryState>>,
+
+    #[account(
+        seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub registry: AccountLoader<'info, Registry>,
 
     #[account(
         mut,

@@ -13,8 +13,8 @@ import {
   buildRegisterNodeArgs,
   deriveNodeId,
   EVM_FIXTURE_NODE_PUBKEYS,
-  findNodeOperatorPda,
   findNodePda,
+  findRegistryPda,
   findSecp256k1KeyClaimPda,
   fundNodeOwnerInBankrun,
   registerNodesForE2e,
@@ -106,8 +106,6 @@ describe("Molpha instruction coverage integration", () => {
     // 1) initialize
     await program.methods
       .initialize({
-        registryCooldownSecs: new BN(1),
-        previousGraceSecs: new BN(1),
         withdrawalCooldownSecs: new BN(5),
         maxNodeCount: 8,
         redundancyBuffer: 2,
@@ -305,6 +303,7 @@ describe("Molpha instruction coverage integration", () => {
         .accountsPartial({
           submitter: ctx.authority.publicKey,
           registryState: registryStatePda,
+          registry: findRegistryPda(program.programId, 0),
           feed: feedPda,
           systemProgram: SystemProgram.programId,
         })
@@ -354,10 +353,13 @@ describe("Molpha instruction coverage integration", () => {
       advanceClock
     );
 
-    const registryAfterRegister = await program.account.registryState.fetch(
-      registryStatePda
+    const registryStateAfterRegister =
+      await program.account.registryState.fetch(registryStatePda);
+    assert.equal(registryStateAfterRegister.currentVersion, 8);
+    const registryAfterRegister = await program.account.registry.fetch(
+      findRegistryPda(program.programId, 8)
     );
-    assert.equal(registryAfterRegister.currentNodeCount, 8);
+    assert.equal(registryAfterRegister.nodeCount, 8);
 
     const capNodeOwner = ctx.nodes[8];
     const extraSalt = Uint8Array.from(Buffer.alloc(32, 99));
@@ -367,16 +369,12 @@ describe("Molpha instruction coverage integration", () => {
       extraCompressed,
       extraSalt
     );
-    const extraOperatorPda = findNodeOperatorPda(
-      program.programId,
-      capNodeOwner.publicKey
-    );
     const capOwnerUsdc = await fundNodeOwnerInBankrun(
       ctx,
       capNodeOwner,
       ctx.underlyingTokenMint
     );
-    const extraNodePda = findNodePda(program.programId, 8);
+    const extraNodePda = findNodePda(program.programId, capNodeOwner.publicKey);
     const extraKeyClaimPda = findSecp256k1KeyClaimPda(
       program.programId,
       extraCompressed
@@ -398,7 +396,8 @@ describe("Molpha instruction coverage integration", () => {
           nodeOwner: capNodeOwner.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
-          nodeOperator: extraOperatorPda,
+          currentRegistry: findRegistryPda(program.programId, 8),
+          newRegistry: findRegistryPda(program.programId, 9),
           node: extraNodePda,
           secp256K1KeyClaim: extraKeyClaimPda,
           usdcMint: ctx.underlyingTokenMint,
@@ -419,16 +418,20 @@ describe("Molpha instruction coverage integration", () => {
     }
 
     // 8) deactivate_node (failure-path: authority has no node PDA)
-    const registryForDeactivate = await program.account.registryState.fetch(
-      registryStatePda
-    );
     try {
       await program.methods
-        .deactivateNode()
+        .deactivateNode({
+          nodeOwner: ctx.authority.publicKey,
+          removeIndex: 0,
+          newRegistryVersion: 9,
+        })
         .accountsPartial({
           authority: ctx.authority.publicKey,
+          protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
-          rentReceiver: ctx.authority.publicKey,
+          currentRegistry: findRegistryPda(program.programId, 8),
+          newRegistry: findRegistryPda(program.programId, 9),
+          node: findNodePda(program.programId, ctx.authority.publicKey),
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -437,10 +440,13 @@ describe("Molpha instruction coverage integration", () => {
       assert.match(String(error), /account/i);
     }
 
-    const registryAfterFlow = await program.account.registryState.fetch(
+    const registryStateAfterFlow = await program.account.registryState.fetch(
       registryStatePda
     );
-    assert.equal(registryAfterFlow.currentNodeCount, 8);
-    assert.equal(registryAfterFlow.previousExpiresAt.toString(), "0");
+    assert.equal(registryStateAfterFlow.currentVersion, 8);
+    const registryAfterFlow = await program.account.registry.fetch(
+      findRegistryPda(program.programId, 8)
+    );
+    assert.equal(registryAfterFlow.nodeCount, 8);
   });
 });

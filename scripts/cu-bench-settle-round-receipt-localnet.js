@@ -36,11 +36,12 @@ const {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   createMint,
+  getAssociatedTokenAddressSync,
   getOrCreateAssociatedTokenAccount,
   mintTo,
 } = require("@solana/spl-token");
 const secp256k1 = require("@noble/secp256k1");
-const { Point, utils: secpUtils } = secp256k1;
+const { utils: secpUtils } = secp256k1;
 const { keccak_256 } = require("@noble/hashes/sha3");
 const fs = require("fs");
 const path = require("path");
@@ -58,13 +59,11 @@ const NODE_ID_PREFIX = Buffer.from("MOLPHA_NODE_ID_V1", "utf8");
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
+const REGISTRY_SEED = Buffer.from("molpha_registry");
 const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
-const JOB_SEED = Buffer.from("molpha_job");
-const FEED_SEED = Buffer.from("molpha_feed");
 const GATEWAY_SEED = Buffer.from("molpha_gateway");
 const NODE_SEED = Buffer.from("molpha_node");
-const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
 const ROUND_RECEIPT_SEED = Buffer.from("molpha_round");
 
 const DEFAULT_SIGNER_COUNTS = [1, 3, 8];
@@ -405,11 +404,19 @@ async function bootstrapState({
     6
   );
 
-  // Initialize protocol with a negative grace window so we can register nodes back-to-back.
+  const treasury = getAssociatedTokenAddressSync(
+    usdcMint,
+    protocolConfigPda,
+    true
+  );
+
+  const genesisRegistryPda = PublicKey.findProgramAddressSync(
+    [REGISTRY_SEED, u32le(0)],
+    programId
+  )[0];
+
   await program.methods
     .initialize({
-      registryCooldownSecs: new anchor.BN(0),
-      previousGraceSecs: new anchor.BN(-1),
       withdrawalCooldownSecs: new anchor.BN(0),
       maxNodeCount: maxSigners + 4,
       redundancyBuffer: 0,
@@ -424,11 +431,16 @@ async function bootstrapState({
       gatewayBondMin: new anchor.BN(500_000),
       challengerBountyBps: 500,
       usdcMint,
+      agentRoundBase: new anchor.BN(1_000),
+      agentRoundPerSig: new anchor.BN(15),
+      agentEpochLenSecs: new anchor.BN(86_400),
     })
     .accountsPartial({
       protocolConfig: protocolConfigPda,
       registryState: registryStatePda,
+      registry: genesisRegistryPda,
       usdcMint,
+      treasury,
       authority: payer.publicKey,
       tokenProgram: TOKEN_PROGRAM_ID,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -439,7 +451,9 @@ async function bootstrapState({
   const protocolConfig = await program.account.protocolConfig.fetch(
     protocolConfigPda
   );
-  const treasury = new PublicKey(protocolConfig.treasury);
+  if (!new PublicKey(protocolConfig.treasury).equals(treasury)) {
+    throw new Error("treasury mismatch after initialize");
+  }
 
   // Create and fund payer USDC ATA.
   const payerUsdcAta = await getOrCreateAssociatedTokenAccount(
@@ -457,12 +471,11 @@ async function bootstrapState({
     BigInt(5_000_000_000)
   );
 
-  // Add Standard plan and subscribe payer (job owner).
+  // Add Standard plan and subscribe payer (consumer / subscription owner).
   await program.methods
     .addPlan({
       planType: { standard: {} },
       subscriptionPrice: new anchor.BN(100_000),
-      maxJobs: 8,
       maxSigners: maxSigners,
       maxDelegates: 2,
       privateApiEnabled: false,
@@ -491,39 +504,8 @@ async function bootstrapState({
     })
     .rpc({ commitment: "processed" });
 
-  // Create a job with signatures_required = 1 so we can test multiple credited counts.
   const apiConfigHash = crypto.randomBytes(32);
   const feedId = deriveFeedId(payer.publicKey, apiConfigHash, 1);
-  const [jobPda] = PublicKey.findProgramAddressSync(
-    [JOB_SEED, feedId],
-    programId
-  );
-  const [feedPda] = PublicKey.findProgramAddressSync(
-    [FEED_SEED, feedId],
-    programId
-  );
-
-  await program.methods
-    .createJob(
-      {
-        apiConfigHash: Array.from(apiConfigHash),
-        signaturesRequired: 1,
-        decimals: 8,
-      },
-      Array.from(feedId)
-    )
-    .accountsPartial({
-      creator: payer.publicKey,
-      jobOwner: payer.publicKey,
-      protocolConfig: protocolConfigPda,
-      plan: planPda,
-      job: jobPda,
-      subscription: subscriptionPda,
-      feed: feedPda,
-      delegate: null,
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc({ commitment: "processed" });
 
   // Register gateway.
   const gatewayAuthority = Keypair.generate();
@@ -569,7 +551,7 @@ async function bootstrapState({
 
   const gateway = await program.account.gateway.fetch(gatewayPda);
 
-  // Register nodes and keep PDA maps by index.
+  // Register nodes into successive immutable registry versions.
   const nodePdasByIndex = new Map();
   for (let index = 0; index < maxSigners; index++) {
     const nodeOwner = Keypair.generate();
@@ -590,16 +572,19 @@ async function bootstrapState({
       BigInt(1_000_000)
     );
 
-    const [nodeOperatorPda] = PublicKey.findProgramAddressSync(
-      [NODE_OPERATOR_SEED, nodeOwner.publicKey.toBuffer()],
-      programId
-    );
-    const indexBytes = Buffer.alloc(4);
-    indexBytes.writeUInt32LE(index, 0);
     const [nodePda] = PublicKey.findProgramAddressSync(
-      [NODE_SEED, indexBytes],
+      [NODE_SEED, nodeOwner.publicKey.toBuffer()],
       programId
     );
+    const currentRegistryPda = PublicKey.findProgramAddressSync(
+      [REGISTRY_SEED, u32le(index)],
+      programId
+    )[0];
+    const newRegistryVersion = index + 1;
+    const newRegistryPda = PublicKey.findProgramAddressSync(
+      [REGISTRY_SEED, u32le(newRegistryVersion)],
+      programId
+    )[0];
 
     const secpPrivate = secpUtils.randomPrivateKey();
     const secpCompressed = Buffer.from(
@@ -620,7 +605,7 @@ async function bootstrapState({
 
     await program.methods
       .registerNode({
-        newIndex: index,
+        newRegistryVersion,
         registrationSalt: Array.from(registrationSalt),
         ip: [127, 0, 0, 1],
         port: 9000 + index,
@@ -628,14 +613,14 @@ async function bootstrapState({
         secp256K1KeyFingerprint: Array.from(keccak_256(secpCompressed)),
         popSigR: Array.from(pop.popSigR),
         popSigS: Array.from(pop.popSigS),
-        securityDeposit: new anchor.BN(1),
       })
       .accountsPartial({
         authority: payer.publicKey,
         nodeOwner: nodeOwner.publicKey,
         protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
-        nodeOperator: nodeOperatorPda,
+        currentRegistry: currentRegistryPda,
+        newRegistry: newRegistryPda,
         node: nodePda,
         secp256K1KeyClaim: keyClaimPda,
         usdcMint,
@@ -645,7 +630,7 @@ async function bootstrapState({
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .preInstructions([
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 450_000 }),
       ])
       .signers([nodeOwner])
       .rpc({ commitment: "processed" });
@@ -656,6 +641,11 @@ async function bootstrapState({
   const registryState = await program.account.registryState.fetch(
     registryStatePda
   );
+  const registryVersion = Number(registryState.currentVersion);
+  const registryPda = PublicKey.findProgramAddressSync(
+    [REGISTRY_SEED, u32le(registryVersion)],
+    programId
+  )[0];
   const lookupAddresses = [];
   for (let index = 0; index < maxSigners; index++) {
     lookupAddresses.push(nodePdasByIndex.get(index));
@@ -669,11 +659,12 @@ async function bootstrapState({
   return {
     protocolConfigPda,
     registryStatePda,
+    registryPda,
     subscriptionPda,
     gatewayPda,
     gatewayAuthority,
     gatewayIndex: Number(gateway.index),
-    registryVersion: Number(registryState.currentVersion),
+    registryVersion,
     signaturesRequired: 1,
     apiConfigHash,
     feedId,
@@ -693,7 +684,7 @@ function remainingAccountsForBitmap(bitmap, nodePdasByIndex) {
     remaining.push({
       pubkey: nodePda,
       isSigner: false,
-      isWritable: true,
+      isWritable: false,
     });
   }
   return remaining;
@@ -764,6 +755,7 @@ async function simulateSettleRound({
       payer: payer.publicKey,
       protocolConfig: setupState.protocolConfigPda,
       registryState: setupState.registryStatePda,
+      registry: setupState.registryPda,
       subscription: setupState.subscriptionPda,
       consumerDelegate: null,
       gateway: setupState.gatewayPda,

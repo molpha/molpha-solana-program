@@ -7,13 +7,11 @@ use anchor_spl::{
 use crate::{
     error::MolphaError,
     events::ProtocolInitialized,
-    state::{ProtocolConfig, RegistryState},
+    state::{ProtocolConfig, Registry, RegistryState, MAX_REGISTRY_NODES},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct InitializeArgs {
-    pub registry_cooldown_secs: i64,
-    pub previous_grace_secs: i64,
     pub withdrawal_cooldown_secs: i64,
     pub max_node_count: u32,
     pub redundancy_buffer: u8,
@@ -41,6 +39,10 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
         MolphaError::InvalidOwnerUsdc
     );
     require!(args.agent_epoch_len_secs > 0, MolphaError::InvalidAgentCaps);
+    require!(
+        args.max_node_count > 0 && args.max_node_count <= MAX_REGISTRY_NODES as u32,
+        MolphaError::NodeCapExceeded
+    );
 
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.authority = ctx.accounts.authority.key();
@@ -55,10 +57,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.dispute_window_slots = args.dispute_window_slots;
     protocol_config.gateway_bond_min = args.gateway_bond_min;
     protocol_config.challenger_bounty_bps = args.challenger_bounty_bps;
-    protocol_config.registry_cooldown_secs = args.registry_cooldown_secs;
-    protocol_config.previous_grace_secs = args.previous_grace_secs;
     protocol_config.max_node_count = args.max_node_count;
-    protocol_config.redundancy_buffer = args.redundancy_buffer;
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_secs = args.withdrawal_cooldown_secs;
     protocol_config.agent_round_base = args.agent_round_base;
@@ -66,17 +65,16 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.agent_epoch_len_secs = args.agent_epoch_len_secs;
     protocol_config.bump = ctx.bumps.protocol_config;
 
-    let registry_state = &mut ctx.accounts.registry_state;
-    registry_state.init_genesis(
-        ctx.accounts.authority.key(),
-        args.redundancy_buffer,
-        args.previous_grace_secs,
-        ctx.bumps.registry_state,
-    );
+    ctx.accounts.registry_state.init(ctx.bumps.registry_state);
+    ctx.accounts
+        .registry
+        .load_init()?
+        .init_genesis(args.redundancy_buffer, ctx.bumps.registry);
 
     emit!(ProtocolInitialized {
         protocol_config: ctx.accounts.protocol_config.key(),
         registry_state: ctx.accounts.registry_state.key(),
+        registry: ctx.accounts.registry.key(),
         treasury: ctx.accounts.treasury.key(),
         authority: ctx.accounts.authority.key(),
         usdc_mint: ctx.accounts.usdc_mint.key(),
@@ -106,6 +104,15 @@ pub struct Initialize<'info> {
     )]
     pub registry_state: Account<'info, RegistryState>,
 
+    #[account(
+        init,
+        payer = authority,
+        space = Registry::SPACE,
+        seeds = [Registry::SEED_PREFIX, 0u32.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub registry: AccountLoader<'info, Registry>,
+
     pub usdc_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
@@ -132,8 +139,6 @@ mod tests {
 
     fn fixture_args() -> InitializeArgs {
         InitializeArgs {
-            registry_cooldown_secs: 1,
-            previous_grace_secs: 2,
             withdrawal_cooldown_secs: 3,
             max_node_count: 8,
             redundancy_buffer: 2,
@@ -160,8 +165,6 @@ mod tests {
         let bytes = borsh::to_vec(&args).expect("serialize");
         let decoded = borsh::from_slice::<InitializeArgs>(&bytes).expect("deserialize");
 
-        assert_eq!(decoded.registry_cooldown_secs, args.registry_cooldown_secs);
-        assert_eq!(decoded.previous_grace_secs, args.previous_grace_secs);
         assert_eq!(decoded.max_node_count, args.max_node_count);
         assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
         assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
@@ -185,8 +188,8 @@ mod tests {
     fn initialize_instruction_data_serializes_args() {
         let args = fixture_args();
         let data = crate::instruction::Initialize { args: args.clone() }.data();
-        // 137 (pre-agent fields) + 2 * u64 + 1 * i64 for the agent pricing/policy block.
-        assert_eq!(data.len(), 137 + 24);
+        // Breaking registry ABI removes two i64 transition fields.
+        assert_eq!(data.len(), 145);
 
         let decoded = borsh::from_slice::<InitializeArgs>(&data[8..]).expect("deserialize args");
         assert_eq!(decoded.usdc_mint, args.usdc_mint);

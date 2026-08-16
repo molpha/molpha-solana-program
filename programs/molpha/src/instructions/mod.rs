@@ -1,11 +1,12 @@
 pub mod add_delegate;
 pub mod add_plan;
+#[cfg(feature = "cu-bench")]
+pub mod bench_registry;
 pub mod claim_gateway_rewards;
 pub mod claim_node_rewards;
 pub mod deactivate_node;
 pub mod dispute_round;
 pub mod extend_subscription;
-pub mod finalize_registry_transition;
 pub mod finalize_round;
 pub mod initialize;
 pub mod register_gateway;
@@ -19,15 +20,18 @@ pub mod subscribe;
 pub mod update_config;
 pub mod update_node_endpoint;
 pub mod update_plan;
+pub mod update_registry_policy;
+pub mod verify_data_update;
 
 pub use add_delegate::*;
 pub use add_plan::*;
+#[cfg(feature = "cu-bench")]
+pub use bench_registry::*;
 pub use claim_gateway_rewards::*;
 pub use claim_node_rewards::*;
 pub use deactivate_node::*;
 pub use dispute_round::*;
 pub use extend_subscription::*;
-pub use finalize_registry_transition::*;
 pub use finalize_round::*;
 pub use initialize::*;
 pub use register_gateway::*;
@@ -41,3 +45,5 @@ pub use subscribe::*;
 pub use update_config::*;
 pub use update_node_endpoint::*;
 pub use update_plan::*;
+pub use update_registry_policy::*;
+pub use verify_data_update::*;
