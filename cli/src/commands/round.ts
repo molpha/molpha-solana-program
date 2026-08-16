@@ -102,11 +102,7 @@ export function registerRoundCommands(program: Command): void {
       );
       const [gatewayPda] = findGatewayPda(ctx.programId, gatewayAuthority);
 
-      const sourceId = hexToBytes(
-        options.sourceId,
-        32,
-        "source id"
-      );
+      const sourceId = hexToBytes(options.sourceId, 32, "source id");
       const timestamp = parseInteger(options.timestamp, "timestamp");
       const signaturesRequired = parseInteger(
         options.signaturesRequired,
@@ -256,11 +252,7 @@ export function registerRoundCommands(program: Command): void {
         true
       );
 
-      const sourceId = hexToBytes(
-        options.sourceId,
-        32,
-        "source id"
-      );
+      const sourceId = hexToBytes(options.sourceId, 32, "source id");
       const canonicalTimestamp = parseInteger(
         options.canonicalTimestamp,
         "canonical timestamp"
