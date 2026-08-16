@@ -61,7 +61,9 @@ async function seedFromAccountSet(context, accountSet) {
 async function simulateIx(provider, payer, ix) {
   const [blockhash] = await provider.context.banksClient.getLatestBlockhash();
   const tx = new Transaction()
-    .add(ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT }))
+    .add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT })
+    )
     .add(ix);
   tx.feePayer = payer.publicKey;
   tx.recentBlockhash = blockhash;

@@ -353,9 +353,8 @@ describe("Molpha instruction coverage integration", () => {
       advanceClock
     );
 
-    const registryStateAfterRegister = await program.account.registryState.fetch(
-      registryStatePda
-    );
+    const registryStateAfterRegister =
+      await program.account.registryState.fetch(registryStatePda);
     assert.equal(registryStateAfterRegister.currentVersion, 8);
     const registryAfterRegister = await program.account.registry.fetch(
       findRegistryPda(program.programId, 8)
