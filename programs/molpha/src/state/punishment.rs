@@ -17,6 +17,7 @@ use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
 pub const DOMAIN_EQUIVOCATION: &[u8] = b"MOLPHA_EQUIVOCATION_V1";
+pub const DOMAIN_UNSOLICITED_SIGNING: &[u8] = b"MOLPHA_UNSOLICITED_SIGNING_V1";
 
 /// Registry-membership consequence of a punishment.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
@@ -44,6 +45,9 @@ pub struct Penalty {
 pub enum OffenceKind {
     /// Two valid Molpha attestations for the same execution duty with different statements.
     Equivocation,
+    /// A valid Molpha attestation whose signer bitmap contains a node outside the duty's
+    /// deterministic selection set.
+    UnsolicitedSigning,
 }
 
 impl OffenceKind {
@@ -57,14 +61,23 @@ impl OffenceKind {
                 membership: MembershipAction::Tombstone,
                 freeze_secs: 0,
             },
+            // 100% slash + permanent tombstone. The selection set is a pure function of fields
+            // the node itself signed over, so a set bit outside it proves the node contributed a
+            // partial signature to a duty it could have checked it was never assigned.
+            OffenceKind::UnsolicitedSigning => Penalty {
+                slash_bps: 10_000,
+                membership: MembershipAction::Tombstone,
+                freeze_secs: 0,
+            },
         }
     }
 }
 
-/// One signed statement offered as equivocation evidence: an aggregate Schnorr signature over
-/// `value` for the duty tuple carried alongside it in `PunishEquivocationArgs`.
+/// One signed statement offered as punishment evidence: an aggregate Schnorr signature over
+/// `value` for the duty tuple carried alongside it in the offence's args (e.g.
+/// `PunishEquivocationArgs`, `PunishUnsolicitedSigningArgs`).
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
-pub struct EquivocationStatement {
+pub struct SignedStatement {
     pub value: Vec<u8>,
     /// Aggregate Schnorr scalar `s`.
     pub agg_sig_s: [u8; 32],
@@ -73,7 +86,7 @@ pub struct EquivocationStatement {
     pub signers_bitmap: [u8; 32],
 }
 
-fn statement_hash(statement: &EquivocationStatement) -> [u8; 32] {
+fn statement_hash(statement: &SignedStatement) -> [u8; 32] {
     hashv(&[
         statement.value.as_slice(),
         statement.agg_sig_s.as_slice(),
@@ -94,8 +107,8 @@ pub fn equivocation_evidence_hash(
     registry_version: u32,
     signatures_required: u8,
     canonical_timestamp: i64,
-    statement_a: &EquivocationStatement,
-    statement_b: &EquivocationStatement,
+    statement_a: &SignedStatement,
+    statement_b: &SignedStatement,
 ) -> [u8; 32] {
     let hash_a = statement_hash(statement_a);
     let hash_b = statement_hash(statement_b);
@@ -116,12 +129,33 @@ pub fn equivocation_evidence_hash(
     .to_bytes()
 }
 
+/// Evidence commitment for a proven unsolicited-signing offence — also the `PunishmentCase` PDA
+/// seed. Domain-separated from [`equivocation_evidence_hash`] (distinct prefix) so the two offence
+/// types can never collide on the same `PunishmentCase` PDA even given identical duty fields.
+pub fn unsolicited_signing_evidence_hash(
+    source_id: &[u8; 32],
+    registry_version: u32,
+    signatures_required: u8,
+    canonical_timestamp: i64,
+    statement: &SignedStatement,
+) -> [u8; 32] {
+    hashv(&[
+        DOMAIN_UNSOLICITED_SIGNING,
+        source_id.as_slice(),
+        registry_version.to_be_bytes().as_slice(),
+        &[signatures_required],
+        (canonical_timestamp as u64).to_be_bytes().as_slice(),
+        statement_hash(statement).as_slice(),
+    ])
+    .to_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn fixture_statement(value: u8, bitmap_byte: u8) -> EquivocationStatement {
-        EquivocationStatement {
+    fn fixture_statement(value: u8, bitmap_byte: u8) -> SignedStatement {
+        SignedStatement {
             value: vec![value; 8],
             agg_sig_s: [0x11; 32],
             commitment_addr: [0x22; 20],
@@ -171,5 +205,46 @@ mod tests {
             equivocation_evidence_hash(&[7u8; 32], 4, 3, 1_700_000_000, &a2, &b),
             base
         );
+    }
+
+    #[test]
+    fn unsolicited_signing_hash_is_sensitive_to_every_field() {
+        let a = fixture_statement(1, 0b0011);
+        let base = unsolicited_signing_evidence_hash(&[7u8; 32], 4, 3, 1_700_000_000, &a);
+
+        assert_ne!(
+            unsolicited_signing_evidence_hash(&[8u8; 32], 4, 3, 1_700_000_000, &a),
+            base
+        );
+        assert_ne!(
+            unsolicited_signing_evidence_hash(&[7u8; 32], 5, 3, 1_700_000_000, &a),
+            base
+        );
+        assert_ne!(
+            unsolicited_signing_evidence_hash(&[7u8; 32], 4, 9, 1_700_000_000, &a),
+            base
+        );
+        assert_ne!(
+            unsolicited_signing_evidence_hash(&[7u8; 32], 4, 3, 1_700_000_001, &a),
+            base
+        );
+
+        let mut a2 = a.clone();
+        a2.value[0] ^= 0xff;
+        assert_ne!(
+            unsolicited_signing_evidence_hash(&[7u8; 32], 4, 3, 1_700_000_000, &a2),
+            base
+        );
+    }
+
+    #[test]
+    fn equivocation_and_unsolicited_signing_domains_do_not_collide() {
+        // Same duty tuple, and the unsolicited-signing statement equals one of the two
+        // equivocation statements — the domain prefix alone must still separate them.
+        let a = fixture_statement(1, 0b0011);
+        let b = fixture_statement(2, 0b0101);
+        let equivocation = equivocation_evidence_hash(&[7u8; 32], 4, 3, 1_700_000_000, &a, &b);
+        let unsolicited = unsolicited_signing_evidence_hash(&[7u8; 32], 4, 3, 1_700_000_000, &a);
+        assert_ne!(equivocation, unsolicited);
     }
 }

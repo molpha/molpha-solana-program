@@ -156,6 +156,10 @@ pub enum MolphaError {
     NodeStillFrozen,
     #[msg("node is already present in the current registry")]
     NodeAlreadyInRegistry,
+    #[msg("every signer was within the derived selection - no unsolicited signer")]
+    SignersFullySelected,
+    #[msg("every guilty node is already tombstoned")]
+    NothingToPunish,
 }
 
 pub(crate) fn map_data_update_err(error: DataUpdateError) -> anchor_lang::error::Error {

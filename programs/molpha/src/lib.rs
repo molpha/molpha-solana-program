@@ -182,6 +182,13 @@ pub mod molpha {
         instructions::punish_equivocation(ctx, args)
     }
 
+    pub fn punish_unsolicited_signing<'info>(
+        ctx: Context<PunishUnsolicitedSigning<'info>>,
+        args: PunishUnsolicitedSigningArgs,
+    ) -> Result<()> {
+        instructions::punish_unsolicited_signing(ctx, args)
+    }
+
     pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> Result<()> {
         instructions::reinstate_node(ctx, args)
     }

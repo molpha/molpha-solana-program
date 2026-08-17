@@ -252,6 +252,23 @@ pub struct EquivocationProven {
 }
 
 #[event]
+pub struct UnsolicitedSigningProven {
+    pub source_id: [u8; 32],
+    pub registry_version: u32,
+    pub signatures_required: u8,
+    pub canonical_timestamp: i64,
+    /// The offending coalition's full signer bitmap, as submitted.
+    pub signers_bitmap: [u8; 32],
+    /// `signers_bitmap` minus the derived selection — the punished bits.
+    pub guilty_bitmap: [u8; 32],
+    pub guilty_count: u16,
+    pub evidence_hash: [u8; 32],
+    pub reporter: Pubkey,
+    pub slashed_total: u64,
+    pub bounty_paid: u64,
+}
+
+#[event]
 pub struct NodePunished {
     pub node: Pubkey,
     pub owner: Pubkey,

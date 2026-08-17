@@ -5,10 +5,12 @@
 //! its bounty transfer inline rather than through a shared helper.
 
 use anchor_lang::prelude::*;
+use molpha_verifier::bitmap::bitmap_bit_set;
 
 use crate::{
     error::MolphaError,
-    state::{MembershipAction, Node, NodeStatus, Penalty, Registry},
+    events::NodePunished,
+    state::{MembershipAction, Node, NodeStatus, OffenceKind, Penalty, Registry},
 };
 
 /// Slashed amounts from a single [`apply_penalty`] call.
@@ -64,6 +66,71 @@ pub fn apply_penalty(node: &mut Node, penalty: Penalty, now: i64) -> Result<Pena
         slashed_locked,
         slashed_rewards,
     })
+}
+
+/// Outcome of a [`punish_guilty_nodes`] batch.
+#[derive(Clone, Debug, Default)]
+pub struct PunishmentBatch {
+    /// Nodes actually slashed, in resolution order. Feeds [`evict_nodes`].
+    pub victims: Vec<Pubkey>,
+    pub slashed_total: u64,
+    /// `victims.len()` — may be less than `guilty_bitmap.count_ones()` when a guilty bit belongs
+    /// to a node already `Tombstoned` by an earlier case; that bit is skipped rather than erroring.
+    pub punished_count: u16,
+}
+
+/// Apply `offence`'s [`Penalty`] to every guilty node and emit a [`NodePunished`] event per victim.
+///
+/// `resolved` and `remaining_accounts` must be the same length and pairwise-aligned — the shape
+/// [`crate::state::resolve_registry_signers_indexed`] and `ctx.remaining_accounts` already share.
+/// A bit in `guilty_bitmap` outside `resolved`'s bit positions is simply never matched, so callers
+/// must resolve at least the guilty bitmap (a superset, e.g. a signature's full signer set, is
+/// fine).
+///
+/// Already-`Tombstoned` nodes are skipped rather than propagating [`apply_penalty`]'s
+/// `NodeTombstoned` error: one previously-punished node named in a batch must not shield every
+/// other guilty node in the same transaction from punishment.
+pub fn punish_guilty_nodes<'info>(
+    remaining_accounts: &'info [AccountInfo<'info>],
+    resolved: &[(usize, molpha_verifier::SignerXy)],
+    guilty_bitmap: &[u8; 32],
+    offence: OffenceKind,
+    now: i64,
+    program_id: &Pubkey,
+) -> Result<PunishmentBatch> {
+    let penalty = offence.penalty();
+    let mut batch = PunishmentBatch::default();
+
+    for ((bit_pos, _), account_info) in resolved.iter().zip(remaining_accounts.iter()) {
+        if !bitmap_bit_set(guilty_bitmap, *bit_pos) {
+            continue;
+        }
+        require!(
+            account_info.owner == program_id,
+            MolphaError::InvalidCreditNodeAccount
+        );
+        let mut node: Account<Node> = Account::try_from(account_info)?;
+        if node.status == NodeStatus::Tombstoned {
+            continue;
+        }
+        let outcome = apply_penalty(&mut node, penalty, now)?;
+        batch.slashed_total = batch.slashed_total.saturating_add(outcome.total());
+
+        emit!(NodePunished {
+            node: account_info.key(),
+            owner: node.owner,
+            offence,
+            slashed_locked: outcome.slashed_locked,
+            slashed_rewards: outcome.slashed_rewards,
+            new_status: node.status,
+            punished_at: now,
+        });
+        batch.victims.push(account_info.key());
+        batch.punished_count += 1;
+        node.exit(program_id)?;
+    }
+
+    Ok(batch)
 }
 
 /// Evict `victims` from a fresh registry snapshot copied from `current`.

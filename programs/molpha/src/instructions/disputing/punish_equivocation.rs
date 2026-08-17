@@ -27,12 +27,13 @@ use molpha_verifier::bitmap::{bitmap_bit_set, bitmap_is_subset, bitmap_load, bit
 
 use crate::{
     error::{map_data_update_err, MolphaError},
-    events::{EquivocationProven, NodePunished, RegistryVersionCreated, RegistryVersionReason},
+    events::{EquivocationProven, RegistryVersionCreated, RegistryVersionReason},
+    instructions::disputing::verify_statement,
     state::{
-        equivocation_evidence_hash, resolve_registry_signers_indexed, EquivocationStatement, Node,
-        OffenceKind, ProtocolConfig, PunishmentCase, Registry, RegistryState,
+        equivocation_evidence_hash, resolve_registry_signers_indexed, OffenceKind, ProtocolConfig,
+        PunishmentCase, Registry, RegistryState, SignedStatement,
     },
-    utils::punish::apply_penalty,
+    utils::punish::punish_guilty_nodes,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -43,8 +44,8 @@ pub struct PunishEquivocationArgs {
     pub registry_version: u32,
     pub signatures_required: u8,
     pub canonical_timestamp: i64,
-    pub statement_a: EquivocationStatement,
-    pub statement_b: EquivocationStatement,
+    pub statement_a: SignedStatement,
+    pub statement_b: SignedStatement,
     /// Must equal `equivocation_evidence_hash(..)` over the fields above — validated in the
     /// handler and reused as the `PunishmentCase` PDA seed (the anti-replay guard), mirroring how
     /// `register_node` validates `secp256k1_key_fingerprint` against its own PDA seed.
@@ -146,38 +147,21 @@ pub fn punish_equivocation<'info>(
 
     // ---- Sentence: full slash + tombstone every guilty node, evict from a fresh registry
     // snapshot, pay the reporter a bounty out of the total slashed. ----
-    let penalty = OffenceKind::Equivocation.penalty();
     let clock = Clock::get()?;
     let now = clock.unix_timestamp;
     let now_slot = clock.slot;
     let program_id = ctx.program_id;
 
-    let mut victims: Vec<Pubkey> = Vec::with_capacity(guilty_count as usize);
-    let mut slashed_total: u64 = 0;
-    for ((bit_pos, _), account_info) in resolved.iter().zip(ctx.remaining_accounts.iter()) {
-        if !bitmap_bit_set(&guilty_bitmap, *bit_pos) {
-            continue;
-        }
-        require!(
-            account_info.owner == program_id,
-            MolphaError::InvalidCreditNodeAccount
-        );
-        let mut node: Account<Node> = Account::try_from(account_info)?;
-        let outcome = apply_penalty(&mut node, penalty, now)?;
-        slashed_total = slashed_total.saturating_add(outcome.total());
-
-        emit!(NodePunished {
-            node: account_info.key(),
-            owner: node.owner,
-            offence: OffenceKind::Equivocation,
-            slashed_locked: outcome.slashed_locked,
-            slashed_rewards: outcome.slashed_rewards,
-            new_status: node.status,
-            punished_at: now,
-        });
-        victims.push(account_info.key());
-        node.exit(program_id)?;
-    }
+    let batch = punish_guilty_nodes(
+        ctx.remaining_accounts,
+        &resolved,
+        &guilty_bitmap,
+        OffenceKind::Equivocation,
+        now,
+        program_id,
+    )?;
+    require!(batch.punished_count > 0, MolphaError::NothingToPunish);
+    let slashed_total = batch.slashed_total;
 
     let previous_version = ctx.accounts.registry_state.current_version;
     let (node_count_after, redundancy_buffer_after) = {
@@ -188,7 +172,7 @@ pub fn punish_equivocation<'info>(
             &mut next,
             args.new_registry_version,
             ctx.bumps.new_registry,
-            &victims,
+            &batch.victims,
         )?;
         (next.node_count, next.redundancy_buffer)
     };
@@ -250,39 +234,6 @@ pub fn punish_equivocation<'info>(
         created_at: now,
     });
 
-    Ok(())
-}
-
-/// Verify one equivocation statement's aggregate Schnorr signature against its resolved signers.
-fn verify_statement(
-    source_id: &[u8; 32],
-    registry_version: u32,
-    signatures_required: u8,
-    canonical_timestamp: i64,
-    statement: &EquivocationStatement,
-    ordered_signers: &[molpha_verifier::SignerXy],
-) -> Result<()> {
-    let message_hash = molpha_verifier::compute_message_hash(
-        &molpha_verifier::DataUpdate {
-            source_id: *source_id,
-            registry_version,
-            value: statement.value.clone(),
-            canonical_timestamp,
-            signatures_required,
-            agg_sig_s: statement.agg_sig_s,
-            commitment_addr: statement.commitment_addr,
-            signers_bitmap: statement.signers_bitmap,
-        },
-        signatures_required,
-    );
-    let is_valid = molpha_verifier::verify_aggregate_over_hash(
-        ordered_signers,
-        &statement.agg_sig_s,
-        &statement.commitment_addr,
-        &message_hash,
-    )
-    .map_err(map_data_update_err)?;
-    require!(is_valid, MolphaError::InvalidAggregateSignature);
     Ok(())
 }
 

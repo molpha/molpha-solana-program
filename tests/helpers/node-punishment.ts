@@ -1,15 +1,18 @@
 /**
- * TS mirrors of `state::punishment::equivocation_evidence_hash` and the `PunishmentCase` PDA, plus
- * small bitmap set-ops used by node-punishment tests.
+ * TS mirrors of `state::punishment::equivocation_evidence_hash` /
+ * `state::punishment::unsolicited_signing_evidence_hash` and the `PunishmentCase` PDA, plus small
+ * bitmap set-ops used by node-punishment tests.
  */
 import { keccak_256 } from "@noble/hashes/sha3";
 import { PublicKey } from "@solana/web3.js";
 import { evmBitmapBitSet } from "./submit-data-update";
 
 const DOMAIN_EQUIVOCATION = Buffer.from("MOLPHA_EQUIVOCATION_V1");
+const DOMAIN_UNSOLICITED_SIGNING = Buffer.from("MOLPHA_UNSOLICITED_SIGNING_V1");
 const PUNISHMENT_CASE_SEED = Buffer.from("molpha_punishment");
 
-export type EquivocationStatementBytes = {
+/** One signed statement offered as punishment evidence. Mirrors `state::punishment::SignedStatement`. */
+export type SignedStatementBytes = {
   value: Uint8Array;
   aggSigS: Uint8Array;
   commitmentAddr: Uint8Array;
@@ -28,7 +31,7 @@ function u64beFromNumber(x: number): Buffer {
   return buf;
 }
 
-function statementHash(statement: EquivocationStatementBytes): Buffer {
+function statementHash(statement: SignedStatementBytes): Buffer {
   return Buffer.from(
     keccak_256(
       Buffer.concat([
@@ -47,8 +50,8 @@ export function equivocationEvidenceHash(params: {
   registryVersion: number;
   signaturesRequired: number;
   canonicalTimestamp: number;
-  statementA: EquivocationStatementBytes;
-  statementB: EquivocationStatementBytes;
+  statementA: SignedStatementBytes;
+  statementB: SignedStatementBytes;
 }): Buffer {
   const hashA = statementHash(params.statementA);
   const hashB = statementHash(params.statementB);
@@ -64,6 +67,28 @@ export function equivocationEvidenceHash(params: {
         u64beFromNumber(params.canonicalTimestamp),
         lo,
         hi,
+      ])
+    )
+  );
+}
+
+/** Mirrors `state::punishment::unsolicited_signing_evidence_hash`. */
+export function unsolicitedSigningEvidenceHash(params: {
+  sourceId: Uint8Array;
+  registryVersion: number;
+  signaturesRequired: number;
+  canonicalTimestamp: number;
+  statement: SignedStatementBytes;
+}): Buffer {
+  return Buffer.from(
+    keccak_256(
+      Buffer.concat([
+        DOMAIN_UNSOLICITED_SIGNING,
+        Buffer.from(params.sourceId),
+        u32be(params.registryVersion),
+        Buffer.from([params.signaturesRequired]),
+        u64beFromNumber(params.canonicalTimestamp),
+        statementHash(params.statement),
       ])
     )
   );
@@ -88,6 +113,13 @@ export function unionBitmap(a: Uint8Array, b: Uint8Array): Uint8Array {
 export function intersectionBitmap(a: Uint8Array, b: Uint8Array): Uint8Array {
   const out = new Uint8Array(32);
   for (let i = 0; i < 32; i++) out[i] = a[i] & b[i];
+  return out;
+}
+
+/** `a & ~b` — bits set in `a` but not in `b`. */
+export function differenceBitmap(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const out = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) out[i] = a[i] & ~b[i];
   return out;
 }
 

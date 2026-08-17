@@ -30,7 +30,7 @@ import {
   signE2eDataUpdate,
 } from "../helpers/submit-data-update";
 import {
-  EquivocationStatementBytes,
+  SignedStatementBytes,
   bitsOfBitmap,
   equivocationEvidenceHash,
   findPunishmentCasePda,
@@ -191,7 +191,7 @@ function buildStatement(params: {
   value: Uint8Array;
   canonicalTimestamp: number;
   signaturesRequired: number;
-}): EquivocationStatementBytes {
+}): SignedStatementBytes {
   const signed = signE2eDataUpdate(
     params.registryVersion,
     params.material,
@@ -208,7 +208,7 @@ function buildStatement(params: {
   };
 }
 
-function toAnchorStatement(statement: EquivocationStatementBytes) {
+function toAnchorStatement(statement: SignedStatementBytes) {
   return {
     value: Buffer.from(statement.value),
     aggSigS: Array.from(statement.aggSigS),
@@ -224,8 +224,8 @@ async function callPunishEquivocation(
     currentRegistryVersion: number;
     signaturesRequired: number;
     canonicalTimestamp: number;
-    statementA: EquivocationStatementBytes;
-    statementB: EquivocationStatementBytes;
+    statementA: SignedStatementBytes;
+    statementB: SignedStatementBytes;
     newRegistryVersion: number;
   }
 ): Promise<{ punishmentCasePda: PublicKey; newRegistryPda: PublicKey }> {
