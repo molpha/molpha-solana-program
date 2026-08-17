@@ -3,9 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     error::{map_data_update_err, MolphaError},
     events::FeedUpdated,
-    state::{
-        resolve_registry_signers, Feed, FeedInitParams, FeedUpdateParams, Registry
-    },
+    state::{resolve_registry_signers, Feed, FeedInitParams, FeedUpdateParams, Registry},
 };
 use molpha_verifier::DataUpdate;
 
