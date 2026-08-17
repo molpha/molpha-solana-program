@@ -116,6 +116,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         require!(appended_index == node_index, MolphaError::InvalidNodeIndex);
         (next.node_count, next.redundancy_buffer)
     };
+    let current_version = ctx.accounts.registry_state.current_version;
     ctx.accounts.registry_state.current_version = args.new_registry_version;
 
     emit!(NodeRegistered {
@@ -129,7 +130,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         registered_at: now,
     });
     emit!(RegistryVersionCreated {
-        previous_version: ctx.accounts.registry_state.current_version,
+        previous_version: current_version,
         new_version: args.new_registry_version,
         node_count,
         redundancy_buffer,

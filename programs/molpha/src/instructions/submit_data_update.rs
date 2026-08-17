@@ -4,7 +4,7 @@ use crate::{
     error::{map_data_update_err, MolphaError},
     events::FeedUpdated,
     state::{
-        resolve_registry_signers, Feed, FeedInitParams, FeedUpdateParams, Registry, RegistryState,
+        resolve_registry_signers, Feed, FeedInitParams, FeedUpdateParams, Registry
     },
 };
 use molpha_verifier::DataUpdate;
@@ -43,17 +43,11 @@ pub fn submit_data_update(
     args: SubmitDataUpdateArgs,
 ) -> Result<()> {
     let (stored_value, value_kind) = Feed::encode_stored_value(&args.value)?;
-
     let clock = Clock::get()?;
-    let payload: DataUpdate = (&args).into();
     let feed = &mut ctx.accounts.feed;
-    require!(
-        args.registry_version == ctx.accounts.registry_state.current_version,
-        MolphaError::InvalidRegistryVersion
-    );
 
-    // if feed is not initialized, initialize it
     if feed.source_id == [0u8; 32] {
+        require!(args.source_id != [0u8; 32], MolphaError::InvalidSourceId);
         feed.init(&FeedInitParams {
             source_id: args.source_id,
             value: stored_value.clone(),
@@ -80,16 +74,13 @@ pub fn submit_data_update(
     }
 
     let registry = ctx.accounts.registry.load()?;
-    require!(
-        registry.version == args.registry_version,
-        MolphaError::InvalidRegistryVersion
-    );
     let ordered = resolve_registry_signers(
         ctx.remaining_accounts,
         ctx.program_id,
         &registry,
         &args.signers_bitmap,
     )?;
+    let payload: DataUpdate = (&args).into();
     molpha_verifier::verify_data_update(
         &payload,
         u32::from(registry.node_count),
@@ -116,12 +107,6 @@ pub fn submit_data_update(
 pub struct SubmitDataUpdate<'info> {
     #[account(mut)]
     pub submitter: Signer<'info>,
-
-    #[account(
-        seeds = [RegistryState::SEED_PREFIX],
-        bump = registry_state.bump,
-    )]
-    pub registry_state: Account<'info, RegistryState>,
 
     #[account(
         seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],

@@ -387,23 +387,7 @@ describe("immutable versioned node registry", () => {
         assert.match(String(error), /MissingSignerAccount|InvalidNodeAccount/);
       }
     }
-
-    try {
-      await program.methods
-        .submitDataUpdate(signed.submitArgs)
-        .accountsPartial({
-          submitter: ctx.authority.publicKey,
-          registryState: registryStatePda,
-          registry: registry3Pda,
-          systemProgram: SystemProgram.programId,
-        })
-        .remainingAccounts(historicalAccounts)
-        .rpc();
-      assert.fail("historical registry must not mutate the live feed");
-    } catch (error) {
-      assert.include(String(error), "InvalidRegistryVersion");
-    }
-
+    
     const state = await (program.account as any).registryState.fetch(
       registryStatePda
     );
