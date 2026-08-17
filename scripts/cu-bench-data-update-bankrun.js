@@ -28,7 +28,7 @@ const {
   SIGNER_COUNTS,
   COMPUTE_UNIT_LIMIT,
   CU_CEILINGS,
-  FIXTURE_FEED_ID,
+  FIXTURE_SOURCE_ID,
   FIXTURE_CONFIG_HASH,
   FIXTURE_VALUE,
   FIXTURE_REGISTRY_VERSION,
@@ -135,9 +135,8 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     signerCount,
     privKeys: signerMaterial.privKeys,
     compressedPubkeys: signerMaterial.compressedPubkeys,
-    feedId: FIXTURE_FEED_ID,
+    sourceId: FIXTURE_SOURCE_ID,
     registryVersion: FIXTURE_REGISTRY_VERSION,
-    configHash: FIXTURE_CONFIG_HASH,
     value: FIXTURE_VALUE,
     canonicalTimestamp: FIXTURE_CANONICAL_TIMESTAMP,
   });
@@ -149,13 +148,17 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     signerCount,
     signerMaterial,
     {
-      feedId: FIXTURE_FEED_ID,
+      sourceId: FIXTURE_SOURCE_ID,
       registryVersion: FIXTURE_REGISTRY_VERSION,
     }
   );
   await seedFromAccountSet(provider.context, accountSet);
 
-  const args = buildSubmitArgs(signerCount, signatureMaterial, FIXTURE_FEED_ID);
+  const args = buildSubmitArgs(
+    signerCount,
+    signatureMaterial,
+    FIXTURE_SOURCE_ID
+  );
   const remainingAccounts = nodeRemainingAccounts(
     accountSet.nodePdas,
     signatureMaterial.signersBitmap

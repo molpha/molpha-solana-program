@@ -4,7 +4,6 @@ import * as path from "path";
 import { keccak_256 } from "@noble/hashes/sha3";
 import {
   bytesToHex0x,
-  deriveFeedId,
   E2eDataUpdateFields,
   evmSignersBitmapNumberFromBytes,
   E2eSignerMaterial,
@@ -23,10 +22,9 @@ export type VerifyAnswerEvmFixture = {
   /** Hex-encoded privkeys from bankrun e2e export (optional). */
   nodePrivkeys?: string[];
   dataUpdate: {
-    feedId: string;
+    sourceId: string;
     registryVersion: number;
     signaturesRequired: number;
-    configHash: string;
     value: string;
     canonicalTimestamp: number;
   };
@@ -38,6 +36,7 @@ export type VerifyAnswerEvmFixture = {
 };
 
 export type E2eScenario = E2eDataUpdateFields & {
+  sourceId: Uint8Array;
   seed: string;
   signerCount: number;
 };
@@ -58,7 +57,7 @@ export function generateE2eScenario(
   return {
     seed,
     signerCount,
-    configHash: labeledBytes32(seed, "apiConfigHash"),
+    sourceId: labeledBytes32(seed, "sourceId"),
     value: labeledBytes32(seed, "feedValue"),
     canonicalTimestamp: ts,
   };
@@ -75,7 +74,7 @@ export function buildVerifyAnswerEvmFixture(params: {
   nodePubkeys: Uint8Array[];
   nodePrivkeys: bigint[];
   signaturesRequired: number;
-  feedId: Uint8Array;
+  sourceId: Uint8Array;
   dataUpdate: E2eDataUpdateFields;
   signed: Pick<
     SignedE2eDataUpdate,
@@ -98,10 +97,9 @@ export function buildVerifyAnswerEvmFixture(params: {
     nodePubkeys: params.nodePubkeys.map((pk) => bytesToHex0x(pk)),
     secretKeys: params.nodePrivkeys.map((sk) => sk.toString()),
     dataUpdate: {
-      feedId: bytesToHex0x(params.feedId),
+      sourceId: bytesToHex0x(params.sourceId),
       registryVersion: params.registryVersion,
       signaturesRequired: params.signaturesRequired,
-      configHash: bytesToHex0x(params.dataUpdate.configHash),
       value: bytesToHex0x(params.dataUpdate.value),
       canonicalTimestamp: params.dataUpdate.canonicalTimestamp,
     },
@@ -136,12 +134,4 @@ export function defaultE2eFixtureOutputPath(seed: string): string {
     "fixtures-json",
     `e2e-generated-${safeSeed}.json`
   );
-}
-
-export function feedIdForOwner(
-  owner: import("@solana/web3.js").PublicKey,
-  configHash: Uint8Array,
-  signaturesRequired: number
-) {
-  return deriveFeedId(owner, configHash, signaturesRequired);
 }

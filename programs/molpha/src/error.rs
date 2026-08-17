@@ -23,6 +23,8 @@ pub enum MolphaError {
     PubkeyNotOnCurve,
     #[msg("registry version or version-addressed registry account is invalid")]
     InvalidRegistryVersion,
+    #[msg("source_id does not match feed.source_id")]
+    InvalidSourceId,
     #[msg("new redundancy buffer must differ from the current registry policy")]
     RegistryPolicyUnchanged,
     #[msg("Caller is not ProtocolConfig.authority")]

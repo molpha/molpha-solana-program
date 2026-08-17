@@ -51,7 +51,7 @@ pub fn dispute_round<'info>(
     let registry = ctx.accounts.registry.load()?;
     let node_count = u32::from(registry.node_count);
     let expected_selection = molpha_verifier::derive_selection_bitmap(
-        &record.feed_id,
+        &record.source_id,
         record.registry_version,
         record.timestamp as i64,
         node_count,
@@ -124,7 +124,7 @@ pub fn dispute_round<'info>(
     record.status = RoundRecordStatus::Voided;
 
     emit!(RoundDisputed {
-        feed_id: record.feed_id,
+        source_id: record.source_id,
         timestamp: record.timestamp,
         gateway: record.gateway,
         slashed_bond,

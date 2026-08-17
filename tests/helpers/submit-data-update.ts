@@ -45,10 +45,7 @@ const DERIVE_GROUP_BITMAP_MAX_ROUNDS = 65_536;
 const ACCOUNT_LAMPORTS = 1_000_000_000;
 const REGISTERED_NODE_PDAS = new Map<string, PublicKey[]>();
 
-export const EVM_FIXTURE_FEED_ID = hexToBytes(evmFixture.dataUpdate.feedId);
-export const EVM_FIXTURE_CONFIG_HASH = hexToBytes(
-  evmFixture.dataUpdate.configHash
-);
+export const EVM_FIXTURE_SOURCE_ID = hexToBytes(evmFixture.dataUpdate.sourceId);
 export const EVM_FIXTURE_VALUE = hexToBytes(evmFixture.dataUpdate.value);
 export const EVM_FIXTURE_NODE_PUBKEYS = evmFixture.nodePubkeys.map((h) =>
   hexToBytes(h)
@@ -94,9 +91,8 @@ export function buildSignedVerifyAnswerEvmArgs(
     registryVersion,
     signerMaterialForVerifyAnswerEvm(),
     evmUint256BitmapForFirstN(evmFixture.dataUpdate.signaturesRequired),
-    EVM_FIXTURE_FEED_ID,
+    EVM_FIXTURE_SOURCE_ID,
     {
-      configHash: EVM_FIXTURE_CONFIG_HASH,
       value: EVM_FIXTURE_VALUE,
       canonicalTimestamp: evmFixture.dataUpdate.canonicalTimestamp,
     },
@@ -246,14 +242,16 @@ export function deriveGroupBitmap(
 }
 
 export function deriveSelectionSeed(
-  feedId: Uint8Array,
+  sourceId: Uint8Array,
+  signaturesRequired: number,
   registryVersion: number,
   canonicalTimestamp: number
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
       SELECTION_SEED_PREFIX,
-      Buffer.from(feedId),
+      Buffer.from(sourceId),
+      Buffer.from(u32be(signaturesRequired)),
       Buffer.from(u32be(registryVersion)),
       Buffer.from(u64be(canonicalTimestamp)),
     ])
@@ -269,8 +267,8 @@ export function effectiveSelectionSize(
   return Math.min(nodeCount, signaturesRequired + redundancyBuffer);
 }
 
-export function deriveSignersBitmapForJob(
-  feedId: Uint8Array,
+export function deriveSignersBitmap(
+  sourceId: Uint8Array,
   registryVersion: number,
   nodeCount: number,
   signaturesRequired: number,
@@ -282,7 +280,12 @@ export function deriveSignersBitmapForJob(
     redundancyBuffer,
     nodeCount
   );
-  const seed = deriveSelectionSeed(feedId, registryVersion, canonicalTimestamp);
+  const seed = deriveSelectionSeed(
+    sourceId,
+    signaturesRequired,
+    registryVersion,
+    canonicalTimestamp
+  );
   return deriveGroupBitmap(seed, nodeCount, selectionSize);
 }
 
@@ -338,7 +341,6 @@ export function generateE2eSignerMaterialFromSeed(
 }
 
 export type E2eDataUpdateFields = {
-  configHash: Uint8Array;
   value: Uint8Array;
   canonicalTimestamp: number;
 };
@@ -415,12 +417,6 @@ function bitmapToNodeIndexesOneBased(bitmap: bigint): number[] {
 /** Fail fast if fixture fields are inconsistent before hitting on-chain paths. */
 export function assertE2eFixtureIntegrity(fixture: LoadedE2eFixture): void {
   const signerCount = fixture.dataUpdate.signaturesRequired;
-  const configHash = hexToBytes(fixture.configHash);
-  const dataConfigHash = hexToBytes(fixture.dataUpdate.configHash);
-
-  if (!Buffer.from(configHash).equals(Buffer.from(dataConfigHash))) {
-    throw new Error("configHash != dataUpdate.configHash");
-  }
   if (fixture.registryVersion !== fixture.dataUpdate.registryVersion) {
     throw new Error("registryVersion != dataUpdate.registryVersion");
   }
@@ -579,7 +575,7 @@ export function computeFixtureMessageHash(
     BigInt(fixture.schnorrSignature.signersBitmap)
   );
   return computeMessageHash({
-    feedId: hexToBytes(fixture.dataUpdate.feedId),
+    sourceId: hexToBytes(fixture.dataUpdate.sourceId),
     registryVersion: fixture.dataUpdate.registryVersion,
     signaturesRequired: fixture.dataUpdate.signaturesRequired,
     signersBitmap,
@@ -600,9 +596,8 @@ export function verifyFixtureSchnorrSignature(fixture: LoadedE2eFixture): void {
     fixture.dataUpdate.registryVersion,
     material,
     signersBitmap,
-    hexToBytes(fixture.dataUpdate.feedId),
+    hexToBytes(fixture.dataUpdate.sourceId),
     {
-      configHash: hexToBytes(fixture.dataUpdate.configHash),
       value: hexToBytes(fixture.dataUpdate.value),
       canonicalTimestamp: fixture.dataUpdate.canonicalTimestamp,
     },
@@ -646,9 +641,8 @@ export function buildSubmitArgsFromE2eFixture(fixture: LoadedE2eFixture) {
     fixture.dataUpdate.registryVersion,
     material,
     signersBitmap,
-    hexToBytes(fixture.dataUpdate.feedId),
+    hexToBytes(fixture.dataUpdate.sourceId),
     {
-      configHash: hexToBytes(fixture.dataUpdate.configHash),
       value: hexToBytes(fixture.dataUpdate.value),
       canonicalTimestamp: fixture.dataUpdate.canonicalTimestamp,
     },
@@ -657,7 +651,7 @@ export function buildSubmitArgsFromE2eFixture(fixture: LoadedE2eFixture) {
 }
 
 function computeMessageHash(params: {
-  feedId: Uint8Array;
+  sourceId: Uint8Array;
   registryVersion: number;
   signaturesRequired: number;
   signersBitmap: Uint8Array;
@@ -666,7 +660,7 @@ function computeMessageHash(params: {
 }): Uint8Array {
   return keccakConcat([
     MESSAGE_PREFIX,
-    params.feedId,
+    params.sourceId,
     u32be(params.registryVersion),
     u32be(params.signaturesRequired),
     params.signersBitmap,
@@ -719,7 +713,7 @@ export function signE2eDataUpdate(
   registryVersion: number,
   signerMaterial: E2eSignerMaterial,
   signerCountOrBitmap: number | Uint8Array,
-  feedId: Uint8Array,
+  sourceId: Uint8Array,
   dataUpdate: E2eDataUpdateFields,
   signaturesRequired?: number,
   nodeCount?: number,
@@ -728,8 +722,8 @@ export function signE2eDataUpdate(
   const selectionTimestamp = dataUpdate.canonicalTimestamp;
   const signersBitmap =
     typeof signerCountOrBitmap === "number"
-      ? deriveSignersBitmapForJob(
-          feedId,
+      ? deriveSignersBitmap(
+          sourceId,
           registryVersion,
           nodeCount ?? signerCountOrBitmap,
           signaturesRequired ?? signerCountOrBitmap,
@@ -740,7 +734,7 @@ export function signE2eDataUpdate(
   const signerCount = bitmapPopcountEvm(signersBitmap);
   const required = signaturesRequired ?? signerCount;
   const messageHash = computeMessageHash({
-    feedId,
+    sourceId,
     registryVersion,
     signaturesRequired: required,
     signersBitmap,
@@ -772,7 +766,7 @@ export function signE2eDataUpdate(
   });
 
   const submitArgs = {
-    feedId: Array.from(feedId),
+    sourceId: Array.from(sourceId),
     registryVersion,
     signaturesRequired: required,
     signersBitmap: Array.from(signersBitmap),
@@ -860,9 +854,8 @@ export function buildSignedEvmSubmitDataUpdateArgs(
   registryVersion: number,
   signerMaterial: E2eSignerMaterial,
   signerCount = 8,
-  feedId: Uint8Array = EVM_FIXTURE_FEED_ID,
+  sourceId: Uint8Array = EVM_FIXTURE_SOURCE_ID,
   dataUpdate: E2eDataUpdateFields = {
-    configHash: EVM_FIXTURE_CONFIG_HASH,
     value: EVM_FIXTURE_VALUE,
     canonicalTimestamp: evmFixture.dataUpdate.canonicalTimestamp,
   },
@@ -873,7 +866,7 @@ export function buildSignedEvmSubmitDataUpdateArgs(
     registryVersion,
     signerMaterial,
     signerCount,
-    feedId,
+    sourceId,
     dataUpdate,
     signerCount,
     nodeCount,
@@ -1076,69 +1069,6 @@ export function registeredNodePda(
   return node;
 }
 
-export async function createJobViaInstruction(
-  ctx: TestContext,
-  program: Program,
-  accounts: {
-    protocolConfigPda: PublicKey;
-    planPda: PublicKey;
-    subscriptionPda: PublicKey;
-  },
-  apiConfigHash: Uint8Array,
-  opts?: { decimals?: number; signaturesRequired?: number }
-): Promise<{ jobPda: PublicKey; feedPda: PublicKey; feedId: Uint8Array }> {
-  const decimals = opts?.decimals ?? 8;
-  const signaturesRequired = opts?.signaturesRequired ?? 8;
-  const feedId = deriveFeedId(
-    ctx.authority.publicKey,
-    apiConfigHash,
-    signaturesRequired
-  );
-  const jobPda = findJobPda(program.programId, feedId);
-  const feedPda = findFeedPda(program.programId, feedId);
-
-  await program.methods
-    .createJob(
-      {
-        apiConfigHash: Array.from(apiConfigHash),
-        signaturesRequired,
-        decimals,
-      },
-      Array.from(feedId)
-    )
-    .accountsPartial({
-      creator: ctx.authority.publicKey,
-      jobOwner: ctx.authority.publicKey,
-      protocolConfig: accounts.protocolConfigPda,
-      plan: accounts.planPda,
-      job: jobPda,
-      subscription: accounts.subscriptionPda,
-      feed: feedPda,
-      delegate: null,
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc();
-
-  return { jobPda, feedPda, feedId };
-}
-
-export async function createEvmFixtureJobViaInstruction(
-  ctx: TestContext,
-  program: Program,
-  accounts: {
-    protocolConfigPda: PublicKey;
-    planPda: PublicKey;
-    subscriptionPda: PublicKey;
-  }
-): Promise<{ jobPda: PublicKey; feedPda: PublicKey; feedId: Uint8Array }> {
-  return createJobViaInstruction(
-    ctx,
-    program,
-    accounts,
-    EVM_FIXTURE_CONFIG_HASH
-  );
-}
-
 export function deriveFeedId(
   owner: PublicKey,
   apiConfigHash: Uint8Array,
@@ -1158,39 +1088,26 @@ export function deriveFeedId(
 export function deriveEvmFixtureFeedId(owner: PublicKey): Uint8Array {
   return deriveFeedId(
     owner,
-    EVM_FIXTURE_CONFIG_HASH,
+    EVM_FIXTURE_SOURCE_ID,
     evmFixture.dataUpdate.signaturesRequired
   );
 }
 
-export function findJobPda(
-  programId: PublicKey,
-  feedId: Uint8Array
-): PublicKey {
-  return PublicKey.findProgramAddressSync(
-    [JOB_SEED, Buffer.from(feedId)],
-    programId
-  )[0];
-}
-
 export function findFeedPda(
   programId: PublicKey,
-  feedId: Uint8Array
+  sourceId: Uint8Array,
+  signaturesRequired: number,
+  owner: PublicKey
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [FEED_SEED, Buffer.from(feedId)],
+    [
+      FEED_SEED,
+      Buffer.from(sourceId),
+      Buffer.from([signaturesRequired]),
+      Buffer.from(owner.toBuffer()),
+    ],
     programId
   )[0];
-}
-
-/** @deprecated Prefer `findJobPda(programId, deriveEvmFixtureFeedId(owner))`. */
-export function findEvmJobPda(programId: PublicKey): PublicKey {
-  return findJobPda(programId, EVM_FIXTURE_FEED_ID);
-}
-
-/** @deprecated Prefer `findFeedPda(programId, deriveEvmFixtureFeedId(owner))`. */
-export function findEvmFeedPda(programId: PublicKey): PublicKey {
-  return findFeedPda(programId, EVM_FIXTURE_FEED_ID);
 }
 
 /** Permanent owner-keyed Node PDA. */

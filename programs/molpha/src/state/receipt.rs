@@ -8,7 +8,8 @@ pub const DOMAIN_AGENT_REQAUTH: &[u8] = b"MOLPHA_AGENT_REQAUTH_V1";
 /// Consumer demand authorization (Ed25519-signed by `consumer.authority`).
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct RequestAuth {
-    pub feed_id: [u8; 32],
+    pub source_id: [u8; 32],
+    pub signatures_required: u8,
     pub timestamp: u64,
 }
 
@@ -31,10 +32,15 @@ pub fn hash_request_auth(request_auth: &RequestAuth) -> [u8; 32] {
     sha256_hashv(&[DOMAIN_REQAUTH, &body]).to_bytes()
 }
 
-/// `H(RequestAuth)` from the instruction-level `(feed_id, timestamp)` pair.
-pub fn hash_request_auth_fields(feed_id: &[u8; 32], timestamp: u64) -> [u8; 32] {
+/// `H(RequestAuth)` from the instruction-level `(source_id, signatures_required, timestamp)` pair.
+pub fn hash_request_auth_fields(
+    source_id: &[u8; 32],
+    signatures_required: u8,
+    timestamp: u64,
+) -> [u8; 32] {
     hash_request_auth(&RequestAuth {
-        feed_id: *feed_id,
+        source_id: *source_id,
+        signatures_required,
         timestamp,
     })
 }
@@ -45,7 +51,8 @@ pub struct AgentRequestAuth {
     /// The `AgentEscrow` PDA address.
     pub agent: Pubkey,
     pub gateway: Pubkey,
-    pub feed_id: [u8; 32],
+    pub source_id: [u8; 32],
+    pub signatures_required: u8,
     pub canonical_timestamp: u64,
     pub amount: u64,
 }
@@ -60,14 +67,16 @@ pub fn hash_agent_request_auth(auth: &AgentRequestAuth) -> [u8; 32] {
 pub fn hash_agent_request_auth_fields(
     agent: &Pubkey,
     gateway: &Pubkey,
-    feed_id: &[u8; 32],
+    source_id: &[u8; 32],
+    signatures_required: u8,
     canonical_timestamp: u64,
     amount: u64,
 ) -> [u8; 32] {
     hash_agent_request_auth(&AgentRequestAuth {
         agent: *agent,
         gateway: *gateway,
-        feed_id: *feed_id,
+        source_id: *source_id,
+        signatures_required,
         canonical_timestamp,
         amount,
     })
@@ -85,7 +94,8 @@ mod tests {
 
     fn fixture_request_auth() -> RequestAuth {
         RequestAuth {
-            feed_id: [0x11; 32],
+            source_id: [0x11; 32],
+            signatures_required: 3,
             timestamp: 1_700_000_000,
         }
     }
@@ -104,7 +114,7 @@ mod tests {
     fn hash_request_auth_fields_matches_struct_hash() {
         let auth = fixture_request_auth();
         assert_eq!(
-            hash_request_auth_fields(&auth.feed_id, auth.timestamp),
+            hash_request_auth_fields(&auth.source_id, auth.signatures_required, auth.timestamp),
             hash_request_auth(&auth)
         );
     }
@@ -116,7 +126,7 @@ mod tests {
         a.timestamp += 1;
         assert_ne!(hash_request_auth(&a), base);
         let mut b = fixture_request_auth();
-        b.feed_id[0] ^= 0x01;
+        b.source_id[0] ^= 0x01;
         assert_ne!(hash_request_auth(&b), base);
     }
 
@@ -132,7 +142,8 @@ mod tests {
         AgentRequestAuth {
             agent: Pubkey::new_from_array([0x22; 32]),
             canonical_timestamp: 1_700_000_000,
-            feed_id: [0x11; 32],
+            source_id: [0x11; 32],
+            signatures_required: 3,
             amount: 1_030,
             gateway: Pubkey::new_from_array([0x24; 32]),
         }
@@ -145,7 +156,8 @@ mod tests {
             hash_agent_request_auth_fields(
                 &auth.agent,
                 &auth.gateway,
-                &auth.feed_id,
+                &auth.source_id,
+                auth.signatures_required,
                 auth.canonical_timestamp,
                 auth.amount,
             ),

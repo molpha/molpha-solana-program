@@ -207,7 +207,7 @@ async function measureForSignerCount(
   signerCount
 ) {
   const configHash = benchConfigHash(signerCount);
-  const feedId = deriveFeedId(payer.publicKey, configHash, signerCount);
+  const sourceId = deriveFeedId(payer.publicKey, configHash, signerCount);
 
   const material = attachNodePdas(
     programId,
@@ -218,9 +218,8 @@ async function measureForSignerCount(
     signerCount,
     privKeys: material.privKeys,
     compressedPubkeys: material.compressedPubkeys,
-    feedId,
+    sourceId,
     registryVersion: FIXTURE_REGISTRY_VERSION,
-    configHash,
     value: FIXTURE_VALUE,
     canonicalTimestamp: FIXTURE_CANONICAL_TIMESTAMP,
   });
@@ -230,9 +229,14 @@ async function measureForSignerCount(
     programId
   );
   const registryPda = findRegistryPda(programId, FIXTURE_REGISTRY_VERSION);
-  const feedPda = findFeedPda(programId, feedId);
+  const feedPda = findFeedPda(
+    programId,
+    sourceId,
+    signerCount,
+    payer.publicKey
+  );
 
-  const args = buildSubmitArgs(signerCount, signatureMaterial, feedId);
+  const args = buildSubmitArgs(signerCount, signatureMaterial, sourceId);
   const remainingAccounts = nodeRemainingAccounts(
     material.nodePdas,
     signatureMaterial.signersBitmap

@@ -3,15 +3,13 @@ use anchor_lang::prelude::*;
 use crate::{
     error::{map_data_update_err, MolphaError},
     events::FeedUpdated,
-    state::{
-        resolve_registry_signers, Feed, FeedInitParams, FeedUpdateParams, Registry, RegistryState,
-    },
+    state::{resolve_registry_signers, Feed, FeedInitParams, FeedUpdateParams, Registry},
 };
 use molpha_verifier::DataUpdate;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SubmitDataUpdateArgs {
-    pub feed_id: [u8; 32],
+    pub source_id: [u8; 32],
     pub registry_version: u32,
     pub value: Vec<u8>,
     pub canonical_timestamp: i64,
@@ -26,7 +24,7 @@ pub struct SubmitDataUpdateArgs {
 impl From<&SubmitDataUpdateArgs> for DataUpdate {
     fn from(args: &SubmitDataUpdateArgs) -> Self {
         Self {
-            feed_id: args.feed_id,
+            source_id: args.source_id,
             registry_version: args.registry_version,
             value: args.value.clone(),
             canonical_timestamp: args.canonical_timestamp,
@@ -43,19 +41,13 @@ pub fn submit_data_update(
     args: SubmitDataUpdateArgs,
 ) -> Result<()> {
     let (stored_value, value_kind) = Feed::encode_stored_value(&args.value)?;
-
     let clock = Clock::get()?;
-    let payload: DataUpdate = (&args).into();
     let feed = &mut ctx.accounts.feed;
-    require!(
-        args.registry_version == ctx.accounts.registry_state.current_version,
-        MolphaError::InvalidRegistryVersion
-    );
 
-    // if feed is not initialized, initialize it
-    if feed.feed_id == [0u8; 32] {
+    if feed.source_id == [0u8; 32] {
+        require!(args.source_id != [0u8; 32], MolphaError::InvalidSourceId);
         feed.init(&FeedInitParams {
-            feed_id: args.feed_id,
+            source_id: args.source_id,
             value: stored_value.clone(),
             value_kind,
             canonical_timestamp: args.canonical_timestamp,
@@ -80,16 +72,13 @@ pub fn submit_data_update(
     }
 
     let registry = ctx.accounts.registry.load()?;
-    require!(
-        registry.version == args.registry_version,
-        MolphaError::InvalidRegistryVersion
-    );
     let ordered = resolve_registry_signers(
         ctx.remaining_accounts,
         ctx.program_id,
         &registry,
         &args.signers_bitmap,
     )?;
+    let payload: DataUpdate = (&args).into();
     molpha_verifier::verify_data_update(
         &payload,
         u32::from(registry.node_count),
@@ -99,7 +88,7 @@ pub fn submit_data_update(
     .map_err(map_data_update_err)?;
 
     emit!(FeedUpdated {
-        feed_id: args.feed_id,
+        source_id: feed.source_id,
         registry_version: args.registry_version,
         canonical_timestamp: args.canonical_timestamp,
         value: stored_value,
@@ -118,12 +107,6 @@ pub struct SubmitDataUpdate<'info> {
     pub submitter: Signer<'info>,
 
     #[account(
-        seeds = [RegistryState::SEED_PREFIX],
-        bump = registry_state.bump,
-    )]
-    pub registry_state: Account<'info, RegistryState>,
-
-    #[account(
         seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
         bump,
     )]
@@ -135,7 +118,9 @@ pub struct SubmitDataUpdate<'info> {
         space = Feed::SPACE,
         seeds = [
             Feed::SEED_PREFIX,
-            args.feed_id.as_ref()
+            args.source_id.as_ref(),
+            args.signatures_required.to_le_bytes().as_ref(),
+            submitter.key().as_ref()
         ],
         bump
     )]
@@ -153,7 +138,7 @@ mod tests {
 
     fn fixture_args() -> SubmitDataUpdateArgs {
         SubmitDataUpdateArgs {
-            feed_id: [0x11; 32],
+            source_id: [0x11; 32],
             signatures_required: 3,
             registry_version: 7,
             signers_bitmap: [0x33; 32],
@@ -171,7 +156,7 @@ mod tests {
         let decoded = borsh::from_slice::<SubmitDataUpdateArgs>(&bytes)
             .expect("SubmitDataUpdateArgs should deserialize");
 
-        assert_eq!(decoded.feed_id, args.feed_id);
+        assert_eq!(decoded.source_id, args.source_id);
         assert_eq!(decoded.registry_version, args.registry_version);
         assert_eq!(decoded.signers_bitmap, args.signers_bitmap);
         assert_eq!(decoded.value, args.value);

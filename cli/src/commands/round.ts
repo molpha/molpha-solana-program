@@ -19,7 +19,6 @@ import {
 import { hashAgentRequestAuthFields, hashRequestAuthFields } from "../lib/auth";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
-import { deriveFeedId } from "../lib/ids";
 import {
   findAgentEscrowPda,
   findAgentRoundPda,
@@ -56,7 +55,7 @@ export function registerRoundCommands(program: Command): void {
   round
     .command("settle-subscription")
     .description("Settle a subscription/delegate paid round")
-    .requiredOption("--api-config-hash <hex>", "32-byte API config hash")
+    .requiredOption("--source-id <hex>", "32-byte source identifier")
     .requiredOption("--timestamp <number>", "canonical timestamp")
     .requiredOption("--signatures-required <number>", "quorum threshold")
     .requiredOption("--registry-version <number>", "registry version")
@@ -103,11 +102,7 @@ export function registerRoundCommands(program: Command): void {
       );
       const [gatewayPda] = findGatewayPda(ctx.programId, gatewayAuthority);
 
-      const apiConfigHash = hexToBytes(
-        options.apiConfigHash,
-        32,
-        "api config hash"
-      );
+      const sourceId = hexToBytes(options.sourceId, 32, "source id");
       const timestamp = parseInteger(options.timestamp, "timestamp");
       const signaturesRequired = parseInteger(
         options.signaturesRequired,
@@ -133,15 +128,10 @@ export function registerRoundCommands(program: Command): void {
       const creditedBits = creditedBitsFromBitmap(
         Uint8Array.from(aggSig.signersBitmap)
       );
-      const feedId = deriveFeedId(
-        consumer.publicKey,
-        apiConfigHash,
-        signaturesRequired
-      );
       const [roundRecordPda] = findSubscriptionRoundPda(
         ctx.programId,
         consumer.publicKey,
-        apiConfigHash,
+        sourceId,
         signaturesRequired,
         timestamp
       );
@@ -154,11 +144,15 @@ export function registerRoundCommands(program: Command): void {
             consumer.publicKey
           )[0];
 
-      const authHash = hashRequestAuthFields(feedId, timestamp);
+      const authHash = hashRequestAuthFields(
+        sourceId,
+        signaturesRequired,
+        timestamp
+      );
       const signature = await (ctx.program.methods as any)
         .settleRoundReceipt({
           timestamp: new BN(timestamp),
-          apiConfigHash: Array.from(apiConfigHash),
+          sourceId: Array.from(sourceId),
           signaturesRequired,
           registryVersion,
           aggSig,
@@ -198,7 +192,7 @@ export function registerRoundCommands(program: Command): void {
       writeJson({
         signature,
         roundRecord: roundRecordPda.toBase58(),
-        feedId: `0x${Buffer.from(feedId).toString("hex")}`,
+        sourceId: `0x${Buffer.from(sourceId).toString("hex")}`,
         creditedBits,
       });
     });
@@ -206,7 +200,7 @@ export function registerRoundCommands(program: Command): void {
   round
     .command("settle-agent")
     .description("Settle a self-funded / x402 agent round")
-    .requiredOption("--api-config-hash <hex>", "32-byte API config hash")
+    .requiredOption("--source-id <hex>", "32-byte source identifier")
     .requiredOption("--canonical-timestamp <number>", "canonical timestamp")
     .requiredOption("--signatures-required <number>", "quorum threshold")
     .requiredOption("--registry-version <number>", "registry version")
@@ -258,11 +252,7 @@ export function registerRoundCommands(program: Command): void {
         true
       );
 
-      const apiConfigHash = hexToBytes(
-        options.apiConfigHash,
-        32,
-        "api config hash"
-      );
+      const sourceId = hexToBytes(options.sourceId, 32, "source id");
       const canonicalTimestamp = parseInteger(
         options.canonicalTimestamp,
         "canonical timestamp"
@@ -292,16 +282,11 @@ export function registerRoundCommands(program: Command): void {
       const creditedBits = creditedBitsFromBitmap(
         Uint8Array.from(aggSig.signersBitmap)
       );
-      const feedId = deriveFeedId(
-        payer.publicKey,
-        apiConfigHash,
-        signaturesRequired
-      );
       const [roundRecordPda] = findAgentRoundPda(
         ctx.programId,
         payer.publicKey,
         gatewayPda,
-        apiConfigHash,
+        sourceId,
         signaturesRequired,
         canonicalTimestamp
       );
@@ -309,7 +294,8 @@ export function registerRoundCommands(program: Command): void {
       const authHash = hashAgentRequestAuthFields(
         escrowPda,
         gatewayPda,
-        feedId,
+        sourceId,
+        signaturesRequired,
         canonicalTimestamp,
         BigInt(amount.toString())
       );
@@ -329,7 +315,7 @@ export function registerRoundCommands(program: Command): void {
         .settleAgentRound({
           authority: payer.publicKey,
           amount,
-          apiConfigHash: Array.from(apiConfigHash),
+          sourceId: Array.from(sourceId),
           canonicalTimestamp: new BN(canonicalTimestamp),
           signaturesRequired,
           registryVersion,
@@ -372,7 +358,7 @@ export function registerRoundCommands(program: Command): void {
         roundRecord: roundRecordPda.toBase58(),
         agentEscrow: escrowPda.toBase58(),
         escrowAta: escrowAta.toBase58(),
-        feedId: `0x${Buffer.from(feedId).toString("hex")}`,
+        sourceId: `0x${Buffer.from(sourceId).toString("hex")}`,
         creditedBits,
       });
     });

@@ -91,7 +91,9 @@ const EXPECTED_MESSAGE_PREFIX = Buffer.from([
 // Fixture data (decoded once, used across tests)
 // ---------------------------------------------------------------------------
 
-const feedId = hexToBytes(fixture.dataUpdate.feedId);
+const sourceId = hexToBytes(
+  (fixture.dataUpdate as { sourceId: string }).sourceId
+);
 const value = hexToBytes(fixture.dataUpdate.value);
 const registryVersion: number = fixture.dataUpdate.registryVersion;
 const signaturesRequired: number = fixture.dataUpdate.signaturesRequired;
@@ -126,7 +128,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
    * ```
    * keccak256(abi.encodePacked(
    *   MESSAGE_PREFIX,
-   *   feedId,
+   *   sourceId,
    *   registryVersion (uint32 BE),
    *   signaturesRequired (uint32 BE),
    *   signersBitmap (uint256 BE),
@@ -142,7 +144,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
   function buildMessagePreimage(): Uint8Array {
     return concat(
       EXPECTED_MESSAGE_PREFIX,
-      feedId,
+      sourceId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
       signersBitmap,
@@ -164,7 +166,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
     const base = computeMessageHash();
     const altered = concat(
       EXPECTED_MESSAGE_PREFIX,
-      feedId,
+      sourceId,
       u32BE(registryVersion + 1),
       u32BE(signaturesRequired),
       signersBitmap,
@@ -180,7 +182,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
     mutValue[0] ^= 0xff;
     const altered = concat(
       EXPECTED_MESSAGE_PREFIX,
-      feedId,
+      sourceId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
       signersBitmap,
@@ -196,7 +198,7 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
     mutBitmap[31] ^= 0x01;
     const altered = concat(
       EXPECTED_MESSAGE_PREFIX,
-      feedId,
+      sourceId,
       u32BE(registryVersion),
       u32BE(signaturesRequired),
       mutBitmap,

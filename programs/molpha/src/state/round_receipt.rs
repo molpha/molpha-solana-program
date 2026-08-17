@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-/// Subscription round settled by `settle_round_receipt`; seed `["molpha_round", feed_id, ts_le]`.
+/// Subscription round settled by `settle_round_receipt`; seed `["molpha_round", source_id, ts_le]`.
 pub const RECORD_KIND_SUBSCRIPTION: u8 = 0;
 /// Agent `FreshRound` settled by `settle_agent_round`; dispute-exposed like a subscription round.
 pub const RECORD_KIND_AGENT_FRESH: u8 = 1;
@@ -9,7 +9,7 @@ pub const RECORD_KIND_AGENT_FRESH: u8 = 1;
 #[account]
 #[derive(InitSpace)]
 pub struct RoundReceiptRecord {
-    pub feed_id: [u8; 32],
+    pub source_id: [u8; 32],
     pub timestamp: u64,
     pub signatures_required: u8,
     pub signers_bitmap: [u8; 32],

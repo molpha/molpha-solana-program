@@ -5,7 +5,7 @@ import * as secp256k1 from "@noble/secp256k1";
 import { Point } from "@noble/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
 import { bytesToHex, hexToBytes, parseBigIntString } from "../utils";
-import { VerifyDataUpdateFixture } from "./fixtures";
+import { fixtureSourceId, VerifyDataUpdateFixture } from "./fixtures";
 
 const MESSAGE_PREFIX = Buffer.from(
   keccak_256(Buffer.from("MOLPHA_MESSAGE_V1"))
@@ -27,14 +27,13 @@ export type E2eSignerMaterial = {
 };
 
 export type E2eDataUpdateFields = {
-  configHash: Uint8Array;
   value: Uint8Array;
   canonicalTimestamp: number;
 };
 
 export type SignedDataUpdate = {
   submitArgs: {
-    feedId: number[];
+    sourceId: number[];
     registryVersion: number;
     value: Buffer;
     canonicalTimestamp: BN;
@@ -225,14 +224,14 @@ export function deriveGroupBitmap(
 }
 
 export function deriveSelectionSeed(
-  feedId: Uint8Array,
+  sourceId: Uint8Array,
   registryVersion: number,
   canonicalTimestamp: number
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
       SELECTION_SEED_PREFIX,
-      Buffer.from(feedId),
+      Buffer.from(sourceId),
       Buffer.from(u32be(registryVersion)),
       Buffer.from(u64be(canonicalTimestamp)),
     ])
@@ -248,8 +247,8 @@ export function effectiveSelectionSize(
   return Math.min(nodeCount, signaturesRequired + redundancyBuffer);
 }
 
-export function deriveSignersBitmapForJob(
-  feedId: Uint8Array,
+export function deriveSignersBitmap(
+  sourceId: Uint8Array,
   registryVersion: number,
   nodeCount: number,
   signaturesRequired: number,
@@ -262,7 +261,7 @@ export function deriveSignersBitmapForJob(
     nodeCount
   );
   return deriveGroupBitmap(
-    deriveSelectionSeed(feedId, registryVersion, canonicalTimestamp),
+    deriveSelectionSeed(sourceId, registryVersion, canonicalTimestamp),
     nodeCount,
     selectionSize
   );
@@ -294,7 +293,7 @@ export function generateE2eSignerMaterialFromSeed(
 }
 
 function computeMessageHash(params: {
-  feedId: Uint8Array;
+  sourceId: Uint8Array;
   registryVersion: number;
   signaturesRequired: number;
   signersBitmap: Uint8Array;
@@ -303,7 +302,7 @@ function computeMessageHash(params: {
 }): Uint8Array {
   return keccakConcat([
     MESSAGE_PREFIX,
-    params.feedId,
+    params.sourceId,
     u32be(params.registryVersion),
     u32be(params.signaturesRequired),
     params.signersBitmap,
@@ -346,7 +345,7 @@ export function signE2eDataUpdate(
   registryVersion: number,
   signerMaterial: E2eSignerMaterial,
   signerCountOrBitmap: number | Uint8Array,
-  feedId: Uint8Array,
+  sourceId: Uint8Array,
   dataUpdate: E2eDataUpdateFields,
   signaturesRequired?: number
 ): SignedDataUpdate {
@@ -357,7 +356,7 @@ export function signE2eDataUpdate(
   const signerCount = bitmapPopcountEvm(signersBitmap);
   const required = signaturesRequired ?? signerCount;
   const messageHash = computeMessageHash({
-    feedId,
+    sourceId,
     registryVersion,
     signaturesRequired: required,
     signersBitmap,
@@ -393,7 +392,7 @@ export function signE2eDataUpdate(
 
   return {
     submitArgs: {
-      feedId: Array.from(feedId),
+      sourceId: Array.from(sourceId),
       registryVersion,
       value: Buffer.from(dataUpdate.value),
       canonicalTimestamp: new BN(dataUpdate.canonicalTimestamp),
@@ -415,7 +414,7 @@ export function buildSubmitArgsFromFixture(fixture: VerifyDataUpdateFixture) {
   const signaturesRequired =
     fixture.dataUpdate.signaturesRequired ?? bitmapPopcountEvm(signersBitmap);
   return {
-    feedId: Array.from(hexToBytes(fixture.dataUpdate.feedId, 32, "feed id")),
+    sourceId: Array.from(hexToBytes(fixtureSourceId(fixture), 32, "source id")),
     registryVersion: fixture.dataUpdate.registryVersion,
     value: Buffer.from(
       hexToBytes(fixture.dataUpdate.value, undefined, "value")

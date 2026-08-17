@@ -5,7 +5,7 @@ use crate::{
         hash_agg_sig, hash_request_auth_fields, resolve_registry_signers, AggregatedSig, Delegate,
         Feed, Gateway, ProtocolConfig, Registry, RegistryState, RoundReceiptRecord, Subscription,
     },
-    utils::{ed25519::verify_ed25519_signature, registry::derive_feed_id},
+    utils::ed25519::verify_ed25519_signature,
 };
 use anchor_lang::prelude::*;
 use molpha_verifier::bitmap::bitmap_load;
@@ -13,7 +13,7 @@ use molpha_verifier::bitmap::bitmap_load;
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleRoundArgs {
     pub timestamp: u64,
-    pub api_config_hash: [u8; 32],
+    pub source_id: [u8; 32],
     pub signatures_required: u8,
     pub registry_version: u32,
     pub agg_sig: AggregatedSig,
@@ -38,12 +38,6 @@ pub fn settle_round_receipt<'info>(
         MolphaError::SubscriptionInactiveOrExhausted
     );
 
-    let feed_id = derive_feed_id(
-        args.consumer_authority,
-        args.api_config_hash,
-        args.signatures_required,
-    );
-
     require!(
         args.registry_version == ctx.accounts.registry_state.current_version
             && registry.version == args.registry_version,
@@ -63,7 +57,8 @@ pub fn settle_round_receipt<'info>(
         args.signatures_required,
     )?;
 
-    let request_auth_hash = hash_request_auth_fields(&feed_id, args.timestamp);
+    let request_auth_hash =
+        hash_request_auth_fields(&args.source_id, args.signatures_required, args.timestamp);
     require!(
         verify_ed25519_signature(
             &ctx.accounts.instructions_sysvar,
@@ -89,7 +84,7 @@ pub fn settle_round_receipt<'info>(
     let agg_sig_hash = hash_agg_sig(&args.agg_sig);
     let data_update_message_hash = molpha_verifier::compute_message_hash(
         &molpha_verifier::DataUpdate {
-            feed_id,
+            source_id: args.source_id,
             signatures_required: args.signatures_required,
             registry_version: args.registry_version,
             signers_bitmap: args.agg_sig.signers_bitmap,
@@ -115,7 +110,7 @@ pub fn settle_round_receipt<'info>(
 
     // 9 (dedup) is enforced by `init` on the record PDA.
     let record = &mut ctx.accounts.round_record;
-    record.feed_id = feed_id;
+    record.source_id = args.source_id;
     record.timestamp = args.timestamp;
     record.signatures_required = args.signatures_required;
     record.signers_bitmap = args.agg_sig.signers_bitmap;
@@ -131,7 +126,7 @@ pub fn settle_round_receipt<'info>(
 
     emit!(RoundSettled {
         gateway: gateway.key(),
-        feed_id,
+        source_id: args.source_id,
         timestamp: args.timestamp,
         signers_bitmap: args.agg_sig.signers_bitmap,
         credited_count,
@@ -226,7 +221,7 @@ pub struct SettleRoundReceipt<'info> {
         seeds = [
             RoundReceiptRecord::SEED_PREFIX,
             args.consumer_authority.as_ref(),
-            args.api_config_hash.as_ref(),
+            args.source_id.as_ref(),
             args.signatures_required.to_le_bytes().as_ref(),
             args.timestamp.to_le_bytes().as_ref(),
         ],

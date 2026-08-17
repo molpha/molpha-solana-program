@@ -99,9 +99,8 @@ yarn molpha registry register \
   --owner-usdc <OWNER_USDC_ATA>
 
 yarn molpha data submit \
-  --feed-id <FEED_ID_HEX> \
+  --source-id <SOURCE_ID_HEX> \
   --registry-version 1 \
-  --config-hash <32_BYTE_HEX> \
   --value <32_BYTE_HEX> \
   --canonical-timestamp 1700000123 \
   --signer-count 1 \
@@ -116,7 +115,7 @@ resulting signature — never the secp256k1 private key.
 Inspect accounts:
 
 ```bash
-yarn molpha account feed --feed-id <FEED_ID_HEX>
+yarn molpha account feed --source-id <SOURCE_ID_HEX> --signatures-required 1
 yarn molpha account gateway --authority <GATEWAY_AUTHORITY>
 yarn molpha account round --address <ROUND_RECORD>
 ```
@@ -133,7 +132,7 @@ Gateway + settlement:
 yarn molpha gateway register --bond-amount 500000000 --ip 10.0.0.1 --port 8080
 
 yarn molpha round settle-subscription \
-  --api-config-hash <32_BYTE_HEX> \
+  --source-id <SOURCE_ID_HEX> \
   --timestamp 1700000123 \
   --signatures-required 1 \
   --registry-version 1 \
@@ -153,8 +152,12 @@ yarn molpha gateway claim
 
 - Seeds match the current program: `molpha_config`, `molpha_registry`, `molpha_feed`,
   `molpha_gateway`, `molpha_round`, `molpha_agent`, `molpha_agent_round`, etc.
-- There is no `Job` account or `create_job` / `verify_data_update` instruction.
-  Feeds are created via `init_if_needed` inside `submit_data_update`.
+- Feed PDA is `[molpha_feed, source_id, signatures_required, submitter]`. Round PDAs
+  also include `source_id` and `signatures_required` (not a derived `feed_id` or
+  `api_config_hash`). `--submitter` defaults to the wallet.
+- There is no `Job` account or `create_job` instruction. Feeds are created via
+  `init_if_needed` inside `submit_data_update`. `source_id` is a caller-provided
+  32-byte identifier.
 - `data verify` only rebuilds/prints submit args off chain; verification happens on submit.
 - Subscription payment uses monthly `subscribe` / `extend` (not per-round top-ups).
 - Settlement requires an Ed25519 RequestAuth / AgentRequestAuth pre-instruction; provide

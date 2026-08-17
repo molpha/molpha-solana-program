@@ -44,7 +44,11 @@ const CU_CEILINGS = {
   submit_data_update: { 3: 273_000, 8: 334_000, 18: 454_000, 32: 574_000 },
 };
 
-const FIXTURE_FEED_ID = hexToBuffer(EVM_FIXTURE.dataUpdate.feedId);
+const FIXTURE_SOURCE_ID = hexToBuffer(
+  EVM_FIXTURE.dataUpdate.sourceId ?? EVM_FIXTURE.dataUpdate.feedId
+);
+/** @deprecated Use FIXTURE_SOURCE_ID. */
+const FIXTURE_FEED_ID = FIXTURE_SOURCE_ID;
 const FIXTURE_CONFIG_HASH = hexToBuffer(EVM_FIXTURE.dataUpdate.configHash);
 const FIXTURE_VALUE = hexToBuffer(EVM_FIXTURE.dataUpdate.value);
 const FIXTURE_REGISTRY_VERSION = EVM_FIXTURE.dataUpdate.registryVersion;
@@ -167,12 +171,12 @@ function deriveGroupBitmap(seed, nodeCount, groupSize) {
   return bigintToEvmBytes32(bitmap);
 }
 
-function deriveSelectionSeed(feedId, registryVersion, canonicalTimestamp) {
+function deriveSelectionSeed(sourceId, registryVersion, canonicalTimestamp) {
   return Buffer.from(
     keccak_256(
       Buffer.concat([
         SELECTION_SEED_PREFIX,
-        feedId,
+        sourceId,
         u32be(registryVersion),
         u64be(canonicalTimestamp),
       ])
@@ -188,8 +192,8 @@ function effectiveSelectionSize(
   return Math.min(nodeCount, signaturesRequired + redundancyBuffer);
 }
 
-function deriveSignersBitmapForJob(
-  feedId,
+function deriveSignersBitmap(
+  sourceId,
   registryVersion,
   nodeCount,
   signaturesRequired,
@@ -201,7 +205,7 @@ function deriveSignersBitmapForJob(
     redundancyBuffer,
     nodeCount
   );
-  const seed = deriveSelectionSeed(feedId, registryVersion, timestamp);
+  const seed = deriveSelectionSeed(sourceId, registryVersion, timestamp);
   return deriveGroupBitmap(seed, nodeCount, selectionSize);
 }
 
@@ -270,7 +274,7 @@ function schnorrSignForVerifier({
 }
 
 function computeMessageHash({
-  feedId,
+  sourceId,
   registryVersion,
   signaturesRequired,
   signersBitmap,
@@ -279,7 +283,7 @@ function computeMessageHash({
 }) {
   return keccakConcat([
     MESSAGE_PREFIX,
-    feedId,
+    sourceId,
     u32be(registryVersion),
     u32be(signaturesRequired),
     signersBitmap,
@@ -352,9 +356,14 @@ function findNodePda(programId, owner) {
   )[0];
 }
 
-function findFeedPda(programId, feedId) {
+function findFeedPda(programId, sourceId, signaturesRequired, submitter) {
   return PublicKey.findProgramAddressSync(
-    [FEED_SEED, Buffer.from(feedId)],
+    [
+      FEED_SEED,
+      Buffer.from(sourceId),
+      Buffer.from([signaturesRequired & 0xff]),
+      submitter.toBuffer(),
+    ],
     programId
   )[0];
 }
@@ -425,17 +434,15 @@ function buildCoalitionSignature({
   signerCount,
   privKeys,
   compressedPubkeys,
-  feedId,
+  sourceId,
   registryVersion,
-  configHash,
   value,
   canonicalTimestamp,
   nodeCount = NODE_COUNT,
   redundancyBuffer = REDUNDANCY_BUFFER,
 }) {
-  void configHash;
-  const signersBitmap = deriveSignersBitmapForJob(
-    feedId,
+  const signersBitmap = deriveSignersBitmap(
+    sourceId,
     registryVersion,
     nodeCount,
     signerCount,
@@ -443,7 +450,7 @@ function buildCoalitionSignature({
     canonicalTimestamp
   );
   const messageHash = computeMessageHash({
-    feedId,
+    sourceId: id,
     registryVersion,
     signaturesRequired: signerCount,
     signersBitmap,
@@ -474,9 +481,9 @@ function buildCoalitionSignature({
   return { signersBitmap, s, commitmentAddr };
 }
 
-function buildSubmitArgs(signerCount, signatureMaterial, feedId) {
+function buildSubmitArgs(signerCount, signatureMaterial, sourceId) {
   return buildLiveSubmitArgs({
-    feedId,
+    sourceId,
     registryVersion: FIXTURE_REGISTRY_VERSION,
     signaturesRequired: signerCount,
     signersBitmap: signatureMaterial.signersBitmap,
@@ -489,6 +496,7 @@ function buildSubmitArgs(signerCount, signatureMaterial, feedId) {
 
 /** Anchor `submitDataUpdate` / `verifyDataUpdate` args (current on-chain layout). */
 function buildLiveSubmitArgs({
+  sourceId,
   feedId,
   registryVersion,
   signaturesRequired,
@@ -498,8 +506,9 @@ function buildLiveSubmitArgs({
   aggSigS,
   commitmentAddr,
 }) {
+  const id = sourceId ?? feedId;
   return {
-    feedId: Array.from(feedId),
+    sourceId: Array.from(id),
     signaturesRequired,
     registryVersion,
     signersBitmap: Array.from(signersBitmap),
@@ -557,19 +566,20 @@ function signDataUpdateForRegistry({
   registryVersion,
   signerMaterial,
   signaturesRequired,
+  sourceId,
   feedId,
   value,
   canonicalTimestamp,
   nodeCount,
   redundancyBuffer = REDUNDANCY_BUFFER,
 }) {
+  const id = sourceId ?? feedId;
   const signatureMaterial = buildCoalitionSignature({
     signerCount: signaturesRequired,
     privKeys: signerMaterial.privKeys,
     compressedPubkeys: signerMaterial.compressedPubkeys,
-    feedId,
+    sourceId: id,
     registryVersion,
-    configHash: Buffer.alloc(32, 0),
     value,
     canonicalTimestamp,
     nodeCount,
@@ -578,7 +588,7 @@ function signDataUpdateForRegistry({
 
   return {
     submitArgs: buildLiveSubmitArgs({
-      feedId,
+      sourceId: id,
       registryVersion,
       signaturesRequired,
       signersBitmap: signatureMaterial.signersBitmap,
@@ -671,9 +681,7 @@ async function buildBenchAccountSet(
   signerMaterial,
   opts = {}
 ) {
-  const feedId =
-    opts.feedId ??
-    deriveFeedId(payer.publicKey, benchConfigHash(signerCount), signerCount);
+  const sourceId = opts.sourceId;
   const registryVersion = opts.registryVersion ?? FIXTURE_REGISTRY_VERSION;
   const material = attachNodePdas(programId, signerMaterial);
   const nodeCount = material.compressedPubkeys.length;
@@ -688,11 +696,12 @@ async function buildBenchAccountSet(
     [REGISTRY_SEED, u32le(registryVersion)],
     programId
   );
-  const [feedPda, feedBump] = PublicKey.findProgramAddressSync(
-    [FEED_SEED, feedId],
-    programId
+  const feedPda = findFeedPda(
+    programId,
+    sourceId,
+    signerCount,
+    payer.publicKey
   );
-  void feedBump;
 
   const accounts = [];
 
@@ -760,7 +769,8 @@ async function buildBenchAccountSet(
 
   return {
     accounts,
-    feedId,
+    sourceId,
+    feedId: sourceId,
     registryVersion,
     protocolConfigPda,
     registryStatePda,
@@ -816,6 +826,7 @@ module.exports = {
   COMPUTE_UNIT_LIMIT,
   CU_CEILINGS,
   REGISTRY_SPACE,
+  FIXTURE_SOURCE_ID,
   FIXTURE_FEED_ID,
   FIXTURE_VALUE,
   FIXTURE_REGISTRY_VERSION,
@@ -830,7 +841,7 @@ module.exports = {
   hexToBuffer,
   u32le,
   evmBitmapBitSet,
-  deriveSignersBitmapForJob,
+  deriveSignersBitmap,
   deriveSelectionSeed,
   effectiveSelectionSize,
   benchConfigHash,

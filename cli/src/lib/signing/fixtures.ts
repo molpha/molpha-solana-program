@@ -9,7 +9,7 @@ export type VerifyDataUpdateFixture = {
   secretKeys?: string[];
   nodePrivkeys?: string[];
   dataUpdate: {
-    feedId: string;
+    sourceId?: string;
     registryVersion: number;
     signaturesRequired: number;
     configHash: string;
@@ -22,6 +22,14 @@ export type VerifyDataUpdateFixture = {
     signersBitmap: number;
   };
 };
+
+export function fixtureSourceId(fixture: VerifyDataUpdateFixture): string {
+  const sourceId = fixture.dataUpdate.sourceId;
+  if (!sourceId) {
+    throw new Error("fixture dataUpdate.sourceId is missing");
+  }
+  return sourceId;
+}
 
 export function loadVerifyFixture(filePath: string): VerifyDataUpdateFixture {
   return readJsonFile<VerifyDataUpdateFixture>(filePath);

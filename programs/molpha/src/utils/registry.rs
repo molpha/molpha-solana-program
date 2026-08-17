@@ -11,28 +11,12 @@ use molpha_verifier::scalar::secp256k1_scalar_is_valid_nonzero;
 
 pub const NODE_ID_PREFIX: &[u8] = b"MOLPHA_NODE_ID_V1";
 pub const NODE_POP_PREFIX: &[u8] = b"MOLPHA_NODE_POP_V1";
-pub const FEED_ID_PREFIX: &[u8] = b"MOLPHA_JOB_V1";
 pub const LIBP2P_PEER_ID_PREFIX: &[u8] = b"MOLPHA_LIBP2P_PEER_ID_V1";
 
 const SECP256K1_ORDER: [u8; 32] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
     0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36, 0x41, 0x41,
 ];
-
-pub fn derive_feed_id(
-    owner: Pubkey,
-    api_config_hash: [u8; 32],
-    signatures_required: u8,
-) -> [u8; 32] {
-    let signatures_required_bytes = [signatures_required];
-    hashv(&[
-        FEED_ID_PREFIX,
-        owner.as_ref(),
-        api_config_hash.as_ref(),
-        signatures_required_bytes.as_ref(),
-    ])
-    .to_bytes()
-}
 
 pub fn derive_node_id(
     owner: Pubkey,

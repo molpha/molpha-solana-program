@@ -13,7 +13,7 @@ pub enum FeedValueKind {
 #[account]
 #[derive(InitSpace)]
 pub struct Feed {
-    pub feed_id: [u8; 32],
+    pub source_id: [u8; 32],
     /// Stored oracle bytes: raw payload (`FeedValueKind::Value`) or keccak digest
     /// (`FeedValueKind::Hash`). Never longer than [`Feed::STORED_VALUE_LEN`].
     #[max_len(32)]
@@ -27,7 +27,7 @@ pub struct Feed {
 }
 
 pub struct FeedInitParams {
-    pub feed_id: [u8; 32],
+    pub source_id: [u8; 32],
     pub value: Vec<u8>,
     pub value_kind: FeedValueKind,
     pub canonical_timestamp: i64,
@@ -71,7 +71,7 @@ impl Feed {
     }
 
     pub fn init(&mut self, params: &FeedInitParams) {
-        self.feed_id = params.feed_id;
+        self.source_id = params.source_id;
         self.value = params.value.clone();
         self.value_kind = params.value_kind;
         self.canonical_timestamp = params.canonical_timestamp;

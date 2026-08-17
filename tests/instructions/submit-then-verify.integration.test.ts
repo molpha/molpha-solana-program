@@ -15,7 +15,6 @@ import { Clock } from "solana-bankrun";
 import { setupTestContext, TestContext } from "../setup";
 import { generateE2eScenario } from "../helpers/e2e-fixture-export";
 import {
-  deriveFeedId,
   findFeedPda,
   findRegistryPda,
   generateE2eSignerMaterialFromSeed,
@@ -169,19 +168,19 @@ describe("submit_data_update (current registry)", () => {
       .rpc();
 
     // ---- ≤32 bytes → FeedValueKind::Value ----
-    const feedId = deriveFeedId(
-      ctx.authority.publicKey,
-      scenario.configHash,
-      SIGNER_COUNT
+    const sourceId = scenario.sourceId;
+    const feedPda = findFeedPda(
+      program.programId,
+      sourceId,
+      SIGNER_COUNT,
+      ctx.authority.publicKey
     );
-    const feedPda = findFeedPda(program.programId, feedId);
     const signedValue = signE2eDataUpdate(
       registry.version,
       signerMaterial,
       SIGNER_COUNT,
-      feedId,
+      sourceId,
       {
-        configHash: scenario.configHash,
         value: scenario.value,
         canonicalTimestamp: scenario.canonicalTimestamp,
       }
@@ -224,20 +223,19 @@ describe("submit_data_update (current registry)", () => {
     );
 
     // ---- >32 bytes → FeedValueKind::Hash ----
-    const longConfigHash = Buffer.from(keccak_256(Buffer.from("long-config")));
-    const longFeedId = deriveFeedId(
-      ctx.authority.publicKey,
-      longConfigHash,
-      SIGNER_COUNT
+    const longSourceId = Buffer.from(keccak_256(Buffer.from("long-config")));
+    const longFeedPda = findFeedPda(
+      program.programId,
+      longSourceId,
+      SIGNER_COUNT,
+      ctx.authority.publicKey
     );
-    const longFeedPda = findFeedPda(program.programId, longFeedId);
     const signedHash = signE2eDataUpdate(
       registry.version,
       signerMaterial,
       SIGNER_COUNT,
-      longFeedId,
+      longSourceId,
       {
-        configHash: longConfigHash,
         value: longValue,
         canonicalTimestamp: scenario.canonicalTimestamp + 1,
       }
