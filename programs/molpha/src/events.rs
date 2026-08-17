@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::state::FeedValueKind;
+use crate::state::{FeedValueKind, NodeStatus, OffenceKind};
 
 #[event]
 pub struct ProtocolConfigUpdated {
@@ -76,6 +76,8 @@ pub enum RegistryVersionReason {
     NodeAdded,
     NodeRemoved,
     PolicyChanged,
+    NodePunished,
+    NodeReinstated,
 }
 
 #[event]
@@ -231,4 +233,37 @@ pub struct AgentRoundSettled {
     pub signers_bitmap: [u8; 32],
     pub credited_count: u32,
     pub recorded_slot: u64,
+}
+
+#[event]
+pub struct EquivocationProven {
+    pub source_id: [u8; 32],
+    pub registry_version: u32,
+    pub signatures_required: u8,
+    pub canonical_timestamp: i64,
+    pub guilty_bitmap: [u8; 32],
+    pub guilty_count: u16,
+    pub evidence_hash: [u8; 32],
+    pub reporter: Pubkey,
+    pub slashed_total: u64,
+    pub bounty_paid: u64,
+}
+
+#[event]
+pub struct NodePunished {
+    pub node: Pubkey,
+    pub owner: Pubkey,
+    pub offence: OffenceKind,
+    pub slashed_locked: u64,
+    pub slashed_rewards: u64,
+    pub new_status: NodeStatus,
+    pub punished_at: i64,
+}
+
+#[event]
+pub struct NodeReinstated {
+    pub node: Pubkey,
+    pub owner: Pubkey,
+    pub registry_version: u32,
+    pub reinstated_at: i64,
 }

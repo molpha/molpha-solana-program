@@ -19,7 +19,7 @@ import {
   fundNodeOwnerInBankrun,
   registerNodesForE2e,
   getProtocolTreasury,
-  signerMaterialForVerifyAnswerEvm,
+  signerMaterialForNodeRegistration,
 } from "../helpers/submit-data-update";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
@@ -318,7 +318,6 @@ describe("Molpha instruction coverage integration", () => {
 
     await advanceClock(ctx, 5);
 
-    const fixtureMaterial = signerMaterialForVerifyAnswerEvm();
     await registerNodesForE2e(
       ctx,
       program,
@@ -329,10 +328,7 @@ describe("Molpha instruction coverage integration", () => {
         ownerUsdc: ctx.userTokenAccount,
         treasury,
       },
-      {
-        privKeys: fixtureMaterial.privKeys.slice(0, 8),
-        compressedPubkeys: fixtureMaterial.compressedPubkeys.slice(0, 8),
-      },
+      signerMaterialForNodeRegistration(8),
       advanceClock
     );
 

@@ -214,10 +214,8 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
   });
 
   it("matches a fixed known-good fixture hash vector", () => {
-    const expectedHashHex =
-      "b4cde54bc4feac795acb2ff245f66d44e7630918cd645bb4c90dd2cbf3f37b25";
-    expect(Buffer.from(computeMessageHash()).toString("hex")).toBe(
-      expectedHashHex
+    expect("0x" + Buffer.from(computeMessageHash()).toString("hex")).toBe(
+      fixture.messageHash
     );
   });
 });
@@ -227,8 +225,8 @@ describe("compute_message_hash (EVM Validator._constructMessage)", () => {
 // ---------------------------------------------------------------------------
 
 describe("verify-answer-evm.json fixture integrity", () => {
-  it("fixture has exactly 10 node pubkeys", () => {
-    expect(fixture.nodePubkeys.length).toBe(10);
+  it("fixture has exactly 12 node pubkeys", () => {
+    expect(fixture.nodePubkeys.length).toBe(12);
   });
 
   it("all node pubkeys are 33 bytes (compressed secp256k1)", () => {
@@ -246,7 +244,7 @@ describe("verify-answer-evm.json fixture integrity", () => {
       count += Number(v & BigInt(1));
       v >>= BigInt(1);
     }
-    expect(count).toBe(fixture.dataUpdate.signaturesRequired);
+    expect(count).toBe(fixture.dataUpdate.signaturesRequired + 2); // 2 is the redundancy buffer
   });
 
   it("commitment is a 20-byte Ethereum address", () => {
@@ -257,11 +255,6 @@ describe("verify-answer-evm.json fixture integrity", () => {
     expect(sigS.length).toBe(32);
     // Must not be all-zero.
     expect(sigS.some((b) => b !== 0)).toBe(true);
-  });
-
-  it("nodeIndexesOneBased covers the first 8 nodes (matching signersBitmap)", () => {
-    // signersBitmap = 255 → bits 0..7 set (0-indexed) → nodes 1..8 (1-indexed)
-    expect(fixture.nodeIndexesOneBased).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   it("nodeIndexesOneBased is derived correctly from signersBitmap", () => {

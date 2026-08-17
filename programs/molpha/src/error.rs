@@ -138,6 +138,22 @@ pub enum MolphaError {
     CreditedExceedsSelection,
     #[msg("value exceeds Feed::MAX_VALUE_LEN")]
     InvalidValueLength,
+
+    // ---- Node punishment. ----
+    #[msg("equivocation requires two statements with different values")]
+    EquivocationSameStatement,
+    #[msg("recomputed evidence hash does not match the supplied evidence_hash")]
+    EvidenceHashMismatch,
+    #[msg("intersection of the two signer bitmaps is empty")]
+    GuiltySetEmpty,
+    #[msg("node is permanently tombstoned")]
+    NodeTombstoned,
+    #[msg("node is not Frozen")]
+    NodeNotFrozen,
+    #[msg("node is still inside its freeze window")]
+    NodeStillFrozen,
+    #[msg("node is already present in the current registry")]
+    NodeAlreadyInRegistry,
 }
 
 pub(crate) fn map_data_update_err(error: DataUpdateError) -> anchor_lang::error::Error {

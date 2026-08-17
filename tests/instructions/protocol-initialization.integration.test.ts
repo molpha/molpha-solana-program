@@ -4,12 +4,13 @@
  */
 import { BN, Idl, Program } from "@coral-xyz/anchor";
 import { assert } from "chai";
-import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
+import { advanceClock } from "../helpers/agent-access";
 import {
   findRegistryPda,
   getProtocolTreasury,
@@ -208,27 +209,41 @@ describe("protocol initialization", () => {
     const { program, protocolConfigPda, registryStatePda, treasury } =
       await initializeProtocol(ctx);
 
-    try {
-      await program.methods
-        .initialize({
-          ...INIT_ARGS,
-          usdcMint: ctx.underlyingTokenMint,
-        })
-        .accountsPartial({
-          protocolConfig: protocolConfigPda,
-          registryState: registryStatePda,
-          usdcMint: ctx.underlyingTokenMint,
-          treasury,
-          authority: ctx.authority.publicKey,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
+    await advanceClock(ctx, 5);
+
+    const ix = await program.methods
+      .initialize({
+        ...INIT_ARGS,
+        usdcMint: ctx.underlyingTokenMint,
+      })
+      .accountsPartial({
+        protocolConfig: protocolConfigPda,
+        registryState: registryStatePda,
+        usdcMint: ctx.underlyingTokenMint,
+        treasury,
+        authority: ctx.authority.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction();
+    const [blockhash] =
+      await ctx.provider.context.banksClient.getLatestBlockhash();
+    const tx = new Transaction().add(ix);
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = ctx.authority.publicKey;
+    tx.sign(ctx.authority.payer);
+
+    const result =
+      await ctx.provider.context.banksClient.tryProcessTransaction(tx);
+    if (result.result === null) {
       assert.fail("expected duplicate initialize to fail");
-    } catch (error: any) {
-      assert.match(String(error), /already in use|AccountNotInitialized/i);
     }
+    const logs = result.meta?.logMessages?.join("\n") ?? "";
+    assert.match(
+      `${result.result}\n${logs}`,
+      /already in use|AccountNotInitialized/i
+    );
   });
 
   it("rejects usdc mint mismatch between args and account", async () => {

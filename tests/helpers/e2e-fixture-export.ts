@@ -14,7 +14,7 @@ import {
 export type VerifyAnswerEvmFixture = {
   registeredNodeCount: number;
   registryVersion: number;
-  configHash: string;
+  messageHash: string;
   nodeIndexesOneBased: number[];
   nodePubkeys: string[];
   /** Decimal-string secp256k1 scalars for the signing coalition (EVM export style). */
@@ -37,6 +37,7 @@ export type VerifyAnswerEvmFixture = {
 
 export type E2eScenario = E2eDataUpdateFields & {
   sourceId: Uint8Array;
+  configHash: Uint8Array;
   seed: string;
   signerCount: number;
 };
@@ -58,6 +59,7 @@ export function generateE2eScenario(
     seed,
     signerCount,
     sourceId: labeledBytes32(seed, "sourceId"),
+    configHash: labeledBytes32(seed, "configHash"),
     value: labeledBytes32(seed, "feedValue"),
     canonicalTimestamp: ts,
   };
@@ -70,7 +72,7 @@ export function randomE2eScenarioSeed(): string {
 export function buildVerifyAnswerEvmFixture(params: {
   registeredNodeCount: number;
   registryVersion: number;
-  configHash: Uint8Array;
+  messageHash: Uint8Array;
   nodePubkeys: Uint8Array[];
   nodePrivkeys: bigint[];
   signaturesRequired: number;
@@ -81,18 +83,15 @@ export function buildVerifyAnswerEvmFixture(params: {
     "aggSigS" | "commitmentAddr" | "signersBitmap"
   >;
 }): VerifyAnswerEvmFixture {
-  const nodeIndexesOneBased = Array.from(
-    { length: params.registeredNodeCount },
-    (_, i) => i + 1
-  );
   const signersBitmap = evmSignersBitmapNumberFromBytes(
     params.signed.signersBitmap
   );
+  const nodeIndexesOneBased = bitmapToNodeIndexesOneBased(BigInt(signersBitmap));
 
   return {
     registeredNodeCount: params.registeredNodeCount,
     registryVersion: params.registryVersion,
-    configHash: bytesToHex0x(params.configHash),
+    messageHash: bytesToHex0x(params.messageHash),
     nodeIndexesOneBased,
     nodePubkeys: params.nodePubkeys.map((pk) => bytesToHex0x(pk)),
     secretKeys: params.nodePrivkeys.map((sk) => sk.toString()),
@@ -134,4 +133,14 @@ export function defaultE2eFixtureOutputPath(seed: string): string {
     "fixtures-json",
     `e2e-generated-${safeSeed}.json`
   );
+}
+
+function bitmapToNodeIndexesOneBased(bitmap: bigint): number[] {
+  const indexes: number[] = [];
+  for (let bit = 0; bit < 256; bit++) {
+    if (((bitmap >> BigInt(bit)) & BigInt(1)) === BigInt(1)) {
+      indexes.push(bit + 1);
+    }
+  }
+  return indexes;
 }
