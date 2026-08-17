@@ -17,7 +17,7 @@ const path = require("path");
 const {
   NODE_COUNT,
   COMPUTE_UNIT_LIMIT,
-  FIXTURE_FEED_ID,
+  FIXTURE_SOURCE_ID,
   FIXTURE_CONFIG_HASH,
   FIXTURE_VALUE,
   FIXTURE_REGISTRY_VERSION,
@@ -28,7 +28,7 @@ const {
   buildSubmitArgs,
   nodeRemainingAccounts,
   buildBenchAccountSet,
-  deriveSignersBitmapForJob,
+  deriveSignersBitmap,
   evmBitmapBitSet,
   loadIdl,
   loadProgramId,
@@ -85,9 +85,8 @@ async function measureVerify(provider, program, payer, sigReq) {
     signerCount: sigReq,
     privKeys: signerMaterial.privKeys,
     compressedPubkeys: signerMaterial.compressedPubkeys,
-    feedId: FIXTURE_FEED_ID,
+    sourceId: FIXTURE_SOURCE_ID,
     registryVersion: FIXTURE_REGISTRY_VERSION,
-    configHash: FIXTURE_CONFIG_HASH,
     value: FIXTURE_VALUE,
     canonicalTimestamp: FIXTURE_CANONICAL_TIMESTAMP,
   });
@@ -99,13 +98,13 @@ async function measureVerify(provider, program, payer, sigReq) {
     sigReq,
     signerMaterial,
     {
-      feedId: FIXTURE_FEED_ID,
+      sourceId: FIXTURE_SOURCE_ID,
       registryVersion: FIXTURE_REGISTRY_VERSION,
     }
   );
   await seedFromAccountSet(provider.context, accountSet);
 
-  const args = buildSubmitArgs(sigReq, signatureMaterial, FIXTURE_FEED_ID);
+  const args = buildSubmitArgs(sigReq, signatureMaterial, FIXTURE_SOURCE_ID);
   const remainingAccounts = nodeRemainingAccounts(
     accountSet.nodePdas,
     signatureMaterial.signersBitmap
@@ -171,8 +170,8 @@ async function main() {
 
   const rows = [];
   for (const sigReq of SWEEP) {
-    const bm = deriveSignersBitmapForJob(
-      FIXTURE_FEED_ID,
+    const bm = deriveSignersBitmap(
+      FIXTURE_SOURCE_ID,
       FIXTURE_REGISTRY_VERSION,
       NODE_COUNT,
       sigReq,

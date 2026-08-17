@@ -315,19 +315,20 @@ export async function initializeProtocol(ctx: TestContext): Promise<void> {
 
 // Helper function to create feed parameters
 export function createFeedParams(
-  feedId: string,
+  sourceId: string,
+  signaturesRequired: number,
   feedType: { public: {} } | { personal: {} }
 ) {
   // Convert hex string to byte array properly and pad to 32 bytes
-  const hexString = feedId.startsWith("0x") ? feedId.slice(2) : feedId;
+  const hexString = sourceId.startsWith("0x") ? sourceId.slice(2) : sourceId;
 
   // Pad to 32 bytes (64 hex characters) if needed
   const paddedHexString = hexString.padStart(64, "0");
-  const paddedFeedIdBytes = Array.from(Buffer.from(paddedHexString, "hex"));
+  const paddedSourceIdBytes = Array.from(Buffer.from(paddedHexString, "hex"));
 
   return {
-    name: feedId.slice(0, 32), // Truncate name to 32 characters for PDA generation
-    feedId: paddedFeedIdBytes,
+    name: sourceId.slice(0, 32), // Truncate name to 32 characters for PDA generation
+    sourceId: paddedSourceIdBytes,
     feedType: feedType,
     minSignaturesThreshold: 2,
     frequency: new anchor.BN(300), // 5 minutes as BN

@@ -10,8 +10,6 @@ export type VerifyDataUpdateFixture = {
   nodePrivkeys?: string[];
   dataUpdate: {
     sourceId?: string;
-    /** @deprecated Alias preserved for older fixtures. */
-    feedId?: string;
     registryVersion: number;
     signaturesRequired: number;
     configHash: string;
@@ -26,7 +24,7 @@ export type VerifyDataUpdateFixture = {
 };
 
 export function fixtureSourceId(fixture: VerifyDataUpdateFixture): string {
-  const sourceId = fixture.dataUpdate.sourceId ?? fixture.dataUpdate.feedId;
+  const sourceId = fixture.dataUpdate.sourceId;
   if (!sourceId) {
     throw new Error("fixture dataUpdate.sourceId is missing");
   }

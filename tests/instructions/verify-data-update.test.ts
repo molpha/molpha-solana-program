@@ -92,8 +92,7 @@ const EXPECTED_MESSAGE_PREFIX = Buffer.from([
 // ---------------------------------------------------------------------------
 
 const sourceId = hexToBytes(
-  (fixture.dataUpdate as { sourceId?: string; feedId: string }).sourceId ??
-    fixture.dataUpdate.feedId
+  (fixture.dataUpdate as { sourceId: string }).sourceId
 );
 const value = hexToBytes(fixture.dataUpdate.value);
 const registryVersion: number = fixture.dataUpdate.registryVersion;

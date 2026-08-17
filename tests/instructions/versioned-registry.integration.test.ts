@@ -15,8 +15,7 @@ import { signNodePop } from "../../cli/src/lib/signing/node-pop";
 import {
   buildRegisterNodeArgs,
   deriveNodeId,
-  EVM_FIXTURE_CONFIG_HASH,
-  EVM_FIXTURE_FEED_ID,
+  EVM_FIXTURE_SOURCE_ID,
   EVM_FIXTURE_VALUE,
   evmBitmapBitSet,
   findNodePda,
@@ -341,9 +340,8 @@ describe("immutable versioned node registry", () => {
       3,
       signerMaterial,
       3,
-      EVM_FIXTURE_FEED_ID,
+      EVM_FIXTURE_SOURCE_ID,
       {
-        configHash: EVM_FIXTURE_CONFIG_HASH,
         value: EVM_FIXTURE_VALUE,
         canonicalTimestamp: 1_700_000_123,
       },

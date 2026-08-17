@@ -27,7 +27,6 @@ export type E2eSignerMaterial = {
 };
 
 export type E2eDataUpdateFields = {
-  configHash?: Uint8Array;
   value: Uint8Array;
   canonicalTimestamp: number;
 };
@@ -248,7 +247,7 @@ export function effectiveSelectionSize(
   return Math.min(nodeCount, signaturesRequired + redundancyBuffer);
 }
 
-export function deriveSignersBitmapForJob(
+export function deriveSignersBitmap(
   sourceId: Uint8Array,
   registryVersion: number,
   nodeCount: number,

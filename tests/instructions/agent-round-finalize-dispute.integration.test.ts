@@ -13,7 +13,7 @@ import {
 } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
 import {
-  deriveSignersBitmapForJob,
+  deriveSignersBitmap,
   evmBitmapBitSet,
   findRegistryPda,
   fundNodeOwnerInBankrun,
@@ -272,7 +272,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
 
   it("voids a fabricated agent round on dispute and slashes the gateway bond", async () => {
     const t = ++ts;
-    const selection = deriveSignersBitmapForJob(
+    const selection = deriveSignersBitmap(
       SOURCE_ID,
       registryVersion,
       NODE_COUNT,
@@ -347,7 +347,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       NODE_COUNT,
       SOURCE_ID,
       {
-        configHash: SOURCE_ID,
         value,
         canonicalTimestamp: t,
       },

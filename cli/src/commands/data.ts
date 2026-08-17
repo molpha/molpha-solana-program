@@ -29,8 +29,6 @@ import {
 
 type SubmitArgsShape = {
   sourceId?: number[] | string;
-  /** @deprecated Alias preserved for older args JSON. */
-  feedId?: number[] | string;
   registryVersion: number | string;
   signaturesRequired: number | string;
   signersBitmap: number[] | string;
@@ -262,9 +260,6 @@ function buildSignedPayload(
       "source id"
     ),
     {
-      configHash: options.configHash
-        ? hexToBytes(options.configHash, 32, "config hash")
-        : undefined,
       value: hexToBytes(
         requireValue(options.value, "Missing --value"),
         undefined,
@@ -316,7 +311,7 @@ function feedPdaFromSubmitArgs(
 }
 
 function sourceIdFromArgs(value: SubmitArgsShape): number[] {
-  const raw = value.sourceId ?? value.feedId;
+  const raw = value.sourceId;
   if (raw === undefined) {
     throw new Error("Missing source id");
   }

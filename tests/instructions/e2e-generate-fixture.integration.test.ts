@@ -179,7 +179,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
       })
       .rpc();
 
-    const sourceId = scenario.configHash;
+    const sourceId = scenario.sourceId;
     const feedPda = findFeedPda(
       program.programId,
       sourceId,
@@ -193,7 +193,6 @@ describe("e2e generate verify-answer-evm fixture", () => {
       NODE_COUNT,
       sourceId,
       {
-        configHash: scenario.configHash,
         value: scenario.value,
         canonicalTimestamp: scenario.canonicalTimestamp,
       },
@@ -240,13 +239,11 @@ describe("e2e generate verify-answer-evm fixture", () => {
     const fixture = buildVerifyAnswerEvmFixture({
       registeredNodeCount: NODE_COUNT,
       registryVersion: registry.version,
-      configHash: scenario.configHash,
       nodePubkeys: signerMaterial.compressedPubkeys,
       nodePrivkeys: signerMaterial.privKeys,
       signaturesRequired: SIGNATURES_REQUIRED,
       sourceId,
       dataUpdate: {
-        configHash: scenario.configHash,
         value: scenario.value,
         canonicalTimestamp: scenario.canonicalTimestamp,
       },

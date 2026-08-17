@@ -168,7 +168,7 @@ describe("submit_data_update (current registry)", () => {
       .rpc();
 
     // ---- ≤32 bytes → FeedValueKind::Value ----
-    const sourceId = scenario.configHash;
+    const sourceId = scenario.sourceId;
     const feedPda = findFeedPda(
       program.programId,
       sourceId,
@@ -181,7 +181,6 @@ describe("submit_data_update (current registry)", () => {
       SIGNER_COUNT,
       sourceId,
       {
-        configHash: scenario.configHash,
         value: scenario.value,
         canonicalTimestamp: scenario.canonicalTimestamp,
       }
@@ -237,7 +236,6 @@ describe("submit_data_update (current registry)", () => {
       SIGNER_COUNT,
       longSourceId,
       {
-        configHash: longSourceId,
         value: longValue,
         canonicalTimestamp: scenario.canonicalTimestamp + 1,
       }

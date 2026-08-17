@@ -23,11 +23,8 @@ export type VerifyAnswerEvmFixture = {
   nodePrivkeys?: string[];
   dataUpdate: {
     sourceId: string;
-    /** @deprecated Alias preserved for older fixtures. */
-    feedId?: string;
     registryVersion: number;
     signaturesRequired: number;
-    configHash: string;
     value: string;
     canonicalTimestamp: number;
   };
@@ -39,6 +36,7 @@ export type VerifyAnswerEvmFixture = {
 };
 
 export type E2eScenario = E2eDataUpdateFields & {
+  sourceId: Uint8Array;
   seed: string;
   signerCount: number;
 };
@@ -59,7 +57,7 @@ export function generateE2eScenario(
   return {
     seed,
     signerCount,
-    configHash: labeledBytes32(seed, "apiConfigHash"),
+    sourceId: labeledBytes32(seed, "sourceId"),
     value: labeledBytes32(seed, "feedValue"),
     canonicalTimestamp: ts,
   };
@@ -100,10 +98,8 @@ export function buildVerifyAnswerEvmFixture(params: {
     secretKeys: params.nodePrivkeys.map((sk) => sk.toString()),
     dataUpdate: {
       sourceId: bytesToHex0x(params.sourceId),
-      feedId: bytesToHex0x(params.sourceId),
       registryVersion: params.registryVersion,
       signaturesRequired: params.signaturesRequired,
-      configHash: bytesToHex0x(params.dataUpdate.configHash),
       value: bytesToHex0x(params.dataUpdate.value),
       canonicalTimestamp: params.dataUpdate.canonicalTimestamp,
     },
