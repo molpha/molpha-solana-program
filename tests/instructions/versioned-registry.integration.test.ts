@@ -387,7 +387,7 @@ describe("immutable versioned node registry", () => {
         assert.match(String(error), /MissingSignerAccount|InvalidNodeAccount/);
       }
     }
-    
+
     const state = await (program.account as any).registryState.fetch(
       registryStatePda
     );
