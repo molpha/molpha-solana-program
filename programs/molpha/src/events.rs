@@ -201,6 +201,8 @@ pub struct RoundDisputed {
     pub gateway: Pubkey,
     pub slashed_bond: u64,
     pub challenger_bounty: u64,
+    pub refund_amount: u64,
+    pub round_restored: bool,
 }
 
 #[event]

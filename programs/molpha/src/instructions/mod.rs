@@ -3,7 +3,7 @@ pub mod delegate;
 pub mod gateway;
 pub mod node;
 pub mod round_settlement;
-pub mod slashing;
+pub mod disputing;
 pub mod subscriptions;
 
 #[cfg(feature = "cu-bench")]
@@ -16,7 +16,7 @@ pub use delegate::*;
 pub use gateway::*;
 pub use node::*;
 pub use round_settlement::*;
-pub use slashing::*;
+pub use disputing::*;
 pub use subscriptions::*;
 #[cfg(feature = "cu-bench")]
 pub use bench_registry::*;

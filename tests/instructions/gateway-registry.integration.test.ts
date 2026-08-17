@@ -4,6 +4,7 @@ import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
 import {
@@ -28,6 +29,33 @@ function findGatewayPda(programId: PublicKey, authority: PublicKey): PublicKey {
     programId
   );
   return pda;
+}
+
+function findGatewayBondAta(
+  usdcMint: PublicKey,
+  gatewayPda: PublicKey
+): PublicKey {
+  return getAssociatedTokenAddressSync(usdcMint, gatewayPda, true);
+}
+
+function registerGatewayAccounts(params: {
+  gatewayAuthority: PublicKey;
+  protocolConfigPda: PublicKey;
+  gatewayPda: PublicKey;
+  usdcMint: PublicKey;
+  authorityUsdc: PublicKey;
+}) {
+  return {
+    gatewayAuthority: params.gatewayAuthority,
+    protocolConfig: params.protocolConfigPda,
+    gateway: params.gatewayPda,
+    usdcMint: params.usdcMint,
+    authorityUsdc: params.authorityUsdc,
+    gatewayBond: findGatewayBondAta(params.usdcMint, params.gatewayPda),
+    systemProgram: SystemProgram.programId,
+    tokenProgram: TOKEN_PROGRAM_ID,
+    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+  };
 }
 
 async function initializeProtocol(ctx: TestContext): Promise<{
@@ -94,9 +122,7 @@ async function initializeProtocol(ctx: TestContext): Promise<{
 describe("gateway registry", () => {
   it("allows a gateway authority to register with endpoint and bond", async () => {
     const ctx = await setupTestContext();
-    const { program, protocolConfigPda, treasury } = await initializeProtocol(
-      ctx
-    );
+    const { program, protocolConfigPda } = await initializeProtocol(ctx);
 
     const gatewayAuthority = Keypair.generate();
     const authorityUsdc = await fundNodeOwnerInBankrun(
@@ -112,6 +138,10 @@ describe("gateway registry", () => {
       program.programId,
       gatewayAuthority.publicKey
     );
+    const gatewayBond = findGatewayBondAta(
+      ctx.underlyingTokenMint,
+      gatewayPda
+    );
 
     await program.methods
       .registerGateway({
@@ -119,16 +149,15 @@ describe("gateway registry", () => {
         port,
         bondAmount: GATEWAY_BOND_MIN,
       })
-      .accountsPartial({
-        gatewayAuthority: gatewayAuthority.publicKey,
-        protocolConfig: protocolConfigPda,
-        gateway: gatewayPda,
-        usdcMint: ctx.underlyingTokenMint,
-        authorityUsdc,
-        treasury,
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
+      .accountsPartial(
+        registerGatewayAccounts({
+          gatewayAuthority: gatewayAuthority.publicKey,
+          protocolConfigPda,
+          gatewayPda,
+          usdcMint: ctx.underlyingTokenMint,
+          authorityUsdc,
+        })
+      )
       .signers([gatewayAuthority])
       .rpc();
 
@@ -142,13 +171,18 @@ describe("gateway registry", () => {
       gatewayAuthority.publicKey.toBase58()
     );
     assert.isAbove(Number(gateway.registeredAt), 0);
+
+    const bondAcct = await ctx.provider.context.banksClient.getAccount(
+      gatewayBond
+    );
+    assert.isNotNull(bondAcct);
+    const bondHeld = Buffer.from(bondAcct!.data).readBigUInt64LE(64);
+    assert.equal(bondHeld.toString(), GATEWAY_BOND_MIN.toString());
   });
 
   it("rejects registration below the minimum bond", async () => {
     const ctx = await setupTestContext();
-    const { program, protocolConfigPda, treasury } = await initializeProtocol(
-      ctx
-    );
+    const { program, protocolConfigPda } = await initializeProtocol(ctx);
 
     const gatewayAuthority = Keypair.generate();
     const authorityUsdc = await fundNodeOwnerInBankrun(
@@ -168,16 +202,15 @@ describe("gateway registry", () => {
           port: 8081,
           bondAmount: GATEWAY_BOND_MIN.sub(new BN(1)),
         })
-        .accountsPartial({
-          gatewayAuthority: gatewayAuthority.publicKey,
-          protocolConfig: protocolConfigPda,
-          gateway: gatewayPda,
-          usdcMint: ctx.underlyingTokenMint,
-          authorityUsdc,
-          treasury,
-          systemProgram: SystemProgram.programId,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        })
+        .accountsPartial(
+          registerGatewayAccounts({
+            gatewayAuthority: gatewayAuthority.publicKey,
+            protocolConfigPda,
+            gatewayPda,
+            usdcMint: ctx.underlyingTokenMint,
+            authorityUsdc,
+          })
+        )
         .signers([gatewayAuthority])
         .rpc();
       assert.fail("expected insufficient bond error");
@@ -188,9 +221,7 @@ describe("gateway registry", () => {
 
   it("rejects duplicate gateway registration", async () => {
     const ctx = await setupTestContext();
-    const { program, protocolConfigPda, treasury } = await initializeProtocol(
-      ctx
-    );
+    const { program, protocolConfigPda } = await initializeProtocol(ctx);
 
     const gatewayAuthority = Keypair.generate();
     const authorityUsdc = await fundNodeOwnerInBankrun(
@@ -210,32 +241,30 @@ describe("gateway registry", () => {
 
     await program.methods
       .registerGateway(args)
-      .accountsPartial({
-        gatewayAuthority: gatewayAuthority.publicKey,
-        protocolConfig: protocolConfigPda,
-        gateway: gatewayPda,
-        usdcMint: ctx.underlyingTokenMint,
-        authorityUsdc,
-        treasury,
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
+      .accountsPartial(
+        registerGatewayAccounts({
+          gatewayAuthority: gatewayAuthority.publicKey,
+          protocolConfigPda,
+          gatewayPda,
+          usdcMint: ctx.underlyingTokenMint,
+          authorityUsdc,
+        })
+      )
       .signers([gatewayAuthority])
       .rpc();
 
     try {
       await program.methods
         .registerGateway(args)
-        .accountsPartial({
-          gatewayAuthority: gatewayAuthority.publicKey,
-          protocolConfig: protocolConfigPda,
-          gateway: gatewayPda,
-          usdcMint: ctx.underlyingTokenMint,
-          authorityUsdc,
-          treasury,
-          systemProgram: SystemProgram.programId,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        })
+        .accountsPartial(
+          registerGatewayAccounts({
+            gatewayAuthority: gatewayAuthority.publicKey,
+            protocolConfigPda,
+            gatewayPda,
+            usdcMint: ctx.underlyingTokenMint,
+            authorityUsdc,
+          })
+        )
         .signers([gatewayAuthority])
         .rpc();
       assert.fail("expected init failure on duplicate PDA");

@@ -1,4 +1,5 @@
 import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
@@ -6,7 +7,11 @@ import { SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
-import { findGatewayPda, findProtocolConfigPda } from "../lib/pdas";
+import {
+  findGatewayBondAta,
+  findGatewayPda,
+  findProtocolConfigPda,
+} from "../lib/pdas";
 import {
   bn,
   loadKeypair,
@@ -58,6 +63,10 @@ export function registerGatewayCommands(program: Command): void {
             protocolConfig.usdcMint,
             gatewayAuthority.publicKey
           );
+      const gatewayBond = findGatewayBondAta(
+        protocolConfig.usdcMint,
+        gatewayPda
+      );
       const bondAmount = options.bondAmount
         ? bn(options.bondAmount, "bond amount")
         : protocolConfig.gatewayBondMin;
@@ -74,9 +83,10 @@ export function registerGatewayCommands(program: Command): void {
           gateway: gatewayPda,
           usdcMint: protocolConfig.usdcMint,
           authorityUsdc,
-          treasury: protocolConfig.treasury,
+          gatewayBond,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         });
 
       if (!gatewayAuthority.publicKey.equals(ctx.wallet.publicKey)) {
@@ -88,6 +98,7 @@ export function registerGatewayCommands(program: Command): void {
         signature,
         gatewayAuthority: gatewayAuthority.publicKey.toBase58(),
         gateway: gatewayPda.toBase58(),
+        gatewayBond: gatewayBond.toBase58(),
         bondAmount: bondAmount.toString(),
       });
     });

@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{self, Token, TokenAccount, Transfer},
+};
 
 use crate::{
     error::MolphaError,
@@ -30,7 +33,7 @@ pub fn register_gateway(ctx: Context<RegisterGateway>, args: RegisterGatewayArgs
             ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.authority_usdc.to_account_info(),
-                to: ctx.accounts.treasury.to_account_info(),
+                to: ctx.accounts.gateway_bond.to_account_info(),
                 authority: ctx.accounts.gateway_authority.to_account_info(),
             },
         ),
@@ -94,12 +97,14 @@ pub struct RegisterGateway<'info> {
     pub authority_usdc: Account<'info, TokenAccount>,
 
     #[account(
-        mut,
-        constraint = treasury.key() == protocol_config.treasury @ MolphaError::InvalidTreasury,
-        constraint = treasury.mint == usdc_mint.key() @ MolphaError::InvalidTreasury,
+        init,
+        payer = gateway_authority,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = gateway,
     )]
-    pub treasury: Account<'info, TokenAccount>,
+    pub gateway_bond: Account<'info, TokenAccount>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
 }

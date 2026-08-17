@@ -66,6 +66,16 @@ impl Subscription {
         Ok(())
     }
 
+    /// Undo `consume_round` when a pending round is voided by `dispute_round`.
+    pub fn restore_round(&mut self) -> Result<()> {
+        require!(
+            self.used_rounds > 0,
+            crate::error::MolphaError::SubscriptionInactiveOrExhausted
+        );
+        self.used_rounds -= 1;
+        Ok(())
+    }
+
     pub fn try_add_delegate(&mut self) -> Result<()> {
         require!(
             self.delegate_count < self.max_delegates,

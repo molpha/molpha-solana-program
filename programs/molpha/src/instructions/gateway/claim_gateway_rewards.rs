@@ -1,7 +1,7 @@
 //! `claim_gateway_rewards` — withdraw a gateway's finalized fees.
 //!
 //! Mirrors `claim_node_rewards`: only `claimable_rewards` (credited by `finalize_round`) are
-//! withdrawable. The gateway's bond stays escrowed in the treasury.
+//! withdrawable. The gateway's bond stays escrowed in the gateway bond ATA.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};

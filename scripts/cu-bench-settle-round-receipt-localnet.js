@@ -530,6 +530,7 @@ async function bootstrapState({
     [GATEWAY_SEED, gatewayAuthority.publicKey.toBuffer()],
     programId
   );
+  const gatewayBond = getAssociatedTokenAddressSync(usdcMint, gatewayPda, true);
   await program.methods
     .registerGateway({
       ip: [10, 0, 0, 9],
@@ -542,9 +543,10 @@ async function bootstrapState({
       gateway: gatewayPda,
       usdcMint,
       authorityUsdc: gatewayUsdcAta.address,
-      treasury,
+      gatewayBond,
       systemProgram: SystemProgram.programId,
       tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     })
     .signers([gatewayAuthority])
     .rpc({ commitment: "processed" });
