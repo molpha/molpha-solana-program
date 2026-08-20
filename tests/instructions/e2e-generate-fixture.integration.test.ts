@@ -39,8 +39,8 @@ const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 
-const NODE_COUNT = 10;
-const SIGNATURES_REQUIRED = 3;
+const NODE_COUNT = 12;
+const SIGNATURES_REQUIRED = 5;
 const REDUNDANCY_BUFFER = 2;
 const PLAN_ID = 1;
 
@@ -197,7 +197,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
         canonicalTimestamp: scenario.canonicalTimestamp,
       },
       SIGNATURES_REQUIRED,
-      NODE_COUNT,
+      registry.nodeCount,
       REDUNDANCY_BUFFER
     );
 
@@ -239,6 +239,7 @@ describe("e2e generate verify-answer-evm fixture", () => {
     const fixture = buildVerifyAnswerEvmFixture({
       registeredNodeCount: NODE_COUNT,
       registryVersion: registry.version,
+      messageHash: signed.messageHash,
       nodePubkeys: signerMaterial.compressedPubkeys,
       nodePrivkeys: signerMaterial.privKeys,
       signaturesRequired: SIGNATURES_REQUIRED,

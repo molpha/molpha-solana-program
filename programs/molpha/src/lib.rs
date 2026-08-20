@@ -172,4 +172,24 @@ pub mod molpha {
     ) -> Result<()> {
         instructions::settle_agent_round(ctx, args)
     }
+
+    // ---- Node punishment. ----
+
+    pub fn punish_equivocation<'info>(
+        ctx: Context<PunishEquivocation<'info>>,
+        args: PunishEquivocationArgs,
+    ) -> Result<()> {
+        instructions::punish_equivocation(ctx, args)
+    }
+
+    pub fn punish_unsolicited_signing<'info>(
+        ctx: Context<PunishUnsolicitedSigning<'info>>,
+        args: PunishUnsolicitedSigningArgs,
+    ) -> Result<()> {
+        instructions::punish_unsolicited_signing(ctx, args)
+    }
+
+    pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> Result<()> {
+        instructions::reinstate_node(ctx, args)
+    }
 }

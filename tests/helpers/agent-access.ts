@@ -144,6 +144,14 @@ export function findEscrowAta(
   return getAssociatedTokenAddressSync(usdcMint, escrowPda, true);
 }
 
+/** Gateway-owned USDC ATA that holds the slashable bond. */
+export function findGatewayBondAta(
+  usdcMint: PublicKey,
+  gatewayPda: PublicKey
+): PublicKey {
+  return getAssociatedTokenAddressSync(usdcMint, gatewayPda, true);
+}
+
 /**
  * Directly write a funded USDC token account at `ata` owned by `owner` (may be a PDA).
  * Mirrors `fundNodeOwnerInBankrun`, but for an arbitrary ATA — used to simulate an
@@ -334,6 +342,7 @@ export interface BondedGateway {
   gatewayAuthority: Keypair;
   gatewayPda: PublicKey;
   authorityUsdc: PublicKey;
+  gatewayBondAta: PublicKey;
 }
 
 export async function registerBondedGateway(
@@ -359,6 +368,10 @@ export async function registerBondedGateway(
     proto.program.programId,
     gatewayAuthority.publicKey
   );
+  const gatewayBondAta = findGatewayBondAta(
+    ctx.underlyingTokenMint,
+    gatewayPda
+  );
 
   await proto.program.methods
     .registerGateway({
@@ -372,14 +385,15 @@ export async function registerBondedGateway(
       gateway: gatewayPda,
       usdcMint: ctx.underlyingTokenMint,
       authorityUsdc,
-      treasury: proto.treasury,
+      gatewayBond: gatewayBondAta,
       systemProgram: SystemProgram.programId,
       tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     })
     .signers([gatewayAuthority])
     .rpc();
 
-  return { gatewayAuthority, gatewayPda, authorityUsdc };
+  return { gatewayAuthority, gatewayPda, authorityUsdc, gatewayBondAta };
 }
 
 export interface X402EscrowSetup {

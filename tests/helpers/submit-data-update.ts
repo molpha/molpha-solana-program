@@ -83,6 +83,23 @@ export function signerMaterialForVerifyAnswerEvm(): E2eSignerMaterial {
   return signerMaterialFromFixture(evmFixture as LoadedE2eFixture);
 }
 
+/** Matched secp256k1 key pairs for on-chain node registration tests. */
+export function signerMaterialForNodeRegistration(
+  nodeCount: number
+): E2eSignerMaterial {
+  const fixture = evmFixture as LoadedE2eFixture;
+  const privKeys = fixturePrivkeys(fixture).slice(0, nodeCount);
+  const compressedPubkeys = fixture.nodePubkeys
+    .slice(0, nodeCount)
+    .map((h) => hexToBytes(h));
+  if (privKeys.length !== compressedPubkeys.length) {
+    throw new Error(
+      `signerMaterialForNodeRegistration: requested ${nodeCount} nodes but fixture has ${privKeys.length} keys`
+    );
+  }
+  return { privKeys, compressedPubkeys };
+}
+
 /** Freshly signed args for `verify-answer-evm.json` fields (no `configHash` in message hash). */
 export function buildSignedVerifyAnswerEvmArgs(
   registryVersion: number = evmFixture.dataUpdate.registryVersion
@@ -243,7 +260,6 @@ export function deriveGroupBitmap(
 
 export function deriveSelectionSeed(
   sourceId: Uint8Array,
-  signaturesRequired: number,
   registryVersion: number,
   canonicalTimestamp: number
 ): Uint8Array {
@@ -251,7 +267,6 @@ export function deriveSelectionSeed(
     Buffer.concat([
       SELECTION_SEED_PREFIX,
       Buffer.from(sourceId),
-      Buffer.from(u32be(signaturesRequired)),
       Buffer.from(u32be(registryVersion)),
       Buffer.from(u64be(canonicalTimestamp)),
     ])
@@ -282,7 +297,6 @@ export function deriveSignersBitmap(
   );
   const seed = deriveSelectionSeed(
     sourceId,
-    signaturesRequired,
     registryVersion,
     canonicalTimestamp
   );
@@ -391,13 +405,9 @@ export function fixturePrivkeys(fixture: LoadedE2eFixture): bigint[] {
 export function signerMaterialFromFixture(
   fixture: LoadedE2eFixture
 ): E2eSignerMaterial {
-  const signerCount = fixture.dataUpdate.signaturesRequired;
-  const privKeys = fixturePrivkeys(fixture);
-  if (privKeys.length !== signerCount) {
-    throw new Error(
-      `expected ${signerCount} secret keys, got ${privKeys.length}`
-    );
-  }
+  const redundancyBuffer = 2;
+  const signerCount = fixture.dataUpdate.signaturesRequired + redundancyBuffer;
+  const privKeys = fixturePrivkeys(fixture).slice(0, signerCount);
   const compressedPubkeys = fixture.nodePubkeys
     .slice(0, signerCount)
     .map((h) => hexToBytes(h));
@@ -702,6 +712,7 @@ function schnorrSignForVerifier(params: {
 }
 
 export type SignedE2eDataUpdate = {
+  messageHash: Uint8Array;
   submitArgs: ReturnType<typeof buildEvmSubmitDataUpdateArgs>;
   aggSigS: Uint8Array;
   commitmentAddr: Uint8Array;
@@ -777,7 +788,7 @@ export function signE2eDataUpdate(
     commitmentAddr: Array.from(commitmentAddr),
   };
 
-  return { submitArgs, aggSigS: s, commitmentAddr, signersBitmap };
+  return { messageHash, submitArgs, aggSigS: s, commitmentAddr, signersBitmap };
 }
 
 /** On-chain `verify_data_update` return buffer length (`verify_data_update.rs`). */

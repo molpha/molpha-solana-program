@@ -23,6 +23,7 @@ import {
   findAgentEscrowPda,
   findAgentRoundPda,
   findDelegatePda,
+  findGatewayBondAta,
   findGatewayPda,
   findProtocolConfigPda,
   findRegistryPda,
@@ -442,6 +443,18 @@ export function registerRoundCommands(program: Command): void {
     )
     .requiredOption("--agg-sig <path>", "JSON AggregatedSig used as challenge")
     .option("--challenger-usdc <pubkey>", "challenger USDC ATA")
+    .option(
+      "--agent-authority <pubkey>",
+      "agent escrow authority (required for agent rounds, price > 0)"
+    )
+    .option(
+      "--subscription <pubkey>",
+      "subscription account (required for subscription rounds, price == 0)"
+    )
+    .option(
+      "--consumer-authority <pubkey>",
+      "consumer authority used at settle (required for subscription rounds)"
+    )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
@@ -475,6 +488,10 @@ export function registerRoundCommands(program: Command): void {
         "gateway authority"
       );
       const [gatewayPda] = findGatewayPda(ctx.programId, gatewayAuthority);
+      const gatewayBond = findGatewayBondAta(
+        protocolConfig.usdcMint,
+        gatewayPda
+      );
       const aggSig = parseAggregatedSigJson(
         requireValue(options.aggSig, "Missing --agg-sig")
       );
@@ -485,6 +502,40 @@ export function registerRoundCommands(program: Command): void {
             ctx.wallet.publicKey
           );
 
+      const price = Number(record.price?.toString?.() ?? record.price);
+      let agentEscrow: PublicKey | null = null;
+      let escrowAta: PublicKey | null = null;
+      let subscription: PublicKey | null = null;
+      let consumerAuthority: PublicKey | null = null;
+      if (price > 0) {
+        const agentAuthority = parsePublicKey(
+          requireValue(options.agentAuthority, "Missing --agent-authority"),
+          "agent authority"
+        );
+        [agentEscrow] = findAgentEscrowPda(
+          ctx.programId,
+          agentAuthority,
+          gatewayPda
+        );
+        escrowAta = getAssociatedTokenAddressSync(
+          protocolConfig.usdcMint,
+          agentEscrow,
+          true
+        );
+      } else {
+        consumerAuthority = parsePublicKey(
+          requireValue(
+            options.consumerAuthority,
+            "Missing --consumer-authority"
+          ),
+          "consumer authority"
+        );
+        subscription = parsePublicKey(
+          requireValue(options.subscription, "Missing --subscription"),
+          "subscription"
+        );
+      }
+
       const signature = await (ctx.program.methods as any)
         .disputeRound(aggSig)
         .accountsPartial({
@@ -493,9 +544,14 @@ export function registerRoundCommands(program: Command): void {
           registry: registryPda,
           roundRecord,
           gateway: gatewayPda,
+          gatewayBond,
           treasury: protocolConfig.treasury,
           challengerUsdc,
           tokenProgram: TOKEN_PROGRAM_ID,
+          agentEscrow,
+          escrowAta,
+          subscription,
+          consumerAuthority,
         })
         .remainingAccounts(
           creditedBitsFromBitmap(Uint8Array.from(aggSig.signersBitmap)).map(

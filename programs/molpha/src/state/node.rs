@@ -9,6 +9,9 @@ use super::Registry;
 ///
 /// Historical registries retain this account address forever. Consequently the owner and
 /// secp256k1 key fields are initialized once and never changed, and the account is never closed.
+/// A tombstone binds this node *identity*, not the operator behind it — the same operator can
+/// register a fresh wallet and a fresh secp256k1 key, which is inherent to permissionless
+/// registration.
 #[account]
 #[derive(InitSpace)]
 pub struct Node {
@@ -23,6 +26,11 @@ pub struct Node {
     pub registered_at: i64,
     pub deactivated_at: i64,
     pub withdrawable_at: i64,
+    /// Unix timestamp a `Frozen` node becomes permissionlessly reinstatable via
+    /// `reinstate_node`. Unused for any other status.
+    pub frozen_until: i64,
+    /// Unix timestamp of the most recent punishment, or `0` if never punished.
+    pub punished_at: i64,
     pub bump: u8,
 }
 
@@ -53,6 +61,8 @@ impl Node {
         self.registered_at = registered_at;
         self.deactivated_at = 0;
         self.withdrawable_at = 0;
+        self.frozen_until = 0;
+        self.punished_at = 0;
         self.bump = bump;
     }
 
@@ -69,8 +79,11 @@ pub enum NodeStatus {
     #[default]
     Active,
     Deactivated,
-    Slashed,
-    Exited,
+    /// Evicted from the registry by a punishment with `MembershipAction::Freeze`; restorable via
+    /// `reinstate_node` once `frozen_until` has passed (or immediately by the protocol authority).
+    Frozen,
+    /// Evicted from the registry by a punishment with `MembershipAction::Tombstone`. Terminal.
+    Tombstoned,
 }
 
 /// Resolve selected signer accounts against an immutable registry snapshot.
@@ -83,6 +96,25 @@ pub fn resolve_registry_signers(
     registry: &Registry,
     signers_bitmap: &[u8; 32],
 ) -> Result<Vec<molpha_verifier::SignerXy>> {
+    Ok(
+        resolve_registry_signers_indexed(accounts, program_id, registry, signers_bitmap)?
+            .into_iter()
+            .map(|(_, xy)| xy)
+            .collect(),
+    )
+}
+
+/// Like [`resolve_registry_signers`] but also returns each signer's bit position.
+///
+/// Used by callers that need to re-partition a resolved union bitmap back into per-statement
+/// subsets — e.g. equivocation punishment, which resolves the union of two signer sets once and
+/// then splits the result back into each statement's ordered signers.
+pub fn resolve_registry_signers_indexed(
+    accounts: &[AccountInfo],
+    program_id: &Pubkey,
+    registry: &Registry,
+    signers_bitmap: &[u8; 32],
+) -> Result<Vec<(usize, molpha_verifier::SignerXy)>> {
     let signers = bitmap_load(signers_bitmap);
     let signer_count = signers.count_ones() as usize;
     require!(
@@ -117,7 +149,7 @@ pub fn resolve_registry_signers(
         let data = account.try_borrow_data()?;
         let node = Node::try_deserialize(&mut &data[..])
             .map_err(|_| error!(MolphaError::InvalidNodeAccount))?;
-        ordered.push((node.secp256k1_pubkey_x, node.secp256k1_pubkey_y));
+        ordered.push((bit_pos, (node.secp256k1_pubkey_x, node.secp256k1_pubkey_y)));
         Ok(())
     })?;
 
@@ -143,6 +175,8 @@ mod tests {
             registered_at: 1,
             deactivated_at: 0,
             withdrawable_at: 0,
+            frozen_until: 0,
+            punished_at: 0,
             bump: 7,
         };
         let mut body = Vec::new();

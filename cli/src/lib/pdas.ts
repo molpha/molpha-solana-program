@@ -1,3 +1,4 @@
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 import { keccak_256 } from "@noble/hashes/sha3";
 import { u32Le, u64Le } from "./utils";
@@ -120,6 +121,14 @@ export function findGatewayPda(
     [GATEWAY_SEED, authority.toBuffer()],
     programId
   );
+}
+
+/** Gateway-owned USDC ATA that holds the slashable bond. */
+export function findGatewayBondAta(
+  usdcMint: PublicKey,
+  gatewayPda: PublicKey
+): PublicKey {
+  return getAssociatedTokenAddressSync(usdcMint, gatewayPda, true);
 }
 
 /** Per-(authority, gateway) x402 escrow PDA. */
