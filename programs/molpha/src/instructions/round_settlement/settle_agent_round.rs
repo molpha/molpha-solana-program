@@ -150,18 +150,15 @@ pub fn settle_agent_round<'info>(
     )?;
 
     let agg_sig_hash = hash_agg_sig(&args.agg_sig);
-    let data_update_message_hash = molpha_verifier::compute_message_hash(
-        &molpha_verifier::DataUpdate {
+    let attestation_message_hash = molpha_verifier::compute_message_hash(
+        &molpha_verifier::AttestationPayload {
             source_id: args.source_id,
             signatures_required: args.signatures_required,
             registry_version: args.registry_version,
-            signers_bitmap: args.agg_sig.signers_bitmap,
-            value: args.value,
-            canonical_timestamp: args.canonical_timestamp as i64,
-            agg_sig_s: args.agg_sig.s,
-            commitment_addr: args.agg_sig.commitment_addr,
+            value: args.value.try_into().unwrap(),
+            canonical_timestamp: args.canonical_timestamp,
         },
-        args.signatures_required,
+        args.agg_sig.signers_bitmap,
     );
 
     // Record. The price surplus over node + gateway credits is protocol revenue,
@@ -172,7 +169,7 @@ pub fn settle_agent_round<'info>(
     record.signatures_required = args.signatures_required;
     record.signers_bitmap = args.agg_sig.signers_bitmap;
     record.agg_sig_hash = agg_sig_hash;
-    record.data_update_message_hash = data_update_message_hash;
+    record.attestation_message_hash = attestation_message_hash;
     record.gateway = ctx.accounts.gateway.key();
     record.registry_version = args.registry_version;
     record.reward_per_signature = reward_per_signature;

@@ -18,7 +18,7 @@
 //! This is the whole on-chain safety argument, so two off-chain rules become load-bearing: a
 //! node must never sign two different values for the same duty tuple (cache and replay the first
 //! answer), and a gateway retrying a failed round must mint a fresh `canonical_timestamp` rather
-//! than reusing one — exactly the monotonicity `submit_data_update` already enforces on the push
+//! than reusing one — exactly the monotonicity `submit_attestation` already enforces on the push
 //! path (`FeedNotNewer`).
 
 use anchor_lang::prelude::*;
@@ -26,7 +26,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use molpha_verifier::bitmap::{bitmap_bit_set, bitmap_is_subset, bitmap_load, bitmap_store};
 
 use crate::{
-    error::{map_data_update_err, MolphaError},
+    error::{map_attestation_err, MolphaError},
     events::{EquivocationProven, RegistryVersionCreated, RegistryVersionReason},
     instructions::disputing::verify_statement,
     state::{
@@ -43,7 +43,7 @@ pub struct PunishEquivocationArgs {
     /// `guilty_bitmap` on `PunishmentCase` indexes into.
     pub registry_version: u32,
     pub signatures_required: u8,
-    pub canonical_timestamp: i64,
+    pub canonical_timestamp: u64,
     pub statement_a: SignedStatement,
     pub statement_b: SignedStatement,
     /// Must equal `equivocation_evidence_hash(..)` over the fields above — validated in the
@@ -99,7 +99,7 @@ pub fn punish_equivocation<'info>(
             args.signatures_required,
             evidence_registry.redundancy_buffer,
         )
-        .map_err(map_data_update_err)?;
+        .map_err(map_attestation_err)?;
         require!(
             bitmap_is_subset(&args.statement_a.signers_bitmap, &selection),
             MolphaError::SignersNotSubsetOfSelection

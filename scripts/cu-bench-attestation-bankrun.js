@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * Bankrun / LiteSVM CU bench for `verify_data_update` and `submit_data_update`.
+ * Bankrun / LiteSVM CU bench for `verify_attestation` and `submit_attestation`.
  *
  * Reports `unitsConsumed` for signer counts 3 / 8 / 18 via BankrunProvider.simulate
  * (LiteSVM-backed), without a local validator. Uses v0 transactions + an Address
@@ -40,7 +40,7 @@ const {
   buildBenchAccountSet,
   loadProgramId,
   loadIdl,
-} = require("./lib/cu-bench-data-update-common");
+} = require("./lib/cu-bench-attestation-common");
 
 const LAMPORTS = 10_000_000;
 const U64_MAX = 0xffffffffffffffffn;
@@ -165,7 +165,7 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
   );
 
   const verifyIx = await program.methods
-    .verifyDataUpdate(args)
+    .verifyAttestation(args)
     .accountsPartial({
       registry: accountSet.registryPda,
     })
@@ -173,7 +173,7 @@ async function measureForSignerCount(provider, program, payer, signerCount) {
     .instruction();
 
   const submitIx = await program.methods
-    .submitDataUpdate(args)
+    .submitAttestation(args)
     .accountsPartial({
       submitter: payer.publicKey,
       registryState: accountSet.registryStatePda,
@@ -242,8 +242,8 @@ async function main() {
     runtime: "bankrun/litesvm",
     txFormat: "v0+alt",
     signerCounts: SIGNER_COUNTS,
-    verify_data_update: {},
-    submit_data_update: {},
+    verify_attestation: {},
+    submit_attestation: {},
   };
 
   for (const n of SIGNER_COUNTS) {
@@ -253,32 +253,32 @@ async function main() {
       payer,
       n
     );
-    out.verify_data_update[`cu${n}`] = verifyCu;
-    out.submit_data_update[`cu${n}`] = submitCu;
+    out.verify_attestation[`cu${n}`] = verifyCu;
+    out.submit_attestation[`cu${n}`] = submitCu;
     console.log("measured", {
       signerCount: n,
-      verify_data_update: verifyCu,
-      submit_data_update: submitCu,
+      verify_attestation: verifyCu,
+      submit_attestation: submitCu,
     });
   }
 
-  console.log("data_update CU (bankrun)", JSON.stringify(out, null, 2));
+  console.log("attestation CU (bankrun)", JSON.stringify(out, null, 2));
 
   const failures = [];
   for (const n of SIGNER_COUNTS) {
     const key = `cu${n}`;
-    const verifyCu = out.verify_data_update[key];
-    const submitCu = out.submit_data_update[key];
-    const verifyCeil = CU_CEILINGS.verify_data_update[n];
-    const submitCeil = CU_CEILINGS.submit_data_update[n];
+    const verifyCu = out.verify_attestation[key];
+    const submitCu = out.submit_attestation[key];
+    const verifyCeil = CU_CEILINGS.verify_attestation[n];
+    const submitCeil = CU_CEILINGS.submit_attestation[n];
     if (verifyCu > verifyCeil) {
       failures.push(
-        `verify_data_update @ ${n} signers: ${verifyCu} CU > ceiling ${verifyCeil}`
+        `verify_attestation @ ${n} signers: ${verifyCu} CU > ceiling ${verifyCeil}`
       );
     }
     if (submitCu != null && submitCu > submitCeil) {
       failures.push(
-        `submit_data_update @ ${n} signers: ${submitCu} CU > ceiling ${submitCeil}`
+        `submit_attestation @ ${n} signers: ${submitCu} CU > ceiling ${submitCeil}`
       );
     }
   }

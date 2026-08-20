@@ -17,7 +17,7 @@ pub struct SettleRoundArgs {
     pub signatures_required: u8,
     pub registry_version: u32,
     pub agg_sig: AggregatedSig,
-    pub value: Vec<u8>,
+    pub value: [u8; 32],
     pub consumer_authority: Pubkey,
 }
 
@@ -82,18 +82,15 @@ pub fn settle_round_receipt<'info>(
     );
 
     let agg_sig_hash = hash_agg_sig(&args.agg_sig);
-    let data_update_message_hash = molpha_verifier::compute_message_hash(
-        &molpha_verifier::DataUpdate {
+    let attestation_message_hash = molpha_verifier::compute_message_hash(
+        &molpha_verifier::AttestationPayload {
+            value: args.value,
             source_id: args.source_id,
             signatures_required: args.signatures_required,
+            canonical_timestamp: args.timestamp,
             registry_version: args.registry_version,
-            signers_bitmap: args.agg_sig.signers_bitmap,
-            value: args.value,
-            canonical_timestamp: args.timestamp as i64,
-            agg_sig_s: args.agg_sig.s,
-            commitment_addr: args.agg_sig.commitment_addr,
         },
-        args.signatures_required,
+        args.agg_sig.signers_bitmap,
     );
 
     // ---- Validate credited nodes; rewards are recorded on the round receipt only. ----
@@ -115,7 +112,7 @@ pub fn settle_round_receipt<'info>(
     record.signatures_required = args.signatures_required;
     record.signers_bitmap = args.agg_sig.signers_bitmap;
     record.agg_sig_hash = agg_sig_hash;
-    record.data_update_message_hash = data_update_message_hash;
+    record.attestation_message_hash = attestation_message_hash;
     record.gateway = gateway.key();
     record.registry_version = args.registry_version;
     record.reward_per_signature = reward_per_signature;
@@ -220,7 +217,7 @@ pub struct SettleRoundReceipt<'info> {
         space = RoundReceiptRecord::SPACE,
         seeds = [
             RoundReceiptRecord::SEED_PREFIX,
-            args.consumer_authority.as_ref(),
+            subscription.owner.as_ref(),
             args.source_id.as_ref(),
             args.signatures_required.to_le_bytes().as_ref(),
             args.timestamp.to_le_bytes().as_ref(),

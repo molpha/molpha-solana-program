@@ -1,18 +1,18 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    error::{map_data_update_err, MolphaError},
+    error::{map_attestation_err, MolphaError},
     events::FeedUpdated,
     state::{resolve_registry_signers, Feed, FeedInitParams, FeedUpdateParams, Registry},
 };
-use molpha_verifier::DataUpdate;
+use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct SubmitDataUpdateArgs {
+pub struct SubmitAttestationArgs {
     pub source_id: [u8; 32],
     pub registry_version: u32,
-    pub value: Vec<u8>,
-    pub canonical_timestamp: i64,
+    pub value: [u8; 32],
+    pub canonical_timestamp: u64,
     pub signatures_required: u8,
 
     /// Schnorr signature R component
@@ -21,14 +21,21 @@ pub struct SubmitDataUpdateArgs {
     pub signers_bitmap: [u8; 32],
 }
 
-impl From<&SubmitDataUpdateArgs> for DataUpdate {
-    fn from(args: &SubmitDataUpdateArgs) -> Self {
+impl From<&SubmitAttestationArgs> for AttestationPayload {
+    fn from(args: &SubmitAttestationArgs) -> Self {
         Self {
             source_id: args.source_id,
             registry_version: args.registry_version,
-            value: args.value.clone(),
-            canonical_timestamp: args.canonical_timestamp,
+            value: args.value,
+            canonical_timestamp: args.canonical_timestamp as u64,
             signatures_required: args.signatures_required,
+        }
+    }
+}
+
+impl From<&SubmitAttestationArgs> for SchnorrSignature {
+    fn from(args: &SubmitAttestationArgs) -> Self {
+        Self {
             agg_sig_s: args.agg_sig_s,
             commitment_addr: args.commitment_addr,
             signers_bitmap: args.signers_bitmap,
@@ -36,9 +43,9 @@ impl From<&SubmitDataUpdateArgs> for DataUpdate {
     }
 }
 
-pub fn submit_data_update(
-    ctx: Context<SubmitDataUpdate>,
-    args: SubmitDataUpdateArgs,
+pub fn submit_attestation(
+    ctx: Context<SubmitAttestation>,
+    args: SubmitAttestationArgs,
 ) -> Result<()> {
     let (stored_value, value_kind) = Feed::encode_stored_value(&args.value)?;
     let clock = Clock::get()?;
@@ -48,7 +55,7 @@ pub fn submit_data_update(
         require!(args.source_id != [0u8; 32], MolphaError::InvalidSourceId);
         feed.init(&FeedInitParams {
             source_id: args.source_id,
-            value: stored_value.clone(),
+            value: stored_value.try_into().unwrap(),
             value_kind,
             canonical_timestamp: args.canonical_timestamp,
             signatures_required: args.signatures_required,
@@ -62,7 +69,7 @@ pub fn submit_data_update(
             MolphaError::FeedNotNewer
         );
         feed.update(&FeedUpdateParams {
-            value: stored_value.clone(),
+            value: stored_value.try_into().unwrap(),
             value_kind,
             canonical_timestamp: args.canonical_timestamp,
             registry_version: args.registry_version,
@@ -78,20 +85,17 @@ pub fn submit_data_update(
         &registry,
         &args.signers_bitmap,
     )?;
-    let payload: DataUpdate = (&args).into();
-    molpha_verifier::verify_data_update(
-        &payload,
-        u32::from(registry.node_count),
-        registry.redundancy_buffer,
-        &ordered,
-    )
-    .map_err(map_data_update_err)?;
+    let payload: AttestationPayload = (&args).into();
+    let sig: SchnorrSignature = (&args).into();
+    let attestation: Attestation = Attestation{payload, signature: sig};
+    molpha_verifier::verify_attestation(&attestation, u32::from(registry.node_count), registry.redundancy_buffer, &ordered)
+        .map_err(map_attestation_err)?;
 
     emit!(FeedUpdated {
         source_id: feed.source_id,
         registry_version: args.registry_version,
         canonical_timestamp: args.canonical_timestamp,
-        value: stored_value,
+        value: stored_value.try_into().unwrap(),
         value_kind,
         signers_bitmap: args.signers_bitmap,
         last_updated_slot: clock.slot,
@@ -101,8 +105,8 @@ pub fn submit_data_update(
 }
 
 #[derive(Accounts)]
-#[instruction(args: SubmitDataUpdateArgs)]
-pub struct SubmitDataUpdate<'info> {
+#[instruction(args: SubmitAttestationArgs)]
+pub struct SubmitAttestation<'info> {
     #[account(mut)]
     pub submitter: Signer<'info>,
 
@@ -131,18 +135,18 @@ pub struct SubmitDataUpdate<'info> {
 
 #[cfg(test)]
 mod tests {
-    use super::SubmitDataUpdateArgs;
+    use super::SubmitAttestationArgs;
 
     /// Borsh size for a 32-byte `value` (u32 length prefix + 32 bytes + fixed fields).
     const ARGS_SERIALIZED_LEN_32: usize = 165;
 
-    fn fixture_args() -> SubmitDataUpdateArgs {
-        SubmitDataUpdateArgs {
+    fn fixture_args() -> SubmitAttestationArgs {
+        SubmitAttestationArgs {
             source_id: [0x11; 32],
             signatures_required: 3,
             registry_version: 7,
             signers_bitmap: [0x33; 32],
-            value: vec![0x44; 32],
+            value: [0x44; 32],
             canonical_timestamp: 1_700_000_000,
             agg_sig_s: [0x66; 32],
             commitment_addr: [0x77; 20],
@@ -150,11 +154,11 @@ mod tests {
     }
 
     #[test]
-    fn submit_data_update_args_roundtrip() {
+    fn submit_attestation_args_roundtrip() {
         let args = fixture_args();
-        let bytes = borsh::to_vec(&args).expect("SubmitDataUpdateArgs should serialize");
-        let decoded = borsh::from_slice::<SubmitDataUpdateArgs>(&bytes)
-            .expect("SubmitDataUpdateArgs should deserialize");
+        let bytes = borsh::to_vec(&args).expect("SubmitAttestationArgs should serialize");
+        let decoded = borsh::from_slice::<SubmitAttestationArgs>(&bytes)
+            .expect("SubmitAttestationArgs should deserialize");
 
         assert_eq!(decoded.source_id, args.source_id);
         assert_eq!(decoded.registry_version, args.registry_version);
@@ -166,18 +170,8 @@ mod tests {
     }
 
     #[test]
-    fn submit_data_update_args_serialized_len_is_stable() {
-        let bytes = borsh::to_vec(&fixture_args()).expect("SubmitDataUpdateArgs should serialize");
+    fn submit_attestation_args_serialized_len_is_stable() {
+        let bytes = borsh::to_vec(&fixture_args()).expect("SubmitAttestationArgs should serialize");
         assert_eq!(bytes.len(), ARGS_SERIALIZED_LEN_32);
-    }
-
-    #[test]
-    fn submit_data_update_args_preserves_negative_timestamp() {
-        let mut args = fixture_args();
-        args.canonical_timestamp = -123_456_789;
-        let bytes = borsh::to_vec(&args).expect("SubmitDataUpdateArgs should serialize");
-        let decoded = borsh::from_slice::<SubmitDataUpdateArgs>(&bytes)
-            .expect("SubmitDataUpdateArgs should deserialize");
-        assert_eq!(decoded.canonical_timestamp, -123_456_789);
     }
 }

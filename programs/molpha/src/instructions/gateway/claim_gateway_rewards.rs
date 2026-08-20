@@ -13,8 +13,10 @@ use crate::{
 };
 
 pub fn claim_gateway_rewards(ctx: Context<ClaimGatewayRewards>) -> Result<()> {
-    let amount = ctx.accounts.gateway.claimable_rewards;
+    let gateway = &ctx.accounts.gateway;
+    let amount = gateway.claimable_rewards;
     require!(amount > 0, MolphaError::NothingToClaim);
+    require!(!gateway.slashed, MolphaError::GatewaySlashed);
 
     let config = &ctx.accounts.protocol_config;
     let bump = [config.bump];
@@ -55,9 +57,9 @@ pub struct ClaimGatewayRewards<'info> {
 
     #[account(
         mut,
+        has_one = authority,
         seeds = [Gateway::SEED_PREFIX, authority.key().as_ref()],
         bump = gateway.bump,
-        constraint = gateway.authority == authority.key() @ MolphaError::GatewayNotBonded,
     )]
     pub gateway: Account<'info, Gateway>,
 

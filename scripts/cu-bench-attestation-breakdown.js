@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 /**
- * Extended CU sweep + linear fit for verify_data_update.
- * Run: node scripts/cu-bench-data-update-breakdown.js
+ * Extended CU sweep + linear fit for verify_attestation.
+ * Run: node scripts/cu-bench-attestation-breakdown.js
  */
 const anchor = require("@coral-xyz/anchor");
 const {
@@ -32,7 +32,7 @@ const {
   evmBitmapBitSet,
   loadIdl,
   loadProgramId,
-} = require("./lib/cu-bench-data-update-common");
+} = require("./lib/cu-bench-attestation-common");
 
 const SWEEP = [1, 2, 3, 5, 8, 10, 15, 18, 20, 25, 30, 32];
 const LAMPORTS = 10_000_000;
@@ -111,7 +111,7 @@ async function measureVerify(provider, program, payer, sigReq) {
   );
 
   const verifyIx = await program.methods
-    .verifyDataUpdate(args)
+    .verifyAttestation(args)
     .accountsPartial({
       registry: accountSet.registryPda,
     })

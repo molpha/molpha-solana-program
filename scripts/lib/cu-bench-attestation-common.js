@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * Shared helpers for data-update CU benches (bankrun + localnet).
+ * Shared helpers for attestation CU benches (bankrun + localnet).
  *
  * Matches the current immutable versioned registry:
  * - `RegistryState` pointer PDA
@@ -40,8 +40,8 @@ const REGISTRY_SPACE = 8_208;
 
 /** Soft ceilings (~10% over bankrun baseline 2026-08-03, versioned Registry + Node PDAs). */
 const CU_CEILINGS = {
-  verify_data_update: { 3: 254_000, 8: 315_000, 18: 436_000, 32: 556_000 },
-  submit_data_update: { 3: 273_000, 8: 334_000, 18: 454_000, 32: 574_000 },
+  verify_attestation: { 3: 254_000, 8: 315_000, 18: 436_000, 32: 556_000 },
+  submit_attestation: { 3: 273_000, 8: 334_000, 18: 454_000, 32: 574_000 },
 };
 
 const FIXTURE_SOURCE_ID = hexToBuffer(
@@ -494,7 +494,7 @@ function buildSubmitArgs(signerCount, signatureMaterial, sourceId) {
   });
 }
 
-/** Anchor `submitDataUpdate` / `verifyDataUpdate` args (current on-chain layout). */
+/** Anchor `submitAttestation` / `verifyAttestation` args (current on-chain layout). */
 function buildLiveSubmitArgs({
   sourceId,
   feedId,
@@ -562,7 +562,7 @@ function signerMaterialFromManifestNodes(nodes, nodeCount) {
   return { privKeys, compressedPubkeys, owners, nodeCount };
 }
 
-function signDataUpdateForRegistry({
+function signAttestationForRegistry({
   registryVersion,
   signerMaterial,
   signaturesRequired,
@@ -738,7 +738,7 @@ async function buildBenchAccountSet(
     owner: programId,
   });
 
-  // Do not pre-seed `feed`: `submit_data_update` uses `init_if_needed` with
+  // Do not pre-seed `feed`: `submit_attestation` uses `init_if_needed` with
   // `Feed::SPACE`. Anchor's account encoder pads `Vec` to `max_len`, which does
   // not match `InitSpace`, so a coder-encoded feed fails the space constraint.
 
@@ -859,7 +859,7 @@ module.exports = {
   buildSubmitArgs,
   buildLiveSubmitArgs,
   signerMaterialFromManifestNodes,
-  signDataUpdateForRegistry,
+  signAttestationForRegistry,
   encodeAccount,
   encodeRegistrySnapshot,
   protocolConfigFields,

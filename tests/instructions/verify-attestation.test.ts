@@ -1,12 +1,12 @@
 /**
- * EVM-compatibility tests for `verify_data_update` / `submit_data_update`.
+ * EVM-compatibility tests for `verify_attestation` / `submit_attestation`.
  *
  * These tests validate that the TypeScript-side message construction matches
  * what the Rust on-chain program computes, using the vectors from
  * `tests/fixtures-json/verify-answer-evm.json`.
  *
  * Full Schnorr-recovery verification (secp256k1 + keccak) is also covered in
- * the Rust unit-test suite (`programs/molpha/src/instructions/data_update_core.rs`).
+ * the Rust unit-test suite (`programs/molpha/src/instructions/attestation_core.rs`).
  */
 
 import { keccak_256 } from "@noble/hashes/sha3";
@@ -92,12 +92,12 @@ const EXPECTED_MESSAGE_PREFIX = Buffer.from([
 // ---------------------------------------------------------------------------
 
 const sourceId = hexToBytes(
-  (fixture.dataUpdate as { sourceId: string }).sourceId
+  (fixture.attestation as { sourceId: string }).sourceId
 );
-const value = hexToBytes(fixture.dataUpdate.value);
-const registryVersion: number = fixture.dataUpdate.registryVersion;
-const signaturesRequired: number = fixture.dataUpdate.signaturesRequired;
-const canonicalTimestamp: number = fixture.dataUpdate.canonicalTimestamp;
+const value = hexToBytes(fixture.attestation.value);
+const registryVersion: number = fixture.attestation.registryVersion;
+const signaturesRequired: number = fixture.attestation.signaturesRequired;
+const canonicalTimestamp: number = fixture.attestation.canonicalTimestamp;
 const signersBitmapInt = BigInt(fixture.schnorrSignature.signersBitmap);
 const signersBitmap = uint256BE(signersBitmapInt);
 const sigS = hexToBytes(fixture.schnorrSignature.signature);
@@ -244,7 +244,7 @@ describe("verify-answer-evm.json fixture integrity", () => {
       count += Number(v & BigInt(1));
       v >>= BigInt(1);
     }
-    expect(count).toBe(fixture.dataUpdate.signaturesRequired + 2); // 2 is the redundancy buffer
+    expect(count).toBe(fixture.attestation.signaturesRequired + 2); // 2 is the redundancy buffer
   });
 
   it("commitment is a 20-byte Ethereum address", () => {
@@ -264,7 +264,7 @@ describe("verify-answer-evm.json fixture integrity", () => {
   });
 
   it("registryVersion in fixture matches schnorrSignature field context", () => {
-    expect(fixture.registryVersion).toBe(fixture.dataUpdate.registryVersion);
+    expect(fixture.registryVersion).toBe(fixture.attestation.registryVersion);
   });
 });
 
@@ -272,7 +272,7 @@ describe("verify-answer-evm.json fixture integrity", () => {
 // Return-data layout
 // ---------------------------------------------------------------------------
 
-describe("verify_data_update return-data layout", () => {
+describe("verify_attestation return-data layout", () => {
   it("return buffer is 72 bytes: value[32] | timestamp_be[8] | round_id[32]", () => {
     // Simulate the Rust return-data packing.
     const returnData = new Uint8Array(72);

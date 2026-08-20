@@ -307,50 +307,8 @@
           }
         },
         {
-          "name": "node_operator",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  111,
-                  108,
-                  112,
-                  104,
-                  97,
-                  95,
-                  110,
-                  111,
-                  100,
-                  101,
-                  95,
-                  111,
-                  112,
-                  101,
-                  114,
-                  97,
-                  116,
-                  111,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
           "name": "node",
-          "docs": [
-            "The operator's current slot account, holding `claimable_rewards` while active. Omitted once",
-            "the operator is deactivated (its slot has been closed and rewards migrated to `node_operator`)."
-          ],
           "writable": true,
-          "optional": true,
           "pda": {
             "seeds": [
               {
@@ -371,8 +329,7 @@
               },
               {
                 "kind": "account",
-                "path": "node_operator.current_index",
-                "account": "NodeOperator"
+                "path": "owner"
               }
             ]
           }
@@ -464,8 +421,7 @@
           }
         },
         {
-          "name": "removed_operator",
-          "writable": true,
+          "name": "current_registry",
           "pda": {
             "seeds": [
               {
@@ -478,30 +434,58 @@
                   104,
                   97,
                   95,
-                  110,
-                  111,
-                  100,
-                  101,
-                  95,
-                  111,
-                  112,
-                  101,
                   114,
-                  97,
+                  101,
+                  103,
+                  105,
+                  115,
                   116,
-                  111,
-                  114
+                  114,
+                  121
                 ]
               },
               {
                 "kind": "account",
-                "path": "authority"
+                "path": "registry_state.current_version",
+                "account": "RegistryState"
               }
             ]
           }
         },
         {
-          "name": "removed_node",
+          "name": "new_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.new_registry_version"
+              }
+            ]
+          }
+        },
+        {
+          "name": "node",
           "writable": true,
           "pda": {
             "seeds": [
@@ -522,64 +506,27 @@
                 ]
               },
               {
-                "kind": "account",
-                "path": "removed_operator.current_index",
-                "account": "NodeOperator"
+                "kind": "arg",
+                "path": "args.node_owner"
               }
             ]
           }
-        },
-        {
-          "name": "virtual_node",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  111,
-                  108,
-                  112,
-                  104,
-                  97,
-                  95,
-                  110,
-                  111,
-                  100,
-                  101
-                ]
-              },
-              {
-                "kind": "const",
-                "value": [
-                  255,
-                  255,
-                  255,
-                  255
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "last_node",
-          "writable": true
-        },
-        {
-          "name": "moved_operator",
-          "writable": true
-        },
-        {
-          "name": "rent_receiver",
-          "writable": true
         },
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "DeactivateNodeArgs"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "dispute_round",
@@ -625,7 +572,7 @@
           }
         },
         {
-          "name": "registry_state",
+          "name": "registry",
           "pda": {
             "seeds": [
               {
@@ -647,6 +594,11 @@
                   114,
                   121
                 ]
+              },
+              {
+                "kind": "account",
+                "path": "round_record.registry_version",
+                "account": "RoundReceiptRecord"
               }
             ]
           }
@@ -655,12 +607,17 @@
           "name": "round_record",
           "docs": [
             "Subscription or agent settlement record. No seeds constraint — same rationale as",
-            "`finalize_round` (owner + discriminator)."
+            "`finalize_round` (owner + discriminator). PDA is re-derived in-handler against",
+            "the refund accounts for the funding path."
           ],
           "writable": true
         },
         {
           "name": "gateway",
+          "writable": true
+        },
+        {
+          "name": "gateway_bond",
           "writable": true
         },
         {
@@ -674,6 +631,29 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "agent_escrow",
+          "docs": [
+            "Agent path (`record.price > 0`): escrow PDA. Must be `None` for subscription rounds."
+          ],
+          "optional": true
+        },
+        {
+          "name": "escrow_ata",
+          "docs": [
+            "Agent path: escrow USDC ATA. Must be `None` for subscription rounds."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "subscription",
+          "docs": [
+            "Subscription path (`record.price == 0`). Must be `None` for agent rounds."
+          ],
+          "writable": true,
+          "optional": true
         }
       ],
       "args": [
@@ -788,97 +768,6 @@
       "args": []
     },
     {
-      "name": "finalize_registry_transition",
-      "discriminator": [
-        95,
-        24,
-        111,
-        199,
-        201,
-        21,
-        165,
-        193
-      ],
-      "accounts": [
-        {
-          "name": "registry_state",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  111,
-                  108,
-                  112,
-                  104,
-                  97,
-                  95,
-                  114,
-                  101,
-                  103,
-                  105,
-                  115,
-                  116,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "virtual_node",
-          "writable": true,
-          "optional": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  111,
-                  108,
-                  112,
-                  104,
-                  97,
-                  95,
-                  110,
-                  111,
-                  100,
-                  101
-                ]
-              },
-              {
-                "kind": "const",
-                "value": [
-                  255,
-                  255,
-                  255,
-                  255
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "node_operator",
-          "docs": [
-            "The deactivated operator that receives the virtual slot's residual rewards. Required",
-            "whenever `virtual_node` is present."
-          ],
-          "writable": true,
-          "optional": true
-        },
-        {
-          "name": "rent_receiver",
-          "writable": true
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "finalize_round",
       "discriminator": [
         239,
@@ -921,7 +810,7 @@
           }
         },
         {
-          "name": "registry_state",
+          "name": "registry",
           "pda": {
             "seeds": [
               {
@@ -943,6 +832,11 @@
                   114,
                   121
                 ]
+              },
+              {
+                "kind": "account",
+                "path": "round_record.registry_version",
+                "account": "RoundReceiptRecord"
               }
             ]
           }
@@ -950,7 +844,7 @@
         {
           "name": "round_record",
           "docs": [
-            "Subscription (`[\"molpha_round\", feed_id, ts]`) or agent",
+            "Subscription (`[\"molpha_round\", source_id, ts]`) or agent",
             "(`[\"molpha_agent_round\", agent, nonce]`) settlement record. No seeds constraint:",
             "owner + discriminator suffice — only the two settle instructions can create this",
             "account type, and both write complete state, so stored contents are trusted."
@@ -1026,6 +920,43 @@
                   116,
                   114,
                   121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  0,
+                  0,
+                  0,
+                  0
                 ]
               }
             ]
@@ -1120,6 +1051,708 @@
       ]
     },
     {
+      "name": "punish_equivocation",
+      "discriminator": [
+        216,
+        84,
+        168,
+        227,
+        38,
+        28,
+        88,
+        96
+      ],
+      "accounts": [
+        {
+          "name": "reporter",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "registry_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "evidence_registry",
+          "docs": [
+            "The registry snapshot both statements were signed against."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.registry_version"
+              }
+            ]
+          }
+        },
+        {
+          "name": "current_registry",
+          "docs": [
+            "The live registry snapshot guilty nodes are evicted from. May equal `evidence_registry`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "registry_state.current_version",
+                "account": "RegistryState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "new_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.new_registry_version"
+              }
+            ]
+          }
+        },
+        {
+          "name": "punishment_case",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  112,
+                  117,
+                  110,
+                  105,
+                  115,
+                  104,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.evidence_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "reporter_usdc",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "PunishEquivocationArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "punish_nonce_reuse",
+      "discriminator": [
+        162,
+        208,
+        148,
+        57,
+        116,
+        135,
+        187,
+        177
+      ],
+      "accounts": [
+        {
+          "name": "reporter",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "registry_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "evidence_registry",
+          "docs": [
+            "The registry snapshot both statements were signed against."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.registry_version"
+              }
+            ]
+          }
+        },
+        {
+          "name": "current_registry",
+          "docs": [
+            "The live registry snapshot guilty nodes are evicted from. May equal `evidence_registry`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "registry_state.current_version",
+                "account": "RegistryState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "new_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.new_registry_version"
+              }
+            ]
+          }
+        },
+        {
+          "name": "punishment_case",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  112,
+                  117,
+                  110,
+                  105,
+                  115,
+                  104,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.evidence_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "reporter_usdc",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "PunishNonceReuseArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "punish_unsolicited_signing",
+      "discriminator": [
+        32,
+        125,
+        240,
+        227,
+        56,
+        191,
+        184,
+        60
+      ],
+      "accounts": [
+        {
+          "name": "reporter",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "registry_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "evidence_registry",
+          "docs": [
+            "The registry snapshot the statement was signed against."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.registry_version"
+              }
+            ]
+          }
+        },
+        {
+          "name": "current_registry",
+          "docs": [
+            "The live registry snapshot guilty nodes are evicted from. May equal `evidence_registry`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "registry_state.current_version",
+                "account": "RegistryState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "new_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.new_registry_version"
+              }
+            ]
+          }
+        },
+        {
+          "name": "punishment_case",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  112,
+                  117,
+                  110,
+                  105,
+                  115,
+                  104,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.evidence_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "reporter_usdc",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "PunishUnsolicitedSigningArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "register_gateway",
       "discriminator": [
         183,
@@ -1202,8 +1835,94 @@
           "writable": true
         },
         {
-          "name": "treasury",
-          "writable": true
+          "name": "gateway_bond",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "gateway"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "usdc_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
         },
         {
           "name": "system_program",
@@ -1212,6 +1931,10 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         }
       ],
       "args": [
@@ -1240,10 +1963,7 @@
       "accounts": [
         {
           "name": "authority",
-          "signer": true,
-          "relations": [
-            "registry"
-          ]
+          "signer": true
         },
         {
           "name": "node_owner",
@@ -1276,7 +1996,7 @@
           }
         },
         {
-          "name": "registry",
+          "name": "registry_state",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1304,7 +2024,39 @@
           }
         },
         {
-          "name": "node_operator",
+          "name": "current_registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "registry_state.current_version",
+                "account": "RegistryState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "new_registry",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1318,24 +2070,19 @@
                   104,
                   97,
                   95,
-                  110,
-                  111,
-                  100,
-                  101,
-                  95,
-                  111,
-                  112,
-                  101,
                   114,
-                  97,
+                  101,
+                  103,
+                  105,
+                  115,
                   116,
-                  111,
-                  114
+                  114,
+                  121
                 ]
               },
               {
-                "kind": "account",
-                "path": "node_owner"
+                "kind": "arg",
+                "path": "args.new_registry_version"
               }
             ]
           }
@@ -1363,8 +2110,7 @@
               },
               {
                 "kind": "account",
-                "path": "registry.current_node_count",
-                "account": "RegistryState"
+                "path": "node_owner"
               }
             ]
           }
@@ -1427,6 +2173,189 @@
           "type": {
             "defined": {
               "name": "RegisterNodeArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "reinstate_node",
+      "discriminator": [
+        13,
+        253,
+        148,
+        213,
+        56,
+        50,
+        49,
+        121
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Permissionless once `node.frozen_until` has passed; the protocol authority may reinstate",
+            "earlier."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "registry_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "current_registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "registry_state.current_version",
+                "account": "RegistryState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "new_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.new_registry_version"
+              }
+            ]
+          }
+        },
+        {
+          "name": "node",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  110,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.node_owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ReinstateNodeArgs"
             }
           }
         }
@@ -1667,6 +2596,37 @@
           }
         },
         {
+          "name": "registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.registry_version"
+              }
+            ]
+          }
+        },
+        {
           "name": "gateway",
           "writable": true,
           "pda": {
@@ -1872,7 +2832,7 @@
               },
               {
                 "kind": "arg",
-                "path": "args.api_config_hash"
+                "path": "args.source_id"
               },
               {
                 "kind": "arg",
@@ -1976,6 +2936,37 @@
           }
         },
         {
+          "name": "registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.registry_version"
+              }
+            ]
+          }
+        },
+        {
           "name": "subscription",
           "writable": true
         },
@@ -2014,12 +3005,13 @@
                 ]
               },
               {
-                "kind": "arg",
-                "path": "args.consumer_authority"
+                "kind": "account",
+                "path": "subscription.owner",
+                "account": "Subscription"
               },
               {
                 "kind": "arg",
-                "path": "args.api_config_hash"
+                "path": "args.source_id"
               },
               {
                 "kind": "arg",
@@ -2053,7 +3045,7 @@
       ]
     },
     {
-      "name": "submit_data_update",
+      "name": "submit_attestation",
       "discriminator": [
         213,
         216,
@@ -2071,7 +3063,7 @@
           "signer": true
         },
         {
-          "name": "registry_state",
+          "name": "registry",
           "pda": {
             "seeds": [
               {
@@ -2093,6 +3085,10 @@
                   114,
                   121
                 ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.registry_version"
               }
             ]
           }
@@ -2120,7 +3116,15 @@
               },
               {
                 "kind": "arg",
-                "path": "args.feed_id"
+                "path": "args.source_id"
+              },
+              {
+                "kind": "arg",
+                "path": "args.signatures_required"
+              },
+              {
+                "kind": "account",
+                "path": "submitter"
               }
             ]
           }
@@ -2135,7 +3139,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "SubmitDataUpdateArgs"
+              "name": "SubmitAttestationArgs"
             }
           }
         }
@@ -2294,34 +3298,6 @@
           }
         },
         {
-          "name": "registry_state",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  111,
-                  108,
-                  112,
-                  104,
-                  97,
-                  95,
-                  114,
-                  101,
-                  103,
-                  105,
-                  115,
-                  116,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
           "name": "authority",
           "signer": true
         }
@@ -2355,7 +3331,7 @@
           "signer": true
         },
         {
-          "name": "node_operator",
+          "name": "node",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2372,16 +3348,7 @@
                   110,
                   111,
                   100,
-                  101,
-                  95,
-                  111,
-                  112,
-                  101,
-                  114,
-                  97,
-                  116,
-                  111,
-                  114
+                  101
                 ]
               },
               {
@@ -2460,6 +3427,213 @@
           }
         }
       ]
+    },
+    {
+      "name": "update_registry_policy",
+      "discriminator": [
+        89,
+        241,
+        118,
+        140,
+        129,
+        101,
+        42,
+        161
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "registry_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "current_registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "registry_state.current_version",
+                "account": "RegistryState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "new_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "new_registry_version"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "new_registry_version",
+          "type": "u32"
+        },
+        {
+          "name": "redundancy_buffer",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "verify_attestation",
+      "discriminator": [
+        92,
+        163,
+        130,
+        238,
+        141,
+        70,
+        72,
+        226
+      ],
+      "accounts": [
+        {
+          "name": "registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  108,
+                  112,
+                  104,
+                  97,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.registry_version"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SubmitAttestationArgs"
+            }
+          }
+        }
+      ]
     }
   ],
   "accounts": [
@@ -2529,19 +3703,6 @@
       ]
     },
     {
-      "name": "NodeOperator",
-      "discriminator": [
-        77,
-        85,
-        128,
-        252,
-        48,
-        166,
-        7,
-        56
-      ]
-    },
-    {
       "name": "Plan",
       "discriminator": [
         161,
@@ -2565,6 +3726,32 @@
         179,
         215,
         209
+      ]
+    },
+    {
+      "name": "PunishmentCase",
+      "discriminator": [
+        215,
+        186,
+        32,
+        101,
+        142,
+        74,
+        46,
+        130
+      ]
+    },
+    {
+      "name": "Registry",
+      "discriminator": [
+        47,
+        174,
+        110,
+        246,
+        184,
+        182,
+        252,
+        218
       ]
     },
     {
@@ -2700,6 +3887,19 @@
       ]
     },
     {
+      "name": "EquivocationProven",
+      "discriminator": [
+        157,
+        154,
+        111,
+        89,
+        40,
+        151,
+        241,
+        121
+      ]
+    },
+    {
       "name": "FeedUpdated",
       "discriminator": [
         200,
@@ -2752,6 +3952,19 @@
       ]
     },
     {
+      "name": "NodePunished",
+      "discriminator": [
+        5,
+        220,
+        63,
+        21,
+        153,
+        202,
+        80,
+        79
+      ]
+    },
+    {
       "name": "NodeRegistered",
       "discriminator": [
         15,
@@ -2765,16 +3978,29 @@
       ]
     },
     {
-      "name": "NodeSlotFinalized",
+      "name": "NodeReinstated",
       "discriminator": [
-        242,
-        7,
-        112,
-        224,
-        237,
-        228,
-        250,
-        164
+        45,
+        0,
+        72,
+        79,
+        131,
+        183,
+        198,
+        205
+      ]
+    },
+    {
+      "name": "NonceReuseProven",
+      "discriminator": [
+        70,
+        131,
+        67,
+        45,
+        135,
+        64,
+        50,
+        93
       ]
     },
     {
@@ -2830,16 +4056,16 @@
       ]
     },
     {
-      "name": "RegistryVersionActivated",
+      "name": "RegistryVersionCreated",
       "discriminator": [
-        140,
-        113,
-        95,
         86,
-        170,
-        147,
-        96,
-        250
+        9,
+        106,
+        242,
+        112,
+        159,
+        175,
+        182
       ]
     },
     {
@@ -2932,13 +4158,26 @@
         105,
         108
       ]
+    },
+    {
+      "name": "UnsolicitedSigningProven",
+      "discriminator": [
+        79,
+        113,
+        236,
+        87,
+        58,
+        234,
+        233,
+        54
+      ]
     }
   ],
   "errors": [
     {
       "code": 6000,
-      "name": "TransitionStillInGrace",
-      "msg": "Registry change attempted while previous version is still accepted"
+      "name": "RegistryVersionOverflow",
+      "msg": "registry version counter overflow"
     },
     {
       "code": 6001,
@@ -2952,48 +4191,48 @@
     },
     {
       "code": 6003,
-      "name": "InvalidTransitionAccount",
-      "msg": "Previous-after-remove verification requires remove-transition metadata"
-    },
-    {
-      "code": 6004,
-      "name": "MovedNodeMismatch",
-      "msg": "moved_operator does not match the last-slot node's owner"
-    },
-    {
-      "code": 6005,
       "name": "UnauthorizedNodeAuthority",
       "msg": "Caller is not node.owner or registry.authority"
     },
     {
-      "code": 6006,
+      "code": 6004,
       "name": "NodeAlreadyRegistered",
       "msg": "secp256k1_pubkey matches existing active node"
     },
     {
-      "code": 6007,
+      "code": 6005,
       "name": "NodeCapExceeded",
       "msg": "pending_node_count >= max_node_count or node_index_hint >= max_node_count"
     },
     {
-      "code": 6008,
+      "code": 6006,
       "name": "InvalidPoP",
       "msg": "PoP Schnorr verification failed at registration"
     },
     {
-      "code": 6009,
+      "code": 6007,
       "name": "NodeNotActive",
       "msg": "Instruction requires Active node status"
     },
     {
-      "code": 6010,
+      "code": 6008,
       "name": "PubkeyNotOnCurve",
       "msg": "Submitted compressed pubkey does not decompress to a valid curve point"
     },
     {
-      "code": 6011,
+      "code": 6009,
       "name": "InvalidRegistryVersion",
-      "msg": "registry_version is neither active_version nor grace-valid previous_version"
+      "msg": "registry version or version-addressed registry account is invalid"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidSourceId",
+      "msg": "source_id does not match feed.source_id"
+    },
+    {
+      "code": 6011,
+      "name": "RegistryPolicyUnchanged",
+      "msg": "new redundancy buffer must differ from the current registry policy"
     },
     {
       "code": 6012,
@@ -3259,6 +4498,71 @@
       "code": 6064,
       "name": "InvalidValueLength",
       "msg": "value exceeds Feed::MAX_VALUE_LEN"
+    },
+    {
+      "code": 6065,
+      "name": "DisputeRefundAccountsMissing",
+      "msg": "dispute refund/restore accounts missing or do not match the round"
+    },
+    {
+      "code": 6066,
+      "name": "EquivocationSameStatement",
+      "msg": "equivocation requires two statements with different values"
+    },
+    {
+      "code": 6067,
+      "name": "EvidenceHashMismatch",
+      "msg": "recomputed evidence hash does not match the supplied evidence_hash"
+    },
+    {
+      "code": 6068,
+      "name": "GuiltySetEmpty",
+      "msg": "intersection of the two signer bitmaps is empty"
+    },
+    {
+      "code": 6069,
+      "name": "NodeTombstoned",
+      "msg": "node is permanently tombstoned"
+    },
+    {
+      "code": 6070,
+      "name": "NodeNotFrozen",
+      "msg": "node is not Frozen"
+    },
+    {
+      "code": 6071,
+      "name": "NodeStillFrozen",
+      "msg": "node is still inside its freeze window"
+    },
+    {
+      "code": 6072,
+      "name": "NodeAlreadyInRegistry",
+      "msg": "node is already present in the current registry"
+    },
+    {
+      "code": 6073,
+      "name": "SignersFullySelected",
+      "msg": "every signer was within the derived selection - no unsolicited signer"
+    },
+    {
+      "code": 6074,
+      "name": "NothingToPunish",
+      "msg": "every guilty node is already tombstoned"
+    },
+    {
+      "code": 6075,
+      "name": "NonceCommitmentMismatch",
+      "msg": "statements do not share an aggregate nonce commitment"
+    },
+    {
+      "code": 6076,
+      "name": "NonceReuseSameMessage",
+      "msg": "statements commit to the same message hash"
+    },
+    {
+      "code": 6077,
+      "name": "PreferEquivocation",
+      "msg": "same duty with different values is equivocation - file it as one"
     }
   ],
   "types": [
@@ -3392,7 +4696,7 @@
             "type": "u64"
           },
           {
-            "name": "feed_id",
+            "name": "source_id",
             "type": {
               "array": [
                 "u8",
@@ -3501,6 +4805,26 @@
                 32
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DeactivateNodeArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "node_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "remove_index",
+            "type": "u16"
+          },
+          {
+            "name": "new_registry_version",
+            "type": "u32"
           }
         ]
       }
@@ -3666,12 +4990,75 @@
       }
     },
     {
+      "name": "EquivocationProven",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "source_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "registry_version",
+            "type": "u32"
+          },
+          {
+            "name": "signatures_required",
+            "type": "u8"
+          },
+          {
+            "name": "canonical_timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "guilty_bitmap",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "guilty_count",
+            "type": "u16"
+          },
+          {
+            "name": "evidence_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "reporter",
+            "type": "pubkey"
+          },
+          {
+            "name": "slashed_total",
+            "type": "u64"
+          },
+          {
+            "name": "bounty_paid",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Feed",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "feed_id",
+            "name": "source_id",
             "type": {
               "array": [
                 "u8",
@@ -3729,7 +5116,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "feed_id",
+            "name": "source_id",
             "type": {
               "array": [
                 "u8",
@@ -3828,7 +5215,7 @@
           {
             "name": "bond",
             "docs": [
-              "USDC bond held in the protocol treasury, slashable on a successful dispute."
+              "USDC bond held in the gateway bond ATA, slashable on a successful dispute."
             ],
             "type": "u64"
           },
@@ -3892,14 +5279,6 @@
       "type": {
         "kind": "struct",
         "fields": [
-          {
-            "name": "registry_cooldown_secs",
-            "type": "i64"
-          },
-          {
-            "name": "previous_grace_secs",
-            "type": "i64"
-          },
           {
             "name": "withdrawal_cooldown_secs",
             "type": "i64"
@@ -3974,32 +5353,23 @@
     {
       "name": "Node",
       "docs": [
-        "Slot-keyed registry entry and the single account touched by the round workflows.",
+        "Permanent owner-keyed node identity, lifecycle, and reward account.",
         "",
-        "Keyed by `index` (`[SEED_PREFIX, index_le]`), it carries the node's registry slot, the",
-        "secp256k1 coalition key used for Schnorr verification, and the reward balances accrued during",
-        "settlement/finalization. Management/lifecycle data lives on the owner-keyed [`NodeOperator`]."
+        "Historical registries retain this account address forever. Consequently the owner and",
+        "secp256k1 key fields are initialized once and never changed, and the account is never closed.",
+        "A tombstone binds this node *identity*, not the operator behind it — the same operator can",
+        "register a fresh wallet and a fresh secp256k1 key, which is inherent to permissionless",
+        "registration."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "index",
-            "type": "u32"
-          },
-          {
             "name": "owner",
-            "docs": [
-              "Operator wallet — used for claim authorization and deactivate validation."
-            ],
             "type": "pubkey"
           },
           {
             "name": "secp256k1_pubkey_x",
-            "docs": [
-              "Validated affine coordinates. `register_node` is the only write path and accepts only a",
-              "canonical compressed secp256k1 point, so verifier hot paths may safely skip re-parsing."
-            ],
             "type": {
               "array": [
                 "u8",
@@ -4015,103 +5385,6 @@
                 32
               ]
             }
-          },
-          {
-            "name": "claimable_rewards",
-            "docs": [
-              "Finalized rewards, withdrawable via `claim_node_rewards`."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "bump",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "NodeDeactivated",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "removed_index",
-            "type": "u32"
-          },
-          {
-            "name": "moved_node",
-            "type": "pubkey"
-          },
-          {
-            "name": "moved_old_index_or_virtual",
-            "type": "u32"
-          },
-          {
-            "name": "current_version",
-            "type": "u32"
-          },
-          {
-            "name": "deactivated_at",
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "NodeEndpointUpdated",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "current_index",
-            "type": "u32"
-          },
-          {
-            "name": "ip",
-            "type": {
-              "array": [
-                "u8",
-                4
-              ]
-            }
-          },
-          {
-            "name": "port",
-            "type": "u16"
-          }
-        ]
-      }
-    },
-    {
-      "name": "NodeOperator",
-      "docs": [
-        "Owner-keyed management/lifecycle account for a node operator.",
-        "",
-        "Keyed by `owner` (`[SEED_PREFIX, owner]`), it holds registration, deposit, status, and",
-        "connectivity data — everything that is *not* needed by the per-round workflows. The workflow",
-        "data (registry slot, coalition key, reward balances) lives on the slot-keyed [`super::Node`].",
-        "`claimable_rewards` is the landing bucket for rewards migrated out of the virtual slot when a",
-        "removal transition is finalized; it lets a deactivated operator still claim."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "current_index",
-            "type": "u32"
           },
           {
             "name": "status",
@@ -4140,10 +5413,6 @@
           },
           {
             "name": "claimable_rewards",
-            "docs": [
-              "Rewards migrated from the virtual slot at transition close, withdrawable via",
-              "`claim_node_rewards` after deactivation."
-            ],
             "type": "u64"
           },
           {
@@ -4159,8 +5428,124 @@
             "type": "i64"
           },
           {
+            "name": "frozen_until",
+            "docs": [
+              "Unix timestamp a `Frozen` node becomes permissionlessly reinstatable via",
+              "`reinstate_node`. Unused for any other status."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "punished_at",
+            "docs": [
+              "Unix timestamp of the most recent punishment, or `0` if never punished."
+            ],
+            "type": "i64"
+          },
+          {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NodeDeactivated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "removed_index",
+            "type": "u32"
+          },
+          {
+            "name": "current_version",
+            "type": "u32"
+          },
+          {
+            "name": "deactivated_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NodeEndpointUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "ip",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "port",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NodePunished",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "offence",
+            "type": {
+              "defined": {
+                "name": "OffenceKind"
+              }
+            }
+          },
+          {
+            "name": "slashed_locked",
+            "type": "u64"
+          },
+          {
+            "name": "slashed_rewards",
+            "type": "u64"
+          },
+          {
+            "name": "new_status",
+            "type": {
+              "defined": {
+                "name": "NodeStatus"
+              }
+            }
+          },
+          {
+            "name": "punished_at",
+            "type": "i64"
           }
         ]
       }
@@ -4216,24 +5601,24 @@
       }
     },
     {
-      "name": "NodeSlotFinalized",
+      "name": "NodeReinstated",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "node_index",
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "registry_version",
             "type": "u32"
           },
           {
-            "name": "old_status",
-            "type": "u8"
-          },
-          {
-            "name": "new_status",
-            "type": "u8"
-          },
-          {
-            "name": "finalized_at",
+            "name": "reinstated_at",
             "type": "i64"
           }
         ]
@@ -4251,10 +5636,143 @@
             "name": "Deactivated"
           },
           {
-            "name": "Slashed"
+            "name": "Frozen"
           },
           {
-            "name": "Exited"
+            "name": "Tombstoned"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NonceReuseProven",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "registry_version",
+            "type": "u32"
+          },
+          {
+            "name": "commitment_addr",
+            "docs": [
+              "The aggregate nonce commitment both statements were signed under."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                20
+              ]
+            }
+          },
+          {
+            "name": "source_id_a",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "signatures_required_a",
+            "type": "u8"
+          },
+          {
+            "name": "canonical_timestamp_a",
+            "type": "i64"
+          },
+          {
+            "name": "signers_bitmap_a",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "source_id_b",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "signatures_required_b",
+            "type": "u8"
+          },
+          {
+            "name": "canonical_timestamp_b",
+            "type": "i64"
+          },
+          {
+            "name": "signers_bitmap_b",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "guilty_bitmap",
+            "docs": [
+              "Intersection of the two signer bitmaps - the punished bits."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "guilty_count",
+            "type": "u16"
+          },
+          {
+            "name": "evidence_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "reporter",
+            "type": "pubkey"
+          },
+          {
+            "name": "slashed_total",
+            "type": "u64"
+          },
+          {
+            "name": "bounty_paid",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OffenceKind",
+      "docs": [
+        "Node-fault offence types. Each carries a fixed [`Penalty`] — see [`OffenceKind::penalty`]."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Equivocation"
+          },
+          {
+            "name": "UnsolicitedSigning"
+          },
+          {
+            "name": "NonceReuse"
           }
         ]
       }
@@ -4455,26 +5973,8 @@
             "type": "u16"
           },
           {
-            "name": "registry_cooldown_secs",
-            "docs": [
-              "Monotonic counter assigning `gateway_index` to bonded gateways."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "previous_grace_secs",
-            "docs": [
-              "Grace period after activation during which the previous registry version remains valid."
-            ],
-            "type": "i64"
-          },
-          {
             "name": "max_node_count",
             "type": "u32"
-          },
-          {
-            "name": "redundancy_buffer",
-            "type": "u8"
           },
           {
             "name": "minimum_node_deposit",
@@ -4496,7 +5996,7 @@
             "docs": [
               "Per-required-signature price component of a `FreshRound` request.",
               "Solvency invariant (ops-enforced): `agent_round_per_sig >= reward_per_signature`",
-              "and `agent_round_base >= redundancy_buffer * reward_per_signature + gateway_fee`."
+              "and `agent_round_base >= registry.redundancy_buffer * reward_per_signature + gateway_fee`."
             ],
             "type": "u64"
           },
@@ -4556,20 +6056,8 @@
             "type": "u16"
           },
           {
-            "name": "registry_cooldown_secs",
-            "type": "i64"
-          },
-          {
-            "name": "previous_grace_secs",
-            "type": "i64"
-          },
-          {
             "name": "max_node_count",
             "type": "u32"
-          },
-          {
-            "name": "redundancy_buffer",
-            "type": "u8"
           },
           {
             "name": "minimum_node_deposit",
@@ -4608,6 +6096,10 @@
             "type": "pubkey"
           },
           {
+            "name": "registry",
+            "type": "pubkey"
+          },
+          {
             "name": "treasury",
             "type": "pubkey"
           },
@@ -4622,6 +6114,267 @@
           {
             "name": "initialized_at",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PunishEquivocationArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "source_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "registry_version",
+            "docs": [
+              "Registry version the two attestations were signed against; also the version",
+              "`guilty_bitmap` on `PunishmentCase` indexes into."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "signatures_required",
+            "type": "u8"
+          },
+          {
+            "name": "canonical_timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "statement_a",
+            "type": {
+              "defined": {
+                "name": "SignedStatement"
+              }
+            }
+          },
+          {
+            "name": "statement_b",
+            "type": {
+              "defined": {
+                "name": "SignedStatement"
+              }
+            }
+          },
+          {
+            "name": "evidence_hash",
+            "docs": [
+              "Must equal `equivocation_evidence_hash(..)` over the fields above — validated in the",
+              "handler and reused as the `PunishmentCase` PDA seed (the anti-replay guard), mirroring how",
+              "`register_node` validates `secp256k1_key_fingerprint` against its own PDA seed."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "new_registry_version",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PunishNonceReuseArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "registry_version",
+            "docs": [
+              "Registry version both statements were signed against; also the version `guilty_bitmap` on",
+              "`PunishmentCase` indexes into."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "context_a",
+            "type": {
+              "defined": {
+                "name": "SigningContext"
+              }
+            }
+          },
+          {
+            "name": "statement_a",
+            "type": {
+              "defined": {
+                "name": "SignedStatement"
+              }
+            }
+          },
+          {
+            "name": "context_b",
+            "type": {
+              "defined": {
+                "name": "SigningContext"
+              }
+            }
+          },
+          {
+            "name": "statement_b",
+            "type": {
+              "defined": {
+                "name": "SignedStatement"
+              }
+            }
+          },
+          {
+            "name": "evidence_hash",
+            "docs": [
+              "Must equal `nonce_reuse_evidence_hash(..)` over the fields above — validated in the",
+              "handler and reused as the `PunishmentCase` PDA seed (the anti-replay guard)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "new_registry_version",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PunishUnsolicitedSigningArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "source_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "registry_version",
+            "docs": [
+              "Registry version the statement was signed against; also the version `guilty_bitmap` on",
+              "`PunishmentCase` indexes into."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "signatures_required",
+            "type": "u8"
+          },
+          {
+            "name": "canonical_timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "statement",
+            "type": {
+              "defined": {
+                "name": "SignedStatement"
+              }
+            }
+          },
+          {
+            "name": "evidence_hash",
+            "docs": [
+              "Must equal `unsolicited_signing_evidence_hash(..)` over the fields above — validated in the",
+              "handler and reused as the `PunishmentCase` PDA seed (the anti-replay guard)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "new_registry_version",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PunishmentCase",
+      "docs": [
+        "Permanent, on-chain record of an executed node punishment.",
+        "",
+        "The PDA is seeded by `evidence_hash`, so `init` doubles as the anti-replay guard: the same",
+        "evidence can only ever be submitted once, independent of any per-offence terminal-status guard."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "offence",
+            "type": {
+              "defined": {
+                "name": "OffenceKind"
+              }
+            }
+          },
+          {
+            "name": "reporter",
+            "type": "pubkey"
+          },
+          {
+            "name": "registry_version",
+            "docs": [
+              "Registry version the guilty bitmap indexes into."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "guilty_bitmap",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "guilty_count",
+            "type": "u16"
+          },
+          {
+            "name": "slashed_total",
+            "type": "u64"
+          },
+          {
+            "name": "bounty_paid",
+            "type": "u64"
+          },
+          {
+            "name": "evidence_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "executed_slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
@@ -4656,6 +6409,10 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "new_registry_version",
+            "type": "u32"
+          },
           {
             "name": "registration_salt",
             "type": {
@@ -4718,65 +6475,64 @@
       }
     },
     {
-      "name": "RegistryState",
+      "name": "Registry",
+      "docs": [
+        "Immutable, version-addressed snapshot of the ordered node set and selection policy.",
+        "",
+        "Only `nodes[..node_count]` is populated. Node addresses are stored as bytes to keep the",
+        "zero-copy layout POD-safe and exactly 8,208 bytes including the Anchor discriminator."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "current_node_count",
+            "name": "version",
             "type": "u32"
           },
           {
-            "name": "grace_secs",
-            "type": "i64"
+            "name": "node_count",
+            "type": "u16"
           },
           {
             "name": "redundancy_buffer",
             "type": "u8"
           },
           {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "nodes",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    32
+                  ]
+                },
+                256
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RegistryState",
+      "docs": [
+        "Mutable pointer to the current immutable registry snapshot."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
             "name": "current_version",
             "type": "u32"
-          },
-          {
-            "name": "previous_version",
-            "type": "u32"
-          },
-          {
-            "name": "previous_expires_at",
-            "type": "i64"
-          },
-          {
-            "name": "previous_node_count",
-            "type": "u32"
-          },
-          {
-            "name": "last_transition_type",
-            "type": {
-              "defined": {
-                "name": "RegistryTransitionType"
-              }
-            }
-          },
-          {
-            "name": "removed_old_index",
-            "type": "u32"
-          },
-          {
-            "name": "removed_node",
-            "type": "pubkey"
-          },
-          {
-            "name": "moved_old_index",
-            "type": "u32"
-          },
-          {
-            "name": "moved_node",
-            "type": "pubkey"
           },
           {
             "name": "bump",
@@ -4786,27 +6542,7 @@
       }
     },
     {
-      "name": "RegistryTransitionType",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "None"
-          },
-          {
-            "name": "Add"
-          },
-          {
-            "name": "RemoveTail"
-          },
-          {
-            "name": "RemoveSwap"
-          }
-        ]
-      }
-    },
-    {
-      "name": "RegistryVersionActivated",
+      "name": "RegistryVersionCreated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -4815,16 +6551,67 @@
             "type": "u32"
           },
           {
-            "name": "active_version",
+            "name": "new_version",
             "type": "u32"
           },
           {
-            "name": "previous_expires_at",
-            "type": "i64"
+            "name": "node_count",
+            "type": "u16"
           },
           {
-            "name": "activated_at",
+            "name": "redundancy_buffer",
+            "type": "u8"
+          },
+          {
+            "name": "reason",
+            "type": {
+              "defined": {
+                "name": "RegistryVersionReason"
+              }
+            }
+          },
+          {
+            "name": "created_at",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RegistryVersionReason",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "NodeAdded"
+          },
+          {
+            "name": "NodeRemoved"
+          },
+          {
+            "name": "PolicyChanged"
+          },
+          {
+            "name": "NodePunished"
+          },
+          {
+            "name": "NodeReinstated"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReinstateNodeArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "node_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_registry_version",
+            "type": "u32"
           }
         ]
       }
@@ -4867,7 +6654,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "feed_id",
+            "name": "source_id",
             "type": {
               "array": [
                 "u8",
@@ -4890,6 +6677,14 @@
           {
             "name": "challenger_bounty",
             "type": "u64"
+          },
+          {
+            "name": "refund_amount",
+            "type": "u64"
+          },
+          {
+            "name": "round_restored",
+            "type": "bool"
           }
         ]
       }
@@ -4900,7 +6695,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "feed_id",
+            "name": "source_id",
             "type": {
               "array": [
                 "u8",
@@ -4932,7 +6727,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "feed_id",
+            "name": "source_id",
             "type": {
               "array": [
                 "u8",
@@ -4967,7 +6762,7 @@
             }
           },
           {
-            "name": "data_update_message_hash",
+            "name": "attestation_message_hash",
             "type": {
               "array": [
                 "u8",
@@ -5044,7 +6839,7 @@
             "type": "pubkey"
           },
           {
-            "name": "feed_id",
+            "name": "source_id",
             "type": {
               "array": [
                 "u8",
@@ -5151,7 +6946,7 @@
             "type": "u64"
           },
           {
-            "name": "api_config_hash",
+            "name": "source_id",
             "type": {
               "array": [
                 "u8",
@@ -5196,7 +6991,7 @@
             "type": "u64"
           },
           {
-            "name": "api_config_hash",
+            "name": "source_id",
             "type": {
               "array": [
                 "u8",
@@ -5232,12 +7027,97 @@
       }
     },
     {
-      "name": "SubmitDataUpdateArgs",
+      "name": "SignedStatement",
+      "docs": [
+        "One signed statement offered as punishment evidence: an aggregate Schnorr signature over",
+        "`value` for the duty tuple carried alongside it in the offence's args (e.g.",
+        "`PunishEquivocationArgs`, `PunishUnsolicitedSigningArgs`)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "feed_id",
+            "name": "value",
+            "type": "bytes"
+          },
+          {
+            "name": "agg_sig_s",
+            "docs": [
+              "Aggregate Schnorr scalar `s`."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "commitment_addr",
+            "docs": [
+              "Ethereum-style commitment address of the aggregate nonce `R`."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                20
+              ]
+            }
+          },
+          {
+            "name": "signers_bitmap",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SigningContext",
+      "docs": [
+        "The duty tuple one statement in a [`nonce_reuse_evidence_hash`] filing was signed under.",
+        "",
+        "Distinct from equivocation and unsolicited-signing, where both statements in a filing always",
+        "share one duty tuple: nonce reuse spans two signing contexts by definition, so each statement",
+        "carries its own. `registry_version` is deliberately absent — both statements in a nonce-reuse",
+        "filing must be signed against the same registry version (cross-version reuse is out of scope,",
+        "mirroring the equivocation module doc's own cross-version limitation), so it lives once on",
+        "`PunishNonceReuseArgs` instead, where the pinned `evidence_registry` seed constraint needs it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "source_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "signatures_required",
+            "type": "u8"
+          },
+          {
+            "name": "canonical_timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SubmitAttestationArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "source_id",
             "type": {
               "array": [
                 "u8",
@@ -5423,18 +7303,88 @@
       }
     },
     {
-      "name": "UpdateConfigArgs",
+      "name": "UnsolicitedSigningProven",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "registry_cooldown_secs",
+            "name": "source_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "registry_version",
+            "type": "u32"
+          },
+          {
+            "name": "signatures_required",
+            "type": "u8"
+          },
+          {
+            "name": "canonical_timestamp",
             "type": "i64"
           },
           {
-            "name": "previous_grace_secs",
-            "type": "i64"
+            "name": "signers_bitmap",
+            "docs": [
+              "The offending coalition's full signer bitmap, as submitted."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
+          {
+            "name": "guilty_bitmap",
+            "docs": [
+              "`signers_bitmap` minus the derived selection — the punished bits."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "guilty_count",
+            "type": "u16"
+          },
+          {
+            "name": "evidence_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "reporter",
+            "type": "pubkey"
+          },
+          {
+            "name": "slashed_total",
+            "type": "u64"
+          },
+          {
+            "name": "bounty_paid",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateConfigArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
           {
             "name": "withdrawal_cooldown_secs",
             "type": "i64"
@@ -5442,10 +7392,6 @@
           {
             "name": "max_node_count",
             "type": "u32"
-          },
-          {
-            "name": "redundancy_buffer",
-            "type": "u8"
           },
           {
             "name": "minimum_node_deposit",

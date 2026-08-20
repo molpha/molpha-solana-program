@@ -4,7 +4,7 @@ import { setupTestContext, TestContext } from "../setup";
 import {
   generateE2eSignerMaterial,
   registerNodesForE2e,
-} from "../helpers/submit-data-update";
+} from "../helpers/submit-attestation";
 import {
   advanceClock,
   AgentProtocolContext,

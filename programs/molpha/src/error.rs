@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use molpha_verifier::DataUpdateError;
+use molpha_verifier::AttestationError;
 
 #[error_code]
 pub enum MolphaError {
@@ -96,6 +96,8 @@ pub enum MolphaError {
     QuorumBelowThreshold,
     #[msg("gateway not registered or bonded below gateway_bond_min")]
     GatewayNotBonded,
+    #[msg("gateway is slashed")]
+    GatewaySlashed,
     #[msg("subscription inactive or round quota exhausted")]
     SubscriptionInactiveOrExhausted,
     #[msg("supplied signature does not match committed agg_sig_hash")]
@@ -160,27 +162,33 @@ pub enum MolphaError {
     SignersFullySelected,
     #[msg("every guilty node is already tombstoned")]
     NothingToPunish,
+    #[msg("statements do not share an aggregate nonce commitment")]
+    NonceCommitmentMismatch,
+    #[msg("statements commit to the same message hash")]
+    NonceReuseSameMessage,
+    #[msg("same duty with different values is equivocation - file it as one")]
+    PreferEquivocation,
 }
 
-pub(crate) fn map_data_update_err(error: DataUpdateError) -> anchor_lang::error::Error {
+pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {
     match error {
-        DataUpdateError::InvalidAggregateSignature => {
+        AttestationError::InvalidAggregateSignature => {
             error!(MolphaError::InvalidAggregateSignature)
         }
-        DataUpdateError::InvalidSignature => error!(MolphaError::InvalidSignature),
-        DataUpdateError::InsufficientSigners => error!(MolphaError::InsufficientSigners),
-        DataUpdateError::SignersNotSubsetOfSelection => {
+        AttestationError::InvalidSignature => error!(MolphaError::InvalidSignature),
+        AttestationError::InsufficientSigners => error!(MolphaError::InsufficientSigners),
+        AttestationError::SignersNotSubsetOfSelection => {
             error!(MolphaError::SignersNotSubsetOfSelection)
         }
-        DataUpdateError::InvalidSignersBitmap => error!(MolphaError::InvalidSignersBitmap),
-        DataUpdateError::GroupBitmapDerivationFailed => {
+        AttestationError::InvalidSignersBitmap => error!(MolphaError::InvalidSignersBitmap),
+        AttestationError::GroupBitmapDerivationFailed => {
             error!(MolphaError::GroupBitmapDerivationFailed)
         }
-        DataUpdateError::SignerCountMismatch | DataUpdateError::MissingSignerAccount => {
+        AttestationError::SignerCountMismatch | AttestationError::MissingSignerAccount => {
             error!(MolphaError::MissingSignerAccount)
         }
-        DataUpdateError::InvalidRegistryVersion => error!(MolphaError::InvalidRegistryVersion),
-        DataUpdateError::InvalidNodeIndex => error!(MolphaError::InvalidNodeIndex),
-        DataUpdateError::InvalidTransitionAccount => error!(MolphaError::InvalidRegistryVersion),
+        AttestationError::InvalidRegistryVersion => error!(MolphaError::InvalidRegistryVersion),
+        AttestationError::InvalidNodeIndex => error!(MolphaError::InvalidNodeIndex),
+        AttestationError::InvalidTransitionAccount => error!(MolphaError::InvalidRegistryVersion),
     }
 }

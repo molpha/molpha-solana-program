@@ -1,34 +1,12 @@
-//! `punish_unsolicited_signing` — offence #2: a node's signature appears in a valid Molpha
+//! `punish_unsolicited_signing` — a node's signature appears in a valid Molpha
 //! attestation whose signer bitmap contains a bit outside the duty's deterministic selection set.
-//!
-//! Permissionless and immediate: the proof is a single valid Molpha attestation
-//! (`source_id`, `registry_version`, `signatures_required`, `canonical_timestamp`, `value`) whose
-//! `signers_bitmap` is not a subset of `derive_selection_bitmap(..)` for that duty. Because the
-//! coalition key is a plain sum `Σ X_i` protected by proof-of-possession at registration
-//! (`utils::registry::verify_node_pop`), and `compute_message_hash` commits to `signers_bitmap`
-//! itself, a valid aggregate signature over a bitmap is only producible with the secret behind
-//! every node in it — so a set bit outside the selection demonstrably contributed a partial
-//! signature to a duty it was never assigned. The selection is a pure function of fields the node
-//! itself signed over, so it could always have checked and refused; an innocent node can never be
-//! framed this way, since framing needs its secret key.
-//!
-//! The guilty set is exactly `signers_bitmap & !selection` — legitimately-selected cosigners in
-//! the same coalition are untouched, mirroring how `punish_equivocation` punishes only the
-//! intersection of two signer sets. The sentence is a 100% slash and a permanent tombstone
-//! (`OffenceKind::UnsolicitedSigning::penalty`).
-//!
-//! This is complementary to, and independent of, `dispute_round`: that instruction slashes the
-//! *gateway* that assembled and settled a round outside the selection (and only within the dispute
-//! window, from an on-chain `RoundReceiptRecord`); this instruction slashes the *node(s)* that
-//! signed it, permissionlessly, from self-contained evidence, with no dispute window and no
-//! dependency on the round ever having been settled on-chain.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use molpha_verifier::bitmap::{bitmap_is_subset, bitmap_load, bitmap_store};
 
 use crate::{
-    error::{map_data_update_err, MolphaError},
+    error::{map_attestation_err, MolphaError},
     events::{RegistryVersionCreated, RegistryVersionReason, UnsolicitedSigningProven},
     instructions::disputing::verify_statement,
     state::{
@@ -45,7 +23,7 @@ pub struct PunishUnsolicitedSigningArgs {
     /// `PunishmentCase` indexes into.
     pub registry_version: u32,
     pub signatures_required: u8,
-    pub canonical_timestamp: i64,
+    pub canonical_timestamp: u64,
     pub statement: SignedStatement,
     /// Must equal `unsolicited_signing_evidence_hash(..)` over the fields above — validated in the
     /// handler and reused as the `PunishmentCase` PDA seed (the anti-replay guard).
@@ -87,7 +65,7 @@ pub fn punish_unsolicited_signing<'info>(
             args.signatures_required,
             evidence_registry.redundancy_buffer,
         )
-        .map_err(map_data_update_err)?;
+        .map_err(map_attestation_err)?;
         require!(
             !bitmap_is_subset(&args.statement.signers_bitmap, &selection),
             MolphaError::SignersFullySelected

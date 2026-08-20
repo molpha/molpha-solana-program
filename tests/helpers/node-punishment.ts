@@ -5,10 +5,11 @@
  */
 import { keccak_256 } from "@noble/hashes/sha3";
 import { PublicKey } from "@solana/web3.js";
-import { evmBitmapBitSet } from "./submit-data-update";
+import { evmBitmapBitSet } from "./submit-attestation";
 
 const DOMAIN_EQUIVOCATION = Buffer.from("MOLPHA_EQUIVOCATION_V1");
 const DOMAIN_UNSOLICITED_SIGNING = Buffer.from("MOLPHA_UNSOLICITED_SIGNING_V1");
+const DOMAIN_NONCE_REUSE = Buffer.from("MOLPHA_NONCE_REUSE_V1");
 const PUNISHMENT_CASE_SEED = Buffer.from("molpha_punishment");
 
 /** One signed statement offered as punishment evidence. Mirrors `state::punishment::SignedStatement`. */
@@ -90,6 +91,49 @@ export function unsolicitedSigningEvidenceHash(params: {
         u64beFromNumber(params.canonicalTimestamp),
         statementHash(params.statement),
       ])
+    )
+  );
+}
+
+/** Mirrors `state::punishment::SigningContext`. */
+export type SigningContextFields = {
+  sourceId: Uint8Array;
+  signaturesRequired: number;
+  canonicalTimestamp: number;
+};
+
+/** Mirrors `state::punishment::context_statement_hash`. */
+function contextStatementHash(
+  context: SigningContextFields,
+  statement: SignedStatementBytes
+): Buffer {
+  return Buffer.from(
+    keccak_256(
+      Buffer.concat([
+        Buffer.from(context.sourceId),
+        Buffer.from([context.signaturesRequired]),
+        u64beFromNumber(context.canonicalTimestamp),
+        statementHash(statement),
+      ])
+    )
+  );
+}
+
+/** Mirrors `state::punishment::nonce_reuse_evidence_hash`. */
+export function nonceReuseEvidenceHash(params: {
+  registryVersion: number;
+  contextA: SigningContextFields;
+  statementA: SignedStatementBytes;
+  contextB: SigningContextFields;
+  statementB: SignedStatementBytes;
+}): Buffer {
+  const hashA = contextStatementHash(params.contextA, params.statementA);
+  const hashB = contextStatementHash(params.contextB, params.statementB);
+  const [lo, hi] =
+    Buffer.compare(hashA, hashB) <= 0 ? [hashA, hashB] : [hashB, hashA];
+  return Buffer.from(
+    keccak_256(
+      Buffer.concat([DOMAIN_NONCE_REUSE, u32be(params.registryVersion), lo, hi])
     )
   );
 }

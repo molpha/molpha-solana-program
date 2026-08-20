@@ -236,6 +236,24 @@ mod tests {
     }
 
     #[test]
+    fn half_slash_tombstones_and_leaves_the_remainder() {
+        let mut node = node_fixture(100_000_001, 3, NodeStatus::Active);
+        let penalty = Penalty {
+            slash_bps: 5_000, // 50% — OffenceKind::NonceReuse
+            membership: MembershipAction::Tombstone,
+            freeze_secs: 0,
+        };
+        let outcome = apply_penalty(&mut node, penalty, 100).unwrap();
+        assert_eq!(outcome.slashed_locked, 50_000_000); // floor(100_000_001 * 0.5)
+        assert_eq!(outcome.slashed_rewards, 1); // floor(3 * 0.5)
+        assert_eq!(node.locked_amount, 50_000_001);
+        assert_eq!(node.claimable_rewards, 2);
+        assert_eq!(node.status, NodeStatus::Tombstoned);
+        // The `Tombstone` arm must not write `frozen_until` — that field is `Freeze`-only.
+        assert_eq!(node.frozen_until, 0);
+    }
+
+    #[test]
     fn tombstoned_node_cannot_be_punished_again() {
         let mut node = node_fixture(0, 0, NodeStatus::Tombstoned);
         let penalty = Penalty {

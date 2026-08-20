@@ -26,8 +26,8 @@ import {
   getProtocolTreasury,
   registeredNodePda,
   registerNodesForE2e,
-  signE2eDataUpdate,
-} from "../helpers/submit-data-update";
+  signE2eAttestation,
+} from "../helpers/submit-attestation";
 import {
   SignedStatementBytes,
   bitsOfBitmap,
@@ -185,7 +185,7 @@ function buildStatement(params: {
   canonicalTimestamp: number;
   signaturesRequired: number;
 }): SignedStatementBytes {
-  const signed = signE2eDataUpdate(
+  const signed = signE2eAttestation(
     params.registryVersion,
     params.material,
     params.bitmap,

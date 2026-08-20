@@ -45,8 +45,8 @@ const DERIVE_GROUP_BITMAP_MAX_ROUNDS = 65_536;
 const ACCOUNT_LAMPORTS = 1_000_000_000;
 const REGISTERED_NODE_PDAS = new Map<string, PublicKey[]>();
 
-export const EVM_FIXTURE_SOURCE_ID = hexToBytes(evmFixture.dataUpdate.sourceId);
-export const EVM_FIXTURE_VALUE = hexToBytes(evmFixture.dataUpdate.value);
+export const EVM_FIXTURE_SOURCE_ID = hexToBytes(evmFixture.attestation.sourceId);
+export const EVM_FIXTURE_VALUE = hexToBytes(evmFixture.attestation.value);
 export const EVM_FIXTURE_NODE_PUBKEYS = evmFixture.nodePubkeys.map((h) =>
   hexToBytes(h)
 );
@@ -102,24 +102,24 @@ export function signerMaterialForNodeRegistration(
 
 /** Freshly signed args for `verify-answer-evm.json` fields (no `configHash` in message hash). */
 export function buildSignedVerifyAnswerEvmArgs(
-  registryVersion: number = evmFixture.dataUpdate.registryVersion
+  registryVersion: number = evmFixture.attestation.registryVersion
 ) {
-  return signE2eDataUpdate(
+  return signE2eAttestation(
     registryVersion,
     signerMaterialForVerifyAnswerEvm(),
-    evmUint256BitmapForFirstN(evmFixture.dataUpdate.signaturesRequired),
+    evmUint256BitmapForFirstN(evmFixture.attestation.signaturesRequired),
     EVM_FIXTURE_SOURCE_ID,
     {
       value: EVM_FIXTURE_VALUE,
-      canonicalTimestamp: evmFixture.dataUpdate.canonicalTimestamp,
+      canonicalTimestamp: evmFixture.attestation.canonicalTimestamp,
     },
-    evmFixture.dataUpdate.signaturesRequired
+    evmFixture.attestation.signaturesRequired
   ).submitArgs;
 }
 
 /** Static fixture args (registry version 1); signs at call time for on-chain e2e. */
-export function buildEvmSubmitDataUpdateArgs() {
-  return buildSignedVerifyAnswerEvmArgs(evmFixture.dataUpdate.registryVersion);
+export function buildEvmSubmitAttestationArgs() {
+  return buildSignedVerifyAnswerEvmArgs(evmFixture.attestation.registryVersion);
 }
 
 export type E2eSignerMaterial = {
@@ -152,6 +152,12 @@ function keccakConcat(chunks: Uint8Array[]): Uint8Array {
 function u32be(x: number): Uint8Array {
   const buf = new Uint8Array(4);
   new DataView(buf.buffer).setUint32(0, x >>> 0, false);
+  return buf;
+}
+
+function u8be(x: number): Uint8Array {
+  const buf = new Uint8Array(1);
+  buf[0] = x;
   return buf;
 }
 
@@ -354,7 +360,7 @@ export function generateE2eSignerMaterialFromSeed(
   return { privKeys, compressedPubkeys };
 }
 
-export type E2eDataUpdateFields = {
+export type E2eAttestationFields = {
   value: Uint8Array;
   canonicalTimestamp: number;
 };
@@ -406,7 +412,7 @@ export function signerMaterialFromFixture(
   fixture: LoadedE2eFixture
 ): E2eSignerMaterial {
   const redundancyBuffer = 2;
-  const signerCount = fixture.dataUpdate.signaturesRequired + redundancyBuffer;
+  const signerCount = fixture.attestation.signaturesRequired + redundancyBuffer;
   const privKeys = fixturePrivkeys(fixture).slice(0, signerCount);
   const compressedPubkeys = fixture.nodePubkeys
     .slice(0, signerCount)
@@ -426,9 +432,9 @@ function bitmapToNodeIndexesOneBased(bitmap: bigint): number[] {
 
 /** Fail fast if fixture fields are inconsistent before hitting on-chain paths. */
 export function assertE2eFixtureIntegrity(fixture: LoadedE2eFixture): void {
-  const signerCount = fixture.dataUpdate.signaturesRequired;
-  if (fixture.registryVersion !== fixture.dataUpdate.registryVersion) {
-    throw new Error("registryVersion != dataUpdate.registryVersion");
+  const signerCount = fixture.attestation.signaturesRequired;
+  if (fixture.registryVersion !== fixture.attestation.registryVersion) {
+    throw new Error("registryVersion != attestation.registryVersion");
   }
   if (fixture.nodePubkeys.length !== fixture.registeredNodeCount) {
     throw new Error(
@@ -566,7 +572,7 @@ export function evmSchnorrEcdsaInputs(params: {
 export function coalitionCompressedFromFixture(
   fixture: LoadedE2eFixture
 ): Uint8Array {
-  const signerCount = fixture.dataUpdate.signaturesRequired;
+  const signerCount = fixture.attestation.signaturesRequired;
   let coalitionPoint = Point.ZERO;
   for (let i = 0; i < signerCount; i++) {
     coalitionPoint = coalitionPoint.add(
@@ -585,16 +591,16 @@ export function computeFixtureMessageHash(
     BigInt(fixture.schnorrSignature.signersBitmap)
   );
   return computeMessageHash({
-    sourceId: hexToBytes(fixture.dataUpdate.sourceId),
-    registryVersion: fixture.dataUpdate.registryVersion,
-    signaturesRequired: fixture.dataUpdate.signaturesRequired,
+    sourceId: hexToBytes(fixture.attestation.sourceId),
+    registryVersion: fixture.attestation.registryVersion,
+    signaturesRequired: fixture.attestation.signaturesRequired,
     signersBitmap,
-    value: hexToBytes(fixture.dataUpdate.value),
-    canonicalTimestamp: fixture.dataUpdate.canonicalTimestamp,
+    value: hexToBytes(fixture.attestation.value),
+    canonicalTimestamp: fixture.attestation.canonicalTimestamp,
   });
 }
 
-/** Off-chain Schnorr-recovery check (same math as on-chain `verify_data_update`). */
+/** Off-chain Schnorr-recovery check (same math as on-chain `verify_attestation`). */
 export function verifyFixtureSchnorrSignature(fixture: LoadedE2eFixture): void {
   const material = fixture.secretKeys?.length
     ? signerMaterialFromFixture(fixture)
@@ -602,16 +608,16 @@ export function verifyFixtureSchnorrSignature(fixture: LoadedE2eFixture): void {
   const signersBitmap = uint256BE(
     BigInt(fixture.schnorrSignature.signersBitmap)
   );
-  const signed = signE2eDataUpdate(
-    fixture.dataUpdate.registryVersion,
+  const signed = signE2eAttestation(
+    fixture.attestation.registryVersion,
     material,
     signersBitmap,
-    hexToBytes(fixture.dataUpdate.sourceId),
+    hexToBytes(fixture.attestation.sourceId),
     {
-      value: hexToBytes(fixture.dataUpdate.value),
-      canonicalTimestamp: fixture.dataUpdate.canonicalTimestamp,
+      value: hexToBytes(fixture.attestation.value),
+      canonicalTimestamp: fixture.attestation.canonicalTimestamp,
     },
-    fixture.dataUpdate.signaturesRequired
+    fixture.attestation.signaturesRequired
   );
   const coalition = coalitionCompressedFromFixture(fixture);
   const messageHash = computeFixtureMessageHash(fixture);
@@ -639,7 +645,7 @@ export function verifyFixtureSchnorrSignature(fixture: LoadedE2eFixture): void {
   }
 }
 
-/** Anchor `submitDataUpdate` / `verifyDataUpdate` args from an e2e JSON fixture. */
+/** Anchor `submitAttestation` / `verifyAttestation` args from an e2e JSON fixture. */
 export function buildSubmitArgsFromE2eFixture(fixture: LoadedE2eFixture) {
   const signersBitmap = uint256BE(
     BigInt(fixture.schnorrSignature.signersBitmap)
@@ -647,16 +653,16 @@ export function buildSubmitArgsFromE2eFixture(fixture: LoadedE2eFixture) {
   const material = fixture.secretKeys?.length
     ? signerMaterialFromFixture(fixture)
     : signerMaterialForVerifyAnswerEvm();
-  return signE2eDataUpdate(
-    fixture.dataUpdate.registryVersion,
+  return signE2eAttestation(
+    fixture.attestation.registryVersion,
     material,
     signersBitmap,
-    hexToBytes(fixture.dataUpdate.sourceId),
+    hexToBytes(fixture.attestation.sourceId),
     {
-      value: hexToBytes(fixture.dataUpdate.value),
-      canonicalTimestamp: fixture.dataUpdate.canonicalTimestamp,
+      value: hexToBytes(fixture.attestation.value),
+      canonicalTimestamp: fixture.attestation.canonicalTimestamp,
     },
-    fixture.dataUpdate.signaturesRequired
+    fixture.attestation.signaturesRequired
   ).submitArgs;
 }
 
@@ -670,12 +676,12 @@ function computeMessageHash(params: {
 }): Uint8Array {
   return keccakConcat([
     MESSAGE_PREFIX,
+    params.value,
     params.sourceId,
     u32be(params.registryVersion),
-    u32be(params.signaturesRequired),
-    params.signersBitmap,
-    params.value,
+    u8be(params.signaturesRequired),
     u64be(params.canonicalTimestamp),
+    params.signersBitmap,
   ]);
 }
 
@@ -689,13 +695,28 @@ function schnorrSignForVerifier(params: {
   coalitionPubkeyCompressed: Uint8Array;
   messageHash: Uint8Array;
   coalitionPrivkey: bigint;
-}): { s: Uint8Array; commitmentAddr: Uint8Array } {
+  /**
+   * Pin the Schnorr nonce `k`. Omit for a fresh random nonce. Reusing one `k` across two
+   * signings forces both to share `commitmentAddr` (= address(k*G), a function of the nonce
+   * alone) while each stays individually valid over its own message — the exact shape
+   * `punish_nonce_reuse` prosecutes.
+   */
+  nonce?: bigint;
+}): { s: Uint8Array; commitmentAddr: Uint8Array; nonce: bigint } {
   const px = params.coalitionPubkeyCompressed.subarray(1, 33);
   const recoveryId = params.coalitionPubkeyCompressed[0] & 1;
 
-  let k = 0n;
-  while (k === 0n) {
-    k = modN(bigintFromBytesBE(secp256k1.utils.randomPrivateKey()));
+  let k: bigint;
+  if (params.nonce !== undefined) {
+    k = modN(params.nonce);
+    if (k === 0n) {
+      throw new Error("schnorrSignForVerifier: nonce must be non-zero mod n");
+    }
+  } else {
+    k = 0n;
+    while (k === 0n) {
+      k = modN(bigintFromBytesBE(secp256k1.utils.randomPrivateKey()));
+    }
   }
   const r = Point.BASE.multiply(k);
   const commitmentAddr = commitmentAddrFromPoint(r);
@@ -708,29 +729,32 @@ function schnorrSignForVerifier(params: {
   ]);
   const e = modN(bigintFromBytesBE(challengeHash));
   const s = modN(k + e * modN(params.coalitionPrivkey));
-  return { s: bytes32FromBigintBE(s), commitmentAddr };
+  return { s: bytes32FromBigintBE(s), commitmentAddr, nonce: k };
 }
 
-export type SignedE2eDataUpdate = {
+export type SignedE2eAttestation = {
   messageHash: Uint8Array;
-  submitArgs: ReturnType<typeof buildEvmSubmitDataUpdateArgs>;
+  submitArgs: ReturnType<typeof buildEvmSubmitAttestationArgs>;
   aggSigS: Uint8Array;
   commitmentAddr: Uint8Array;
   signersBitmap: Uint8Array;
+  /** The Schnorr nonce `k` actually used. Feed back as `nonce` to force a commitment collision. */
+  nonce: bigint;
 };
 
 /** Build submit args + signature material for the live registry coalition. */
-export function signE2eDataUpdate(
+export function signE2eAttestation(
   registryVersion: number,
   signerMaterial: E2eSignerMaterial,
   signerCountOrBitmap: number | Uint8Array,
   sourceId: Uint8Array,
-  dataUpdate: E2eDataUpdateFields,
+  attestation: E2eAttestationFields,
   signaturesRequired?: number,
   nodeCount?: number,
-  redundancyBuffer = 2
-): SignedE2eDataUpdate {
-  const selectionTimestamp = dataUpdate.canonicalTimestamp;
+  redundancyBuffer = 2,
+  nonce?: bigint
+): SignedE2eAttestation {
+  const selectionTimestamp = attestation.canonicalTimestamp;
   const signersBitmap =
     typeof signerCountOrBitmap === "number"
       ? deriveSignersBitmap(
@@ -749,8 +773,8 @@ export function signE2eDataUpdate(
     registryVersion,
     signaturesRequired: required,
     signersBitmap,
-    value: dataUpdate.value,
-    canonicalTimestamp: dataUpdate.canonicalTimestamp,
+    value: attestation.value,
+    canonicalTimestamp: attestation.canonicalTimestamp,
   });
 
   let coalitionPoint = Point.ZERO;
@@ -770,10 +794,15 @@ export function signE2eDataUpdate(
     );
   }
   const coalitionCompressed = coalitionPoint.toRawBytes(true);
-  const { s, commitmentAddr } = schnorrSignForVerifier({
+  const {
+    s,
+    commitmentAddr,
+    nonce: usedNonce,
+  } = schnorrSignForVerifier({
     coalitionPubkeyCompressed: coalitionCompressed,
     messageHash,
     coalitionPrivkey: coalitionSk,
+    nonce,
   });
 
   const submitArgs = {
@@ -781,21 +810,28 @@ export function signE2eDataUpdate(
     registryVersion,
     signaturesRequired: required,
     signersBitmap: Array.from(signersBitmap),
-    value: Buffer.from(dataUpdate.value),
-    canonicalTimestamp: new BN(dataUpdate.canonicalTimestamp),
+    value: Buffer.from(attestation.value),
+    canonicalTimestamp: new BN(attestation.canonicalTimestamp),
     aggSigR: Array.from(new Uint8Array(32)),
     aggSigS: Array.from(s),
     commitmentAddr: Array.from(commitmentAddr),
   };
 
-  return { messageHash, submitArgs, aggSigS: s, commitmentAddr, signersBitmap };
+  return {
+    messageHash,
+    submitArgs,
+    aggSigS: s,
+    commitmentAddr,
+    signersBitmap,
+    nonce: usedNonce,
+  };
 }
 
-/** On-chain `verify_data_update` return buffer length (`verify_data_update.rs`). */
+/** On-chain `verify_attestation` return buffer length (`verify_attestation.rs`). */
 export const VERIFY_DATA_UPDATE_RETURN_LEN = 72;
 
 /** Pack expected return data: `value[32] | timestamp_be[8] | round_id[32]`. */
-export function expectedVerifyDataUpdateReturnBytes(
+export function expectedVerifyAttestationReturnBytes(
   value: Uint8Array,
   canonicalTimestamp: number
 ): Uint8Array {
@@ -806,17 +842,17 @@ export function expectedVerifyDataUpdateReturnBytes(
 }
 
 /**
- * Run `verify_data_update` via bankrun `tryProcessTransaction` and return program return data.
+ * Run `verify_attestation` via bankrun `tryProcessTransaction` and return program return data.
  */
-export async function executeVerifyDataUpdateReturnData(
+export async function executeVerifyAttestationReturnData(
   ctx: TestContext,
   program: Program,
-  signed: SignedE2eDataUpdate,
+  signed: SignedE2eAttestation,
   _accounts: Record<string, never> = {},
   computeUnitLimit = 1_400_000
 ): Promise<Uint8Array> {
   const verifyIx = await program.methods
-    .verifyDataUpdate(signed.submitArgs)
+    .verifyAttestation(signed.submitArgs)
     .accountsPartial({
       registry: findRegistryPda(
         program.programId,
@@ -846,11 +882,11 @@ export async function executeVerifyDataUpdateReturnData(
   );
   if (result.result !== null) {
     const logs = result.meta?.logMessages?.join("\n") ?? "";
-    throw new Error(`verify_data_update failed: ${result.result}\n${logs}`);
+    throw new Error(`verify_attestation failed: ${result.result}\n${logs}`);
   }
   const returnData = result.meta?.returnData;
   if (!returnData) {
-    throw new Error("verify_data_update did not set return data");
+    throw new Error("verify_attestation did not set return data");
   }
   if (!returnData.programId.equals(program.programId)) {
     throw new Error(
@@ -861,24 +897,24 @@ export async function executeVerifyDataUpdateReturnData(
 }
 
 /** Build submit args signed for the live registry version and registered coalition. */
-export function buildSignedEvmSubmitDataUpdateArgs(
+export function buildSignedEvmSubmitAttestationArgs(
   registryVersion: number,
   signerMaterial: E2eSignerMaterial,
   signerCount = 8,
   sourceId: Uint8Array = EVM_FIXTURE_SOURCE_ID,
-  dataUpdate: E2eDataUpdateFields = {
+  attestation: E2eAttestationFields = {
     value: EVM_FIXTURE_VALUE,
-    canonicalTimestamp: evmFixture.dataUpdate.canonicalTimestamp,
+    canonicalTimestamp: evmFixture.attestation.canonicalTimestamp,
   },
   nodeCount = signerCount,
   redundancyBuffer = 2
-): ReturnType<typeof buildEvmSubmitDataUpdateArgs> {
-  return signE2eDataUpdate(
+): ReturnType<typeof buildEvmSubmitAttestationArgs> {
+  return signE2eAttestation(
     registryVersion,
     signerMaterial,
     signerCount,
     sourceId,
-    dataUpdate,
+    attestation,
     signerCount,
     nodeCount,
     redundancyBuffer
@@ -1100,7 +1136,7 @@ export function deriveEvmFixtureFeedId(owner: PublicKey): Uint8Array {
   return deriveFeedId(
     owner,
     EVM_FIXTURE_SOURCE_ID,
-    evmFixture.dataUpdate.signaturesRequired
+    evmFixture.attestation.signaturesRequired
   );
 }
 

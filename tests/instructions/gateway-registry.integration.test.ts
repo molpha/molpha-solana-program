@@ -10,7 +10,7 @@ import { setupTestContext, TestContext } from "../setup";
 import {
   fundNodeOwnerInBankrun,
   getProtocolTreasury,
-} from "../helpers/submit-data-update";
+} from "../helpers/submit-attestation";
 import molphaIdl from "../../target/idl/molpha.json";
 
 /** Prefer the built IDL address (matches `declare_id!` / Anchor.toml localnet). */

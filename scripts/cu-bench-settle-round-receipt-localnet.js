@@ -215,7 +215,7 @@ function hashAggregatedSig(aggSig) {
   return sha256([body]);
 }
 
-function computeDataUpdateMessageHash({
+function computeAttestationMessageHash({
   feedId,
   registryVersion,
   signaturesRequired,
@@ -242,7 +242,7 @@ function hashGatewayReceipt(
   gatewayReceipt,
   requestAuthHash,
   aggSigHash,
-  dataUpdateMessageHash
+  attestationMessageHash
 ) {
   const body = Buffer.concat([
     u32le(gatewayReceipt.registryVersion),
@@ -254,7 +254,7 @@ function hashGatewayReceipt(
     body,
     requestAuthHash,
     aggSigHash,
-    dataUpdateMessageHash,
+    attestationMessageHash,
   ]);
 }
 

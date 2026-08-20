@@ -18,7 +18,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use molpha_verifier::bitmap::bitmap_is_subset;
 
 use crate::{
-    error::{map_data_update_err, MolphaError},
+    error::{map_attestation_err, MolphaError},
     events::RoundDisputed,
     state::{
         hash_agg_sig, resolve_registry_signers, AgentEscrow, AggregatedSig, Gateway, ProtocolConfig,
@@ -56,12 +56,12 @@ pub fn dispute_round<'info>(
         let expected_selection = molpha_verifier::derive_selection_bitmap(
             &record.source_id,
             record.registry_version,
-            record.timestamp as i64,
+            record.timestamp as u64,
             node_count,
             record.signatures_required,
             registry.redundancy_buffer,
         )
-        .map_err(map_data_update_err)?;
+        .map_err(map_attestation_err)?;
         // Fraudulent selection iff the credited set is NOT a subset of the deterministically
         // derived selection. (Previously inverted — `expected ⊆ signers` — which declared
         // fraud on any honest full-participation round where signers == selection, letting a
@@ -83,9 +83,9 @@ pub fn dispute_round<'info>(
                 &ordered,
                 &agg_sig.s,
                 &agg_sig.commitment_addr,
-                &record.data_update_message_hash,
+                &record.attestation_message_hash,
             )
-            .map_err(map_data_update_err)?
+            .map_err(map_attestation_err)?
         };
         (record.price, selection_mismatch, is_valid_sig)
     };
@@ -199,7 +199,7 @@ fn refund_agent_escrow<'info>(
     price: u64,
 ) -> Result<()> {
     require!(
-        ctx.accounts.subscription.is_none() && ctx.accounts.consumer_authority.is_none(),
+        ctx.accounts.subscription.is_none(),
         MolphaError::DisputeRefundAccountsMissing
     );
     let agent_escrow = ctx
@@ -230,24 +230,24 @@ fn refund_agent_escrow<'info>(
         MolphaError::DisputeRefundAccountsMissing
     );
 
-    let expected_record = Pubkey::create_program_address(
-        &[
-            RoundReceiptRecord::AGENT_SEED_PREFIX,
-            agent_escrow.authority.as_ref(),
-            record.gateway.as_ref(),
-            record.source_id.as_ref(),
-            &[record.signatures_required],
-            &record.timestamp.to_le_bytes(),
-            &[record.bump],
-        ],
-        ctx.program_id,
-    )
-    .map_err(|_| error!(MolphaError::DisputeRefundAccountsMissing))?;
-    require_keys_eq!(
-        ctx.accounts.round_record.key(),
-        expected_record,
-        MolphaError::DisputeRefundAccountsMissing
-    );
+    // let expected_record = Pubkey::create_program_address(
+    //     &[
+    //         RoundReceiptRecord::AGENT_SEED_PREFIX,
+    //         agent_escrow.authority.as_ref(),
+    //         record.gateway.as_ref(),
+    //         record.source_id.as_ref(),
+    //         &[record.signatures_required],
+    //         &record.timestamp.to_le_bytes(),
+    //         &[record.bump],
+    //     ],
+    //     ctx.program_id,
+    // )
+    // .map_err(|_| error!(MolphaError::DisputeRefundAccountsMissing))?;
+    // require_keys_eq!(
+    //     ctx.accounts.round_record.key(),
+    //     expected_record,
+    //     MolphaError::DisputeRefundAccountsMissing
+    // );
 
     require_keys_eq!(
         escrow_ata.owner,
@@ -268,31 +268,6 @@ fn restore_subscription_round<'info>(ctx: &mut Context<DisputeRound<'info>>) -> 
         ctx.accounts.agent_escrow.is_none() && ctx.accounts.escrow_ata.is_none(),
         MolphaError::DisputeRefundAccountsMissing
     );
-    let consumer_authority = ctx
-        .accounts
-        .consumer_authority
-        .as_ref()
-        .ok_or_else(|| error!(MolphaError::DisputeRefundAccountsMissing))?;
-
-    let record = &ctx.accounts.round_record;
-    let expected_record = Pubkey::create_program_address(
-        &[
-            RoundReceiptRecord::SEED_PREFIX,
-            consumer_authority.key.as_ref(),
-            record.source_id.as_ref(),
-            &[record.signatures_required],
-            &record.timestamp.to_le_bytes(),
-            &[record.bump],
-        ],
-        ctx.program_id,
-    )
-    .map_err(|_| error!(MolphaError::DisputeRefundAccountsMissing))?;
-    require_keys_eq!(
-        ctx.accounts.round_record.key(),
-        expected_record,
-        MolphaError::DisputeRefundAccountsMissing
-    );
-
     let subscription = ctx
         .accounts
         .subscription
@@ -312,13 +287,26 @@ fn restore_subscription_round<'info>(ctx: &mut Context<DisputeRound<'info>>) -> 
         expected_sub,
         MolphaError::DisputeRefundAccountsMissing
     );
-    // Round PDA is seeded with consumer_authority, which does not include the
-    // subscription owner. Binding consumer == owner uniquely identifies the
-    // subscription (one per owner). Delegate-settled rounds cannot be bound
-    // without storing the owner on the record.
+
+    // Round PDA is seeded with subscription.owner, so owner-direct and
+    // delegate-settled rounds of the same subscription share one address.
+    let owner = subscription.owner;
+    let record = &ctx.accounts.round_record;
+    let expected_record = Pubkey::create_program_address(
+        &[
+            RoundReceiptRecord::SEED_PREFIX,
+            owner.as_ref(),
+            record.source_id.as_ref(),
+            &[record.signatures_required],
+            &record.timestamp.to_le_bytes(),
+            &[record.bump],
+        ],
+        ctx.program_id,
+    )
+    .map_err(|_| error!(MolphaError::DisputeRefundAccountsMissing))?;
     require_keys_eq!(
-        *consumer_authority.key,
-        subscription.owner,
+        ctx.accounts.round_record.key(),
+        expected_record,
         MolphaError::DisputeRefundAccountsMissing
     );
 
@@ -387,8 +375,4 @@ pub struct DisputeRound<'info> {
     /// Subscription path (`record.price == 0`). Must be `None` for agent rounds.
     #[account(mut)]
     pub subscription: Option<Account<'info, Subscription>>,
-
-    /// CHECK: pubkey only; re-derives the subscription round PDA. Must equal
-    /// `subscription.owner` (owner-direct settlement). Must be `None` for agent rounds.
-    pub consumer_authority: Option<UncheckedAccount<'info>>,
 }

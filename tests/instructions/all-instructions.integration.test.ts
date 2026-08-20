@@ -20,7 +20,7 @@ import {
   registerNodesForE2e,
   getProtocolTreasury,
   signerMaterialForNodeRegistration,
-} from "../helpers/submit-data-update";
+} from "../helpers/submit-attestation";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
@@ -262,9 +262,9 @@ describe("Molpha instruction coverage integration", () => {
       assert.ok(String(error));
     }
 
-    // 6) submit_data_update + verify_data_update (failure-path coverage)
+    // 6) submit_attestation + verify_attestation (failure-path coverage)
     const badSourceId = Uint8Array.from(Buffer.alloc(32, 4));
-    const dataUpdateArgs = {
+    const attestationArgs = {
       sourceId: Array.from(sourceId),
       registryVersion: 0,
       signaturesRequired: 1,
@@ -275,14 +275,14 @@ describe("Molpha instruction coverage integration", () => {
       aggSigS: Array.from(Buffer.alloc(32, 0)),
       commitmentAddr: Array.from(Buffer.alloc(20, 0)),
     };
-    const badDataUpdateArgs = {
-      ...dataUpdateArgs,
+    const badAttestationArgs = {
+      ...attestationArgs,
       sourceId: Array.from(badSourceId),
     };
 
     try {
       await program.methods
-        .submitDataUpdate(dataUpdateArgs)
+        .submitAttestation(attestationArgs)
         .accountsPartial({
           submitter: ctx.authority.publicKey,
           registryState: registryStatePda,
@@ -292,7 +292,7 @@ describe("Molpha instruction coverage integration", () => {
         })
         .rpc();
       assert.fail(
-        "submit_data_update should fail with invalid aggregate signature"
+        "submit_attestation should fail with invalid aggregate signature"
       );
     } catch (error: any) {
       assert.include(String(error), "InvalidAggregateSignature");

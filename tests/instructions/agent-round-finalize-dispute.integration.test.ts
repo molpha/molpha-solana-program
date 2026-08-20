@@ -3,6 +3,7 @@ import { assert } from "chai";
 import {
   ComputeBudgetProgram,
   Ed25519Program,
+  Keypair,
   PublicKey,
   SystemProgram,
   SYSVAR_INSTRUCTIONS_PUBKEY,
@@ -20,8 +21,8 @@ import {
   generateE2eSignerMaterial,
   registerNodesForE2e,
   registeredNodePda,
-  signE2eDataUpdate,
-} from "../helpers/submit-data-update";
+  signE2eAttestation,
+} from "../helpers/submit-attestation";
 import {
   advanceClock,
   AgentProtocolContext,
@@ -48,6 +49,7 @@ const SIGS_REQUIRED = 2;
 const SOURCE_ID = Uint8Array.from(Buffer.alloc(32, 0x66));
 const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
+const DELEGATE_SEED = Buffer.from("molpha_delegate");
 
 function bitsOf(bitmap: Uint8Array): number[] {
   const bits: number[] = [];
@@ -55,6 +57,17 @@ function bitsOf(bitmap: Uint8Array): number[] {
     if (evmBitmapBitSet(bitmap, bit)) bits.push(bit);
   }
   return bits;
+}
+
+function findDelegatePda(
+  programId: PublicKey,
+  owner: PublicKey,
+  delegate: PublicKey
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [DELEGATE_SEED, owner.toBuffer(), delegate.toBuffer()],
+    programId
+  )[0];
 }
 
 describe("agent rounds: finalize + dispute through the shared path", () => {
@@ -143,7 +156,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     agentEscrow?: PublicKey;
     escrowAta?: PublicKey;
     subscription?: PublicKey;
-    consumerAuthority?: PublicKey;
   }): Promise<void> {
     await proto.program.methods
       .disputeRound(params.aggSig)
@@ -160,7 +172,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
         agentEscrow: params.agentEscrow ?? null,
         escrowAta: params.escrowAta ?? null,
         subscription: params.subscription ?? null,
-        consumerAuthority: params.consumerAuthority ?? null,
       })
       .remainingAccounts(
         params.nodeBits.map((bit) => ({
@@ -427,7 +438,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
   it("fails to dispute a genuinely valid full-participation agent round", async () => {
     const t = ++ts;
     const value = Uint8Array.from(Buffer.alloc(32, 0x99));
-    const signed = signE2eDataUpdate(
+    const signed = signE2eAttestation(
       registryVersion,
       material,
       NODE_COUNT,
@@ -576,7 +587,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       challengerUsdc,
       nodeBits: bits,
       subscription: subscriptionPda,
-      consumerAuthority: ctx.authority.publicKey,
     });
 
     const voided = await proto.program.account.roundReceiptRecord.fetch(
@@ -590,6 +600,157 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     assert.equal(
       subAfterDispute.usedRounds.toNumber(),
       subBefore.usedRounds.toNumber()
+    );
+  });
+
+  it("voids a fabricated delegate-settled subscription round and restores used_rounds", async () => {
+    const subscriptionPda = await ensureSubscription();
+    const subGateway = await registerBondedGateway(ctx, proto);
+    const delegateHotKey = Keypair.generate();
+    const delegatePda = findDelegatePda(
+      proto.program.programId,
+      ctx.authority.publicKey,
+      delegateHotKey.publicKey
+    );
+
+    await proto.program.methods
+      .addDelegate({
+        delegate: delegateHotKey.publicKey,
+        maxDataRequests: new BN(100),
+        maxSigners: 2,
+      })
+      .accountsPartial({
+        owner: ctx.authority.publicKey,
+        subscription: subscriptionPda,
+        delegateAccount: delegatePda,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    const subBefore = await proto.program.account.subscription.fetch(
+      subscriptionPda
+    );
+
+    const t = ++ts;
+    const sourceId = Buffer.alloc(32, 0x89);
+    const sigsRequired = 1;
+    const selection = deriveSignersBitmap(
+      sourceId,
+      registryVersion,
+      NODE_COUNT,
+      sigsRequired,
+      redundancyBuffer,
+      t
+    );
+    const bits = bitsOf(selection);
+    const fabricatedSig = zeroedAggSig(selection);
+
+    const requestAuthHash = hashRequestAuthFields(sourceId, sigsRequired, t);
+    const consumerSigIx = Ed25519Program.createInstructionWithPrivateKey({
+      privateKey: delegateHotKey.secretKey,
+      message: requestAuthHash,
+    });
+    const roundRecordPda = findSubscriptionRoundPda(
+      proto.program.programId,
+      ctx.authority.publicKey,
+      sourceId,
+      sigsRequired,
+      t
+    );
+
+    await proto.program.methods
+      .settleRoundReceipt({
+        timestamp: new BN(t),
+        sourceId: Array.from(sourceId),
+        signaturesRequired: sigsRequired,
+        registryVersion,
+        aggSig: fabricatedSig,
+        value: Buffer.alloc(32),
+        consumerAuthority: delegateHotKey.publicKey,
+      })
+      .accountsPartial({
+        payer: ctx.authority.publicKey,
+        protocolConfig: proto.protocolConfigPda,
+        registryState: proto.registryStatePda,
+        registry: registryPda,
+        subscription: subscriptionPda,
+        consumerDelegate: delegatePda,
+        gateway: subGateway.gatewayPda,
+        roundRecord: roundRecordPda,
+        instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+        systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts(
+        bits.map((bit) => ({
+          pubkey: registeredNodePda(proto.program.programId, bit),
+          isWritable: true,
+          isSigner: false,
+        }))
+      )
+      .preInstructions([consumerSigIx])
+      .rpc();
+
+    const subAfterSettle = await proto.program.account.subscription.fetch(
+      subscriptionPda
+    );
+    assert.equal(
+      subAfterSettle.usedRounds.toNumber() - subBefore.usedRounds.toNumber(),
+      1
+    );
+
+    const challenger = ctx.nodes[29];
+    const challengerUsdc = await fundNodeOwnerInBankrun(
+      ctx,
+      challenger,
+      ctx.underlyingTokenMint,
+      BigInt(0)
+    );
+    const expectedBounty = BigInt(
+      (INIT.gatewayBondMin * INIT.challengerBountyBps) / 10_000
+    );
+    const expectedRemainder = BigInt(INIT.gatewayBondMin) - expectedBounty;
+    const treasuryBefore = await readTokenAmount(ctx, proto.treasury);
+    const challengerBefore = await readTokenAmount(ctx, challengerUsdc);
+    const bondBefore = await readTokenAmount(ctx, subGateway.gatewayBondAta);
+    assert.equal(bondBefore, BigInt(INIT.gatewayBondMin));
+
+    await disputeRound({
+      roundRecord: roundRecordPda,
+      gateway: subGateway,
+      aggSig: fabricatedSig,
+      challenger,
+      challengerUsdc,
+      nodeBits: bits,
+      subscription: subscriptionPda,
+    });
+
+    const voided = await proto.program.account.roundReceiptRecord.fetch(
+      roundRecordPda
+    );
+    assert.isOk(voided.status.voided);
+
+    const subAfterDispute = await proto.program.account.subscription.fetch(
+      subscriptionPda
+    );
+    assert.equal(
+      subAfterDispute.usedRounds.toNumber(),
+      subBefore.usedRounds.toNumber()
+    );
+
+    const gw = await proto.program.account.gateway.fetch(subGateway.gatewayPda);
+    assert.isTrue(gw.slashed);
+    assert.equal(gw.bond.toNumber(), 0);
+    assert.equal(
+      await readTokenAmount(ctx, subGateway.gatewayBondAta),
+      BigInt(0)
+    );
+    assert.equal(
+      await readTokenAmount(ctx, challengerUsdc),
+      challengerBefore + expectedBounty
+    );
+    assert.equal(
+      await readTokenAmount(ctx, proto.treasury),
+      treasuryBefore + expectedRemainder
     );
   });
 

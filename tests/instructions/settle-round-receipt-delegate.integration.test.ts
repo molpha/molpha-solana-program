@@ -12,7 +12,7 @@ import { setupTestContext, TestContext } from "../setup";
 import {
   generateE2eSignerMaterial,
   registerNodesForE2e,
-} from "../helpers/submit-data-update";
+} from "../helpers/submit-attestation";
 import {
   advanceClock,
   AgentProtocolContext,
@@ -143,7 +143,7 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
     });
     const roundRecordPda = findSubscriptionRoundPda(
       proto.program.programId,
-      consumer.publicKey,
+      ctx.authority.publicKey,
       params.sourceId,
       signaturesRequired,
       params.timestamp

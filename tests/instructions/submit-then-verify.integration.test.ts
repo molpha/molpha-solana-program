@@ -1,5 +1,5 @@
 /**
- * MVP happy path: register → subscribe → submit_data_update (lazy feed init).
+ * MVP happy path: register → subscribe → submit_attestation (lazy feed init).
  * Covers FeedValueKind::Value (≤32 bytes) and FeedValueKind::Hash (>32 bytes).
  */
 import * as anchor from "@coral-xyz/anchor";
@@ -20,9 +20,9 @@ import {
   generateE2eSignerMaterialFromSeed,
   getProtocolTreasury,
   registerNodesForE2e,
-  signE2eDataUpdate,
+  signE2eAttestation,
   signerRemainingAccounts,
-} from "../helpers/submit-data-update";
+} from "../helpers/submit-attestation";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
@@ -45,11 +45,11 @@ async function advanceClock(ctx: TestContext, seconds: number): Promise<void> {
   ctx.provider.context.setClock(newClock);
 }
 
-describe("submit_data_update (current registry)", () => {
+describe("submit_attestation (current registry)", () => {
   it("stores raw value (<=32) or keccak hash (>32) based on payload length", async () => {
     const scenario = generateE2eScenario(E2E_SEED, SIGNER_COUNT);
     const longValue = Buffer.alloc(64, 0xab);
-    const expectedHash = Buffer.from(keccak_256(longValue));
+    const longValueHash = Buffer.from(keccak_256(longValue));
 
     const ctx = await setupTestContext();
     const program = ctx.molphaProgram as anchor.Program;
@@ -175,7 +175,7 @@ describe("submit_data_update (current registry)", () => {
       SIGNER_COUNT,
       ctx.authority.publicKey
     );
-    const signedValue = signE2eDataUpdate(
+    const signedValue = signE2eAttestation(
       registry.version,
       signerMaterial,
       SIGNER_COUNT,
@@ -187,7 +187,7 @@ describe("submit_data_update (current registry)", () => {
     );
 
     await program.methods
-      .submitDataUpdate(signedValue.submitArgs)
+      .submitAttestation(signedValue.submitArgs)
       .accountsPartial({
         submitter: ctx.authority.publicKey,
         registryState: registryStatePda,
@@ -230,19 +230,19 @@ describe("submit_data_update (current registry)", () => {
       SIGNER_COUNT,
       ctx.authority.publicKey
     );
-    const signedHash = signE2eDataUpdate(
+    const signedHash = signE2eAttestation(
       registry.version,
       signerMaterial,
       SIGNER_COUNT,
       longSourceId,
       {
-        value: longValue,
+        value: longValueHash,
         canonicalTimestamp: scenario.canonicalTimestamp + 1,
       }
     );
 
     await program.methods
-      .submitDataUpdate(signedHash.submitArgs)
+      .submitAttestation(signedHash.submitArgs)
       .accountsPartial({
         submitter: ctx.authority.publicKey,
         registryState: registryStatePda,
@@ -265,7 +265,7 @@ describe("submit_data_update (current registry)", () => {
 
     const feedHash = await program.account.feed.fetch(longFeedPda);
     assert.deepEqual(feedHash.valueKind, { hash: {} });
-    assert.deepEqual(Array.from(feedHash.value), Array.from(expectedHash));
+    assert.deepEqual(Array.from(feedHash.value), Array.from(longValueHash));
     assert.equal(feedHash.value.length, 32);
   });
 });

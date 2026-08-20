@@ -43,7 +43,7 @@ yarn molpha:dev --help
 | `gateway` | `register` \| `claim` |
 | `round` | `settle-subscription` \| `settle-agent` \| `finalize` \| `dispute` |
 | `rewards` | `claim-node` |
-| `data` | `sign` \| `submit` \| `verify` (historical, read-only) |
+| `attestation` | `sign` \| `submit` \| `verify` (historical, read-only) |
 | `admin` | `update-config` |
 | `account` | `protocol-config` \| `registry` \| `registry-version` \| `node` \| `plan` \| `subscription` \| `feed` \| `delegate` \| `gateway` \| `agent-escrow` \| `round` \| `secp-key` |
 
@@ -88,7 +88,7 @@ yarn molpha plan add --plan-type basic --subscription-price 20000000 --max-signe
 yarn molpha subscription subscribe --plan-id 1 --owner-usdc <OWNER_USDC_ATA>
 ```
 
-Register a node and submit data. The first submit lazy-inits the feed:
+Register a node and submit an attestation. The first submit lazy-inits the feed:
 
 ```bash
 yarn molpha registry register \
@@ -98,7 +98,7 @@ yarn molpha registry register \
   --pop-sig-s <32_BYTE_RESPONSE_SCALAR_HEX> \
   --owner-usdc <OWNER_USDC_ATA>
 
-yarn molpha data submit \
+yarn molpha attestation submit \
   --source-id <SOURCE_ID_HEX> \
   --registry-version 1 \
   --value <32_BYTE_HEX> \
@@ -156,9 +156,9 @@ yarn molpha gateway claim
   also include `source_id` and `signatures_required` (not a derived `feed_id` or
   `api_config_hash`). `--submitter` defaults to the wallet.
 - There is no `Job` account or `create_job` instruction. Feeds are created via
-  `init_if_needed` inside `submit_data_update`. `source_id` is a caller-provided
+  `init_if_needed` inside `submit_attestation`. `source_id` is a caller-provided
   32-byte identifier.
-- `data verify` only rebuilds/prints submit args off chain; verification happens on submit.
+- `attestation verify` only rebuilds/prints submit args off chain; verification happens on submit.
 - Subscription payment uses monthly `subscribe` / `extend` (not per-round top-ups).
 - Settlement requires an Ed25519 RequestAuth / AgentRequestAuth pre-instruction; provide
   `--consumer-wallet` / `--payer-wallet` so the CLI can sign the auth message.

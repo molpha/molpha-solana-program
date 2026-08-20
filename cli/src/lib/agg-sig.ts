@@ -2,7 +2,7 @@ import { hexToBytes, parseInteger, readJsonFile } from "./utils";
 import {
   evmBitmapBitSet,
   evmUint256BitmapForFirstN,
-} from "./signing/data-update";
+} from "./signing/attestation";
 
 export type AggregatedSigArgs = {
   s: number[];

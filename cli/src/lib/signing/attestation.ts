@@ -5,7 +5,7 @@ import * as secp256k1 from "@noble/secp256k1";
 import { Point } from "@noble/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
 import { bytesToHex, hexToBytes, parseBigIntString } from "../utils";
-import { fixtureSourceId, VerifyDataUpdateFixture } from "./fixtures";
+import { fixtureSourceId, VerifyAttestationFixture } from "./fixtures";
 
 const MESSAGE_PREFIX = Buffer.from(
   keccak_256(Buffer.from("MOLPHA_MESSAGE_V1"))
@@ -19,19 +19,19 @@ const DERIVE_GROUP_BITMAP_MAX_ROUNDS = 65_536;
 const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
 );
-export const VERIFY_DATA_UPDATE_RETURN_LEN = 72;
+export const VERIFY_ATTESTATION_RETURN_LEN = 72;
 
 export type E2eSignerMaterial = {
   privKeys: bigint[];
   compressedPubkeys: Uint8Array[];
 };
 
-export type E2eDataUpdateFields = {
+export type E2eAttestationFields = {
   value: Uint8Array;
   canonicalTimestamp: number;
 };
 
-export type SignedDataUpdate = {
+export type SignedAttestation = {
   submitArgs: {
     sourceId: number[];
     registryVersion: number;
@@ -341,14 +341,14 @@ function schnorrSignForVerifier(params: {
   return { s: bytes32FromBigintBE(s), commitmentAddr };
 }
 
-export function signE2eDataUpdate(
+export function signE2eAttestation(
   registryVersion: number,
   signerMaterial: E2eSignerMaterial,
   signerCountOrBitmap: number | Uint8Array,
   sourceId: Uint8Array,
-  dataUpdate: E2eDataUpdateFields,
+  attestation: E2eAttestationFields,
   signaturesRequired?: number
-): SignedDataUpdate {
+): SignedAttestation {
   const signersBitmap =
     typeof signerCountOrBitmap === "number"
       ? evmUint256BitmapForFirstN(signerCountOrBitmap)
@@ -360,8 +360,8 @@ export function signE2eDataUpdate(
     registryVersion,
     signaturesRequired: required,
     signersBitmap,
-    value: dataUpdate.value,
-    canonicalTimestamp: dataUpdate.canonicalTimestamp,
+    value: attestation.value,
+    canonicalTimestamp: attestation.canonicalTimestamp,
   });
 
   let coalitionPoint = Point.ZERO;
@@ -394,8 +394,8 @@ export function signE2eDataUpdate(
     submitArgs: {
       sourceId: Array.from(sourceId),
       registryVersion,
-      value: Buffer.from(dataUpdate.value),
-      canonicalTimestamp: new BN(dataUpdate.canonicalTimestamp),
+      value: Buffer.from(attestation.value),
+      canonicalTimestamp: new BN(attestation.canonicalTimestamp),
       signaturesRequired: required,
       aggSigS: Array.from(s),
       commitmentAddr: Array.from(commitmentAddr),
@@ -407,7 +407,7 @@ export function signE2eDataUpdate(
   };
 }
 
-export function buildSubmitArgsFromFixture(fixture: VerifyDataUpdateFixture) {
+export function buildSubmitArgsFromFixture(fixture: VerifyAttestationFixture) {
   const signersBitmap = uint256BE(
     BigInt(fixture.schnorrSignature.signersBitmap)
   );
@@ -445,11 +445,11 @@ function uint256BE(value: bigint): Uint8Array {
   return out;
 }
 
-export function expectedVerifyDataUpdateReturnBytes(
+export function expectedVerifyAttestationReturnBytes(
   value: Uint8Array,
   canonicalTimestamp: number
 ): Uint8Array {
-  const out = new Uint8Array(VERIFY_DATA_UPDATE_RETURN_LEN);
+  const out = new Uint8Array(VERIFY_ATTESTATION_RETURN_LEN);
   out.set(value.subarray(0, 32), 0);
   out.set(u64be(canonicalTimestamp), 32);
   return out;
@@ -479,7 +479,7 @@ export function signerRemainingAccounts(
 }
 
 export function signerMaterialFromFixture(
-  fixture: VerifyDataUpdateFixture
+  fixture: VerifyAttestationFixture
 ): E2eSignerMaterial {
   const compressedPubkeys = fixture.nodePubkeys.map((value) =>
     hexToBytes(value, 33, "node pubkey")
@@ -498,7 +498,7 @@ export function signerMaterialFromFixture(
   return { privKeys, compressedPubkeys };
 }
 
-export function describeSignedPayload(signed: SignedDataUpdate) {
+export function describeSignedPayload(signed: SignedAttestation) {
   return {
     submitArgs: {
       ...signed.submitArgs,

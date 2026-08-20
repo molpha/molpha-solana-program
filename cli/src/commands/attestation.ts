@@ -15,9 +15,9 @@ import {
   buildSubmitArgsFromFixture,
   describeSignedPayload,
   generateE2eSignerMaterialFromSeed,
-  signE2eDataUpdate,
+  signE2eAttestation,
   signerRemainingAccounts,
-} from "../lib/signing/data-update";
+} from "../lib/signing/attestation";
 import { loadVerifyFixture } from "../lib/signing/fixtures";
 import {
   hexToBytes,
@@ -38,14 +38,14 @@ type SubmitArgsShape = {
   commitmentAddr: number[] | string;
 };
 
-export function registerDataCommands(program: Command): void {
+export function registerAttestationCommands(program: Command): void {
   const data = program
-    .command("data")
-    .description("Sign and submit data updates");
+    .command("attestation")
+    .description("Sign and submit attestations");
 
   data
     .command("sign")
-    .description("Produce signed SubmitDataUpdate args")
+    .description("Produce signed SubmitAttestation args")
     .option("--fixture <path>", "fixture file")
     .option("--source-id <hex>", "32-byte source identifier")
     .option("--registry-version <number>", "registry version")
@@ -74,7 +74,7 @@ export function registerDataCommands(program: Command): void {
 
   data
     .command("submit")
-    .description("Submit a signed data update (lazy-inits the feed if needed)")
+    .description("Submit a signed attestation (lazy-inits the feed if needed)")
     .option("--fixture <path>", "fixture file")
     .option("--args <path>", "json file with submit args")
     .option("--source-id <hex>", "32-byte source identifier")
@@ -126,7 +126,7 @@ export function registerDataCommands(program: Command): void {
       );
 
       const signature = await (ctx.program.methods as any)
-        .submitDataUpdate(submitArgs)
+        .submitAttestation(submitArgs)
         .accountsPartial({
           submitter: ctx.wallet.publicKey,
           registryState: registryStatePda,
@@ -152,7 +152,7 @@ export function registerDataCommands(program: Command): void {
 
   data
     .command("verify")
-    .description("Verify a data update against any historical registry")
+    .description("Verify an attestation against any historical registry")
     .option("--fixture <path>", "fixture file")
     .option("--args <path>", "json file with submit args")
     .option("--source-id <hex>", "32-byte source identifier")
@@ -193,7 +193,7 @@ export function registerDataCommands(program: Command): void {
         bytesFromField(submitArgs.signersBitmap, 32, "signers bitmap")
       );
       await (ctx.program.methods as any)
-        .verifyDataUpdate(submitArgs)
+        .verifyAttestation(submitArgs)
         .accountsPartial({ registry: registryPda })
         .remainingAccounts(remaining)
         .simulate();
@@ -247,7 +247,7 @@ function buildSignedPayload(
     ? buildBitmapFromFlag(options.signersBitmap)
     : undefined;
 
-  const payload = signE2eDataUpdate(
+  const payload = signE2eAttestation(
     parseInteger(
       requireValue(options.registryVersion, "Missing --registry-version"),
       "registry version"

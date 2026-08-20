@@ -4,11 +4,11 @@ import * as path from "path";
 import { keccak_256 } from "@noble/hashes/sha3";
 import {
   bytesToHex0x,
-  E2eDataUpdateFields,
+  E2eAttestationFields,
   evmSignersBitmapNumberFromBytes,
   E2eSignerMaterial,
-  SignedE2eDataUpdate,
-} from "./submit-data-update";
+  SignedE2eAttestation,
+} from "./submit-attestation";
 
 /** JSON shape compatible with `tests/fixtures-json/verify-answer-evm.json`. */
 export type VerifyAnswerEvmFixture = {
@@ -21,7 +21,7 @@ export type VerifyAnswerEvmFixture = {
   secretKeys?: string[];
   /** Hex-encoded privkeys from bankrun e2e export (optional). */
   nodePrivkeys?: string[];
-  dataUpdate: {
+  attestation: {
     sourceId: string;
     registryVersion: number;
     signaturesRequired: number;
@@ -35,7 +35,7 @@ export type VerifyAnswerEvmFixture = {
   };
 };
 
-export type E2eScenario = E2eDataUpdateFields & {
+export type E2eScenario = E2eAttestationFields & {
   sourceId: Uint8Array;
   configHash: Uint8Array;
   seed: string;
@@ -77,9 +77,9 @@ export function buildVerifyAnswerEvmFixture(params: {
   nodePrivkeys: bigint[];
   signaturesRequired: number;
   sourceId: Uint8Array;
-  dataUpdate: E2eDataUpdateFields;
+  attestation: E2eAttestationFields;
   signed: Pick<
-    SignedE2eDataUpdate,
+    SignedE2eAttestation,
     "aggSigS" | "commitmentAddr" | "signersBitmap"
   >;
 }): VerifyAnswerEvmFixture {
@@ -95,12 +95,12 @@ export function buildVerifyAnswerEvmFixture(params: {
     nodeIndexesOneBased,
     nodePubkeys: params.nodePubkeys.map((pk) => bytesToHex0x(pk)),
     secretKeys: params.nodePrivkeys.map((sk) => sk.toString()),
-    dataUpdate: {
+    attestation: {
       sourceId: bytesToHex0x(params.sourceId),
       registryVersion: params.registryVersion,
       signaturesRequired: params.signaturesRequired,
-      value: bytesToHex0x(params.dataUpdate.value),
-      canonicalTimestamp: params.dataUpdate.canonicalTimestamp,
+      value: bytesToHex0x(params.attestation.value),
+      canonicalTimestamp: params.attestation.canonicalTimestamp,
     },
     schnorrSignature: {
       signature: bytesToHex0x(params.signed.aggSigS),

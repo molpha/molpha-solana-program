@@ -117,18 +117,18 @@ pub mod molpha {
         instructions::set_delegate_paused(ctx, paused)
     }
 
-    pub fn submit_data_update(
-        ctx: Context<SubmitDataUpdate>,
-        args: SubmitDataUpdateArgs,
+    pub fn submit_attestation(
+        ctx: Context<SubmitAttestation>,
+        args: SubmitAttestationArgs,
     ) -> Result<()> {
-        instructions::submit_data_update(ctx, args)
+        instructions::submit_attestation(ctx, args)
     }
 
-    pub fn verify_data_update(
-        ctx: Context<VerifyDataUpdate>,
-        args: SubmitDataUpdateArgs,
+    pub fn verify_attestation(
+        ctx: Context<VerifyAttestation>,
+        args: SubmitAttestationArgs,
     ) -> Result<()> {
-        instructions::verify_data_update(ctx, args)
+        instructions::verify_attestation(ctx, args)
     }
 
     pub fn register_gateway(
@@ -187,6 +187,13 @@ pub mod molpha {
         args: PunishUnsolicitedSigningArgs,
     ) -> Result<()> {
         instructions::punish_unsolicited_signing(ctx, args)
+    }
+
+    pub fn punish_nonce_reuse<'info>(
+        ctx: Context<PunishNonceReuse<'info>>,
+        args: PunishNonceReuseArgs,
+    ) -> Result<()> {
+        instructions::punish_nonce_reuse(ctx, args)
     }
 
     pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> Result<()> {

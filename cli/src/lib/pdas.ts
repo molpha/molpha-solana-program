@@ -146,7 +146,7 @@ export function findAgentEscrowPda(
 /** Subscription / delegate round receipt PDA. */
 export function findSubscriptionRoundPda(
   programId: PublicKey,
-  consumerAuthority: PublicKey,
+  subscriptionOwner: PublicKey,
   sourceId: Uint8Array,
   signaturesRequired: number,
   timestamp: number | bigint
@@ -154,7 +154,7 @@ export function findSubscriptionRoundPda(
   return PublicKey.findProgramAddressSync(
     [
       ROUND_SEED,
-      consumerAuthority.toBuffer(),
+      subscriptionOwner.toBuffer(),
       Buffer.from(sourceId),
       Buffer.from([signaturesRequired & 0xff]),
       u64Le(timestamp),

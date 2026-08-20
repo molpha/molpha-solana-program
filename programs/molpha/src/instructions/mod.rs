@@ -8,8 +8,8 @@ pub mod subscriptions;
 
 #[cfg(feature = "cu-bench")]
 pub mod bench_registry;
-pub mod submit_data_update;
-pub mod verify_data_update;
+pub mod submit_attestation;
+pub mod verify_attestation;
 
 pub use admin::*;
 pub use delegate::*;
@@ -20,5 +20,5 @@ pub use disputing::*;
 pub use subscriptions::*;
 #[cfg(feature = "cu-bench")]
 pub use bench_registry::*;
-pub use submit_data_update::*;
-pub use verify_data_update::*;
+pub use submit_attestation::*;
+pub use verify_attestation::*;

@@ -1192,9 +1192,9 @@ dependencies = [
 
 [[package]]
 name = "molpha-verifier"
-version = "0.3.0-dev.0"
+version = "0.3.0-dev.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a84a1e58173d5dc2f1b61dad4c09d754f4e98dd81dbdd411bdfb02f84f19454"
+checksum = "f8ca10b1cb10f623f304a46502517210b3d329b9e96a48fbc531509ed5d37aaf"
 dependencies = [
  "ethnum",
  "libsecp256k1",

@@ -131,7 +131,7 @@ export function registerRoundCommands(program: Command): void {
       );
       const [roundRecordPda] = findSubscriptionRoundPda(
         ctx.programId,
-        consumer.publicKey,
+        subscriptionOwner,
         sourceId,
         signaturesRequired,
         timestamp
@@ -451,10 +451,6 @@ export function registerRoundCommands(program: Command): void {
       "--subscription <pubkey>",
       "subscription account (required for subscription rounds, price == 0)"
     )
-    .option(
-      "--consumer-authority <pubkey>",
-      "consumer authority used at settle (required for subscription rounds)"
-    )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
@@ -506,7 +502,6 @@ export function registerRoundCommands(program: Command): void {
       let agentEscrow: PublicKey | null = null;
       let escrowAta: PublicKey | null = null;
       let subscription: PublicKey | null = null;
-      let consumerAuthority: PublicKey | null = null;
       if (price > 0) {
         const agentAuthority = parsePublicKey(
           requireValue(options.agentAuthority, "Missing --agent-authority"),
@@ -523,13 +518,6 @@ export function registerRoundCommands(program: Command): void {
           true
         );
       } else {
-        consumerAuthority = parsePublicKey(
-          requireValue(
-            options.consumerAuthority,
-            "Missing --consumer-authority"
-          ),
-          "consumer authority"
-        );
         subscription = parsePublicKey(
           requireValue(options.subscription, "Missing --subscription"),
           "subscription"
@@ -551,7 +539,6 @@ export function registerRoundCommands(program: Command): void {
           agentEscrow,
           escrowAta,
           subscription,
-          consumerAuthority,
         })
         .remainingAccounts(
           creditedBitsFromBitmap(Uint8Array.from(aggSig.signersBitmap)).map(

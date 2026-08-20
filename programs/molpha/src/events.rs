@@ -166,9 +166,9 @@ pub struct DelegateStatusChanged {
 pub struct FeedUpdated {
     pub source_id: [u8; 32],
     pub registry_version: u32,
-    pub canonical_timestamp: i64,
+    pub canonical_timestamp: u64,
     /// Compacted payload stored on the feed (raw ≤32 bytes, or keccak digest).
-    pub value: Vec<u8>,
+    pub value: [u8; 32],
     pub value_kind: FeedValueKind,
     pub signers_bitmap: [u8; 32],
     pub last_updated_slot: u64,
@@ -242,7 +242,7 @@ pub struct EquivocationProven {
     pub source_id: [u8; 32],
     pub registry_version: u32,
     pub signatures_required: u8,
-    pub canonical_timestamp: i64,
+    pub canonical_timestamp: u64,
     pub guilty_bitmap: [u8; 32],
     pub guilty_count: u16,
     pub evidence_hash: [u8; 32],
@@ -256,10 +256,32 @@ pub struct UnsolicitedSigningProven {
     pub source_id: [u8; 32],
     pub registry_version: u32,
     pub signatures_required: u8,
-    pub canonical_timestamp: i64,
+    pub canonical_timestamp: u64,
     /// The offending coalition's full signer bitmap, as submitted.
     pub signers_bitmap: [u8; 32],
     /// `signers_bitmap` minus the derived selection — the punished bits.
+    pub guilty_bitmap: [u8; 32],
+    pub guilty_count: u16,
+    pub evidence_hash: [u8; 32],
+    pub reporter: Pubkey,
+    pub slashed_total: u64,
+    pub bounty_paid: u64,
+}
+
+#[event]
+pub struct NonceReuseProven {
+    pub registry_version: u32,
+    /// The aggregate nonce commitment both statements were signed under.
+    pub commitment_addr: [u8; 20],
+    pub source_id_a: [u8; 32],
+    pub signatures_required_a: u8,
+    pub canonical_timestamp_a: u64,
+    pub signers_bitmap_a: [u8; 32],
+    pub source_id_b: [u8; 32],
+    pub signatures_required_b: u8,
+    pub canonical_timestamp_b: u64,
+    pub signers_bitmap_b: [u8; 32],
+    /// Intersection of the two signer bitmaps - the punished bits.
     pub guilty_bitmap: [u8; 32],
     pub guilty_count: u16,
     pub evidence_hash: [u8; 32],

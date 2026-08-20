@@ -16,7 +16,7 @@ import {
   getProtocolTreasury,
   registerNodesForE2e,
   signerMaterialForVerifyAnswerEvm,
-} from "../helpers/submit-data-update";
+} from "../helpers/submit-attestation";
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");

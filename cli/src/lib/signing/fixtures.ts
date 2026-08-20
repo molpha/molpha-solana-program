@@ -1,6 +1,6 @@
 import { readJsonFile } from "../utils";
 
-export type VerifyDataUpdateFixture = {
+export type VerifyAttestationFixture = {
   registeredNodeCount: number;
   registryVersion: number;
   configHash: string;
@@ -23,7 +23,7 @@ export type VerifyDataUpdateFixture = {
   };
 };
 
-export function fixtureSourceId(fixture: VerifyDataUpdateFixture): string {
+export function fixtureSourceId(fixture: VerifyAttestationFixture): string {
   const sourceId = fixture.dataUpdate.sourceId;
   if (!sourceId) {
     throw new Error("fixture dataUpdate.sourceId is missing");
@@ -31,6 +31,6 @@ export function fixtureSourceId(fixture: VerifyDataUpdateFixture): string {
   return sourceId;
 }
 
-export function loadVerifyFixture(filePath: string): VerifyDataUpdateFixture {
-  return readJsonFile<VerifyDataUpdateFixture>(filePath);
+export function loadVerifyFixture(filePath: string): VerifyAttestationFixture {
+  return readJsonFile<VerifyAttestationFixture>(filePath);
 }

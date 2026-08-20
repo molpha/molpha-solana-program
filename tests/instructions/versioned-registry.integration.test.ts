@@ -25,8 +25,8 @@ import {
   generateE2eSignerMaterial,
   getProtocolTreasury,
   registerNodesForE2e,
-  signE2eDataUpdate,
-} from "../helpers/submit-data-update";
+  signE2eAttestation,
+} from "../helpers/submit-attestation";
 
 const CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
@@ -336,7 +336,7 @@ describe("immutable versioned node registry", () => {
       genesisRaw?.data
     );
 
-    const signed = signE2eDataUpdate(
+    const signed = signE2eAttestation(
       3,
       signerMaterial,
       3,
@@ -361,7 +361,7 @@ describe("immutable versioned node registry", () => {
     }
     try {
       await program.methods
-        .verifyDataUpdate(signed.submitArgs)
+        .verifyAttestation(signed.submitArgs)
         .accountsPartial({ registry: registry3Pda })
         .remainingAccounts(historicalAccounts)
         .preInstructions([
@@ -378,7 +378,7 @@ describe("immutable versioned node registry", () => {
     ]) {
       try {
         await program.methods
-          .verifyDataUpdate(signed.submitArgs)
+          .verifyAttestation(signed.submitArgs)
           .accountsPartial({ registry: registry3Pda })
           .remainingAccounts(malformed)
           .rpc();

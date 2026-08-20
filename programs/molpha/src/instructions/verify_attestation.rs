@@ -1,19 +1,20 @@
 use anchor_lang::prelude::*;
-use molpha_verifier::DataUpdate;
+use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
 
 use crate::{
-    error::map_data_update_err,
+    error::map_attestation_err,
     state::{resolve_registry_signers, Registry},
 };
 
-use super::SubmitDataUpdateArgs;
+use super::SubmitAttestationArgs;
 
-/// Verify a data update against any retained historical registry without mutating live state.
-pub fn verify_data_update(
-    ctx: Context<VerifyDataUpdate>,
-    args: SubmitDataUpdateArgs,
+/// Verify an attestation against any retained historical registry without mutating live state.
+pub fn verify_attestation(
+    ctx: Context<VerifyAttestation>,
+    args: SubmitAttestationArgs,
 ) -> Result<()> {
-    let payload: DataUpdate = (&args).into();
+    let payload: AttestationPayload = (&args).into();
+    let sig: SchnorrSignature = (&args).into();
     let registry = ctx.accounts.registry.load()?;
     require!(
         registry.version == args.registry_version,
@@ -25,18 +26,19 @@ pub fn verify_data_update(
         &registry,
         &args.signers_bitmap,
     )?;
-    molpha_verifier::verify_data_update(
-        &payload,
+    let attestation: Attestation = Attestation{payload, signature: sig};
+    molpha_verifier::verify_attestation(
+        &attestation,
         u32::from(registry.node_count),
         registry.redundancy_buffer,
         &ordered,
     )
-    .map_err(map_data_update_err)
+    .map_err(map_attestation_err)
 }
 
 #[derive(Accounts)]
-#[instruction(args: SubmitDataUpdateArgs)]
-pub struct VerifyDataUpdate<'info> {
+#[instruction(args: SubmitAttestationArgs)]
+pub struct VerifyAttestation<'info> {
     #[account(
         seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
         bump,

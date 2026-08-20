@@ -30,7 +30,7 @@ import {
   findNodePda,
   findRegistryPda,
   registeredNodePda,
-} from "./submit-data-update";
+} from "./submit-attestation";
 import molphaIdl from "../../target/idl/molpha.json";
 
 /** Prefer the built IDL address (matches `declare_id!` / Anchor.toml localnet). */
@@ -215,11 +215,11 @@ export function findAgentRoundPda(
 
 /**
  * Subscription / delegate round-record PDA:
- * `["molpha_round", consumer_authority, source_id, signatures_required, timestamp_le]`
+ * `["molpha_round", subscription.owner, source_id, signatures_required, timestamp_le]`
  */
 export function findSubscriptionRoundPda(
   programId: PublicKey,
-  consumerAuthority: PublicKey,
+  subscriptionOwner: PublicKey,
   sourceId: Uint8Array | Buffer,
   signaturesRequired: number,
   timestamp: number | bigint
@@ -227,7 +227,7 @@ export function findSubscriptionRoundPda(
   return PublicKey.findProgramAddressSync(
     [
       ROUND_SEED,
-      consumerAuthority.toBuffer(),
+      subscriptionOwner.toBuffer(),
       Buffer.from(sourceId),
       u8(signaturesRequired),
       u64le(timestamp),
