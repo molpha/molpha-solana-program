@@ -16,9 +16,8 @@ pub struct ProtocolConfigUpdated {
     pub max_node_count: u32,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_secs: i64,
-    pub agent_round_base: u64,
-    pub agent_round_per_sig: u64,
-    pub agent_epoch_len_secs: i64,
+    pub x402_round_base: u64,
+    pub x402_round_per_sig: u64,
 }
 
 #[event]
@@ -201,7 +200,6 @@ pub struct RoundDisputed {
     pub gateway: Pubkey,
     pub slashed_bond: u64,
     pub challenger_bounty: u64,
-    pub refund_amount: u64,
     pub round_restored: bool,
 }
 
@@ -213,21 +211,9 @@ pub struct RewardsClaimed {
 }
 
 #[event]
-pub struct AgentEscrowCreated {
-    pub agent: Pubkey,
-    pub authority: Pubkey,
-    pub gateway: Pubkey,
-}
-
-#[event]
-pub struct AgentEscrowClosed {
-    pub agent: Pubkey,
-    pub owner: Pubkey,
-}
-
-#[event]
-pub struct AgentRoundSettled {
-    pub agent: Pubkey,
+pub struct X402RoundSettled {
+    pub payer_id: [u8; 32],
+    pub payment_rail: u16,
     pub price: u64,
     pub source_id: [u8; 32],
     pub timestamp: u64,

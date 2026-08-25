@@ -23,9 +23,8 @@ type UpdateConfigFile = {
   disputeWindowSlots?: string;
   gatewayBondMin?: string;
   challengerBountyBps?: number;
-  agentRoundBase?: string;
-  agentRoundPerSig?: string;
-  agentEpochLenSecs?: string;
+  x402RoundBase?: string;
+  x402RoundPerSig?: string;
 };
 
 type ProtocolConfigAccount = {
@@ -41,9 +40,8 @@ type ProtocolConfigAccount = {
   disputeWindowSlots: { toString(): string };
   gatewayBondMin: { toString(): string };
   challengerBountyBps: number;
-  agentRoundBase: { toString(): string };
-  agentRoundPerSig: { toString(): string };
-  agentEpochLenSecs: { toString(): string };
+  x402RoundBase: { toString(): string };
+  x402RoundPerSig: { toString(): string };
 };
 
 export function registerUpdateConfigCommand(admin: Command): void {
@@ -63,12 +61,11 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .option("--dispute-window-slots <slots>", "settled round dispute window")
     .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
-    .option("--agent-round-base <amount>", "base agent fresh-round price")
+    .option("--x402-round-base <amount>", "base x402 round settlement price")
     .option(
-      "--agent-round-per-sig <amount>",
-      "per-required-signature agent fresh-round price"
+      "--x402-round-per-sig <amount>",
+      "per-required-signature x402 round settlement price"
     )
-    .option("--agent-epoch-len-secs <seconds>", "agent spend accounting epoch")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const config = options.config
@@ -213,35 +210,25 @@ function buildUpdateConfigArgs(
         options.challengerBountyBps as number | undefined,
         config.challengerBountyBps
       ) ?? current.challengerBountyBps,
-    agentRoundBase: bn(
+    x402RoundBase: bn(
       requireValue(
         optionOrConfig(
-          options.agentRoundBase as string | undefined,
-          config.agentRoundBase
-        ) ?? current.agentRoundBase.toString(),
-        "agent round base"
+          options.x402RoundBase as string | undefined,
+          config.x402RoundBase
+        ) ?? current.x402RoundBase.toString(),
+        "x402 round base"
       ),
-      "agent round base"
+      "x402 round base"
     ),
-    agentRoundPerSig: bn(
+    x402RoundPerSig: bn(
       requireValue(
         optionOrConfig(
-          options.agentRoundPerSig as string | undefined,
-          config.agentRoundPerSig
-        ) ?? current.agentRoundPerSig.toString(),
-        "agent round per signature"
+          options.x402RoundPerSig as string | undefined,
+          config.x402RoundPerSig
+        ) ?? current.x402RoundPerSig.toString(),
+        "x402 round per signature"
       ),
-      "agent round per signature"
-    ),
-    agentEpochLenSecs: bn(
-      requireValue(
-        optionOrConfig(
-          options.agentEpochLenSecs as string | undefined,
-          config.agentEpochLenSecs
-        ) ?? current.agentEpochLenSecs.toString(),
-        "agent epoch length"
-      ),
-      "agent epoch length"
+      "x402 round per signature"
     ),
   };
 }

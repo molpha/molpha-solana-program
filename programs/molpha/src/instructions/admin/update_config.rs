@@ -20,9 +20,8 @@ pub struct UpdateConfigArgs {
     pub dispute_window_slots: u64,
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
-    pub agent_round_base: u64,
-    pub agent_round_per_sig: u64,
-    pub agent_epoch_len_secs: i64,
+    pub x402_round_base: u64,
+    pub x402_round_per_sig: u64,
 }
 
 pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Result<()> {
@@ -31,7 +30,6 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
         ctx.accounts.protocol_config.authority,
         MolphaError::UnauthorisedAuthority
     );
-    require!(args.agent_epoch_len_secs > 0, MolphaError::InvalidAgentCaps);
     require!(
         args.max_node_count > 0 && args.max_node_count <= MAX_REGISTRY_NODES as u32,
         MolphaError::NodeCapExceeded
@@ -50,9 +48,8 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
     protocol_config.max_node_count = args.max_node_count;
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_secs = args.withdrawal_cooldown_secs;
-    protocol_config.agent_round_base = args.agent_round_base;
-    protocol_config.agent_round_per_sig = args.agent_round_per_sig;
-    protocol_config.agent_epoch_len_secs = args.agent_epoch_len_secs;
+    protocol_config.x402_round_base = args.x402_round_base;
+    protocol_config.x402_round_per_sig = args.x402_round_per_sig;
 
     emit!(ProtocolConfigUpdated {
         reward_per_signature: args.reward_per_signature,
@@ -67,9 +64,8 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
         max_node_count: args.max_node_count,
         minimum_node_deposit: args.minimum_node_deposit,
         withdrawal_cooldown_secs: args.withdrawal_cooldown_secs,
-        agent_round_base: args.agent_round_base,
-        agent_round_per_sig: args.agent_round_per_sig,
-        agent_epoch_len_secs: args.agent_epoch_len_secs,
+        x402_round_base: args.x402_round_base,
+        x402_round_per_sig: args.x402_round_per_sig,
     });
 
     Ok(())
@@ -106,9 +102,8 @@ mod tests {
             dispute_window_slots: 1024,
             gateway_bond_min: 500_000_000,
             challenger_bounty_bps: 500,
-            agent_round_base: 1_000,
-            agent_round_per_sig: 15,
-            agent_epoch_len_secs: 86_400,
+            x402_round_base: 1_000,
+            x402_round_per_sig: 15,
         }
     }
 
@@ -131,19 +126,18 @@ mod tests {
             decoded.max_receipt_delay_slots,
             args.max_receipt_delay_slots
         );
-        assert_eq!(decoded.agent_round_base, args.agent_round_base);
-        assert_eq!(decoded.agent_round_per_sig, args.agent_round_per_sig);
-        assert_eq!(decoded.agent_epoch_len_secs, args.agent_epoch_len_secs);
+        assert_eq!(decoded.x402_round_base, args.x402_round_base);
+        assert_eq!(decoded.x402_round_per_sig, args.x402_round_per_sig);
     }
 
     #[test]
     fn update_config_instruction_data_serializes_args() {
         let args = fixture_args();
         let data = crate::instruction::UpdateConfig { args: args.clone() }.data();
-        assert_eq!(data.len(), 112);
+        assert_eq!(data.len(), 104);
 
         let decoded = borsh::from_slice::<UpdateConfigArgs>(&data[8..]).expect("deserialize args");
         assert_eq!(decoded.max_node_count, args.max_node_count);
-        assert_eq!(decoded.agent_epoch_len_secs, args.agent_epoch_len_secs);
+        assert_eq!(decoded.x402_round_per_sig, args.x402_round_per_sig);
     }
 }

@@ -1,11 +1,13 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    error::{map_attestation_err, MolphaError},
+    error::{map_attestation_accounts_err, MolphaError},
     events::FeedUpdated,
-    state::{resolve_registry_signers, Feed, FeedInitParams, FeedUpdateParams, Registry},
+    state::{Feed, FeedInitParams, FeedUpdateParams, Registry},
 };
-use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
+use molpha_verifier::{
+    solana::verify_attestation_accounts, Attestation, AttestationPayload, SchnorrSignature,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SubmitAttestationArgs {
@@ -21,24 +23,21 @@ pub struct SubmitAttestationArgs {
     pub signers_bitmap: [u8; 32],
 }
 
-impl From<&SubmitAttestationArgs> for AttestationPayload {
+impl From<&SubmitAttestationArgs> for Attestation {
     fn from(args: &SubmitAttestationArgs) -> Self {
-        Self {
-            source_id: args.source_id,
-            registry_version: args.registry_version,
-            value: args.value,
-            canonical_timestamp: args.canonical_timestamp as u64,
-            signatures_required: args.signatures_required,
-        }
-    }
-}
-
-impl From<&SubmitAttestationArgs> for SchnorrSignature {
-    fn from(args: &SubmitAttestationArgs) -> Self {
-        Self {
-            agg_sig_s: args.agg_sig_s,
-            commitment_addr: args.commitment_addr,
-            signers_bitmap: args.signers_bitmap,
+        Attestation {
+            payload: AttestationPayload {
+                source_id: args.source_id,
+                registry_version: args.registry_version,
+                value: args.value,
+                canonical_timestamp: args.canonical_timestamp as u64,
+                signatures_required: args.signatures_required,
+            },
+            signature: SchnorrSignature {
+                agg_sig_s: args.agg_sig_s,
+                commitment_addr: args.commitment_addr,
+                signers_bitmap: args.signers_bitmap,
+            },
         }
     }
 }
@@ -78,18 +77,14 @@ pub fn submit_attestation(
         });
     }
 
-    let registry = ctx.accounts.registry.load()?;
-    let ordered = resolve_registry_signers(
-        ctx.remaining_accounts,
-        ctx.program_id,
-        &registry,
-        &args.signers_bitmap,
-    )?;
-    let payload: AttestationPayload = (&args).into();
-    let sig: SchnorrSignature = (&args).into();
-    let attestation: Attestation = Attestation{payload, signature: sig};
-    molpha_verifier::verify_attestation(&attestation, u32::from(registry.node_count), registry.redundancy_buffer, &ordered)
-        .map_err(map_attestation_err)?;
+    let attestation: Attestation = (&args).into();
+    verify_attestation_accounts(
+        &attestation,
+        &ctx.accounts.registry.to_account_info(),
+        &ctx.remaining_accounts,
+        &ctx.program_id,
+    )
+    .map_err(map_attestation_accounts_err)?;
 
     emit!(FeedUpdated {
         source_id: feed.source_id,

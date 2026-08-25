@@ -218,7 +218,9 @@ fn context_statement_hash(context: &SigningContext, statement: &SignedStatement)
     hashv(&[
         context.source_id.as_slice(),
         context.signatures_required.to_be_bytes().as_slice(),
-        (context.canonical_timestamp as u64).to_be_bytes().as_slice(),
+        (context.canonical_timestamp as u64)
+            .to_be_bytes()
+            .as_slice(),
         statement_hash(statement).as_slice(),
     ])
     .to_bytes()

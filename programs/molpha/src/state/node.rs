@@ -1,7 +1,8 @@
-use anchor_lang::prelude::*;
-use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
+use anchor_lang::{prelude::*, Discriminator};
+use borsh::BorshDeserialize;
+use molpha_verifier::NodeEntry;
 
-use crate::error::MolphaError;
+use crate::error::{map_attestation_accounts_err, map_attestation_err, MolphaError};
 
 use super::Registry;
 
@@ -88,20 +89,25 @@ pub enum NodeStatus {
 
 /// Resolve selected signer accounts against an immutable registry snapshot.
 ///
-/// Accounts must be provided in ascending signer-bit order. Node status is deliberately ignored:
-/// a node deactivated in a later version remains valid evidence for historical versions.
+/// Anchor I/O adapter: owner-checks and Borsh-deserializes `Node` accounts via [`resolve_nodes`],
+/// then delegates slot binding to [`molpha_verifier::resolve_registry_signers`]. Accounts must be
+/// provided in ascending signer-bit order. Node status is deliberately ignored: a node
+/// deactivated in a later version remains valid evidence for historical versions.
 pub fn resolve_registry_signers(
     accounts: &[AccountInfo],
     program_id: &Pubkey,
     registry: &Registry,
     signers_bitmap: &[u8; 32],
 ) -> Result<Vec<molpha_verifier::SignerXy>> {
-    Ok(
-        resolve_registry_signers_indexed(accounts, program_id, registry, signers_bitmap)?
-            .into_iter()
-            .map(|(_, xy)| xy)
-            .collect(),
+    let entries = molpha_verifier::solana::resolve_nodes(accounts, program_id)
+        .map_err(map_attestation_accounts_err)?;
+    molpha_verifier::resolve_registry_signers(
+        &registry.nodes,
+        registry.node_count,
+        signers_bitmap,
+        &entries,
     )
+    .map_err(map_attestation_err)
 }
 
 /// Like [`resolve_registry_signers`] but also returns each signer's bit position.
@@ -115,51 +121,20 @@ pub fn resolve_registry_signers_indexed(
     registry: &Registry,
     signers_bitmap: &[u8; 32],
 ) -> Result<Vec<(usize, molpha_verifier::SignerXy)>> {
-    let signers = bitmap_load(signers_bitmap);
-    let signer_count = signers.count_ones() as usize;
-    require!(
-        accounts.len() == signer_count,
-        MolphaError::MissingSignerAccount
-    );
-
-    let mut ordered = Vec::with_capacity(signer_count);
-    let mut cursor = 0usize;
-    for_each_set_bit_u256(signers, |bit_pos| {
-        let registry_index = bit_pos;
-        require!(
-            registry_index < usize::from(registry.node_count),
-            MolphaError::InvalidSignersBitmap
-        );
-
-        let account = accounts
-            .get(cursor)
-            .ok_or(error!(MolphaError::MissingSignerAccount))?;
-        cursor = cursor.saturating_add(1);
-        require_keys_eq!(
-            account.key(),
-            Pubkey::new_from_array(registry.nodes[registry_index]),
-            MolphaError::MissingSignerAccount
-        );
-        require_keys_eq!(
-            *account.owner,
-            *program_id,
-            MolphaError::MissingSignerAccount
-        );
-
-        let data = account.try_borrow_data()?;
-        let node = Node::try_deserialize(&mut &data[..])
-            .map_err(|_| error!(MolphaError::InvalidNodeAccount))?;
-        ordered.push((bit_pos, (node.secp256k1_pubkey_x, node.secp256k1_pubkey_y)));
-        Ok(())
-    })?;
-
-    Ok(ordered)
+    let entries = molpha_verifier::solana::resolve_nodes(accounts, program_id)
+        .map_err(map_attestation_accounts_err)?;
+    molpha_verifier::resolve_registry_signers_indexed(
+        &registry.nodes,
+        registry.node_count,
+        signers_bitmap,
+        &entries,
+    )
+    .map_err(map_attestation_err)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anchor_lang::Discriminator;
 
     #[test]
     fn permanent_node_roundtrips() {
@@ -186,7 +161,7 @@ mod tests {
         let mut data = vec![0u8; Node::SPACE];
         data[..8].copy_from_slice(Node::DISCRIMINATOR);
         data[8..].copy_from_slice(&body);
-        let decoded = Node::try_deserialize(&mut data.as_slice()).unwrap();
+        let decoded = Node::deserialize(&mut &data[8..]).unwrap();
         assert_eq!(decoded.owner, account.owner);
         assert_eq!(decoded.secp256k1_pubkey_x, account.secp256k1_pubkey_x);
         assert_eq!(decoded.claimable_rewards, account.claimable_rewards);

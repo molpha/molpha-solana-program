@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
 /**
- * Measure CU usage of `settle_round_receipt` on localnet.
+ * Measure CU usage of `settle_subscription_round` on localnet.
  *
  * This script bootstraps a fresh protocol state, then simulates
- * `settle_round_receipt` with valid Ed25519 attestations and reports:
+ * `settle_subscription_round` with valid Ed25519 attestations and reports:
  * - total transaction CU (`unitsConsumed`)
  * - CU consumed by the Molpha program invocation itself (parsed from logs)
  *
@@ -14,9 +14,9 @@
  *   - fresh validator state (`solana-test-validator --reset`) recommended
  *
  * Usage:
- *   node scripts/cu-bench-settle-round-receipt-localnet.js
- *   node scripts/cu-bench-settle-round-receipt-localnet.js --signers 1,3,8
- *   node scripts/cu-bench-settle-round-receipt-localnet.js --output settle-cu.json
+ *   node scripts/cu-bench-settle-subscription-round-localnet.js
+ *   node scripts/cu-bench-settle-subscription-round-localnet.js --signers 1,3,8
+ *   node scripts/cu-bench-settle-subscription-round-localnet.js --output settle-cu.json
  */
 const crypto = require("crypto");
 const anchor = require("@coral-xyz/anchor");
@@ -70,7 +70,7 @@ const DEFAULT_SIGNER_COUNTS = [1, 3, 8];
 const DEFAULT_COMPUTE_UNIT_LIMIT = 1_400_000;
 const DEFAULT_OUTPUT = path.join(
   process.cwd(),
-  "settle-round-receipt-cu-localnet.json"
+  "settle-subscription-round-cu-localnet.json"
 );
 
 function parseArgs(argv) {
@@ -431,9 +431,8 @@ async function bootstrapState({
       gatewayBondMin: new anchor.BN(500_000),
       challengerBountyBps: 500,
       usdcMint,
-      agentRoundBase: new anchor.BN(1_000),
-      agentRoundPerSig: new anchor.BN(15),
-      agentEpochLenSecs: new anchor.BN(86_400),
+      x402RoundBase: new anchor.BN(1_000),
+      x402RoundPerSig: new anchor.BN(15),
     })
     .accountsPartial({
       protocolConfig: protocolConfigPda,
@@ -752,7 +751,7 @@ async function simulateSettleRound({
   };
 
   const settleIx = await program.methods
-    .settleRoundReceipt(settleArgs)
+    .settleSubscriptionRound(settleArgs)
     .accountsPartial({
       payer: payer.publicKey,
       protocolConfig: setupState.protocolConfigPda,
@@ -838,9 +837,9 @@ async function main() {
   });
   const provider = anchor.getProvider();
 
-  if (!program?.methods?.settleRoundReceipt) {
+  if (!program?.methods?.settleSubscriptionRound) {
     throw new Error(
-      "IDL does not contain settleRoundReceipt. Rebuild first: `anchor build -p molpha`."
+      "IDL does not contain settleSubscriptionRound. Rebuild first: `anchor build -p molpha`."
     );
   }
 

@@ -14,8 +14,7 @@ export const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 export const FEED_SEED = Buffer.from("molpha_feed");
 export const DELEGATE_SEED = Buffer.from("molpha_delegate");
 export const GATEWAY_SEED = Buffer.from("molpha_gateway");
-export const AGENT_ESCROW_SEED = Buffer.from("molpha_agent");
-export const AGENT_ROUND_SEED = Buffer.from("molpha_agent_round");
+export const X402_ROUND_SEED = Buffer.from("molpha_x402_round");
 export const ROUND_SEED = Buffer.from("molpha_round");
 
 export function findProtocolConfigPda(
@@ -131,16 +130,17 @@ export function findGatewayBondAta(
   return getAssociatedTokenAddressSync(usdcMint, gatewayPda, true);
 }
 
-/** Per-(authority, gateway) x402 escrow PDA. */
-export function findAgentEscrowPda(
-  programId: PublicKey,
-  authority: PublicKey,
-  gateway: PublicKey
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [AGENT_ESCROW_SEED, authority.toBuffer(), gateway.toBuffer()],
-    programId
-  );
+/**
+ * Rail-scoped payer identity — `keccak256(rail_id_be ‖ payer_address_bytes)`. `railId` is the
+ * payment-rail registry id (0 = none/subscription, 1 = solana, 2 = base).
+ */
+export function derivePayerId(
+  railId: number,
+  addressBytes: Uint8Array | Buffer
+): Uint8Array {
+  const railIdBe = Buffer.alloc(2);
+  railIdBe.writeUInt16BE(railId, 0);
+  return keccak_256(Buffer.concat([railIdBe, Buffer.from(addressBytes)]));
 }
 
 /** Subscription / delegate round receipt PDA. */
@@ -163,10 +163,10 @@ export function findSubscriptionRoundPda(
   );
 }
 
-/** Agent (x402) round receipt PDA. */
-export function findAgentRoundPda(
+/** x402 round receipt PDA. */
+export function findX402RoundPda(
   programId: PublicKey,
-  authority: PublicKey,
+  payerId: Uint8Array | Buffer,
   gateway: PublicKey,
   sourceId: Uint8Array,
   signaturesRequired: number,
@@ -174,8 +174,8 @@ export function findAgentRoundPda(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [
-      AGENT_ROUND_SEED,
-      authority.toBuffer(),
+      X402_ROUND_SEED,
+      Buffer.from(payerId),
       gateway.toBuffer(),
       Buffer.from(sourceId),
       Buffer.from([signaturesRequired & 0xff]),

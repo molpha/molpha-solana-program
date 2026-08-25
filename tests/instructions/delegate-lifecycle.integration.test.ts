@@ -6,7 +6,7 @@ import { setupTestContext, TestContext } from "../setup";
 import {
   AgentProtocolContext,
   initializeProtocolForAgents,
-} from "../helpers/agent-access";
+} from "../helpers/settlement-access";
 
 const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
@@ -128,10 +128,6 @@ describe("delegate lifecycle", () => {
     assert.deepEqual(delegate.status, { active: {} });
     assert.equal(delegate.maxDataRequests.toString(), "10");
     assert.equal(delegate.maxSigners, 3);
-    // Dormant credit-economy fields start zeroed.
-    assert.equal(delegate.epochCap.toNumber(), 0);
-    assert.equal(delegate.epochSpent.toNumber(), 0);
-    assert.equal(delegate.epochId.toNumber(), 0);
 
     const subscription = await proto.program.account.subscription.fetch(
       subscriptionPda

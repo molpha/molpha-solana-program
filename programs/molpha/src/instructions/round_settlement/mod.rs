@@ -1,7 +1,7 @@
 pub mod finalize_round;
-pub mod settle_agent_round;
-pub mod settle_round_receipt;
+pub mod settle_subscription_round;
+pub mod settle_x402_round;
 
 pub use finalize_round::*;
-pub use settle_agent_round::*;
-pub use settle_round_receipt::*;
+pub use settle_subscription_round::*;
+pub use settle_x402_round::*;

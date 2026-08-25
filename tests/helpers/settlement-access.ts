@@ -1,21 +1,13 @@
 /**
- * Shared harness for the self-funded / x402 agent pay-per-request tests.
+ * Shared harness for the unified settlement tests (subscription draw + x402 gateway-float).
  *
- * Wraps protocol initialization, gateway bonding, escrow funding, and
- * `settle_agent_round` transaction construction. Escrows are lazily created by
- * settlement (seeded by payer/authority); funding is a direct payment into the
- * escrow ATA. Owner-provisioned agents are `Delegate` accounts settled through
- * `settle_round_receipt` and are covered by the delegate test suites.
+ * Wraps protocol initialization, gateway bonding, gateway-float funding, and
+ * `settle_x402_round` / `settle_subscription_round` transaction construction. Owner-provisioned
+ * agents are `Delegate` accounts settled through `settle_subscription_round` and are covered by
+ * the delegate test suites.
  */
-import * as anchor from "@coral-xyz/anchor";
 import { BN, Idl, Program } from "@coral-xyz/anchor";
-import {
-  Keypair,
-  PublicKey,
-  SystemProgram,
-  SYSVAR_INSTRUCTIONS_PUBKEY,
-  Ed25519Program,
-} from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
@@ -23,6 +15,7 @@ import {
 } from "@solana/spl-token";
 import { Clock } from "solana-bankrun";
 import * as crypto from "crypto";
+import { keccak_256 } from "@noble/hashes/sha3";
 import { TestContext } from "../setup";
 import {
   fundNodeOwnerInBankrun,
@@ -41,13 +34,8 @@ export const LOCALNET_PROGRAM_ID = new PublicKey(
 export const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 export const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 export const GATEWAY_SEED = Buffer.from("molpha_gateway");
-export const AGENT_ESCROW_SEED = Buffer.from("molpha_agent");
-export const AGENT_ROUND_SEED = Buffer.from("molpha_agent_round");
+export const X402_ROUND_SEED = Buffer.from("molpha_x402_round");
 export const ROUND_SEED = Buffer.from("molpha_round");
-export const DOMAIN_AGENT_REQAUTH = Buffer.from(
-  "MOLPHA_AGENT_REQAUTH_V1",
-  "utf8"
-);
 
 // Mirrors the `initialize` args used across the integration suite.
 export const INIT = {
@@ -57,15 +45,12 @@ export const INIT = {
   gatewayBondMin: 500_000_000,
   redundancyBuffer: 2,
   challengerBountyBps: 500,
-  agentRoundBase: 1_000,
-  agentRoundPerSig: 15,
-  agentEpochLenSecs: 86_400,
+  x402RoundBase: 1_000,
+  x402RoundPerSig: 15,
 };
 
-export const REQUEST_KIND_FRESH = 0;
-
-export function freshRoundPrice(signaturesRequired: number): number {
-  return INIT.agentRoundBase + signaturesRequired * INIT.agentRoundPerSig;
+export function x402Price(signaturesRequired: number): number {
+  return INIT.x402RoundBase + signaturesRequired * INIT.x402RoundPerSig;
 }
 
 export function u64le(value: number | bigint): Buffer {
@@ -102,46 +87,17 @@ export function hashRequestAuthFields(
 }
 
 /**
- * `H(AgentRequestAuth)` — mirrors `hash_agent_request_auth_fields` in Rust.
- * Borsh body order: agent, gateway, source_id, signatures_required, canonical_timestamp, amount.
+ * Rail-scoped payer identity — mirrors the spec's
+ * `payer_id = keccak256(rail_id_be ‖ payer_address_bytes)`.
+ * `railId` is a u16 registry id (0 = none/subscription, 1 = solana, 2 = base).
  */
-export function hashAgentRequestAuthFields(
-  agent: PublicKey,
-  gateway: PublicKey,
-  sourceId: Uint8Array | Buffer,
-  signaturesRequired: number,
-  canonicalTimestamp: number | bigint,
-  amount: number | bigint
-): Buffer {
-  const body = Buffer.concat([
-    agent.toBuffer(),
-    gateway.toBuffer(),
-    Buffer.from(sourceId),
-    u8(signaturesRequired),
-    u64le(canonicalTimestamp),
-    u64le(amount),
-  ]);
-  return sha256([DOMAIN_AGENT_REQAUTH, body]);
-}
-
-/** Escrow PDA — seeds ["molpha_agent", authority, gateway]. */
-export function findAgentEscrowPda(
-  programId: PublicKey,
-  authority: PublicKey,
-  gateway: PublicKey
-): PublicKey {
-  return PublicKey.findProgramAddressSync(
-    [AGENT_ESCROW_SEED, authority.toBuffer(), gateway.toBuffer()],
-    programId
-  )[0];
-}
-
-/** The escrow's own USDC ATA (real custody). The escrow PDA is off-curve. */
-export function findEscrowAta(
-  usdcMint: PublicKey,
-  escrowPda: PublicKey
-): PublicKey {
-  return getAssociatedTokenAddressSync(usdcMint, escrowPda, true);
+export function derivePayerId(
+  railId: number,
+  addressBytes: Uint8Array | Buffer
+): Uint8Array {
+  const railIdBe = Buffer.alloc(2);
+  railIdBe.writeUInt16BE(railId, 0);
+  return keccak_256(Buffer.concat([railIdBe, Buffer.from(addressBytes)]));
 }
 
 /** Gateway-owned USDC ATA that holds the slashable bond. */
@@ -154,8 +110,8 @@ export function findGatewayBondAta(
 
 /**
  * Directly write a funded USDC token account at `ata` owned by `owner` (may be a PDA).
- * Mirrors `fundNodeOwnerInBankrun`, but for an arbitrary ATA — used to simulate an
- * x402 payment landing in the escrow ATA before settlement.
+ * Mirrors `fundNodeOwnerInBankrun`, but for an arbitrary ATA — used to fund a gateway's
+ * operating float, or any other ad hoc account, without a program call.
  */
 export function fundAtaInBankrun(
   ctx: TestContext,
@@ -189,12 +145,12 @@ export async function readTokenAmount(
 }
 
 /**
- * Agent round-record PDA:
- * `["molpha_agent_round", authority, gateway, source_id, signatures_required, canonical_timestamp_le]`
+ * x402 round-record PDA:
+ * `["molpha_x402_round", payer_id, gateway, source_id, signatures_required, canonical_timestamp_le]`
  */
-export function findAgentRoundPda(
+export function findX402RoundPda(
   programId: PublicKey,
-  authority: PublicKey,
+  payerId: Uint8Array | Buffer,
   gateway: PublicKey,
   sourceId: Uint8Array | Buffer,
   signaturesRequired: number,
@@ -202,8 +158,8 @@ export function findAgentRoundPda(
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
     [
-      AGENT_ROUND_SEED,
-      authority.toBuffer(),
+      X402_ROUND_SEED,
+      Buffer.from(payerId),
       gateway.toBuffer(),
       Buffer.from(sourceId),
       u8(signaturesRequired),
@@ -312,9 +268,8 @@ export async function initializeProtocolForAgents(
       gatewayBondMin: new BN(INIT.gatewayBondMin),
       challengerBountyBps: INIT.challengerBountyBps,
       usdcMint: ctx.underlyingTokenMint,
-      agentRoundBase: new BN(INIT.agentRoundBase),
-      agentRoundPerSig: new BN(INIT.agentRoundPerSig),
-      agentEpochLenSecs: new BN(INIT.agentEpochLenSecs),
+      x402RoundBase: new BN(INIT.x402RoundBase),
+      x402RoundPerSig: new BN(INIT.x402RoundPerSig),
     })
     .accountsPartial({
       protocolConfig: protocolConfigPda,
@@ -341,6 +296,7 @@ export async function initializeProtocolForAgents(
 export interface BondedGateway {
   gatewayAuthority: Keypair;
   gatewayPda: PublicKey;
+  /** The gateway authority's own USDC ATA — doubles as its x402 operating float. */
   authorityUsdc: PublicKey;
   gatewayBondAta: PublicKey;
 }
@@ -356,7 +312,7 @@ export async function registerBondedGateway(
     ctx.underlyingTokenMint,
     BigInt(10_000_000_000)
   );
-  // The gateway pays rent for every agent round record. Keep enough SOL available
+  // The gateway pays rent for every settled round record. Keep enough SOL available
   // for suites that intentionally create many successful and failing settlements.
   ctx.provider.context.setAccount(gatewayAuthority.publicKey, {
     lamports: 1_000_000_000,
@@ -396,50 +352,20 @@ export async function registerBondedGateway(
   return { gatewayAuthority, gatewayPda, authorityUsdc, gatewayBondAta };
 }
 
-export interface X402EscrowSetup {
-  /** The paying identity (escrow PDA seed). */
-  payer: Keypair;
-  /** The gateway this escrow is scoped to (second escrow PDA seed). */
-  gatewayPda: PublicKey;
-  escrowPda: PublicKey;
-  escrowAta: PublicKey;
-}
-
-/**
- * Set up an x402-style funded escrow: derive PDA(["molpha_agent", payer, gateway]) and
- * write USDC directly into its ATA — no program call. The escrow data account itself is
- * lazily created by the first `settle_agent_round`. Escrows are scoped per (payer,
- * gateway) pair, so funding is not fungible across gateways — reuse the same `payer` with
- * a different `gateway` to get an isolated escrow for that counterparty.
- */
-export function createX402FundedEscrow(
+/** Top up a gateway's own USDC ATA (its x402 float) directly, no program call. */
+export function fundGatewayFloat(
   ctx: TestContext,
   proto: AgentProtocolContext,
-  gateway: BondedGateway | PublicKey,
-  opts?: { payer?: Keypair; fundAmount?: number | bigint }
-): X402EscrowSetup {
-  const gatewayPda =
-    gateway instanceof PublicKey ? gateway : gateway.gatewayPda;
-  const payer = opts?.payer ?? Keypair.generate();
-  const escrowPda = findAgentEscrowPda(
-    proto.program.programId,
-    payer.publicKey,
-    gatewayPda
+  gateway: BondedGateway,
+  amount: number | bigint
+): void {
+  fundAtaInBankrun(
+    ctx,
+    gateway.authorityUsdc,
+    proto.usdcMint,
+    gateway.gatewayAuthority.publicKey,
+    amount
   );
-  const escrowAta = findEscrowAta(ctx.underlyingTokenMint, escrowPda);
-
-  const fundAmount = opts?.fundAmount ?? 1_000_000;
-  if (BigInt(fundAmount) > 0n) {
-    fundAtaInBankrun(
-      ctx,
-      escrowAta,
-      ctx.underlyingTokenMint,
-      escrowPda,
-      fundAmount
-    );
-  }
-
-  return { payer, gatewayPda, escrowPda, escrowAta };
 }
 
 /** Bitmap (EVM u256 layout) with the given bit positions set. */
@@ -461,11 +387,11 @@ export function zeroedAggSig(signersBitmap?: Uint8Array) {
   };
 }
 
-export interface SettleAgentRoundParams {
+export interface SettleX402RoundParams {
   proto: AgentProtocolContext;
   gateway: BondedGateway;
-  /** x402 payer keypair — seeds the escrow PDA as `authority` and signs AgentRequestAuth. */
-  payer: Keypair;
+  /** Rail-scoped payer identity — 32 raw bytes, see `derivePayerId`. */
+  payerId: Uint8Array | Buffer;
   amount: number;
   sourceId: Uint8Array;
   canonicalTimestamp: number;
@@ -473,64 +399,42 @@ export interface SettleAgentRoundParams {
   registryVersion: number;
   aggSig?: ReturnType<typeof zeroedAggSig>;
   value?: Uint8Array;
+  paymentRail?: number;
+  paymentRef?: Uint8Array | Buffer;
   /** Node PDAs for the credited bitmap, ascending bit order. */
   creditedNodePdas?: PublicKey[];
-  /** When false, omit the Ed25519 AgentRequestAuth pre-instruction (negative tests). */
-  signAgentRequest?: boolean;
-  /** Force a specific `agent_escrow` account (e.g. another gateway's escrow PDA) to
-   *  exercise the seeds constraint in negative tests. Defaults to the correctly
-   *  derived `(payer, gateway)` escrow. */
-  agentEscrowOverride?: PublicKey;
+  /** Force a specific `gateway_usdc` account (e.g. the bond ATA) to exercise the
+   *  owner constraint in negative tests. Defaults to the gateway authority's own ATA. */
+  gatewayUsdcOverride?: PublicKey;
 }
 
-export async function settleAgentRound(
-  params: SettleAgentRoundParams
+export async function settleX402Round(
+  params: SettleX402RoundParams
 ): Promise<PublicKey> {
   const programId = params.proto.program.programId;
-  const authority = params.payer.publicKey;
+  const payerId = Buffer.from(params.payerId);
 
-  const escrowPda =
-    params.agentEscrowOverride ??
-    findAgentEscrowPda(programId, authority, params.gateway.gatewayPda);
-  const escrowAta = findEscrowAta(params.proto.usdcMint, escrowPda);
-
-  const roundRecordPda = findAgentRoundPda(
+  const roundRecordPda = findX402RoundPda(
     programId,
-    authority,
+    payerId,
     params.gateway.gatewayPda,
     params.sourceId,
     params.signaturesRequired,
     params.canonicalTimestamp
   );
 
-  const preInstructions = [];
-  if (params.signAgentRequest !== false) {
-    const authHash = hashAgentRequestAuthFields(
-      escrowPda,
-      params.gateway.gatewayPda,
-      params.sourceId,
-      params.signaturesRequired,
-      params.canonicalTimestamp,
-      params.amount
-    );
-    preInstructions.push(
-      Ed25519Program.createInstructionWithPrivateKey({
-        privateKey: params.payer.secretKey,
-        message: authHash,
-      })
-    );
-  }
-
   await params.proto.program.methods
-    .settleAgentRound({
-      authority,
+    .settleX402Round({
+      payerId: Array.from(payerId),
       amount: new BN(params.amount),
       sourceId: Array.from(params.sourceId),
       canonicalTimestamp: new BN(params.canonicalTimestamp),
       signaturesRequired: params.signaturesRequired,
       registryVersion: params.registryVersion,
       aggSig: params.aggSig ?? zeroedAggSig(),
-      value: Buffer.from(params.value ?? new Uint8Array(32)),
+      value: Array.from(params.value ?? new Uint8Array(32)),
+      paymentRail: params.paymentRail ?? 1,
+      paymentRef: Buffer.from(params.paymentRef ?? new Uint8Array(0)),
     })
     .accountsPartial({
       gatewayAuthority: params.gateway.gatewayAuthority.publicKey,
@@ -538,13 +442,11 @@ export async function settleAgentRound(
       registryState: params.proto.registryStatePda,
       registry: findRegistryPda(programId, params.registryVersion),
       gateway: params.gateway.gatewayPda,
-      agentEscrow: escrowPda,
       usdcMint: params.proto.usdcMint,
-      escrowAta,
+      gatewayUsdc: params.gatewayUsdcOverride ?? params.gateway.authorityUsdc,
       treasury: params.proto.treasury,
       tokenProgram: TOKEN_PROGRAM_ID,
       roundRecord: roundRecordPda,
-      instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
       systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(
@@ -554,7 +456,6 @@ export async function settleAgentRound(
         isSigner: false,
       }))
     )
-    .preInstructions(preInstructions)
     .signers([params.gateway.gatewayAuthority])
     .rpc();
 

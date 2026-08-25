@@ -1192,13 +1192,13 @@ dependencies = [
 
 [[package]]
 name = "molpha-verifier"
-version = "0.3.0-dev.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8ca10b1cb10f623f304a46502517210b3d329b9e96a48fbc531509ed5d37aaf"
+version = "0.3.0"
 dependencies = [
+ "borsh 0.10.4",
  "ethnum",
  "libsecp256k1",
  "solana-keccak-hasher",
+ "solana-program",
  "solana-secp256k1-recover",
 ]
 

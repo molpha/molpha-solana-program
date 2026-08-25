@@ -138,11 +138,11 @@ pub mod molpha {
         instructions::register_gateway(ctx, args)
     }
 
-    pub fn settle_round_receipt<'info>(
-        ctx: Context<SettleRoundReceipt<'info>>,
+    pub fn settle_subscription_round<'info>(
+        ctx: Context<SettleSubscriptionRound<'info>>,
         args: SettleRoundArgs,
     ) -> Result<()> {
-        instructions::settle_round_receipt(ctx, args)
+        instructions::settle_subscription_round(ctx, args)
     }
 
     pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
@@ -164,13 +164,13 @@ pub mod molpha {
         instructions::claim_gateway_rewards(ctx)
     }
 
-    // ---- Self-funded / x402 agent pay-per-request access. ----
+    // ---- Unified x402 settlement (gateway-funded, all payment rails). ----
 
-    pub fn settle_agent_round<'info>(
-        ctx: Context<SettleAgentRound<'info>>,
-        args: SettleAgentRoundArgs,
+    pub fn settle_x402_round<'info>(
+        ctx: Context<SettleX402Round<'info>>,
+        args: SettleX402RoundArgs,
     ) -> Result<()> {
-        instructions::settle_agent_round(ctx, args)
+        instructions::settle_x402_round(ctx, args)
     }
 
     // ---- Node punishment. ----

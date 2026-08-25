@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
-use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
+use molpha_verifier::Attestation;
 
 use crate::{
-    error::map_attestation_err,
-    state::{resolve_registry_signers, Registry},
+    error::{map_attestation_accounts_err, map_attestation_err},
+    state::Registry,
 };
 
 use super::SubmitAttestationArgs;
@@ -13,20 +13,21 @@ pub fn verify_attestation(
     ctx: Context<VerifyAttestation>,
     args: SubmitAttestationArgs,
 ) -> Result<()> {
-    let payload: AttestationPayload = (&args).into();
-    let sig: SchnorrSignature = (&args).into();
     let registry = ctx.accounts.registry.load()?;
     require!(
         registry.version == args.registry_version,
         crate::error::MolphaError::InvalidRegistryVersion
     );
-    let ordered = resolve_registry_signers(
-        ctx.remaining_accounts,
-        ctx.program_id,
-        &registry,
+    let entries = molpha_verifier::solana::resolve_nodes(ctx.remaining_accounts, ctx.program_id)
+        .map_err(map_attestation_accounts_err)?;
+    let ordered = molpha_verifier::resolve_registry_signers(
+        &registry.nodes,
+        registry.node_count,
         &args.signers_bitmap,
-    )?;
-    let attestation: Attestation = Attestation{payload, signature: sig};
+        &entries,
+    )
+    .map_err(map_attestation_err)?;
+    let attestation: Attestation = (&args).into();
     molpha_verifier::verify_attestation(
         &attestation,
         u32::from(registry.node_count),

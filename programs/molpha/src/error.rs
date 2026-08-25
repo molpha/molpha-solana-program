@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use molpha_verifier::AttestationError;
+use molpha_verifier::{solana::AccountError, AttestationError};
 
 #[error_code]
 pub enum MolphaError {
@@ -123,19 +123,13 @@ pub enum MolphaError {
     #[msg("mismatched or missing credited node account")]
     InvalidCreditNodeAccount,
 
-    // ---- Agent pay-per-request access (x402 / self-funded). ----
-    #[msg("agent escrow is not active")]
-    AgentNotActive,
-    #[msg("computed price does not match the agent-signed amount")]
+    // ---- x402 settlement (unified pay-per-request access, all rails). ----
+    #[msg("computed price does not match the gateway-signed amount")]
     AmountMismatch,
-    #[msg("arithmetic overflow in escrow spend accounting")]
-    EpochCapExceeded,
-    #[msg("escrow ATA balance below computed price")]
-    InsufficientAgentCredits,
-    #[msg("agent request authorization signature is invalid or missing")]
-    AgentSigInvalid,
-    #[msg("agent cap parameters invalid")]
-    InvalidAgentCaps,
+    #[msg("gateway USDC float balance below computed price")]
+    InsufficientGatewayFloat,
+    #[msg("payment_ref exceeds 64 bytes")]
+    PaymentRefTooLong,
     #[msg("credited signer count exceeds signatures_required + redundancy_buffer")]
     CreditedExceedsSelection,
     #[msg("value exceeds Feed::MAX_VALUE_LEN")]
@@ -189,6 +183,20 @@ pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error
         }
         AttestationError::InvalidRegistryVersion => error!(MolphaError::InvalidRegistryVersion),
         AttestationError::InvalidNodeIndex => error!(MolphaError::InvalidNodeIndex),
-        AttestationError::InvalidTransitionAccount => error!(MolphaError::InvalidRegistryVersion),
+    }
+}
+
+pub(crate) fn map_attestation_accounts_err(error: AccountError) -> anchor_lang::error::Error {
+    match error {
+        AccountError::Attestation(inner) => map_attestation_err(inner),
+        AccountError::AccountBorrowFailed | AccountError::InvalidAccountOwner => {
+            error!(MolphaError::MissingSignerAccount)
+        }
+        AccountError::InvalidRegistryAccount | AccountError::InvalidRegistryPda => {
+            error!(MolphaError::InvalidRegistryVersion)
+        }
+        AccountError::InvalidNodeAccount | AccountError::InvalidNodePda => {
+            error!(MolphaError::InvalidNodeAccount)
+        }
     }
 }

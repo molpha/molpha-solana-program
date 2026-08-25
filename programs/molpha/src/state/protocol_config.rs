@@ -22,15 +22,13 @@ pub struct ProtocolConfig {
     pub max_node_count: u32,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_secs: i64,
-    // ---- Agent pay-per-request pricing and policy (agent-access spec v1). ----
-    /// Base price of an agent `FreshRound` request (USDC atomic units).
-    pub agent_round_base: u64,
-    /// Per-required-signature price component of a `FreshRound` request.
-    /// Solvency invariant (ops-enforced): `agent_round_per_sig >= reward_per_signature`
-    /// and `agent_round_base >= registry.redundancy_buffer * reward_per_signature + gateway_fee`.
-    pub agent_round_per_sig: u64,
-    /// Length of the agent spend epoch (e.g. 86_400 for daily); must be > 0.
-    pub agent_epoch_len_secs: i64,
+    // ---- x402 pay-per-request pricing (unified settlement spec v1.1). ----
+    /// Base price of an x402 round settlement (USDC atomic units).
+    pub x402_round_base: u64,
+    /// Per-required-signature price component of an x402 round settlement.
+    /// Solvency invariant (ops-enforced): `x402_round_per_sig >= reward_per_signature`
+    /// and `x402_round_base >= registry.redundancy_buffer * reward_per_signature + gateway_fee`.
+    pub x402_round_per_sig: u64,
     pub bump: u8,
 }
 

@@ -10,7 +10,7 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
-import { advanceClock } from "../helpers/agent-access";
+import { advanceClock } from "../helpers/settlement-access";
 import {
   findRegistryPda,
   getProtocolTreasury,
@@ -38,9 +38,8 @@ const INIT_ARGS = {
   disputeWindowSlots: new BN(1_024),
   gatewayBondMin: new BN(500_000_000),
   challengerBountyBps: 500,
-  agentRoundBase: new BN(1_000),
-  agentRoundPerSig: new BN(15),
-  agentEpochLenSecs: new BN(86_400),
+  x402RoundBase: new BN(1_000),
+  x402RoundPerSig: new BN(15),
 };
 
 interface ProtocolAccounts {
@@ -167,9 +166,8 @@ describe("protocol initialization", () => {
     assert.equal(protocolConfig.maxNodeCount, 8);
     assert.equal(protocolConfig.minimumNodeDeposit.toString(), "100000000");
     assert.equal(protocolConfig.withdrawalCooldownSecs.toString(), "5");
-    assert.equal(protocolConfig.agentRoundBase.toString(), "1000");
-    assert.equal(protocolConfig.agentRoundPerSig.toString(), "15");
-    assert.equal(protocolConfig.agentEpochLenSecs.toString(), "86400");
+    assert.equal(protocolConfig.x402RoundBase.toString(), "1000");
+    assert.equal(protocolConfig.x402RoundPerSig.toString(), "15");
 
     const registryState = await program.account.registryState.fetch(
       registryStatePda
@@ -276,38 +274,6 @@ describe("protocol initialization", () => {
       assert.fail("expected mint mismatch to fail");
     } catch (error: any) {
       assert.include(String(error), "InvalidOwnerUsdc");
-    }
-  });
-
-  it("rejects zero agent_epoch_len_secs", async () => {
-    const ctx = await setupTestContext();
-    const program = programFromCtx(ctx);
-    const accounts = findProtocolAccounts(
-      program.programId,
-      ctx.underlyingTokenMint
-    );
-
-    try {
-      await program.methods
-        .initialize({
-          ...INIT_ARGS,
-          usdcMint: ctx.underlyingTokenMint,
-          agentEpochLenSecs: new BN(0),
-        })
-        .accountsPartial({
-          protocolConfig: accounts.protocolConfigPda,
-          registryState: accounts.registryStatePda,
-          usdcMint: ctx.underlyingTokenMint,
-          treasury: accounts.treasury,
-          authority: ctx.authority.publicKey,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-      assert.fail("expected zero agent epoch length to fail");
-    } catch (error: any) {
-      assert.include(String(error), "InvalidAgentCaps");
     }
   });
 

@@ -66,7 +66,10 @@ impl Feed {
         if raw.len() <= Self::STORED_VALUE_LEN {
             Ok((raw.try_into().unwrap(), FeedValueKind::Value))
         } else {
-            Ok((hashv(&[raw]).to_bytes().try_into().unwrap(), FeedValueKind::Hash))
+            Ok((
+                hashv(&[raw]).to_bytes().try_into().unwrap(),
+                FeedValueKind::Hash,
+            ))
         }
     }
 
@@ -107,7 +110,7 @@ mod tests {
     fn encode_exact_32_stores_raw_bytes() {
         let raw = vec![0x11u8; 32];
         let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
-        assert_eq!(kind, FeedValueKind::Value); 
+        assert_eq!(kind, FeedValueKind::Value);
         assert_eq!(stored.to_vec(), raw);
     }
 

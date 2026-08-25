@@ -82,8 +82,7 @@ pub fn punish_unsolicited_signing<'info>(
         )?;
         (resolved, guilty_bitmap, guilty_count)
     };
-    let ordered: Vec<molpha_verifier::SignerXy> =
-        resolved.iter().map(|(_, xy)| *xy).collect();
+    let ordered: Vec<molpha_verifier::SignerXy> = resolved.iter().map(|(_, xy)| *xy).collect();
 
     verify_statement(
         &args.source_id,

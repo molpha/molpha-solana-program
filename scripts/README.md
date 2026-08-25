@@ -11,7 +11,7 @@ On-chain interaction (init, registry, plans, subscriptions, jobs, account reads)
 | `yarn register-nodes`                   | `generate-and-register-nodes.js`                      |
 | `yarn cu:attestation:bankrun`           | `cu-bench-attestation-bankrun.js`                     |
 | `yarn cu:attestation:localnet`          | `cu-bench-attestation-localnet.js`                    |
-| `yarn cu:settle-round-receipt:localnet` | `cu-bench-settle-round-receipt-localnet.js`           |
+| `yarn cu:settle-subscription-round:localnet` | `cu-bench-settle-subscription-round-localnet.js` |
 | `yarn cu:node-registry:bankrun`         | Versioned registry snapshot/resolution CU gates       |
 | `yarn cu:verify-answer-alt:localnet`    | `cu-bench-verify-answer-alt.js`                       |
 
@@ -30,7 +30,7 @@ Prerequisites: `anchor build`, `yarn molpha init`, funded admin wallet (SOL + US
 - `cu-bench-attestation-bankrun.js` — bankrun regression for verify/submit (CI)
 - `cu-bench-attestation-localnet.js` — localnet verify/submit measurements
 - `cu-bench-attestation-breakdown.js` — per-threshold verify CU sweep + linear fit
-- `cu-bench-settle-round-receipt-localnet.js` — settle-round receipt CU
+- `cu-bench-settle-subscription-round-localnet.js` — settle-subscription-round CU
 - `cu-bench-verify-answer-alt.js` — alias for attestation localnet bench
 - `cu-bench-node-registry-bankrun.js` — gates 256-node snapshot creation and 18/32/64-signer historical resolution; writes `reports/node-registry-cu-results.raw.json`
 

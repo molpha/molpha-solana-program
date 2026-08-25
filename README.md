@@ -10,7 +10,7 @@ Molpha on Solana provides:
 - **Plans & subscriptions** — USDC-paid plans that cap jobs and define signing thresholds
 - **Feeds** — PDAs keyed by a 32-byte `source_id`, quorum (`signatures_required`), and submitter; updates store a payload (raw ≤32 bytes, or keccak digest), coalition bitmap, and aggregate Schnorr signature
 - **Data updates** — `submit_attestation` writes feed state; `verify_attestation` runs the same checks without writing (for CPI / historical-registry consumers)
-- **Rounds & settlement** — Gateways settle subscription and agent rounds against `source_id`; request-auth hashes bind `source_id` + `signatures_required` + timestamp
+- **Rounds & settlement** — Gateways settle subscription-funded and x402 gateway-funded rounds against `source_id`; request-auth hashes bind `source_id` + `signatures_required` + timestamp
 - **Delegates** — Subscription owners can authorize delegates (including owner-provisioned agents), capped by their plan's `max_delegates`
 - **Protocol governance** — Admin config for fees, snapshot policy, gateway allowlists, and treasury
 
@@ -42,8 +42,15 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 
 ### Rounds
 
-- `settle_round_receipt` / `settle_agent_round` take `source_id` (replacing `api_config_hash` / derived `feed_id`)
-- `RequestAuth` is `H(source_id, signatures_required, timestamp)`; `AgentRequestAuth` includes the same pair plus agent, gateway, timestamp, and amount
+- Two settlement instructions, discriminated by funding source: `settle_subscription_round`
+  (draws down a subscription's round quota) and `settle_x402_round` (a bonded gateway pays the
+  protocol-quoted price from its own USDC float — any payment rail, e.g. Solana or Base x402 —
+  and records `payment_rail` / `payment_ref` as attested, gateway-claimed metadata the program
+  never verifies). Both take `source_id` directly (not a derived `feed_id` / `api_config_hash`).
+- `RequestAuth` is `H(source_id, signatures_required, timestamp)`, verified on-chain for the
+  subscription path. The x402 path has no on-chain payer authentication — the gateway self-attests
+  and is economically deterred by paying real USDC per round; demand authenticity is a bilateral,
+  rail-level concern.
 
 ### Tooling
 
@@ -57,28 +64,26 @@ programs/
 ├── molpha/                         # Main oracle program
 │   └── src/
 │       ├── instructions/
-│       │   ├── initialize.rs / update_config.rs
-│       │   ├── register_node.rs / deactivate_node.rs / update_node_endpoint.rs
-│       │   ├── update_registry_policy.rs
-│       │   ├── register_gateway.rs
-│       │   ├── add_plan.rs / update_plan.rs
-│       │   ├── subscribe.rs / extend_subscription.rs
-│       │   ├── add_delegate.rs / remove_delegate.rs / set_delegate_paused.rs
+│       │   ├── admin/              # initialize.rs, update_config.rs, add_plan.rs, ...
+│       │   ├── node/                # register_node.rs, deactivate_node.rs, update_node_endpoint.rs, ...
+│       │   ├── delegate/            # add_delegate.rs, remove_delegate.rs, set_delegate_paused.rs
+│       │   ├── gateway/             # register_gateway.rs, claim_gateway_rewards.rs
+│       │   ├── subscriptions/       # subscribe.rs, extend_subscription.rs
+│       │   ├── round_settlement/    # settle_subscription_round.rs, settle_x402_round.rs, finalize_round.rs
+│       │   ├── disputing/           # dispute_round.rs, punish_*.rs
 │       │   ├── submit_attestation.rs / verify_attestation.rs
-│       │   ├── settle_round_receipt.rs / settle_agent_round.rs
-│       │   ├── finalize_round.rs / dispute_round.rs
-│       │   └── claim_node_rewards.rs / claim_gateway_rewards.rs
+│       │   └── bench_registry.rs   # feature = "cu-bench"
 │       ├── state/
 │       │   ├── protocol_config.rs
 │       │   ├── registry_state.rs / node.rs / secp256k1_key_claim.rs
 │       │   ├── plan.rs / subscription.rs / delegate.rs
 │       │   ├── feed.rs
-│       │   ├── gateway.rs / agent_escrow.rs
+│       │   ├── gateway.rs
 │       │   └── round_receipt.rs / receipt.rs
 │       ├── utils/
 │       │   ├── bitmap.rs          # Group selection (EVM parity)
-│       │   ├── schnorr.rs
-│       │   └── registry.rs
+│       │   ├── ed25519.rs
+│       │   └── registry.rs / punish.rs
 │       ├── events.rs
 │       ├── error.rs
 │       └── lib.rs
@@ -213,7 +218,7 @@ Key scripts under `scripts/`: `generate-and-register-nodes.js`, `oracle-client.t
 ### Data flow (current on-chain path)
 
 ```
-Subscriber / agent authorizes a source_id
+Subscriber (or an x402 payer, off-chain) requests a source_id round
         ↓
 Off-chain coalition signs (secp256k1 / Schnorr; message binds source_id)
         ↓
@@ -221,7 +226,8 @@ submit_attestation → init feed if needed → verify bitmap + signature → upd
         ↓
 Consumers read Feed account OR CPI verify_attestation (no write)
         ↓
-Gateway settle_round_receipt / settle_agent_round (source_id + signatures_required)
+Gateway settle_subscription_round (subscription draw) OR
+Gateway settle_x402_round (pays price from its own USDC float, any rail)
 ```
 
 ### PDA seeds
@@ -238,9 +244,8 @@ Gateway settle_round_receipt / settle_agent_round (source_id + signatures_requir
 | Delegate            | `molpha_delegate`      | owner, delegate                                               |
 | Feed                | `molpha_feed`          | `source_id` (32), `signatures_required` (u8), submitter       |
 | Gateway             | `molpha_gateway`       | gateway authority                                             |
-| Agent escrow        | `molpha_agent`         | authority, gateway                                            |
 | Subscription round  | `molpha_round`         | subscription owner, `source_id`, `signatures_required` (u8), ts (`u64` LE) |
-| Agent round         | `molpha_agent_round`   | authority, gateway, `source_id`, `signatures_required` (u8), ts (`u64` LE) |
+| x402 round          | `molpha_x402_round`    | `payer_id` (32), gateway, `source_id`, `signatures_required` (u8), ts (`u64` LE) |
 
 Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_GUIDE.md#3-on-chain-accounts-and-pdas).
 

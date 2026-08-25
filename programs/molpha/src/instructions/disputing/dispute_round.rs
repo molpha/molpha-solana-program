@@ -8,21 +8,24 @@
 //! - Invalid selection bitmap, or invalid signature over the credited set
 //!   (fabricated round / committed garbage) -> void the round and slash `gateway.bond`
 //!   from the gateway bond ATA, paying the challenger `challenger_bounty_bps` and sending
-//!   the remainder to treasury. Agent-funded rounds (`record.price > 0`) refund `price`
-//!   to the escrow ATA; subscription rounds restore `used_rounds`.
+//!   the remainder to treasury. Subscription rounds restore `used_rounds`. x402 rounds are
+//!   **not refunded** — the settled `price` came from the gateway's own float, and the gateway
+//!   is the party being slashed; refunding it would return the fraud proceeds to the fraudster.
+//!   The payer's recourse for a voided x402 round is bilateral (off-chain, against the gateway),
+//!   using the round's `payer_id` / `payment_rail` / `payment_ref` plus this event as evidence.
 //! - Valid selection bitmap and valid signature -> no fraud; dispute fails
 //!   (`DisputeSignatureValid`).
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use molpha_verifier::bitmap::bitmap_is_subset;
+use molpha_verifier::{bitmap::bitmap_is_subset, SchnorrSignature};
 
 use crate::{
-    error::{map_attestation_err, MolphaError},
+    error::{map_attestation_accounts_err, map_attestation_err, MolphaError},
     events::RoundDisputed,
     state::{
-        hash_agg_sig, resolve_registry_signers, AgentEscrow, AggregatedSig, Gateway, ProtocolConfig,
-        Registry, RoundReceiptRecord, RoundRecordStatus, Subscription,
+        hash_agg_sig, AggregatedSig, Gateway, ProtocolConfig, Registry, RoundReceiptRecord,
+        RoundRecordKind, RoundRecordStatus, Subscription,
     },
 };
 
@@ -30,23 +33,24 @@ pub fn dispute_round<'info>(
     mut ctx: Context<DisputeRound<'info>>,
     agg_sig: AggregatedSig,
 ) -> Result<()> {
-    let (price, selection_mismatch, is_valid_sig) = {
-        let record = &ctx.accounts.round_record;
+    // let (selection_mismatch, is_valid_sig) = {
+    let record = &ctx.accounts.round_record;
 
-        require!(
-            record.status == RoundRecordStatus::Pending,
-            MolphaError::RoundNotPending
-        );
-        // Challenger must supply the exact committed signature.
-        require!(
-            hash_agg_sig(&agg_sig) == record.agg_sig_hash,
-            MolphaError::DisputeAggSigMismatch
-        );
-        require!(
-            agg_sig.signers_bitmap == record.signers_bitmap,
-            MolphaError::CreditedBitmapMismatch
-        );
+    require!(
+        record.status == RoundRecordStatus::Pending,
+        MolphaError::RoundNotPending
+    );
+    // Challenger must supply the exact committed signature.
+    require!(
+        hash_agg_sig(&agg_sig) == record.agg_sig_hash,
+        MolphaError::DisputeAggSigMismatch
+    );
+    require!(
+        agg_sig.signers_bitmap == record.signers_bitmap,
+        MolphaError::CreditedBitmapMismatch
+    );
 
+    let is_valid_sig = {
         let registry = ctx.accounts.registry.load()?;
         require!(
             registry.version == record.registry_version,
@@ -62,47 +66,47 @@ pub fn dispute_round<'info>(
             registry.redundancy_buffer,
         )
         .map_err(map_attestation_err)?;
-        // Fraudulent selection iff the credited set is NOT a subset of the deterministically
-        // derived selection. (Previously inverted — `expected ⊆ signers` — which declared
-        // fraud on any honest full-participation round where signers == selection, letting a
-        // challenger slash an honest gateway.)
+
         let selection_mismatch = !bitmap_is_subset(&record.signers_bitmap, &expected_selection);
 
         // Only run coalition reconstruction / Schnorr verification after deterministic
         // selection validation passes.
-        let is_valid_sig = if selection_mismatch {
+        if selection_mismatch {
             false
         } else {
-            let ordered = resolve_registry_signers(
-                ctx.remaining_accounts,
-                ctx.program_id,
-                &registry,
-                &agg_sig.signers_bitmap,
-            )?;
-            molpha_verifier::verify_aggregate_over_hash(
-                &ordered,
-                &agg_sig.s,
-                &agg_sig.commitment_addr,
+            let signature = SchnorrSignature {
+                agg_sig_s: agg_sig.s,
+                commitment_addr: agg_sig.commitment_addr,
+                signers_bitmap: agg_sig.signers_bitmap,
+            };
+            molpha_verifier::solana::verify_aggregate_over_hash_accounts(
+                &ctx.accounts.registry.to_account_info(),
+                signature,
                 &record.attestation_message_hash,
+                ctx.remaining_accounts,
+                &ctx.program_id,
             )
-            .map_err(map_attestation_err)?
-        };
-        (record.price, selection_mismatch, is_valid_sig)
+            .map_err(map_attestation_accounts_err)?
+        }
     };
 
-    // No fraud iff both deterministic selection and aggregate signature are valid.
-    require!(
-        selection_mismatch || !is_valid_sig,
-        MolphaError::DisputeSignatureValid
-    );
+    require!(!is_valid_sig, MolphaError::DisputeSignatureValid);
 
-    // Undo payer-side settlement effects before slashing.
-    let (refund_amount, round_restored) = if price > 0 {
-        refund_agent_escrow(&ctx, price)?;
-        (price, false)
-    } else {
-        restore_subscription_round(&mut ctx)?;
-        (0u64, true)
+    // Undo payer-side settlement effects before slashing. x402 rounds are not refunded — see the
+    // module doc.
+    let round_restored = match ctx.accounts.round_record.kind {
+        RoundRecordKind::X402 => {
+            require!(
+                ctx.accounts.subscription.is_none(),
+                MolphaError::DisputeRefundAccountsMissing
+            );
+            verify_x402_record_pda(&ctx)?;
+            false
+        }
+        RoundRecordKind::Subscription => {
+            restore_subscription_round(&mut ctx)?;
+            true
+        }
     };
 
     // Fraud: void the round and slash the gateway bond from the gateway ATA.
@@ -118,11 +122,7 @@ pub fn dispute_round<'info>(
         .unwrap_or(0) as u64;
 
     if bounty > 0 {
-        transfer_from_gateway_bond(
-            &ctx,
-            ctx.accounts.challenger_usdc.to_account_info(),
-            bounty,
-        )?;
+        transfer_from_gateway_bond(&ctx, ctx.accounts.challenger_usdc.to_account_info(), bounty)?;
     }
     let remainder = slashed_bond.saturating_sub(bounty);
     if remainder > 0 {
@@ -142,32 +142,9 @@ pub fn dispute_round<'info>(
         gateway: record.gateway,
         slashed_bond,
         challenger_bounty: bounty,
-        refund_amount,
         round_restored,
     });
 
-    Ok(())
-}
-
-fn transfer_from_treasury<'info>(
-    ctx: &Context<DisputeRound<'info>>,
-    destination: AccountInfo<'info>,
-    amount: u64,
-) -> Result<()> {
-    let bump = [ctx.accounts.protocol_config.bump];
-    let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
-    token::transfer(
-        CpiContext::new_with_signer(
-            ctx.accounts.token_program.key(),
-            Transfer {
-                from: ctx.accounts.treasury.to_account_info(),
-                to: destination,
-                authority: ctx.accounts.protocol_config.to_account_info(),
-            },
-            &[signer_seeds],
-        ),
-        amount,
-    )?;
     Ok(())
 }
 
@@ -194,80 +171,33 @@ fn transfer_from_gateway_bond<'info>(
     Ok(())
 }
 
-fn refund_agent_escrow<'info>(
-    ctx: &Context<DisputeRound<'info>>,
-    price: u64,
-) -> Result<()> {
-    require!(
-        ctx.accounts.subscription.is_none(),
-        MolphaError::DisputeRefundAccountsMissing
-    );
-    let agent_escrow = ctx
-        .accounts
-        .agent_escrow
-        .as_ref()
-        .ok_or_else(|| error!(MolphaError::DisputeRefundAccountsMissing))?;
-    let escrow_ata = ctx
-        .accounts
-        .escrow_ata
-        .as_ref()
-        .ok_or_else(|| error!(MolphaError::DisputeRefundAccountsMissing))?;
-
+/// Self-consistency check binding the supplied `round_record` to its x402 seeds. Possible now
+/// that `payer_id` lives on the record itself (previously this required the now-deleted escrow
+/// account). Defense-in-depth only — records can only be created by our own instructions.
+fn verify_x402_record_pda<'info>(ctx: &Context<DisputeRound<'info>>) -> Result<()> {
     let record = &ctx.accounts.round_record;
-    let expected_escrow = Pubkey::create_program_address(
+    let expected_record = Pubkey::create_program_address(
         &[
-            AgentEscrow::SEED_PREFIX,
-            agent_escrow.authority.as_ref(),
+            RoundReceiptRecord::X402_SEED_PREFIX,
+            record.payer_id.as_ref(),
             record.gateway.as_ref(),
-            &[agent_escrow.bump],
+            record.source_id.as_ref(),
+            &[record.signatures_required],
+            &record.timestamp.to_le_bytes(),
+            &[record.bump],
         ],
         ctx.program_id,
     )
     .map_err(|_| error!(MolphaError::DisputeRefundAccountsMissing))?;
     require_keys_eq!(
-        agent_escrow.key(),
-        expected_escrow,
+        record.key(),
+        expected_record,
         MolphaError::DisputeRefundAccountsMissing
     );
-
-    // let expected_record = Pubkey::create_program_address(
-    //     &[
-    //         RoundReceiptRecord::AGENT_SEED_PREFIX,
-    //         agent_escrow.authority.as_ref(),
-    //         record.gateway.as_ref(),
-    //         record.source_id.as_ref(),
-    //         &[record.signatures_required],
-    //         &record.timestamp.to_le_bytes(),
-    //         &[record.bump],
-    //     ],
-    //     ctx.program_id,
-    // )
-    // .map_err(|_| error!(MolphaError::DisputeRefundAccountsMissing))?;
-    // require_keys_eq!(
-    //     ctx.accounts.round_record.key(),
-    //     expected_record,
-    //     MolphaError::DisputeRefundAccountsMissing
-    // );
-
-    require_keys_eq!(
-        escrow_ata.owner,
-        agent_escrow.key(),
-        MolphaError::DisputeRefundAccountsMissing
-    );
-    require_keys_eq!(
-        escrow_ata.mint,
-        ctx.accounts.protocol_config.usdc_mint,
-        MolphaError::InvalidWithdrawDestination
-    );
-
-    transfer_from_treasury(ctx, escrow_ata.to_account_info(), price)
+    Ok(())
 }
 
 fn restore_subscription_round<'info>(ctx: &mut Context<DisputeRound<'info>>) -> Result<()> {
-    require!(
-        ctx.accounts.agent_escrow.is_none() && ctx.accounts.escrow_ata.is_none(),
-        MolphaError::DisputeRefundAccountsMissing
-    );
     let subscription = ctx
         .accounts
         .subscription
@@ -330,9 +260,9 @@ pub struct DisputeRound<'info> {
     )]
     pub registry: AccountLoader<'info, Registry>,
 
-    /// Subscription or agent settlement record. No seeds constraint — same rationale as
-    /// `finalize_round` (owner + discriminator). PDA is re-derived in-handler against
-    /// the refund accounts for the funding path.
+    /// Subscription or x402 settlement record. No seeds constraint — same rationale as
+    /// `finalize_round` (owner + discriminator). PDA is re-derived in-handler against the
+    /// relevant path (subscription restore, or x402 self-consistency check).
     #[account(mut)]
     pub round_record: Box<Account<'info, RoundReceiptRecord>>,
 
@@ -365,14 +295,7 @@ pub struct DisputeRound<'info> {
 
     pub token_program: Program<'info, Token>,
 
-    /// Agent path (`record.price > 0`): escrow PDA. Must be `None` for subscription rounds.
-    pub agent_escrow: Option<Account<'info, AgentEscrow>>,
-
-    /// Agent path: escrow USDC ATA. Must be `None` for subscription rounds.
-    #[account(mut)]
-    pub escrow_ata: Option<Account<'info, TokenAccount>>,
-
-    /// Subscription path (`record.price == 0`). Must be `None` for agent rounds.
+    /// Subscription path (`record.kind == Subscription`). Must be `None` for x402 rounds.
     #[account(mut)]
     pub subscription: Option<Account<'info, Subscription>>,
 }

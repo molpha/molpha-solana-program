@@ -100,9 +100,8 @@ async function initializeProtocol(ctx: TestContext): Promise<{
       gatewayBondMin: GATEWAY_BOND_MIN,
       challengerBountyBps: 500,
       usdcMint: ctx.underlyingTokenMint,
-      agentRoundBase: new BN(1_000),
-      agentRoundPerSig: new BN(15),
-      agentEpochLenSecs: new BN(86_400),
+      x402RoundBase: new BN(1_000),
+      x402RoundPerSig: new BN(15),
     })
     .accountsPartial({
       protocolConfig: protocolConfigPda,

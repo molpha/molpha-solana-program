@@ -28,21 +28,19 @@ import {
   AgentProtocolContext,
   BondedGateway,
   bitmapWithBits,
-  createX402FundedEscrow,
   creditedNodePdasForBits,
-  findAgentRoundPda,
+  derivePayerId,
   findSubscriptionRoundPda,
-  freshRoundPrice,
-  fundAtaInBankrun,
+  findX402RoundPda,
   hashRequestAuthFields,
   INIT,
   readTokenAmount,
   initializeProtocolForAgents,
   registerBondedGateway,
-  settleAgentRound,
-  X402EscrowSetup,
+  settleX402Round,
+  x402Price,
   zeroedAggSig,
-} from "../helpers/agent-access";
+} from "../helpers/settlement-access";
 
 const NODE_COUNT = 4;
 const SIGS_REQUIRED = 2;
@@ -70,13 +68,19 @@ function findDelegatePda(
   )[0];
 }
 
-describe("agent rounds: finalize + dispute through the shared path", () => {
+/**
+ * `finalize_round` and `dispute_round` are shared by both funding paths, discriminated by
+ * `record.kind`. x402 rounds are never refunded on a successful dispute — the settled `price`
+ * came from the gateway's own float, and the gateway is the party being slashed; refunding it
+ * would return the fraud proceeds to the fraudster. Subscription rounds still restore
+ * `used_rounds`. See `dispute_round`'s module doc for the full rationale.
+ */
+describe("rounds: finalize + dispute through the shared path", () => {
   let ctx: TestContext;
   let proto: AgentProtocolContext;
   let gateway: BondedGateway;
   let victimGateway: BondedGateway;
-  let escrow: X402EscrowSetup;
-  let victimEscrow: X402EscrowSetup;
+  let payerId: Uint8Array;
   let material: ReturnType<typeof generateE2eSignerMaterial>;
   let registryVersion: number;
   let registryPda: PublicKey;
@@ -107,24 +111,8 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     registryPda = findRegistryPda(proto.program.programId, registryVersion);
     gateway = await registerBondedGateway(ctx, proto);
     victimGateway = await registerBondedGateway(ctx, proto);
-    escrow = createX402FundedEscrow(ctx, proto, gateway, { fundAmount: 0 });
-    // Escrows are scoped per (payer, gateway) — the fabricated-round test settles
-    // through `victimGateway`, so it needs its own escrow for the same payer.
-    victimEscrow = createX402FundedEscrow(ctx, proto, victimGateway, {
-      payer: escrow.payer,
-      fundAmount: 0,
-    });
+    payerId = derivePayerId(1, Keypair.generate().publicKey.toBuffer());
   }, 180_000);
-
-  function fundEscrowExact(target: X402EscrowSetup = escrow) {
-    fundAtaInBankrun(
-      ctx,
-      target.escrowAta,
-      proto.usdcMint,
-      target.escrowPda,
-      freshRoundPrice(SIGS_REQUIRED)
-    );
-  }
 
   async function advanceRegistryPolicy(nextBuffer: number): Promise<void> {
     const nextVersion = registryVersion + 1;
@@ -153,8 +141,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     challenger: any;
     nodeBits: number[];
     registry?: PublicKey;
-    agentEscrow?: PublicKey;
-    escrowAta?: PublicKey;
     subscription?: PublicKey;
   }): Promise<void> {
     await proto.program.methods
@@ -169,8 +155,6 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
         treasury: proto.treasury,
         challengerUsdc: params.challengerUsdc,
         tokenProgram: TOKEN_PROGRAM_ID,
-        agentEscrow: params.agentEscrow ?? null,
-        escrowAta: params.escrowAta ?? null,
         subscription: params.subscription ?? null,
       })
       .remainingAccounts(
@@ -239,15 +223,14 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     return subscriptionPda;
   }
 
-  it("finalizes an agent FreshRound after the dispute window", async () => {
+  it("finalizes an x402 round after the dispute window", async () => {
     const t = ++ts;
     const roundRegistry = registryPda;
-    fundEscrowExact();
-    const recordPda = await settleAgentRound({
+    const recordPda = await settleX402Round({
       proto,
       gateway,
-      payer: escrow.payer,
-      amount: freshRoundPrice(SIGS_REQUIRED),
+      payerId,
+      amount: x402Price(SIGS_REQUIRED),
       sourceId: SOURCE_ID,
       canonicalTimestamp: t,
       signaturesRequired: SIGS_REQUIRED,
@@ -260,9 +243,9 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     });
     assert.equal(
       recordPda.toBase58(),
-      findAgentRoundPda(
+      findX402RoundPda(
         proto.program.programId,
-        escrow.payer.publicKey,
+        payerId,
         gateway.gatewayPda,
         SOURCE_ID,
         SIGS_REQUIRED,
@@ -343,7 +326,10 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     assert.isOk(record.status.finalized);
   });
 
-  it("voids a fabricated agent round on dispute and slashes the gateway bond", async () => {
+  let voidedX402RecordPda: PublicKey;
+  let voidedX402RecordRegistryPda: PublicKey;
+
+  it("voids a fabricated x402 round on dispute, slashes the gateway bond, and does not refund the float", async () => {
     const t = ++ts;
     const selection = deriveSignersBitmap(
       SOURCE_ID,
@@ -356,12 +342,11 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     const bits = bitsOf(selection);
     const fabricatedSig = zeroedAggSig(selection);
 
-    fundEscrowExact(victimEscrow);
-    const recordPda = await settleAgentRound({
+    const recordPda = await settleX402Round({
       proto,
       gateway: victimGateway,
-      payer: victimEscrow.payer,
-      amount: freshRoundPrice(SIGS_REQUIRED),
+      payerId,
+      amount: x402Price(SIGS_REQUIRED),
       sourceId: SOURCE_ID,
       canonicalTimestamp: t,
       signaturesRequired: SIGS_REQUIRED,
@@ -378,12 +363,13 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       BigInt(0)
     );
 
-    const price = BigInt(freshRoundPrice(SIGS_REQUIRED));
     const expectedBounty = BigInt(
       (INIT.gatewayBondMin * INIT.challengerBountyBps) / 10_000
     );
     const expectedRemainder = BigInt(INIT.gatewayBondMin) - expectedBounty;
-    const escrowBefore = await readTokenAmount(ctx, victimEscrow.escrowAta);
+    // Measured after settle: the gateway already paid `price` into the treasury from its
+    // own float. A successful dispute must not move either of these again.
+    const floatBefore = await readTokenAmount(ctx, victimGateway.authorityUsdc);
     const treasuryBefore = await readTokenAmount(ctx, proto.treasury);
     const bondBefore = await readTokenAmount(
       ctx,
@@ -401,14 +387,14 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       challengerUsdc,
       nodeBits: bits,
       registry: roundRegistry,
-      agentEscrow: victimEscrow.escrowPda,
-      escrowAta: victimEscrow.escrowAta,
     });
 
     const voided = await proto.program.account.roundReceiptRecord.fetch(
       recordPda
     );
     assert.isOk(voided.status.voided);
+    voidedX402RecordPda = recordPda;
+    voidedX402RecordRegistryPda = roundRegistry;
 
     const gw = await proto.program.account.gateway.fetch(
       victimGateway.gatewayPda
@@ -422,20 +408,94 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     const bounty = Buffer.from(challengerAccount!.data).readBigUInt64LE(64);
     assert.equal(bounty, expectedBounty);
 
-    const escrowAfter = await readTokenAmount(ctx, victimEscrow.escrowAta);
-    assert.equal(escrowAfter - escrowBefore, price);
+    // No refund: the gateway's float is exactly as the settle call left it.
+    const floatAfter = await readTokenAmount(ctx, victimGateway.authorityUsdc);
+    assert.equal(floatAfter, floatBefore);
     const treasuryAfter = await readTokenAmount(ctx, proto.treasury);
-    assert.equal(
-      treasuryAfter - treasuryBefore,
-      expectedRemainder - price
-    );
+    assert.equal(treasuryAfter - treasuryBefore, expectedRemainder);
     assert.equal(
       await readTokenAmount(ctx, victimGateway.gatewayBondAta),
       0n
     );
   });
 
-  it("fails to dispute a genuinely valid full-participation agent round", async () => {
+  it("blocks finalizing a voided x402 round", async () => {
+    try {
+      await proto.program.methods
+        .finalizeRound()
+        .accountsPartial({
+          caller: ctx.authority.publicKey,
+          protocolConfig: proto.protocolConfigPda,
+          registry: voidedX402RecordRegistryPda,
+          roundRecord: voidedX402RecordPda,
+          gateway: victimGateway.gatewayPda,
+        })
+        .remainingAccounts([])
+        .rpc();
+      assert.fail("expected RoundNotPending");
+    } catch (e: any) {
+      assert.include(e.toString(), "RoundNotPending");
+    }
+  });
+
+  it("rejects a dispute that names a subscription account for an x402 record", async () => {
+    const subscriptionPda = await ensureSubscription();
+    const t = ++ts;
+    const selection = deriveSignersBitmap(
+      SOURCE_ID,
+      registryVersion,
+      NODE_COUNT,
+      SIGS_REQUIRED,
+      redundancyBuffer,
+      t
+    );
+    const bits = bitsOf(selection);
+    const fabricatedSig = zeroedAggSig(selection);
+
+    // `victimGateway` is already slashed by the earlier dispute test, so this uses the
+    // still-active `gateway` instead — this test errors before any state change anyway
+    // (the subscription check runs before slashing), so `gateway` comes out untouched.
+    const recordPda = await settleX402Round({
+      proto,
+      gateway,
+      payerId,
+      amount: x402Price(SIGS_REQUIRED),
+      sourceId: SOURCE_ID,
+      canonicalTimestamp: t,
+      signaturesRequired: SIGS_REQUIRED,
+      registryVersion,
+      aggSig: fabricatedSig,
+      creditedNodePdas: creditedNodePdasForBits(proto.program.programId, bits),
+    });
+
+    const challenger = ctx.nodes[28];
+    const challengerUsdc = await fundNodeOwnerInBankrun(
+      ctx,
+      challenger,
+      ctx.underlyingTokenMint,
+      BigInt(0)
+    );
+
+    try {
+      await disputeRound({
+        roundRecord: recordPda,
+        gateway,
+        aggSig: fabricatedSig,
+        challenger,
+        challengerUsdc,
+        nodeBits: bits,
+        subscription: subscriptionPda,
+      });
+      assert.fail("expected DisputeRefundAccountsMissing");
+    } catch (e: any) {
+      assert.include(e.toString(), "DisputeRefundAccountsMissing");
+    }
+
+    const gw = await proto.program.account.gateway.fetch(gateway.gatewayPda);
+    assert.isFalse(gw.slashed);
+  });
+
+  it("fails to dispute a genuinely valid full-participation x402 round", async () => {
     const t = ++ts;
     const value = Uint8Array.from(Buffer.alloc(32, 0x99));
     const signed = signE2eAttestation(
@@ -460,12 +520,11 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       signersBitmap: Array.from(signed.signersBitmap),
     };
 
-    fundEscrowExact();
-    const recordPda = await settleAgentRound({
+    const recordPda = await settleX402Round({
       proto,
       gateway,
-      payer: escrow.payer,
-      amount: freshRoundPrice(SIGS_REQUIRED),
+      payerId,
+      amount: x402Price(SIGS_REQUIRED),
       sourceId: SOURCE_ID,
       canonicalTimestamp: t,
       signaturesRequired: SIGS_REQUIRED,
@@ -495,6 +554,29 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
       await readTokenAmount(ctx, gateway.gatewayBondAta),
       BigInt(INIT.gatewayBondMin)
     );
+  });
+
+  it("rejects settling a new x402 round through a slashed gateway", async () => {
+    try {
+      await settleX402Round({
+        proto,
+        gateway: victimGateway,
+        payerId,
+        amount: x402Price(SIGS_REQUIRED),
+        sourceId: SOURCE_ID,
+        canonicalTimestamp: ++ts,
+        signaturesRequired: SIGS_REQUIRED,
+        registryVersion,
+        aggSig: zeroedAggSig(bitmapWithBits([0, 1])),
+        creditedNodePdas: creditedNodePdasForBits(
+          proto.program.programId,
+          [0, 1]
+        ),
+      });
+      assert.fail("expected GatewayNotBonded");
+    } catch (e: any) {
+      assert.include(e.toString(), "GatewayNotBonded");
+    }
   });
 
   it("voids a fabricated subscription round and restores used_rounds", async () => {
@@ -532,7 +614,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     );
 
     await proto.program.methods
-      .settleRoundReceipt({
+      .settleSubscriptionRound({
         timestamp: new BN(t),
         sourceId: Array.from(sourceId),
         signaturesRequired: sigsRequired,
@@ -659,7 +741,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     );
 
     await proto.program.methods
-      .settleRoundReceipt({
+      .settleSubscriptionRound({
         timestamp: new BN(t),
         sourceId: Array.from(sourceId),
         signaturesRequired: sigsRequired,
@@ -773,7 +855,7 @@ describe("agent rounds: finalize + dispute through the shared path", () => {
     );
 
     await proto.program.methods
-      .settleRoundReceipt({
+      .settleSubscriptionRound({
         timestamp: new BN(t),
         sourceId: Array.from(sourceId),
         signaturesRequired: 1,

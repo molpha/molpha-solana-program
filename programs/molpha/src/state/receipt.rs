@@ -3,7 +3,6 @@ use solana_sha256_hasher::hashv as sha256_hashv;
 
 pub const DOMAIN_REQAUTH: &[u8] = b"MOLPHA_REQAUTH_V1";
 pub const DOMAIN_GWRCPT: &[u8] = b"MOLPHA_GWRCPT_V1";
-pub const DOMAIN_AGENT_REQAUTH: &[u8] = b"MOLPHA_AGENT_REQAUTH_V1";
 
 /// Consumer demand authorization (Ed25519-signed by `consumer.authority`).
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -45,43 +44,6 @@ pub fn hash_request_auth_fields(
     })
 }
 
-/// Agent demand authorization (Ed25519-signed by the escrow `authority` / x402 payer).
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
-pub struct AgentRequestAuth {
-    /// The `AgentEscrow` PDA address.
-    pub agent: Pubkey,
-    pub gateway: Pubkey,
-    pub source_id: [u8; 32],
-    pub signatures_required: u8,
-    pub canonical_timestamp: u64,
-    pub amount: u64,
-}
-
-/// `H(AgentRequestAuth)` — domain-separated SHA-256 over the borsh encoding.
-pub fn hash_agent_request_auth(auth: &AgentRequestAuth) -> [u8; 32] {
-    let body = borsh::to_vec(auth).expect("AgentRequestAuth serialization is infallible");
-    sha256_hashv(&[DOMAIN_AGENT_REQAUTH, &body]).to_bytes()
-}
-
-/// `H(AgentRequestAuth)` from instruction-level fields.
-pub fn hash_agent_request_auth_fields(
-    agent: &Pubkey,
-    gateway: &Pubkey,
-    source_id: &[u8; 32],
-    signatures_required: u8,
-    canonical_timestamp: u64,
-    amount: u64,
-) -> [u8; 32] {
-    hash_agent_request_auth(&AgentRequestAuth {
-        agent: *agent,
-        gateway: *gateway,
-        source_id: *source_id,
-        signatures_required,
-        canonical_timestamp,
-        amount,
-    })
-}
-
 /// `sha256(AggregatedSig)` — the commitment stored in `RoundReceiptRecord`.
 pub fn hash_agg_sig(agg_sig: &AggregatedSig) -> [u8; 32] {
     let body = borsh::to_vec(agg_sig).expect("AggregatedSig serialization is infallible");
@@ -96,7 +58,7 @@ mod tests {
         RequestAuth {
             source_id: [0x11; 32],
             signatures_required: 3,
-            timestamp: 1_700_000_000 as u64 ,
+            timestamp: 1_700_000_000 as u64,
         }
     }
 
@@ -138,48 +100,9 @@ mod tests {
         assert_ne!(hash_agg_sig(&a), base);
     }
 
-    fn fixture_agent_request_auth() -> AgentRequestAuth {
-        AgentRequestAuth {
-            agent: Pubkey::new_from_array([0x22; 32]),
-            canonical_timestamp: 1_700_000_000,
-            source_id: [0x11; 32],
-            signatures_required: 3,
-            amount: 1_030,
-            gateway: Pubkey::new_from_array([0x24; 32]),
-        }
-    }
-
-    #[test]
-    fn hash_agent_request_auth_fields_matches_struct_hash() {
-        let auth = fixture_agent_request_auth();
-        assert_eq!(
-            hash_agent_request_auth_fields(
-                &auth.agent,
-                &auth.gateway,
-                &auth.source_id,
-                auth.signatures_required,
-                auth.canonical_timestamp,
-                auth.amount,
-            ),
-            hash_agent_request_auth(&auth)
-        );
-    }
-
-    #[test]
-    fn agent_request_auth_hash_is_field_sensitive() {
-        let base = hash_agent_request_auth(&fixture_agent_request_auth());
-        let mut a = fixture_agent_request_auth();
-        a.canonical_timestamp += 1;
-        assert_ne!(hash_agent_request_auth(&a), base);
-        let mut b = fixture_agent_request_auth();
-        b.amount += 1;
-        assert_ne!(hash_agent_request_auth(&b), base);
-    }
-
     #[test]
     fn distinct_domains_separate_hashes() {
         // Domain tags must not collide — they bind hashes to their role.
         assert_ne!(DOMAIN_REQAUTH, DOMAIN_GWRCPT);
-        assert_ne!(DOMAIN_REQAUTH, DOMAIN_AGENT_REQAUTH);
     }
 }

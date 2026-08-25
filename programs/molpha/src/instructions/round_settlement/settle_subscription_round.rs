@@ -3,7 +3,8 @@ use crate::{
     events::RoundSettled,
     state::{
         hash_agg_sig, hash_request_auth_fields, resolve_registry_signers, AggregatedSig, Delegate,
-        Feed, Gateway, ProtocolConfig, Registry, RegistryState, RoundReceiptRecord, Subscription,
+        Gateway, ProtocolConfig, Registry, RegistryState, RoundReceiptRecord, RoundRecordKind,
+        Subscription,
     },
     utils::ed25519::verify_ed25519_signature,
 };
@@ -21,8 +22,8 @@ pub struct SettleRoundArgs {
     pub consumer_authority: Pubkey,
 }
 
-pub fn settle_round_receipt<'info>(
-    ctx: Context<SettleRoundReceipt<'info>>,
+pub fn settle_subscription_round<'info>(
+    ctx: Context<SettleSubscriptionRound<'info>>,
     args: SettleRoundArgs,
 ) -> Result<()> {
     let clock = Clock::get()?;
@@ -42,11 +43,6 @@ pub fn settle_round_receipt<'info>(
         args.registry_version == ctx.accounts.registry_state.current_version
             && registry.version == args.registry_version,
         MolphaError::InvalidRegistryVersion
-    );
-
-    require!(
-        args.value.len() <= Feed::MAX_VALUE_LEN,
-        MolphaError::InvalidValueLength
     );
 
     // 3. Consumer authorization (owner-direct or delegate/agent).
@@ -96,12 +92,12 @@ pub fn settle_round_receipt<'info>(
     // ---- Validate credited nodes; rewards are recorded on the round receipt only. ----
     let reward_per_signature = config.reward_per_signature;
     let gateway_fee = config.gateway_fee;
-    resolve_registry_signers(
-        ctx.remaining_accounts,
-        ctx.program_id,
-        &registry,
-        &args.agg_sig.signers_bitmap,
-    )?;
+    // resolve_registry_signers(
+    //     ctx.remaining_accounts,
+    //     ctx.program_id,
+    //     &registry,
+    //     &args.agg_sig.signers_bitmap,
+    // )?;
 
     ctx.accounts.subscription.consume_round()?;
 
@@ -119,6 +115,11 @@ pub fn settle_round_receipt<'info>(
     record.gateway_fee = gateway_fee;
     record.recorded_slot = now_slot;
     record.price = 0;
+    record.kind = RoundRecordKind::Subscription;
+    record.payer_id = [0u8; 32];
+    record.payment_rail = 0;
+    record.payment_ref_len = 0;
+    record.payment_ref = [0u8; 64];
     record.bump = ctx.bumps.round_record;
 
     emit!(RoundSettled {
@@ -176,7 +177,7 @@ fn authorize_consumer(
 
 #[derive(Accounts)]
 #[instruction(args: SettleRoundArgs)]
-pub struct SettleRoundReceipt<'info> {
+pub struct SettleSubscriptionRound<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 

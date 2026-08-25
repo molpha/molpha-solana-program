@@ -24,7 +24,7 @@ import {
   initializeProtocolForAgents,
   registerBondedGateway,
   zeroedAggSig,
-} from "../helpers/agent-access";
+} from "../helpers/settlement-access";
 
 const NODE_COUNT = 4;
 const SIGS_REQUIRED = 2;
@@ -47,12 +47,12 @@ function findDelegatePda(
 }
 
 /**
- * Unified `settle_round_receipt` authorization: owner-direct rounds require the plan
+ * Unified `settle_subscription_round` authorization: owner-direct rounds require the plan
  * (plan_type match + `plan.max_signers`); delegate/agent rounds are bounded by the
  * delegate's own `max_signers`, its Active status, and its data-request quota.
  * Owner-provisioned agents ARE delegates — this suite is their settlement coverage.
  */
-describe("settle_round_receipt (owner / delegate / agent authorization)", () => {
+describe("settle_subscription_round (owner / delegate / agent authorization)", () => {
   let ctx: TestContext;
   let proto: AgentProtocolContext;
   let gateway: BondedGateway;
@@ -150,7 +150,7 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
     );
 
     await proto.program.methods
-      .settleRoundReceipt({
+      .settleSubscriptionRound({
         timestamp: new BN(params.timestamp),
         sourceId: Array.from(params.sourceId),
         signaturesRequired,
@@ -268,6 +268,13 @@ describe("settle_round_receipt (owner / delegate / agent authorization)", () => 
 
     assert.equal(record.price.toNumber(), 0); // subscription-funded, no per-request USDC
     assert.deepEqual(Array.from(record.sourceId), Array.from(sourceId));
+
+    // x402 metadata is zeroed on the subscription path.
+    assert.deepEqual(record.kind, { subscription: {} });
+    assert.deepEqual(Array.from(record.payerId), Array.from(new Uint8Array(32)));
+    assert.equal(record.paymentRail, 0);
+    assert.equal(record.paymentRefLen, 0);
+    assert.deepEqual(Array.from(record.paymentRef), Array.from(new Uint8Array(64)));
   });
 
   it("blocks replay of the same (consumer, source_id, sigs, timestamp) via the record PDA", async () => {

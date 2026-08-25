@@ -68,6 +68,16 @@ impl Registry {
         Ok(Pubkey::new_from_array(self.nodes[index]))
     }
 
+    /// Framework-agnostic view for [`molpha_verifier`] resolution / verify helpers.
+    pub fn view(&self) -> molpha_verifier::RegistryView<'_> {
+        molpha_verifier::RegistryView {
+            version: self.version,
+            node_count: self.node_count,
+            redundancy_buffer: self.redundancy_buffer,
+            nodes: &self.nodes,
+        }
+    }
+
     pub fn copy_from_previous(&mut self, previous: &Registry, version: u32, bump: u8) {
         self.version = version;
         self.node_count = previous.node_count;

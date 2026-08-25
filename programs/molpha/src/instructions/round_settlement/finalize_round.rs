@@ -112,10 +112,10 @@ pub struct FinalizeRound<'info> {
     )]
     pub registry: AccountLoader<'info, Registry>,
 
-    /// Subscription (`["molpha_round", source_id, ts]`) or agent
-    /// (`["molpha_agent_round", agent, nonce]`) settlement record. No seeds constraint:
-    /// owner + discriminator suffice — only the two settle instructions can create this
-    /// account type, and both write complete state, so stored contents are trusted.
+    /// Subscription (`["molpha_round", subscription.owner, source_id, sig_req, ts]`) or x402
+    /// (`["molpha_x402_round", payer_id, gateway, source_id, sig_req, ts]`) settlement record.
+    /// No seeds constraint: owner + discriminator suffice — only the two settle instructions can
+    /// create this account type, and both write complete state, so stored contents are trusted.
     #[account(mut)]
     pub round_record: Account<'info, RoundReceiptRecord>,
 

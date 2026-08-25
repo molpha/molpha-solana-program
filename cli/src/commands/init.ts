@@ -35,9 +35,8 @@ type InitConfig = {
   gatewayBondMin?: string;
   challengerBountyBps?: number;
   usdcMint?: string;
-  agentRoundBase?: string;
-  agentRoundPerSig?: string;
-  agentEpochLenSecs?: string;
+  x402RoundBase?: string;
+  x402RoundPerSig?: string;
 };
 
 export function registerInitCommand(program: Command): void {
@@ -62,12 +61,11 @@ export function registerInitCommand(program: Command): void {
     .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
     .option("--usdc-mint <pubkey>", "USDC mint")
-    .option("--agent-round-base <amount>", "base agent fresh-round price")
+    .option("--x402-round-base <amount>", "base x402 round settlement price")
     .option(
-      "--agent-round-per-sig <amount>",
-      "per-required-signature agent fresh-round price"
+      "--x402-round-per-sig <amount>",
+      "per-required-signature x402 round settlement price"
     )
-    .option("--agent-epoch-len-secs <seconds>", "agent spend accounting epoch")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const config = options.config
@@ -187,26 +185,19 @@ export function registerInitCommand(program: Command): void {
           optionOrConfig(options.usdcMint, config.usdcMint),
           "usdc mint"
         ),
-        agentRoundBase: bn(
+        x402RoundBase: bn(
           requireValue(
-            optionOrConfig(options.agentRoundBase, config.agentRoundBase),
-            "Missing --agent-round-base"
+            optionOrConfig(options.x402RoundBase, config.x402RoundBase),
+            "Missing --x402-round-base"
           ),
-          "agent round base"
+          "x402 round base"
         ),
-        agentRoundPerSig: bn(
+        x402RoundPerSig: bn(
           requireValue(
-            optionOrConfig(options.agentRoundPerSig, config.agentRoundPerSig),
-            "Missing --agent-round-per-sig"
+            optionOrConfig(options.x402RoundPerSig, config.x402RoundPerSig),
+            "Missing --x402-round-per-sig"
           ),
-          "agent round per signature"
-        ),
-        agentEpochLenSecs: bn(
-          requireValue(
-            optionOrConfig(options.agentEpochLenSecs, config.agentEpochLenSecs),
-            "Missing --agent-epoch-len-secs"
-          ),
-          "agent epoch length"
+          "x402 round per signature"
         ),
       };
       const treasury = getAssociatedTokenAddressSync(

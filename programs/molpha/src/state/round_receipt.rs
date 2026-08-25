@@ -1,12 +1,10 @@
 use anchor_lang::prelude::*;
 
-/// Subscription round settled by `settle_round_receipt`;
-/// seed `["molpha_round", subscription.owner, source_id, signatures_required, timestamp_le]`.
-pub const RECORD_KIND_SUBSCRIPTION: u8 = 0;
-/// Agent `FreshRound` settled by `settle_agent_round`; dispute-exposed like a subscription round.
-pub const RECORD_KIND_AGENT_FRESH: u8 = 1;
-
-/// Per-round settlement record.
+/// Per-round settlement record. Two funding paths write this record:
+/// - Subscription draw, via `settle_subscription_round`;
+///   seed `["molpha_round", subscription.owner, source_id, signatures_required, timestamp_le]`.
+/// - Gateway-funded x402 settlement, via `settle_x402_round`;
+///   seed `["molpha_x402_round", payer_id, gateway, source_id, signatures_required, canonical_timestamp_le]`.
 #[account]
 #[derive(InitSpace)]
 pub struct RoundReceiptRecord {
@@ -23,6 +21,17 @@ pub struct RoundReceiptRecord {
     pub recorded_slot: u64,
     pub status: RoundRecordStatus,
     pub price: u64,
+    /// Funding-path discriminator, explicit rather than inferred from `price > 0` — a zero-priced
+    /// x402 round (misconfigured pricing) must still dispute on the x402 path.
+    pub kind: RoundRecordKind,
+    /// Rail-scoped payer identity (`keccak256(rail_id_be || payer_address_bytes)`).
+    /// Zeroed on subscription-path receipts.
+    pub payer_id: [u8; 32],
+    /// Payment rail registry id (0 = subscription/none). Attested only, never interpreted on-chain.
+    pub payment_rail: u16,
+    pub payment_ref_len: u8,
+    /// Opaque payment reference (tx hash, facilitator receipt, ...), zero-padded. Attested only.
+    pub payment_ref: [u8; 64],
     pub bump: u8,
 }
 
@@ -34,8 +43,20 @@ pub enum RoundRecordStatus {
     Voided,
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
+#[repr(u8)]
+pub enum RoundRecordKind {
+    Subscription,
+    X402,
+}
+
 impl RoundReceiptRecord {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_round";
-    pub const AGENT_SEED_PREFIX: &'static [u8] = b"molpha_agent_round";
+    pub const X402_SEED_PREFIX: &'static [u8] = b"molpha_x402_round";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
+
+    /// The valid prefix of `payment_ref`, per `payment_ref_len`.
+    pub fn payment_ref_bytes(&self) -> &[u8] {
+        &self.payment_ref[..self.payment_ref_len as usize]
+    }
 }

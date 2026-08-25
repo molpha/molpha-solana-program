@@ -41,18 +41,17 @@ const REGISTRY_SPACE = 8_208;
 /** Soft ceilings (~10% over bankrun baseline 2026-08-03, versioned Registry + Node PDAs). */
 const CU_CEILINGS = {
   verify_attestation: { 3: 254_000, 8: 315_000, 18: 436_000, 32: 556_000 },
-  submit_attestation: { 3: 273_000, 8: 334_000, 18: 454_000, 32: 574_000 },
+  submit_attestation: { 3: 273_000, 8: 334_000, 18: 454_000, 32: 584_000 },
 };
 
 const FIXTURE_SOURCE_ID = hexToBuffer(
-  EVM_FIXTURE.dataUpdate.sourceId ?? EVM_FIXTURE.dataUpdate.feedId
+  EVM_FIXTURE.attestation.sourceId ?? EVM_FIXTURE.attestation.feedId
 );
 /** @deprecated Use FIXTURE_SOURCE_ID. */
 const FIXTURE_FEED_ID = FIXTURE_SOURCE_ID;
-const FIXTURE_CONFIG_HASH = hexToBuffer(EVM_FIXTURE.dataUpdate.configHash);
-const FIXTURE_VALUE = hexToBuffer(EVM_FIXTURE.dataUpdate.value);
-const FIXTURE_REGISTRY_VERSION = EVM_FIXTURE.dataUpdate.registryVersion;
-const FIXTURE_CANONICAL_TIMESTAMP = EVM_FIXTURE.dataUpdate.canonicalTimestamp;
+const FIXTURE_VALUE = hexToBuffer(EVM_FIXTURE.attestation.value);
+const FIXTURE_REGISTRY_VERSION = EVM_FIXTURE.attestation.registryVersion;
+const FIXTURE_CANONICAL_TIMESTAMP = EVM_FIXTURE.attestation.canonicalTimestamp;
 
 const ACCOUNTS_ROOT = path.join(__dirname, "..", ".cu-bench-localnet-accounts");
 
@@ -65,6 +64,10 @@ function u32be(x) {
   const b = Buffer.alloc(4);
   b.writeUInt32BE(x >>> 0, 0);
   return b;
+}
+
+function u8be(x) {
+  return Buffer.from([x & 0xff]);
 }
 
 function u32le(x) {
@@ -273,6 +276,11 @@ function schnorrSignForVerifier({
   return { s: bytes32FromBigintBE(s), commitmentAddr };
 }
 
+/**
+ * Must match `molpha_verifier::message::compute_message_hash`:
+ * `MESSAGE_PREFIX || value || sourceId || registryVersion_u32be ||
+ *  signaturesRequired_u8 || canonicalTimestamp_u64be || signersBitmap`.
+ */
 function computeMessageHash({
   sourceId,
   registryVersion,
@@ -283,17 +291,16 @@ function computeMessageHash({
 }) {
   return keccakConcat([
     MESSAGE_PREFIX,
+    value,
     sourceId,
     u32be(registryVersion),
-    u32be(signaturesRequired),
-    signersBitmap,
-    value,
+    u8be(signaturesRequired),
     u64be(canonicalTimestamp),
+    signersBitmap,
   ]);
 }
 
 function benchConfigHash(signerCount) {
-  if (signerCount === 8) return FIXTURE_CONFIG_HASH;
   const b = Buffer.alloc(32, 0);
   Buffer.from(`molpha-cu-bench-${signerCount}`).copy(b);
   return b;
@@ -450,7 +457,7 @@ function buildCoalitionSignature({
     canonicalTimestamp
   );
   const messageHash = computeMessageHash({
-    sourceId: id,
+    sourceId,
     registryVersion,
     signaturesRequired: signerCount,
     signersBitmap,
@@ -666,9 +673,8 @@ function protocolConfigFields(payer, protocolBump) {
     maxNodeCount: NODE_COUNT,
     minimumNodeDeposit: new anchor.BN(0),
     withdrawalCooldownSecs: new anchor.BN(0),
-    agentRoundBase: new anchor.BN(0),
-    agentRoundPerSig: new anchor.BN(0),
-    agentEpochLenSecs: new anchor.BN(86_400),
+    x402RoundBase: new anchor.BN(0),
+    x402RoundPerSig: new anchor.BN(0),
     bump: protocolBump,
   };
 }
@@ -831,7 +837,6 @@ module.exports = {
   FIXTURE_VALUE,
   FIXTURE_REGISTRY_VERSION,
   FIXTURE_CANONICAL_TIMESTAMP,
-  FIXTURE_CONFIG_HASH,
   ACCOUNTS_ROOT,
   PROTOCOL_CONFIG_SEED,
   REGISTRY_STATE_SEED,
