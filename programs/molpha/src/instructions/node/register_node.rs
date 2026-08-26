@@ -1,12 +1,13 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use solana_keccak_hasher::hashv;
 
 use crate::{
     error::MolphaError,
     events::{NodeRegistered, RegistryVersionCreated, RegistryVersionReason},
     state::{Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim},
     utils::registry::{
-        derive_node_id, secp256k1_key_fingerprint, validate_secp256k1_pubkey, verify_node_pop,
+        derive_node_id, validate_secp256k1_pubkey, verify_node_pop,
     },
 };
 
@@ -17,7 +18,6 @@ pub struct RegisterNodeArgs {
     pub ip: [u8; 4],
     pub port: u16,
     pub secp256k1_pubkey_compressed: [u8; 33],
-    pub secp256k1_key_fingerprint: [u8; 32],
     pub pop_sig_r: [u8; 32],
     pub pop_sig_s: [u8; 32],
 }
@@ -64,16 +64,10 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         &args.pop_sig_s,
     )?;
 
-    let key_fingerprint = secp256k1_key_fingerprint(&args.secp256k1_pubkey_compressed);
-    require!(
-        args.secp256k1_key_fingerprint == key_fingerprint,
-        MolphaError::InvalidSecp256k1KeyFingerprint
-    );
     require!(
         !ctx.accounts.secp256k1_key_claim.claimed,
         MolphaError::NodeAlreadyRegistered
     );
-
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.key(),
@@ -98,10 +92,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         ctx.bumps.node,
     );
     ctx.accounts.secp256k1_key_claim.init(
-        key_fingerprint,
-        args.secp256k1_pubkey_compressed,
-        owner,
-        node_id,
+        ctx.accounts.node.key(),
         ctx.bumps.secp256k1_key_claim,
     );
 
@@ -138,6 +129,11 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         created_at: now,
     });
     Ok(())
+}
+
+pub fn hash_seed(input: &[u8]) -> [u8; 32] {
+    let hash_result = hashv(&[input.as_ref()]);
+    hash_result.to_bytes()
 }
 
 #[derive(Accounts)]
@@ -180,18 +176,21 @@ pub struct RegisterNode<'info> {
         init,
         payer = node_owner,
         space = Node::SPACE,
-        seeds = [Node::SEED_PREFIX, node_owner.key().as_ref()],
+        seeds = [
+            Node::SEED_PREFIX, 
+            node_owner.key().as_ref()
+        ],
         bump,
     )]
     pub node: Box<Account<'info, Node>>,
 
     #[account(
-        init_if_needed,
+        init,
         payer = node_owner,
         space = Secp256k1KeyClaim::SPACE,
         seeds = [
             Secp256k1KeyClaim::SEED_PREFIX,
-            args.secp256k1_key_fingerprint.as_ref(),
+            &hash_seed(&args.secp256k1_pubkey_compressed),
         ],
         bump,
     )]

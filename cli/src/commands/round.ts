@@ -436,7 +436,6 @@ export function registerRoundCommands(program: Command): void {
       "--gateway-authority <pubkey>",
       "gateway authority pubkey (for PDA)"
     )
-    .requiredOption("--agg-sig <path>", "JSON AggregatedSig used as challenge")
     .option("--challenger-usdc <pubkey>", "challenger USDC ATA")
     .option(
       "--subscription <pubkey>",
@@ -479,9 +478,6 @@ export function registerRoundCommands(program: Command): void {
         protocolConfig.usdcMint,
         gatewayPda
       );
-      const aggSig = parseAggregatedSigJson(
-        requireValue(options.aggSig, "Missing --agg-sig")
-      );
       const challengerUsdc = options.challengerUsdc
         ? parsePublicKey(options.challengerUsdc, "challenger USDC")
         : getAssociatedTokenAddressSync(
@@ -501,7 +497,7 @@ export function registerRoundCommands(program: Command): void {
         : null;
 
       const signature = await (ctx.program.methods as any)
-        .disputeRound(aggSig)
+        .disputeRound()
         .accountsPartial({
           challenger: ctx.wallet.publicKey,
           protocolConfig: protocolConfigPda,
@@ -515,7 +511,7 @@ export function registerRoundCommands(program: Command): void {
           subscription,
         })
         .remainingAccounts(
-          creditedBitsFromBitmap(Uint8Array.from(aggSig.signersBitmap)).map(
+          creditedBitsFromBitmap(Uint8Array.from(record.signersBitmap)).map(
             (bit) => ({
               pubkey: registryNode(registry, bit),
               isWritable: false,

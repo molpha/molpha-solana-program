@@ -2,7 +2,6 @@ import * as anchor from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
 import { assert } from "chai";
 import { Point } from "@noble/secp256k1";
-import { keccak_256 } from "@noble/hashes/sha3";
 import {
   ComputeBudgetProgram,
   PublicKey,
@@ -250,7 +249,8 @@ describe("register_node cryptographic validation", () => {
       });
       assert.fail("active duplicate key must fail");
     } catch (error) {
-      assert.include(String(error), "NodeAlreadyRegistered");
+      // Claim PDA uses `init`, so a reserved key fails at allocate time.
+      assert.match(String(error), /already in use/i);
     }
 
     await program.methods
@@ -282,7 +282,8 @@ describe("register_node cryptographic validation", () => {
       });
       assert.fail("deactivated key must remain reserved");
     } catch (error) {
-      assert.include(String(error), "NodeAlreadyRegistered");
+      // Permanent claim PDA is never closed; re-registration still hits `init`.
+      assert.match(String(error), /already in use/i);
     }
 
     registryState = await program.account.registryState.fetch(registryStatePda);
@@ -295,7 +296,9 @@ describe("register_node cryptographic validation", () => {
       findSecp256k1KeyClaimPda(program.programId, compressed)
     );
     assert.isTrue(claim.claimed);
-    assert.equal(claim.owner.toBase58(), ctx.nodes[0].publicKey.toBase58());
-    assert.deepEqual(claim.keyFingerprint, Array.from(keccak_256(compressed)));
+    assert.equal(
+      claim.nodePubkey.toBase58(),
+      findNodePda(program.programId, ctx.nodes[0].publicKey).toBase58()
+    );
   }, 180_000);
 });

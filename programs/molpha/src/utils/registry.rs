@@ -32,10 +32,6 @@ pub fn derive_node_id(
     .to_bytes()
 }
 
-pub fn secp256k1_key_fingerprint(secp256k1_pubkey_compressed: &[u8; 33]) -> [u8; 32] {
-    hashv(&[secp256k1_pubkey_compressed.as_ref()]).to_bytes()
-}
-
 /// Parse exactly one canonical compressed secp256k1 point and return its affine coordinates.
 pub fn validate_secp256k1_pubkey(
     secp256k1_pubkey_compressed: &[u8; 33],

@@ -63,12 +63,6 @@ export function u8(value: number): Buffer {
   return Buffer.from([value & 0xff]);
 }
 
-export function sha256(parts: Buffer[]): Buffer {
-  const h = crypto.createHash("sha256");
-  for (const part of parts) h.update(part);
-  return h.digest();
-}
-
 /**
  * `H(RequestAuth)` — mirrors `hash_request_auth_fields` in Rust.
  * Borsh body order: source_id, signatures_required, timestamp.
@@ -77,13 +71,13 @@ export function hashRequestAuthFields(
   sourceId: Uint8Array | Buffer,
   signaturesRequired: number,
   timestamp: number | bigint
-): Buffer {
+): Uint8Array {
   const body = Buffer.concat([
     Buffer.from(sourceId),
     u8(signaturesRequired),
     u64le(timestamp),
   ]);
-  return sha256([Buffer.from("MOLPHA_REQAUTH_V1", "utf8"), body]);
+  return keccak_256(Buffer.concat([Buffer.from("MOLPHA_REQAUTH_V1"), body]));
 }
 
 /**

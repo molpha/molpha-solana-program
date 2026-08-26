@@ -38,7 +38,7 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 
 - Coalition **Schnorr** verification with on-chain bitmap re-derivation (matches EVM `NodeGroupBitmapLib`); selection seed and message hash bind `source_id`
 - Optional **verify-only** path (`verify_attestation`) against any retained historical registry
-- Off-chain signing helpers in the CLI (`yarn molpha data sign` / `submit`) and `scripts/lib/cu-bench-attestation-common.js`
+- Off-chain signing helpers in the CLI (`yarn molpha data sign` / `submit`)
 
 ### Rounds
 
@@ -55,7 +55,7 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 ### Tooling
 
 - TypeScript **CLI** (`yarn molpha`) for init, registry, plans, delegates, feeds, rounds, and data flows
-- Scripts for node generation, CU benchmarks, and end-to-end feed submission
+- Scripts for node generation and end-to-end feed submission
 
 ## Program structure
 
@@ -72,7 +72,6 @@ programs/
 │       │   ├── round_settlement/    # settle_subscription_round.rs, settle_x402_round.rs, finalize_round.rs
 │       │   ├── disputing/           # dispute_round.rs, punish_*.rs
 │       │   ├── submit_attestation.rs / verify_attestation.rs
-│       │   └── bench_registry.rs   # feature = "cu-bench"
 │       ├── state/
 │       │   ├── protocol_config.rs
 │       │   ├── registry_state.rs / node.rs / secp256k1_key_claim.rs
@@ -123,9 +122,6 @@ yarn test
 
 # Anchor integration tests (validator)
 anchor test
-
-# CU regression: submit/verify @ 3/8/18 signers
-yarn cu:attestation:bankrun
 ```
 
 **TypeScript CLI:**
@@ -155,7 +151,7 @@ Bankrun/localnet measurements (May 2026 — details in [NODE_OPERATOR_GUIDE.md �
 | 8       | ~384K                | ~387K                |
 | 18      | ~529K                | ~532K                |
 
-Use `ComputeBudgetProgram.setComputeUnitLimit` ≥ **550_000** for large coalitions. CI enforces ceilings via `yarn cu:attestation:bankrun`.
+Use `ComputeBudgetProgram.setComputeUnitLimit` ≥ **550_000** for large coalitions.
 
 ### Example: read feed via CLI
 
@@ -205,13 +201,12 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 
 ## Scripts & yarn commands
 
-| Command                       | Purpose                                        |
-| ----------------------------- | ---------------------------------------------- |
-| `yarn molpha`                 | Operator CLI (after `yarn build:cli`)          |
-| `yarn register-nodes`         | `scripts/generate-and-register-nodes.js`       |
-| `yarn cu:attestation:bankrun` | CU benchmark (bankrun)                         |
+| Command                 | Purpose                                  |
+| ----------------------- | ---------------------------------------- |
+| `yarn molpha`           | Operator CLI (after `yarn build:cli`)    |
+| `yarn register-nodes`   | `scripts/generate-and-register-nodes.js` |
 
-Key scripts under `scripts/`: `generate-and-register-nodes.js`, `oracle-client.ts`, and CU bench utilities. Use `yarn molpha` for all on-chain operations.
+Key scripts under `scripts/`: `generate-and-register-nodes.js`, `oracle-client.ts`. Use `yarn molpha` for all on-chain operations.
 
 ## Architecture
 

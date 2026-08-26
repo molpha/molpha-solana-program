@@ -8,10 +8,7 @@ use anchor_lang::prelude::*;
 #[derive(InitSpace)]
 pub struct Secp256k1KeyClaim {
     pub claimed: bool,
-    pub key_fingerprint: [u8; 32],
-    pub secp256k1_pubkey_compressed: [u8; 33],
-    pub owner: Pubkey,
-    pub node_id: [u8; 32],
+    pub node_pubkey: Pubkey,
     pub bump: u8,
 }
 
@@ -21,17 +18,11 @@ impl Secp256k1KeyClaim {
 
     pub fn init(
         &mut self,
-        key_fingerprint: [u8; 32],
-        secp256k1_pubkey_compressed: [u8; 33],
-        owner: Pubkey,
-        node_id: [u8; 32],
+        node_pubkey: Pubkey,
         bump: u8,
     ) {
         self.claimed = true;
-        self.key_fingerprint = key_fingerprint;
-        self.secp256k1_pubkey_compressed = secp256k1_pubkey_compressed;
-        self.owner = owner;
-        self.node_id = node_id;
+        self.node_pubkey = node_pubkey;
         self.bump = bump;
     }
 }

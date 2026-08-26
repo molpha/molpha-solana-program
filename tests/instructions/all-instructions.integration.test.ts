@@ -7,12 +7,10 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { Clock } from "solana-bankrun";
-import { keccak_256 } from "@noble/hashes/sha3";
+import * as secp256k1 from "@noble/secp256k1";
 import { setupTestContext, TestContext } from "../setup";
 import {
   buildRegisterNodeArgs,
-  deriveNodeId,
-  EVM_FIXTURE_NODE_PUBKEYS,
   findNodePda,
   findRegistryPda,
   findSecp256k1KeyClaimPda,
@@ -341,11 +339,11 @@ describe("Molpha instruction coverage integration", () => {
 
     const capNodeOwner = ctx.nodes[8];
     const extraSalt = Uint8Array.from(Buffer.alloc(32, 99));
-    const extraCompressed = EVM_FIXTURE_NODE_PUBKEYS[0];
-    const extraNodeId = deriveNodeId(
-      capNodeOwner.publicKey,
-      extraCompressed,
-      extraSalt
+    // Fresh key so claim `init` succeeds and the handler can reach NodeCapExceeded
+    // (reusing a registered fixture key fails earlier with "already in use").
+    const extraCompressed = secp256k1.getPublicKey(
+      secp256k1.utils.randomPrivateKey(),
+      true
     );
     const capOwnerUsdc = await fundNodeOwnerInBankrun(
       ctx,

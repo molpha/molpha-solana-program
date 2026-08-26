@@ -136,7 +136,6 @@ describe("rounds: finalize + dispute through the shared path", () => {
   async function disputeRound(params: {
     roundRecord: PublicKey;
     gateway: BondedGateway;
-    aggSig: ReturnType<typeof zeroedAggSig>;
     challengerUsdc: PublicKey;
     challenger: any;
     nodeBits: number[];
@@ -144,7 +143,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
     subscription?: PublicKey;
   }): Promise<void> {
     await proto.program.methods
-      .disputeRound(params.aggSig)
+      .disputeRound()
       .accountsPartial({
         challenger: params.challenger.publicKey,
         protocolConfig: proto.protocolConfigPda,
@@ -382,7 +381,6 @@ describe("rounds: finalize + dispute through the shared path", () => {
     await disputeRound({
       roundRecord: recordPda,
       gateway: victimGateway,
-      aggSig: fabricatedSig,
       challenger,
       challengerUsdc,
       nodeBits: bits,
@@ -480,7 +478,6 @@ describe("rounds: finalize + dispute through the shared path", () => {
       await disputeRound({
         roundRecord: recordPda,
         gateway,
-        aggSig: fabricatedSig,
         challenger,
         challengerUsdc,
         nodeBits: bits,
@@ -536,7 +533,6 @@ describe("rounds: finalize + dispute through the shared path", () => {
       await disputeRound({
         roundRecord: recordPda,
         gateway,
-        aggSig: validSig,
         challenger: ctx.authority.payer,
         challengerUsdc: ctx.userTokenAccount,
         nodeBits: bits,
@@ -662,7 +658,6 @@ describe("rounds: finalize + dispute through the shared path", () => {
     await disputeRound({
       roundRecord: roundRecordPda,
       gateway: subGateway,
-      aggSig: fabricatedSig,
       challenger,
       challengerUsdc,
       nodeBits: bits,
@@ -797,7 +792,6 @@ describe("rounds: finalize + dispute through the shared path", () => {
     await disputeRound({
       roundRecord: roundRecordPda,
       gateway: subGateway,
-      aggSig: fabricatedSig,
       challenger,
       challengerUsdc,
       nodeBits: bits,

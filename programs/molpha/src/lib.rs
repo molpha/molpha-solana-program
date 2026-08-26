@@ -33,47 +33,6 @@ pub mod molpha {
         instructions::deactivate_node(ctx, args)
     }
 
-    #[cfg(feature = "cu-bench")]
-    pub fn bench_resolve_synthetic(ctx: Context<BenchRegistry>, node_count: u16) -> Result<()> {
-        instructions::bench_resolve_synthetic(ctx, node_count)
-    }
-
-    #[cfg(feature = "cu-bench")]
-    pub fn bench_resolve_accounts(
-        ctx: Context<BenchRegistry>,
-        signers_bitmap: [u8; 32],
-    ) -> Result<()> {
-        instructions::bench_resolve_accounts(ctx, signers_bitmap)
-    }
-
-    #[cfg(feature = "cu-bench")]
-    pub fn bench_full_registry_transition(
-        ctx: Context<BenchFullRegistryTransition>,
-        old_version: u32,
-        next_version: u32,
-        mutation: u8,
-        node: Pubkey,
-        remove_index: u16,
-    ) -> Result<()> {
-        instructions::bench_full_registry_transition(
-            ctx,
-            old_version,
-            next_version,
-            mutation,
-            node,
-            remove_index,
-        )
-    }
-
-    #[cfg(feature = "cu-bench")]
-    pub fn bench_resolve_full_registry(
-        ctx: Context<BenchResolveFullRegistry>,
-        version: u32,
-        signers_bitmap: [u8; 32],
-    ) -> Result<()> {
-        instructions::bench_resolve_full_registry(ctx, version, signers_bitmap)
-    }
-
     pub fn update_node_endpoint(
         ctx: Context<UpdateNodeEndpoint>,
         args: UpdateNodeEndpointArgs,

@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use solana_sha256_hasher::hashv as sha256_hashv;
+use solana_keccak_hasher::hashv;
 
 pub const DOMAIN_REQAUTH: &[u8] = b"MOLPHA_REQAUTH_V1";
 pub const DOMAIN_GWRCPT: &[u8] = b"MOLPHA_GWRCPT_V1";
@@ -23,7 +23,7 @@ pub struct AggregatedSig {
 /// `H(RequestAuth)` — domain-separated SHA-256 over the borsh encoding.
 pub fn hash_request_auth(request_auth: &RequestAuth) -> [u8; 32] {
     let body = borsh::to_vec(request_auth).expect("RequestAuth serialization is infallible");
-    sha256_hashv(&[DOMAIN_REQAUTH, &body]).to_bytes()
+    hashv(&[DOMAIN_REQAUTH, &body]).to_bytes()
 }
 
 /// `H(RequestAuth)` from the instruction-level `(source_id, signatures_required, timestamp)` pair.

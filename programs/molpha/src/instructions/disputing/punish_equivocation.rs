@@ -48,7 +48,6 @@ pub struct PunishEquivocationArgs {
     pub statement_b: SignedStatement,
     /// Must equal `equivocation_evidence_hash(..)` over the fields above — validated in the
     /// handler and reused as the `PunishmentCase` PDA seed (the anti-replay guard), mirroring how
-    /// `register_node` validates `secp256k1_key_fingerprint` against its own PDA seed.
     pub evidence_hash: [u8; 32],
     pub new_registry_version: u32,
 }
