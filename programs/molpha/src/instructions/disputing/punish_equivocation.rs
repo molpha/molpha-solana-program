@@ -4,7 +4,7 @@
 //! Permissionless and immediate: the proof is two valid Molpha attestations sharing a duty
 //! identity (`source_id`, `registry_version`, `signatures_required`, `canonical_timestamp`) but
 //! committing to different `value`s. Because the coalition key is a plain sum `Σ X_i` protected
-//! by proof-of-possession at registration (`utils::registry::verify_node_pop`), a valid aggregate
+//! by proof-of-possession at registration (`molpha_verifier::validate_key_and_verify_pop`), a valid aggregate
 //! over a bitmap is only producible with the secret behind every node in it — so a node in the
 //! intersection of the two signer bitmaps demonstrably contributed a partial signature to both.
 //! The guilty set is exactly that intersection; the sentence is a 100% slash and a permanent

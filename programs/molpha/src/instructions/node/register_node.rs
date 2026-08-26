@@ -1,14 +1,13 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use molpha_verifier::{validate_key_and_verify_pop, NodePopError};
 use solana_keccak_hasher::hashv;
 
 use crate::{
     error::MolphaError,
     events::{NodeRegistered, RegistryVersionCreated, RegistryVersionReason},
     state::{Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim},
-    utils::registry::{
-        derive_node_id, validate_secp256k1_pubkey, verify_node_pop,
-    },
+    utils::registry::derive_node_id,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -49,20 +48,23 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         args.registration_salt != [0u8; 32],
         MolphaError::InvalidRegistrationSalt
     );
-    let (pub_key_x, pub_key_y) = validate_secp256k1_pubkey(&args.secp256k1_pubkey_compressed)?;
     let owner = ctx.accounts.node_owner.key();
     let node_id = derive_node_id(
         owner,
         &args.secp256k1_pubkey_compressed,
         &args.registration_salt,
     );
-    verify_node_pop(
-        ctx.program_id,
+    let (pub_key_x, pub_key_y) = validate_key_and_verify_pop(
+        &ctx.program_id.to_bytes(),
         &node_id,
         &args.secp256k1_pubkey_compressed,
         &args.pop_sig_r,
         &args.pop_sig_s,
-    )?;
+    )
+    .map_err(|error| match error {
+        NodePopError::InvalidPublicKey => error!(MolphaError::PubkeyNotOnCurve),
+        NodePopError::InvalidProof => error!(MolphaError::InvalidPoP),
+    })?;
 
     token::transfer(
         CpiContext::new(
@@ -87,10 +89,9 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         now,
         ctx.bumps.node,
     );
-    ctx.accounts.secp256k1_key_claim.init(
-        ctx.accounts.node.key(),
-        ctx.bumps.secp256k1_key_claim,
-    );
+    ctx.accounts
+        .secp256k1_key_claim
+        .init(ctx.accounts.node.key(), ctx.bumps.secp256k1_key_claim);
 
     let (node_count, redundancy_buffer) = {
         let current = ctx.accounts.current_registry.load()?;
@@ -173,7 +174,7 @@ pub struct RegisterNode<'info> {
         payer = node_owner,
         space = Node::SPACE,
         seeds = [
-            Node::SEED_PREFIX, 
+            Node::SEED_PREFIX,
             node_owner.key().as_ref()
         ],
         bump,

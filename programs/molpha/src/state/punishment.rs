@@ -11,7 +11,7 @@
 //! different statements. The guilty set is the intersection of the two signer bitmaps — a node
 //! in that intersection contributed a partial signature to both, which is only possible if it
 //! holds the secret behind its registered secp256k1 key (see the proof-of-possession check in
-//! `utils::registry::verify_node_pop`).
+//! `molpha_verifier::validate_key_and_verify_pop`).
 //!
 //! [`OffenceKind::NonceReuse`] (see `punish_nonce_reuse`) is the third offence: a node
 //! contributes a partial signature under the *same* aggregate nonce commitment

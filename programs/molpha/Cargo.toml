@@ -28,14 +28,13 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"
 [dependencies]
 molpha-verifier = { path = "../../../molpha-verifier", features = ["solana"] }
 anchor-lang = { version = "1.1.2", features = ["init-if-needed"] }
-anchor-spl = { version = "1.1.2", features = ["metadata"] }
+anchor-spl = { version = "1.1.2", default-features = false, features = [
+    "associated_token",
+    "token",
+    "token_2022",
+] }
 # Program IDs are defined in code constants
 borsh = "1.7.0"
 solana-keccak-hasher = { version = "3.1.0", features = ["sha3"] }
 solana-instructions-sysvar = "3.0.0"
-solana-secp256k1-recover = "3.1.1"
-libsecp256k1 = { version = "0.6.0", default-features = false }
 bytemuck = { version = "1.24", features = ["derive", "min_const_generics"] }
-
-[dev-dependencies]
-num-bigint = "0.4.6"
