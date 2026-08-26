@@ -132,21 +132,21 @@ pub mod molpha {
     // ---- Node punishment. ----
 
     pub fn punish_equivocation<'info>(
-        ctx: Context<PunishEquivocation<'info>>,
+        ctx: Context<'info, PunishEquivocation<'info>>,
         args: PunishEquivocationArgs,
     ) -> Result<()> {
         instructions::punish_equivocation(ctx, args)
     }
 
     pub fn punish_unsolicited_signing<'info>(
-        ctx: Context<PunishUnsolicitedSigning<'info>>,
+        ctx: Context<'info, PunishUnsolicitedSigning<'info>>,
         args: PunishUnsolicitedSigningArgs,
     ) -> Result<()> {
         instructions::punish_unsolicited_signing(ctx, args)
     }
 
     pub fn punish_nonce_reuse<'info>(
-        ctx: Context<PunishNonceReuse<'info>>,
+        ctx: Context<'info, PunishNonceReuse<'info>>,
         args: PunishNonceReuseArgs,
     ) -> Result<()> {
         instructions::punish_nonce_reuse(ctx, args)

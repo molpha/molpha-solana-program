@@ -31,18 +31,18 @@
 //! unsolicited signing, also 100%, and must not be launderable into this offence either.
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::token::{Token, TokenAccount};
 use molpha_verifier::bitmap::{bitmap_bit_set, bitmap_is_subset, bitmap_load, bitmap_store};
 
 use crate::{
     error::{map_attestation_err, MolphaError},
-    events::{NonceReuseProven, RegistryVersionCreated, RegistryVersionReason},
+    events::NonceReuseProven,
     instructions::disputing::{statement_message_hash, verify_statement},
     state::{
         nonce_reuse_evidence_hash, resolve_registry_signers_indexed, OffenceKind, ProtocolConfig,
         PunishmentCase, Registry, RegistryState, SignedStatement, SigningContext,
     },
-    utils::punish::punish_guilty_nodes,
+    utils::punish::{execute_punishment, ExecutePunishmentAccounts, ExecutePunishmentInput},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -61,7 +61,7 @@ pub struct PunishNonceReuseArgs {
 }
 
 pub fn punish_nonce_reuse<'info>(
-    ctx: Context<PunishNonceReuse<'info>>,
+    ctx: Context<'info, PunishNonceReuse<'info>>,
     args: PunishNonceReuseArgs,
 ) -> Result<()> {
     // ---- 1. Args-only predicates, cheapest first. ----
@@ -193,71 +193,33 @@ pub fn punish_nonce_reuse<'info>(
 
     // ---- Sentence: 50% slash + tombstone every guilty node, evict from a fresh registry
     // snapshot, pay the reporter a bounty out of the total slashed. ----
-    let clock = Clock::get()?;
-    let now = clock.unix_timestamp;
-    let now_slot = clock.slot;
-    let program_id = ctx.program_id;
-
-    let batch = punish_guilty_nodes(
-        ctx.remaining_accounts,
-        &resolved,
-        &guilty_bitmap,
-        OffenceKind::NonceReuse,
-        now,
-        program_id,
+    let reporter = ctx.accounts.reporter.key();
+    let outcome = execute_punishment(
+        ExecutePunishmentAccounts {
+            registry_state: &mut ctx.accounts.registry_state,
+            current_registry: &ctx.accounts.current_registry,
+            new_registry: &ctx.accounts.new_registry,
+            new_registry_bump: ctx.bumps.new_registry,
+            protocol_config: &ctx.accounts.protocol_config,
+            punishment_case: &mut ctx.accounts.punishment_case,
+            punishment_case_bump: ctx.bumps.punishment_case,
+            reporter,
+            treasury: &ctx.accounts.treasury,
+            reporter_usdc: &ctx.accounts.reporter_usdc,
+            token_program: ctx.accounts.token_program.key(),
+        },
+        ExecutePunishmentInput {
+            remaining_accounts: ctx.remaining_accounts,
+            program_id: ctx.program_id,
+            resolved: &resolved,
+            guilty_bitmap,
+            guilty_count,
+            offence: OffenceKind::NonceReuse,
+            registry_version: args.registry_version,
+            evidence_hash: args.evidence_hash,
+            new_registry_version: args.new_registry_version,
+        },
     )?;
-    require!(batch.punished_count > 0, MolphaError::NothingToPunish);
-    let slashed_total = batch.slashed_total;
-
-    let previous_version = ctx.accounts.registry_state.current_version;
-    let (node_count_after, redundancy_buffer_after) = {
-        let current = ctx.accounts.current_registry.load()?;
-        let mut next = ctx.accounts.new_registry.load_init()?;
-        crate::utils::punish::evict_nodes(
-            &current,
-            &mut next,
-            args.new_registry_version,
-            ctx.bumps.new_registry,
-            &batch.victims,
-        )?;
-        (next.node_count, next.redundancy_buffer)
-    };
-    ctx.accounts.registry_state.current_version = args.new_registry_version;
-
-    let config = &ctx.accounts.protocol_config;
-    let bounty = (slashed_total as u128)
-        .saturating_mul(config.challenger_bounty_bps as u128)
-        .checked_div(10_000)
-        .unwrap_or(0) as u64;
-    if bounty > 0 {
-        let bump = [config.bump];
-        let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.key(),
-                Transfer {
-                    from: ctx.accounts.treasury.to_account_info(),
-                    to: ctx.accounts.reporter_usdc.to_account_info(),
-                    authority: ctx.accounts.protocol_config.to_account_info(),
-                },
-                &[signer_seeds],
-            ),
-            bounty,
-        )?;
-    }
-
-    ctx.accounts.punishment_case.init(
-        OffenceKind::NonceReuse,
-        ctx.accounts.reporter.key(),
-        args.registry_version,
-        guilty_bitmap,
-        guilty_count,
-        slashed_total,
-        bounty,
-        args.evidence_hash,
-        now_slot,
-        ctx.bumps.punishment_case,
-    );
 
     emit!(NonceReuseProven {
         registry_version: args.registry_version,
@@ -273,17 +235,9 @@ pub fn punish_nonce_reuse<'info>(
         guilty_bitmap,
         guilty_count,
         evidence_hash: args.evidence_hash,
-        reporter: ctx.accounts.reporter.key(),
-        slashed_total,
-        bounty_paid: bounty,
-    });
-    emit!(RegistryVersionCreated {
-        previous_version,
-        new_version: args.new_registry_version,
-        node_count: node_count_after,
-        redundancy_buffer: redundancy_buffer_after,
-        reason: RegistryVersionReason::NodePunished,
-        created_at: now,
+        reporter,
+        slashed_total: outcome.slashed_total,
+        bounty_paid: outcome.bounty_paid,
     });
 
     Ok(())

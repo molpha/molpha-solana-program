@@ -7,7 +7,6 @@ use anchor_lang::prelude::*;
 #[account]
 #[derive(InitSpace)]
 pub struct Secp256k1KeyClaim {
-    pub claimed: bool,
     pub node_pubkey: Pubkey,
     pub bump: u8,
 }
@@ -21,7 +20,6 @@ impl Secp256k1KeyClaim {
         node_pubkey: Pubkey,
         bump: u8,
     ) {
-        self.claimed = true;
         self.node_pubkey = node_pubkey;
         self.bump = bump;
     }

@@ -51,14 +51,6 @@ mod tests {
         }
     }
 
-    fn fixture_agg_sig() -> AggregatedSig {
-        AggregatedSig {
-            agg_sig_s: [0x33; 32],
-            commitment: [0x55; 20],
-            signers_bitmap: [0x66; 32],
-        }
-    }
-
     #[test]
     fn hash_request_auth_fields_matches_struct_hash() {
         let auth = fixture_request_auth();

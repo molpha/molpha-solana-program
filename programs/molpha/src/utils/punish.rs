@@ -1,16 +1,20 @@
-//! Reusable node-punishment mechanics — applying a [`Penalty`] to a node's funds/status, and
-//! evicting a batch of victims from a fresh registry snapshot. Offence-specific instructions
-//! (e.g. `punish_equivocation`) prove their own guilty set and call these directly; the CPI that
-//! pays the reporter bounty stays in the instruction handler, matching how `dispute_round` does
-//! its bounty transfer inline rather than through a shared helper.
+//! Reusable node-punishment mechanics — applying a [`Penalty`] to a node's funds/status,
+//! evicting victims from a fresh registry snapshot, and executing the shared sentence tail via
+//! [`execute_punishment`]. Offence-specific instructions prove their own guilty set, then call
+//! [`execute_punishment`] for slash / eviction / bounty / case init / registry-version event.
+//! Round-dispute bounty (`dispute_round`) stays inline — different account wiring.
 
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, TokenAccount, Transfer};
 use molpha_verifier::bitmap::bitmap_bit_set;
 
 use crate::{
     error::MolphaError,
-    events::NodePunished,
-    state::{MembershipAction, Node, NodeStatus, OffenceKind, Penalty, Registry},
+    events::{NodePunished, RegistryVersionCreated, RegistryVersionReason},
+    state::{
+        MembershipAction, Node, NodeStatus, OffenceKind, Penalty, ProtocolConfig, PunishmentCase,
+        Registry, RegistryState,
+    },
 };
 
 /// Slashed amounts from a single [`apply_penalty`] call.
@@ -27,7 +31,7 @@ impl PenaltyOutcome {
 }
 
 fn bps_of(amount: u64, bps: u16) -> u64 {
-    ((amount as u128) * (bps as u128) / 10_000) as u64
+    (amount as u128 * bps as u128 / 10_000) as u64
 }
 
 /// Apply `penalty` to `node`'s fund and status fields.
@@ -72,11 +76,10 @@ pub fn apply_penalty(node: &mut Node, penalty: Penalty, now: i64) -> Result<Pena
 #[derive(Clone, Debug, Default)]
 pub struct PunishmentBatch {
     /// Nodes actually slashed, in resolution order. Feeds [`evict_nodes`].
+    /// Length may be less than `guilty_bitmap.count_ones()` when a guilty bit belongs to a node
+    /// already `Tombstoned` by an earlier case; that bit is skipped rather than erroring.
     pub victims: Vec<Pubkey>,
     pub slashed_total: u64,
-    /// `victims.len()` — may be less than `guilty_bitmap.count_ones()` when a guilty bit belongs
-    /// to a node already `Tombstoned` by an earlier case; that bit is skipped rather than erroring.
-    pub punished_count: u16,
 }
 
 /// Apply `offence`'s [`Penalty`] to every guilty node and emit a [`NodePunished`] event per victim.
@@ -126,7 +129,6 @@ pub fn punish_guilty_nodes<'info>(
             punished_at: now,
         });
         batch.victims.push(account_info.key());
-        batch.punished_count += 1;
         node.exit(program_id)?;
     }
 
@@ -141,26 +143,149 @@ pub fn punish_guilty_nodes<'info>(
 /// has shifted a later victim. Silently skips a victim no longer present in the registry (e.g. it
 /// already self-deactivated) — punishment always applies the fund/status penalty via
 /// [`apply_penalty`] regardless of current registry membership.
-///
-/// Returns the victims actually removed, in the order they were removed.
 pub fn evict_nodes(
     current: &Registry,
     next: &mut Registry,
     version: u32,
     bump: u8,
     victims: &[Pubkey],
-) -> Result<Vec<Pubkey>> {
+) -> Result<()> {
     next.copy_from_previous(current, version, bump);
-    let mut removed = Vec::with_capacity(victims.len());
     for victim in victims {
         let found = (0..usize::from(next.node_count))
             .find(|&i| Pubkey::new_from_array(next.nodes[i]) == *victim);
         if let Some(index) = found {
             next.swap_remove(index as u16, *victim)?;
-            removed.push(*victim);
         }
     }
-    Ok(removed)
+    Ok(())
+}
+
+/// Mutable accounts shared by every node-punishment sentence.
+pub struct ExecutePunishmentAccounts<'a, 'info> {
+    pub registry_state: &'a mut Account<'info, RegistryState>,
+    pub current_registry: &'a AccountLoader<'info, Registry>,
+    pub new_registry: &'a AccountLoader<'info, Registry>,
+    pub new_registry_bump: u8,
+    pub protocol_config: &'a Account<'info, ProtocolConfig>,
+    pub punishment_case: &'a mut Account<'info, PunishmentCase>,
+    pub punishment_case_bump: u8,
+    pub reporter: Pubkey,
+    pub treasury: &'a Account<'info, TokenAccount>,
+    pub reporter_usdc: &'a Account<'info, TokenAccount>,
+    pub token_program: Pubkey,
+}
+
+/// Proof output from an offence-specific handler, fed into [`execute_punishment`].
+pub struct ExecutePunishmentInput<'a, 'info> {
+    pub remaining_accounts: &'info [AccountInfo<'info>],
+    pub program_id: &'info Pubkey,
+    pub resolved: &'a [(usize, molpha_verifier::SignerXy)],
+    pub guilty_bitmap: [u8; 32],
+    pub guilty_count: u16,
+    pub offence: OffenceKind,
+    pub registry_version: u32,
+    pub evidence_hash: [u8; 32],
+    pub new_registry_version: u32,
+}
+
+/// Values the offence-specific `*Proven` event needs after the shared sentence runs.
+#[derive(Clone, Copy, Debug)]
+pub struct ExecutePunishmentOutcome {
+    pub slashed_total: u64,
+    pub bounty_paid: u64,
+    pub previous_version: u32,
+    pub node_count_after: u16,
+    pub redundancy_buffer_after: u8,
+    pub now: i64,
+    pub now_slot: u64,
+}
+
+/// Shared sentence: slash guilty nodes, evict them into a successor registry, pay the reporter
+/// bounty, init `PunishmentCase`, and emit `RegistryVersionCreated`.
+pub fn execute_punishment<'a, 'b, 'info>(
+    accounts: ExecutePunishmentAccounts<'a, 'info>,
+    input: ExecutePunishmentInput<'b, 'info>,
+) -> Result<ExecutePunishmentOutcome> {
+    let clock = Clock::get()?;
+    let now = clock.unix_timestamp;
+    let now_slot = clock.slot;
+
+    let batch = punish_guilty_nodes(
+        input.remaining_accounts,
+        input.resolved,
+        &input.guilty_bitmap,
+        input.offence,
+        now,
+        input.program_id,
+    )?;
+    require!(!batch.victims.is_empty(), MolphaError::NothingToPunish);
+    let slashed_total = batch.slashed_total;
+
+    let previous_version = accounts.registry_state.current_version;
+    let (node_count_after, redundancy_buffer_after) = {
+        let current = accounts.current_registry.load()?;
+        let mut next = accounts.new_registry.load_init()?;
+        evict_nodes(
+            &current,
+            &mut next,
+            input.new_registry_version,
+            accounts.new_registry_bump,
+            &batch.victims,
+        )?;
+        (next.node_count, next.redundancy_buffer)
+    };
+    accounts.registry_state.current_version = input.new_registry_version;
+
+    let bounty = bps_of(slashed_total, accounts.protocol_config.challenger_bounty_bps);
+    if bounty > 0 {
+        let bump = [accounts.protocol_config.bump];
+        let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
+        token::transfer(
+            CpiContext::new_with_signer(
+                accounts.token_program,
+                Transfer {
+                    from: accounts.treasury.to_account_info(),
+                    to: accounts.reporter_usdc.to_account_info(),
+                    authority: accounts.protocol_config.to_account_info(),
+                },
+                &[signer_seeds],
+            ),
+            bounty,
+        )?;
+    }
+
+    accounts.punishment_case.init(
+        input.offence,
+        accounts.reporter,
+        input.registry_version,
+        input.guilty_bitmap,
+        input.guilty_count,
+        slashed_total,
+        bounty,
+        input.evidence_hash,
+        now_slot,
+        accounts.punishment_case_bump,
+    );
+
+    emit!(RegistryVersionCreated {
+        previous_version,
+        new_version: input.new_registry_version,
+        node_count: node_count_after,
+        redundancy_buffer: redundancy_buffer_after,
+        reason: RegistryVersionReason::NodePunished,
+        created_at: now,
+    });
+
+    Ok(ExecutePunishmentOutcome {
+        slashed_total,
+        bounty_paid: bounty,
+        previous_version,
+        node_count_after,
+        redundancy_buffer_after,
+        now,
+        now_slot,
+    })
 }
 
 #[cfg(test)]
@@ -289,8 +414,7 @@ mod tests {
         let current = registry_with(&[n0, n1, n2, n3]);
         let mut next = registry_with(&[]);
 
-        let removed = evict_nodes(&current, &mut next, 1, 0, &[n0, n3]).unwrap();
-        assert_eq!(removed, vec![n0, n3]);
+        evict_nodes(&current, &mut next, 1, 0, &[n0, n3]).unwrap();
         assert_eq!(next.node_count, 2);
         let remaining: Vec<Pubkey> = (0..usize::from(next.node_count))
             .map(|i| Pubkey::new_from_array(next.nodes[i]))
@@ -308,8 +432,7 @@ mod tests {
         let current = registry_with(&[n0]);
         let mut next = registry_with(&[]);
 
-        let removed = evict_nodes(&current, &mut next, 1, 0, &[ghost]).unwrap();
-        assert!(removed.is_empty());
+        evict_nodes(&current, &mut next, 1, 0, &[ghost]).unwrap();
         assert_eq!(next.node_count, 1);
     }
 }

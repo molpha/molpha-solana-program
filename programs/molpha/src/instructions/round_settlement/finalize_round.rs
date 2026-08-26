@@ -56,10 +56,6 @@ pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
             .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
         cursor += 1;
 
-        require!(
-            node_ai.owner == program_id,
-            MolphaError::InvalidCreditNodeAccount
-        );
         let mut node: Account<Node> = Account::try_from(node_ai)?;
         require_keys_eq!(
             node_ai.key(),

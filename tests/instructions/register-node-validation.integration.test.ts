@@ -295,7 +295,6 @@ describe("register_node cryptographic validation", () => {
     const claim = await program.account.secp256K1KeyClaim.fetch(
       findSecp256k1KeyClaimPda(program.programId, compressed)
     );
-    assert.isTrue(claim.claimed);
     assert.equal(
       claim.nodePubkey.toBase58(),
       findNodePda(program.programId, ctx.nodes[0].publicKey).toBase58()

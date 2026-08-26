@@ -64,10 +64,6 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         &args.pop_sig_s,
     )?;
 
-    require!(
-        !ctx.accounts.secp256k1_key_claim.claimed,
-        MolphaError::NodeAlreadyRegistered
-    );
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.key(),
