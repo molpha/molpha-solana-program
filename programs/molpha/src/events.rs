@@ -187,16 +187,14 @@ pub struct RoundSettled {
 
 #[event]
 pub struct RoundFinalized {
-    pub source_id: [u8; 32],
-    pub timestamp: u64,
+    pub round_record: Pubkey,
     pub credited_count: u32,
     pub finalized_slot: u64,
 }
 
 #[event]
 pub struct RoundDisputed {
-    pub source_id: [u8; 32],
-    pub timestamp: u64,
+    pub round_record: Pubkey,
     pub gateway: Pubkey,
     pub slashed_bond: u64,
     pub challenger_bounty: u64,

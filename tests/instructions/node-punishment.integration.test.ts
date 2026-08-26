@@ -202,7 +202,7 @@ function buildStatement(params: {
   return {
     value: params.value,
     aggSigS: signed.aggSigS,
-    commitmentAddr: signed.commitmentAddr,
+    commitment: signed.commitment,
     signersBitmap: signed.signersBitmap,
   };
 }
@@ -211,7 +211,7 @@ function toAnchorStatement(statement: SignedStatementBytes) {
   return {
     value: Buffer.from(statement.value),
     aggSigS: Array.from(statement.aggSigS),
-    commitmentAddr: Array.from(statement.commitmentAddr),
+    commitmentAddr: Array.from(statement.commitment),
     signersBitmap: Array.from(statement.signersBitmap),
   };
 }

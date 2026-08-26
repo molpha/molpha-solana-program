@@ -513,10 +513,8 @@ describe("rounds: finalize + dispute through the shared path", () => {
     );
     const bits = bitsOf(signed.signersBitmap);
     const validSig = {
-      s: Array.from(signed.aggSigS),
-      rx: Array.from(new Uint8Array(32)),
-      ryParity: 0,
-      commitmentAddr: Array.from(signed.commitmentAddr),
+      aggSigS: Array.from(signed.aggSigS),
+      commitment: Array.from(signed.commitment),
       signersBitmap: Array.from(signed.signersBitmap),
     };
 

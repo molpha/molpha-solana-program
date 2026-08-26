@@ -87,8 +87,7 @@ pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
     record.status = RoundRecordStatus::Finalized;
 
     emit!(RoundFinalized {
-        source_id: record.source_id,
-        timestamp: record.timestamp,
+        round_record: record.key(),
         credited_count,
         finalized_slot: now_slot,
     });

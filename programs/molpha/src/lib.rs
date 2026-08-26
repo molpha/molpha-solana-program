@@ -9,7 +9,7 @@ pub mod state;
 pub mod utils;
 
 use instructions::*;
-use state::{AggregatedSig, PlanType};
+use state::PlanType;
 
 declare_id!("MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh");
 
@@ -149,11 +149,8 @@ pub mod molpha {
         instructions::finalize_round(ctx)
     }
 
-    pub fn dispute_round<'info>(
-        ctx: Context<DisputeRound<'info>>,
-        agg_sig: AggregatedSig,
-    ) -> Result<()> {
-        instructions::dispute_round(ctx, agg_sig)
+    pub fn dispute_round<'info>(ctx: Context<DisputeRound<'info>>) -> Result<()> {
+        instructions::dispute_round(ctx)
     }
 
     pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {

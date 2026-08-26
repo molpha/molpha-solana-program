@@ -1,6 +1,7 @@
 /**
  * MVP happy path: register → subscribe → submit_attestation (lazy feed init).
- * Covers FeedValueKind::Value (≤32 bytes) and FeedValueKind::Hash (>32 bytes).
+ * `SubmitAttestationArgs.value` is a fixed `[u8; 32]`, so the on-chain feed always
+ * stores `FeedValueKind::Value`. Longer payloads must be hashed off-chain before signing.
  */
 import * as anchor from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
@@ -46,7 +47,7 @@ async function advanceClock(ctx: TestContext, seconds: number): Promise<void> {
 }
 
 describe("submit_attestation (current registry)", () => {
-  it("stores raw value (<=32) or keccak hash (>32) based on payload length", async () => {
+  it("stores the attested 32-byte value and accepts a prehashed long payload digest", async () => {
     const scenario = generateE2eScenario(E2E_SEED, SIGNER_COUNT);
     const longValue = Buffer.alloc(64, 0xab);
     const longValueHash = Buffer.from(keccak_256(longValue));
@@ -166,7 +167,7 @@ describe("submit_attestation (current registry)", () => {
       })
       .rpc();
 
-    // ---- ≤32 bytes → FeedValueKind::Value ----
+    // ---- Raw 32-byte payload → FeedValueKind::Value ----
     const sourceId = scenario.sourceId;
     const feedPda = findFeedPda(
       program.programId,
@@ -221,7 +222,7 @@ describe("submit_attestation (current registry)", () => {
       Array.from(signedValue.submitArgs.signersBitmap)
     );
 
-    // ---- >32 bytes → FeedValueKind::Hash ----
+    // ---- Off-chain keccak of a longer payload, submitted as the 32-byte digest ----
     const longSourceId = Buffer.from(keccak_256(Buffer.from("long-config")));
     const longFeedPda = findFeedPda(
       program.programId,
@@ -263,7 +264,7 @@ describe("submit_attestation (current registry)", () => {
       .rpc();
 
     const feedHash = await program.account.feed.fetch(longFeedPda);
-    assert.deepEqual(feedHash.valueKind, { hash: {} });
+    assert.deepEqual(feedHash.valueKind, { value: {} });
     assert.deepEqual(Array.from(feedHash.value), Array.from(longValueHash));
     assert.equal(feedHash.value.length, 32);
   });

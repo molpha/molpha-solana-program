@@ -5,7 +5,7 @@ pub const DOMAIN_REQAUTH: &[u8] = b"MOLPHA_REQAUTH_V1";
 pub const DOMAIN_GWRCPT: &[u8] = b"MOLPHA_GWRCPT_V1";
 
 /// Consumer demand authorization (Ed25519-signed by `consumer.authority`).
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq, InitSpace)]
 pub struct RequestAuth {
     pub source_id: [u8; 32],
     pub signatures_required: u8,
@@ -15,13 +15,8 @@ pub struct RequestAuth {
 /// The committed aggregate Schnorr signature. **Not verified on the happy path.**
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AggregatedSig {
-    /// Schnorr scalar `s`.
-    pub s: [u8; 32],
-    pub rx: [u8; 32],
-    pub ry_parity: u8,
-    /// Ethereum-style 20-byte commitment address of the aggregate nonce `R`.
-    pub commitment_addr: [u8; 20],
-    /// The credited set.
+    pub agg_sig_s: [u8; 32],
+    pub commitment: [u8; 20],
     pub signers_bitmap: [u8; 32],
 }
 
@@ -44,12 +39,6 @@ pub fn hash_request_auth_fields(
     })
 }
 
-/// `sha256(AggregatedSig)` — the commitment stored in `RoundReceiptRecord`.
-pub fn hash_agg_sig(agg_sig: &AggregatedSig) -> [u8; 32] {
-    let body = borsh::to_vec(agg_sig).expect("AggregatedSig serialization is infallible");
-    sha256_hashv(&[&body]).to_bytes()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,10 +53,8 @@ mod tests {
 
     fn fixture_agg_sig() -> AggregatedSig {
         AggregatedSig {
-            s: [0x33; 32],
-            rx: [0x44; 32],
-            ry_parity: 1,
-            commitment_addr: [0x55; 20],
+            agg_sig_s: [0x33; 32],
+            commitment: [0x55; 20],
             signers_bitmap: [0x66; 32],
         }
     }
@@ -90,14 +77,6 @@ mod tests {
         let mut b = fixture_request_auth();
         b.source_id[0] ^= 0x01;
         assert_ne!(hash_request_auth(&b), base);
-    }
-
-    #[test]
-    fn agg_sig_hash_changes_with_bitmap() {
-        let base = hash_agg_sig(&fixture_agg_sig());
-        let mut a = fixture_agg_sig();
-        a.signers_bitmap[0] ^= 0x01;
-        assert_ne!(hash_agg_sig(&a), base);
     }
 
     #[test]

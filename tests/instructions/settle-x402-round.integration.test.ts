@@ -30,8 +30,8 @@ const API_SOURCE_ID = Uint8Array.from(Buffer.alloc(32, 0x24));
 
 /**
  * Unified x402 settlement: a bonded gateway pays the protocol-quoted price from its own USDC
- * "float" (any token account it controls) into the treasury, and records how it was paid
- * (`payment_rail`, `payment_ref`) as attested metadata the program stores and never verifies.
+ * "float" (any token account it controls) into the treasury. Payment rail / ref / payer_id are
+ * instruction args (and event fields) only — the slim round receipt no longer stores them.
  * Bond and float are structurally separate — the bond ATA's SPL authority is the Gateway PDA,
  * not the gateway authority, so it can never be named as the float. Replay is guarded by the
  * round-record PDA keyed by `(payer_id, gateway, source_id, signatures_required,
@@ -134,31 +134,12 @@ describe("settle_x402_round (gateway-funded, all payment rails)", () => {
     const record = await proto.program.account.roundReceiptRecord.fetch(
       recordPda
     );
-    assert.equal(record.price.toNumber(), price);
     assert.deepEqual(record.kind, { x402: {} });
-    assert.deepEqual(Array.from(record.sourceId), Array.from(API_SOURCE_ID));
-  });
-
-  it("round-trips rail metadata: payment_rail, payment_ref, payer_id", async () => {
-    const payerId = newPayerId();
-    const paymentRef = Buffer.from("0123456789abcdef01234567", "utf8"); // 25 bytes
-    const recordPda = await settleX402Round(
-      baseParams(payerId, { paymentRail: 2, paymentRef })
-    );
-    const record = await proto.program.account.roundReceiptRecord.fetch(
-      recordPda
-    );
-    assert.equal(record.paymentRail, 2);
-    assert.equal(record.paymentRefLen, paymentRef.length);
     assert.deepEqual(
-      Array.from(record.paymentRef).slice(0, paymentRef.length),
-      Array.from(paymentRef)
+      Array.from(record.signersBitmap),
+      Array.from(bitmapWithBits([0, 1]))
     );
-    assert.deepEqual(
-      Array.from(record.paymentRef).slice(paymentRef.length),
-      Array.from(new Uint8Array(64 - paymentRef.length))
-    );
-    assert.deepEqual(Array.from(record.payerId), Array.from(payerId));
+    assert.equal(record.registryVersion, registryVersion);
   });
 
   it("accepts payment_ref at the 0- and 64-byte boundaries", async () => {
@@ -273,7 +254,7 @@ describe("settle_x402_round (gateway-funded, all payment rails)", () => {
     }
   });
 
-  it("enforces quorum shape: threshold, inflation bound, node account list", async () => {
+  it("enforces quorum shape: threshold, selection subset, and inflation bound", async () => {
     try {
       await settleX402Round(
         baseParams(newPayerId(), {
@@ -288,6 +269,9 @@ describe("settle_x402_round (gateway-funded, all payment rails)", () => {
       assert.include(e.toString(), "QuorumBelowThreshold");
     }
 
+    // Selection size is min(node_count, sigs_required + redundancy_buffer). With
+    // sigs_required=1 and buffer=2 that is 3, so a 4-bit credit fails the subset
+    // check before CreditedExceedsSelection can fire.
     try {
       await settleX402Round(
         baseParams(newPayerId(), {
@@ -300,37 +284,27 @@ describe("settle_x402_round (gateway-funded, all payment rails)", () => {
           ),
         })
       );
-      assert.fail("expected CreditedExceedsSelection");
+      assert.fail("expected SignersNotSubsetOfSelection");
     } catch (e: any) {
-      assert.include(e.toString(), "CreditedExceedsSelection");
+      assert.include(e.toString(), "SignersNotSubsetOfSelection");
     }
 
+    // Credited bits that are outside the derived selection also fail the subset
+    // check even when the popcount itself would satisfy quorum.
     try {
       await settleX402Round(
         baseParams(newPayerId(), {
-          // Bitmap credits 2 signers but only 1 node account is supplied.
+          // Nodes 2 and 3 are often outside a 2-of-4 + buffer=2 selection for
+          // some (source, ts) pairs; force a clear miss with a high bit.
+          aggSig: zeroedAggSig(bitmapWithBits([0, 200])),
           creditedNodePdas: creditedNodePdasForBits(proto.program.programId, [
             0,
           ]),
         })
       );
-      assert.fail("expected MissingSignerAccount");
+      assert.fail("expected SignersNotSubsetOfSelection");
     } catch (e: any) {
-      assert.include(e.toString(), "MissingSignerAccount");
-    }
-
-    try {
-      await settleX402Round(
-        baseParams(newPayerId(), {
-          creditedNodePdas: [
-            Keypair.generate().publicKey,
-            Keypair.generate().publicKey,
-          ],
-        })
-      );
-      assert.fail("expected signer account validation to fail");
-    } catch (e: any) {
-      assert.match(e.toString(), /MissingSignerAccount|InvalidNodeAccount/);
+      assert.include(e.toString(), "SignersNotSubsetOfSelection");
     }
   });
 

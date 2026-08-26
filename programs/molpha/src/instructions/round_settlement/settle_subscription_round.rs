@@ -1,15 +1,17 @@
 use crate::{
-    error::MolphaError,
+    error::{map_attestation_err, MolphaError},
     events::RoundSettled,
     state::{
-        hash_agg_sig, hash_request_auth_fields, resolve_registry_signers, AggregatedSig, Delegate,
-        Gateway, ProtocolConfig, Registry, RegistryState, RoundReceiptRecord, RoundRecordKind,
-        Subscription,
+        hash_request_auth_fields, AggregatedSig, Delegate, Gateway, ProtocolConfig, Registry,
+        RegistryState, RoundReceiptRecord, RoundRecordKind, Subscription,
     },
     utils::ed25519::verify_ed25519_signature,
 };
 use anchor_lang::prelude::*;
-use molpha_verifier::bitmap::bitmap_load;
+use molpha_verifier::{
+    bitmap::{bitmap_is_subset, bitmap_popcount},
+    derive_selection_bitmap,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleRoundArgs {
@@ -65,8 +67,7 @@ pub fn settle_subscription_round<'info>(
     );
 
     // 4. Quorum shape on the embedded bitmap (no selection re-derivation here).
-    let credited = bitmap_load(&args.agg_sig.signers_bitmap);
-    let credited_count = credited.count_ones();
+    let credited_count = bitmap_popcount(&args.agg_sig.signers_bitmap);
     require!(
         credited_count >= u32::from(args.signatures_required),
         MolphaError::QuorumBelowThreshold
@@ -77,7 +78,22 @@ pub fn settle_subscription_round<'info>(
         MolphaError::CreditedExceedsSelection
     );
 
-    let agg_sig_hash = hash_agg_sig(&args.agg_sig);
+    let expected_selection = derive_selection_bitmap(
+        &args.source_id,
+        args.registry_version,
+        args.timestamp as u64,
+        u32::from(registry.node_count),
+        args.signatures_required,
+        registry.redundancy_buffer,
+    )
+    .map_err(map_attestation_err)?;
+
+    let selection_mismatch = !bitmap_is_subset(&args.agg_sig.signers_bitmap, &expected_selection);
+    require!(
+        !selection_mismatch,
+        MolphaError::SignersNotSubsetOfSelection
+    );
+
     let attestation_message_hash = molpha_verifier::compute_message_hash(
         &molpha_verifier::AttestationPayload {
             value: args.value,
@@ -92,34 +108,21 @@ pub fn settle_subscription_round<'info>(
     // ---- Validate credited nodes; rewards are recorded on the round receipt only. ----
     let reward_per_signature = config.reward_per_signature;
     let gateway_fee = config.gateway_fee;
-    // resolve_registry_signers(
-    //     ctx.remaining_accounts,
-    //     ctx.program_id,
-    //     &registry,
-    //     &args.agg_sig.signers_bitmap,
-    // )?;
 
     ctx.accounts.subscription.consume_round()?;
 
     // 9 (dedup) is enforced by `init` on the record PDA.
     let record = &mut ctx.accounts.round_record;
-    record.source_id = args.source_id;
-    record.timestamp = args.timestamp;
-    record.signatures_required = args.signatures_required;
     record.signers_bitmap = args.agg_sig.signers_bitmap;
-    record.agg_sig_hash = agg_sig_hash;
+    record.agg_sig_s = args.agg_sig.agg_sig_s;
+    record.commitment = args.agg_sig.commitment;
     record.attestation_message_hash = attestation_message_hash;
     record.gateway = gateway.key();
     record.registry_version = args.registry_version;
     record.reward_per_signature = reward_per_signature;
     record.gateway_fee = gateway_fee;
     record.recorded_slot = now_slot;
-    record.price = 0;
     record.kind = RoundRecordKind::Subscription;
-    record.payer_id = [0u8; 32];
-    record.payment_rail = 0;
-    record.payment_ref_len = 0;
-    record.payment_ref = [0u8; 64];
     record.bump = ctx.bumps.round_record;
 
     emit!(RoundSettled {

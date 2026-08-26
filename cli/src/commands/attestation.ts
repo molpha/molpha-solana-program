@@ -35,7 +35,7 @@ type SubmitArgsShape = {
   value: number[] | string | Uint8Array;
   canonicalTimestamp: string | number;
   aggSigS: number[] | string;
-  commitmentAddr: number[] | string;
+  commitment: number[] | string;
 };
 
 export function registerAttestationCommands(program: Command): void {
@@ -227,8 +227,8 @@ function buildSignedPayload(
           "signers bitmap"
         ),
         aggSigS: bytesFromField(submitArgs.aggSigS, 32, "agg sig s"),
-        commitmentAddr: bytesFromField(
-          submitArgs.commitmentAddr,
+        commitment: bytesFromField(
+          submitArgs.commitment,
           20,
           "commitment"
         ),
@@ -332,8 +332,8 @@ function normalizeSubmitArgs(value: SubmitArgsShape) {
         ? value.signaturesRequired
         : parseInteger(value.signaturesRequired, "signatures required"),
     aggSigS: Array.from(bytesFromField(value.aggSigS, 32, "agg sig s")),
-    commitmentAddr: Array.from(
-      bytesFromField(value.commitmentAddr, 20, "commitment")
+    commitment: Array.from(
+      bytesFromField(value.commitment, 20, "commitment")
     ),
     signersBitmap: Array.from(
       bytesFromField(value.signersBitmap, 32, "signers bitmap")

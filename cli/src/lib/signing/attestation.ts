@@ -39,12 +39,12 @@ export type SignedAttestation = {
     canonicalTimestamp: BN;
     signaturesRequired: number;
     aggSigS: number[];
-    commitmentAddr: number[];
+    commitment: number[];
     signersBitmap: number[];
   };
   signersBitmap: Uint8Array;
   aggSigS: Uint8Array;
-  commitmentAddr: Uint8Array;
+  commitment: Uint8Array;
 };
 
 function modN(x: bigint): bigint {
@@ -321,7 +321,7 @@ function schnorrSignForVerifier(params: {
   coalitionPubkeyCompressed: Uint8Array;
   messageHash: Uint8Array;
   coalitionPrivkey: bigint;
-}): { s: Uint8Array; commitmentAddr: Uint8Array } {
+}): { s: Uint8Array; commitment: Uint8Array } {
   const px = params.coalitionPubkeyCompressed.subarray(1, 33);
   const recoveryId = params.coalitionPubkeyCompressed[0] & 1;
   let k = 0n;
@@ -329,16 +329,16 @@ function schnorrSignForVerifier(params: {
     k = modN(bigintFromBytesBE(secp256k1.utils.randomPrivateKey()));
   }
   const commitmentPoint = Point.BASE.multiply(k);
-  const commitmentAddr = commitmentAddrFromPoint(commitmentPoint);
+  const commitment = commitmentAddrFromPoint(commitmentPoint);
   const challengeHash = keccakConcat([
     px,
     Uint8Array.from([recoveryId]),
     params.messageHash,
-    commitmentAddr,
+    commitment,
   ]);
   const challenge = modN(bigintFromBytesBE(challengeHash));
   const s = modN(k + challenge * modN(params.coalitionPrivkey));
-  return { s: bytes32FromBigintBE(s), commitmentAddr };
+  return { s: bytes32FromBigintBE(s), commitment };
 }
 
 export function signE2eAttestation(
@@ -384,7 +384,7 @@ export function signE2eAttestation(
   }
 
   const coalitionCompressed = coalitionPoint.toRawBytes(true);
-  const { s, commitmentAddr } = schnorrSignForVerifier({
+  const { s, commitment } = schnorrSignForVerifier({
     coalitionPubkeyCompressed: coalitionCompressed,
     messageHash,
     coalitionPrivkey: coalitionSecretKey,
@@ -398,12 +398,12 @@ export function signE2eAttestation(
       canonicalTimestamp: new BN(attestation.canonicalTimestamp),
       signaturesRequired: required,
       aggSigS: Array.from(s),
-      commitmentAddr: Array.from(commitmentAddr),
+      commitment: Array.from(commitment),
       signersBitmap: Array.from(signersBitmap),
     },
     signersBitmap,
     aggSigS: s,
-    commitmentAddr,
+    commitment,
   };
 }
 
@@ -424,7 +424,7 @@ export function buildSubmitArgsFromFixture(fixture: VerifyAttestationFixture) {
     aggSigS: Array.from(
       hexToBytes(fixture.schnorrSignature.signature, 32, "signature")
     ),
-    commitmentAddr: Array.from(
+    commitment: Array.from(
       hexToBytes(
         fixture.schnorrSignature.commitment.toLowerCase(),
         20,
@@ -506,7 +506,7 @@ export function describeSignedPayload(signed: SignedAttestation) {
     },
     signersBitmapHex: bytesToHex(signed.signersBitmap),
     aggSigSHex: bytesToHex(signed.aggSigS),
-    commitmentAddrHex: bytesToHex(signed.commitmentAddr),
+    commitmentAddrHex: bytesToHex(signed.commitment),
   };
 }
 

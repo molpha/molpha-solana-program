@@ -272,7 +272,7 @@ describe("Molpha instruction coverage integration", () => {
       canonicalTimestamp: new BN(1),
       aggSigR: Array.from(Buffer.alloc(32, 0)),
       aggSigS: Array.from(Buffer.alloc(32, 0)),
-      commitmentAddr: Array.from(Buffer.alloc(20, 0)),
+      commitment: Array.from(Buffer.alloc(20, 0)),
     };
     const badAttestationArgs = {
       ...attestationArgs,

@@ -209,7 +209,7 @@ function hashAggregatedSig(aggSig) {
     Buffer.from(aggSig.s),
     Buffer.from(aggSig.rx),
     Buffer.from([aggSig.ryParity]),
-    Buffer.from(aggSig.commitmentAddr),
+    Buffer.from(aggSig.commitment),
     Buffer.from(aggSig.signersBitmap),
   ]);
   return sha256([body]);
@@ -707,7 +707,7 @@ async function simulateSettleRound({
     s: crypto.randomBytes(32),
     rx: crypto.randomBytes(32),
     ryParity: 1,
-    commitmentAddr: crypto.randomBytes(20),
+    commitment: crypto.randomBytes(20),
     signersBitmap: bitmap,
   };
 
@@ -743,7 +743,7 @@ async function simulateSettleRound({
       s: Array.from(aggSig.s),
       rx: Array.from(aggSig.rx),
       ryParity: aggSig.ryParity,
-      commitmentAddr: Array.from(aggSig.commitmentAddr),
+      commitment: Array.from(aggSig.commitment),
       signersBitmap: Array.from(aggSig.signersBitmap),
     },
     value: Buffer.from(value),

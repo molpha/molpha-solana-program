@@ -379,10 +379,8 @@ export function bitmapWithBits(bits: number[]): Uint8Array {
 
 export function zeroedAggSig(signersBitmap?: Uint8Array) {
   return {
-    s: Array.from(new Uint8Array(32)),
-    rx: Array.from(new Uint8Array(32)),
-    ryParity: 0,
-    commitmentAddr: Array.from(new Uint8Array(20)),
+    aggSigS: Array.from(new Uint8Array(32)),
+    commitment: Array.from(new Uint8Array(20)),
     signersBitmap: Array.from(signersBitmap ?? new Uint8Array(32)),
   };
 }

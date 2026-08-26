@@ -1,8 +1,6 @@
 use anchor_lang::{prelude::*, Discriminator};
-use borsh::BorshDeserialize;
-use molpha_verifier::NodeEntry;
 
-use crate::error::{map_attestation_accounts_err, map_attestation_err, MolphaError};
+use crate::error::{map_attestation_accounts_err, map_attestation_err};
 
 use super::Registry;
 

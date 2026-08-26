@@ -11,16 +11,19 @@
 //! `settle_subscription_round`.
 
 use crate::{
-    error::MolphaError,
+    error::{map_attestation_err, MolphaError},
     events::X402RoundSettled,
     state::{
-        hash_agg_sig, resolve_registry_signers, AggregatedSig, Gateway, ProtocolConfig, Registry,
-        RegistryState, RoundReceiptRecord, RoundRecordKind,
+        AggregatedSig, Gateway, ProtocolConfig, Registry, RegistryState, RoundReceiptRecord,
+        RoundRecordKind,
     },
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use molpha_verifier::bitmap::bitmap_load;
+use molpha_verifier::{
+    bitmap::{bitmap_is_subset, bitmap_popcount},
+    compute_message_hash, derive_selection_bitmap, AttestationPayload,
+};
 
 /// Cap on `payment_ref`: a 64-byte Solana signature or any 32-byte EVM tx hash fits comfortably.
 pub const MAX_PAYMENT_REF_LEN: usize = 64;
@@ -82,9 +85,24 @@ pub fn settle_x402_round<'info>(
         MolphaError::PaymentRefTooLong
     );
 
-    // Quorum bounds on the embedded bitmap (no selection re-derivation here; that's dispute_round).
-    let credited = bitmap_load(&args.agg_sig.signers_bitmap);
-    let count = credited.count_ones();
+    // Selection subset + quorum bounds on the embedded bitmap (Schnorr verify stays on dispute).
+    let expected_selection = derive_selection_bitmap(
+        &args.source_id,
+        args.registry_version,
+        args.canonical_timestamp as u64,
+        u32::from(registry.node_count),
+        args.signatures_required,
+        registry.redundancy_buffer,
+    )
+    .map_err(map_attestation_err)?;
+
+    let selection_mismatch = !bitmap_is_subset(&args.agg_sig.signers_bitmap, &expected_selection);
+    require!(
+        !selection_mismatch,
+        MolphaError::SignersNotSubsetOfSelection
+    );
+
+    let count = bitmap_popcount(&args.agg_sig.signers_bitmap);
     require!(
         count >= u32::from(args.signatures_required),
         MolphaError::QuorumBelowThreshold
@@ -99,18 +117,6 @@ pub fn settle_x402_round<'info>(
         MolphaError::InsufficientGatewayFloat
     );
 
-    // `resolve_registry_signers` also enforces `remaining_accounts.len() == count`.
-    resolve_registry_signers(
-        ctx.remaining_accounts,
-        ctx.program_id,
-        &registry,
-        &args.agg_sig.signers_bitmap,
-    )?;
-
-    // Plain signer transfer — no PDA signer seeds. The gateway authority pays from its own float;
-    // this is the whole point of the rework (bond and float are structurally separate: the bond
-    // ATA's SPL authority is the Gateway PDA, not `gateway_authority`, so it can never be named
-    // here).
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.key(),
@@ -126,9 +132,8 @@ pub fn settle_x402_round<'info>(
     let reward_per_signature = config.reward_per_signature;
     let gateway_fee = config.gateway_fee;
 
-    let agg_sig_hash = hash_agg_sig(&args.agg_sig);
-    let attestation_message_hash = molpha_verifier::compute_message_hash(
-        &molpha_verifier::AttestationPayload {
+    let attestation_message_hash = compute_message_hash(
+        &AttestationPayload {
             value: args.value,
             source_id: args.source_id,
             signatures_required: args.signatures_required,
@@ -139,28 +144,19 @@ pub fn settle_x402_round<'info>(
     );
 
     // Record. The price surplus over node + gateway credits is protocol revenue, implicit in the
-    // treasury (identical to subscription revenue).
-    let mut payment_ref = [0u8; MAX_PAYMENT_REF_LEN];
-    payment_ref[..args.payment_ref.len()].copy_from_slice(&args.payment_ref);
-
+    // treasury (identical to subscription revenue). Payment rail / ref / payer_id remain instruction
+    // args and event fields only — they are not stored on the slim round receipt.
     let record = &mut ctx.accounts.round_record;
-    record.source_id = args.source_id;
-    record.timestamp = args.canonical_timestamp;
-    record.signatures_required = args.signatures_required;
     record.signers_bitmap = args.agg_sig.signers_bitmap;
-    record.agg_sig_hash = agg_sig_hash;
+    record.agg_sig_s = args.agg_sig.agg_sig_s;
+    record.commitment = args.agg_sig.commitment;
     record.attestation_message_hash = attestation_message_hash;
     record.gateway = gateway.key();
     record.registry_version = args.registry_version;
     record.reward_per_signature = reward_per_signature;
     record.gateway_fee = gateway_fee;
     record.recorded_slot = now_slot;
-    record.price = price;
     record.kind = RoundRecordKind::X402;
-    record.payer_id = args.payer_id;
-    record.payment_rail = args.payment_rail;
-    record.payment_ref_len = args.payment_ref.len() as u8;
-    record.payment_ref = payment_ref;
     record.bump = ctx.bumps.round_record;
 
     emit!(X402RoundSettled {
@@ -215,9 +211,6 @@ pub struct SettleX402Round<'info> {
     )]
     pub usdc_mint: Box<Account<'info, token::Mint>>,
 
-    /// The gateway's own USDC "float" — any token account whose SPL authority is
-    /// `gateway_authority`. Not a protocol account; the operator funds it out of band. This
-    /// constraint structurally excludes the bond ATA, whose authority is the `Gateway` PDA.
     #[account(
         mut,
         constraint = gateway_usdc.mint == usdc_mint.key() @ MolphaError::InvalidOwnerUsdc,

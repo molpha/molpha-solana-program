@@ -263,17 +263,17 @@ function schnorrSignForVerifier({
     k = modN(bigintFromBytesBE(secp256k1.utils.randomPrivateKey()));
   }
   const R = secp256k1.Point.BASE.multiply(k);
-  const commitmentAddr = commitmentAddrFromPoint(R);
+  const commitment = commitmentAddrFromPoint(R);
 
   const challengeHash = keccakConcat([
     Buffer.from(px),
     Buffer.from([recoveryId]),
     messageHash,
-    commitmentAddr,
+    commitment,
   ]);
   const e = modN(bigintFromBytesBE(challengeHash));
   const s = modN(k + e * modN(coalitionPrivkey));
-  return { s: bytes32FromBigintBE(s), commitmentAddr };
+  return { s: bytes32FromBigintBE(s), commitment };
 }
 
 /**
@@ -479,13 +479,13 @@ function buildCoalitionSignature({
     );
   }
   const coalitionCompressed = Buffer.from(coalitionPoint.toRawBytes(true));
-  const { s, commitmentAddr } = schnorrSignForVerifier({
+  const { s, commitment } = schnorrSignForVerifier({
     coalitionPubkeyCompressed: coalitionCompressed,
     messageHash,
     coalitionPrivkey: coalitionSk,
   });
 
-  return { signersBitmap, s, commitmentAddr };
+  return { signersBitmap, s, commitment };
 }
 
 function buildSubmitArgs(signerCount, signatureMaterial, sourceId) {
@@ -497,7 +497,7 @@ function buildSubmitArgs(signerCount, signatureMaterial, sourceId) {
     value: FIXTURE_VALUE,
     canonicalTimestamp: FIXTURE_CANONICAL_TIMESTAMP,
     aggSigS: signatureMaterial.s,
-    commitmentAddr: signatureMaterial.commitmentAddr,
+    commitment: signatureMaterial.commitment,
   });
 }
 
@@ -511,7 +511,7 @@ function buildLiveSubmitArgs({
   value,
   canonicalTimestamp,
   aggSigS,
-  commitmentAddr,
+  commitment,
 }) {
   const id = sourceId ?? feedId;
   return {
@@ -522,7 +522,7 @@ function buildLiveSubmitArgs({
     value: Buffer.from(value),
     canonicalTimestamp: new anchor.BN(canonicalTimestamp),
     aggSigS: Array.from(aggSigS),
-    commitmentAddr: Array.from(commitmentAddr),
+    commitment: Array.from(commitment),
   };
 }
 
@@ -602,7 +602,7 @@ function signAttestationForRegistry({
       value,
       canonicalTimestamp,
       aggSigS: signatureMaterial.s,
-      commitmentAddr: signatureMaterial.commitmentAddr,
+      commitment: signatureMaterial.commitment,
     }),
     signersBitmap: signatureMaterial.signersBitmap,
   };

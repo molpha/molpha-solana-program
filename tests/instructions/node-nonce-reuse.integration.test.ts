@@ -1,6 +1,6 @@
 /**
  * `punish_nonce_reuse` — offence #3: a node contributes a partial signature under one aggregate
- * nonce commitment (`SignedStatement.commitmentAddr`) for two different signed messages. Guilty
+ * nonce commitment (`SignedStatement.commitment`) for two different signed messages. Guilty
  * set is the intersection of the two signer bitmaps, exactly as with `punish_equivocation`;
  * sentence is a 50% slash + permanent tombstone (`OffenceKind::NonceReuse`) — the first
  * partial-slash offence, half of the 100% the other two node-fault offences carry.
@@ -8,7 +8,7 @@
  * Mirrors `node-punishment.integration.test.ts` / `node-unsolicited-signing.integration.test.ts`'s
  * fixture/helper patterns (same bankrun-per-test setup, same 6-node / sigsRequired=3 /
  * redundancyBuffer=1 registry). The one new fixture technique is pinning the Schnorr nonce `k`
- * across two `signE2eAttestation` calls so both aggregates land on the same `commitmentAddr` —
+ * across two `signE2eAttestation` calls so both aggregates land on the same `commitment` —
  * see `schnorrSignForVerifier`'s `nonce` parameter.
  */
 import * as anchor from "@coral-xyz/anchor";
@@ -192,7 +192,7 @@ function buildStatement(params: {
   value: Uint8Array;
   canonicalTimestamp: number;
   signaturesRequired: number;
-  /** Pin the Schnorr nonce so this statement shares `commitmentAddr` with another. */
+  /** Pin the Schnorr nonce so this statement shares `commitment` with another. */
   nonce?: bigint;
 }): SignedStatementBytes & { nonce: bigint } {
   const signed = signE2eAttestation(
@@ -209,7 +209,7 @@ function buildStatement(params: {
   return {
     value: params.value,
     aggSigS: signed.aggSigS,
-    commitmentAddr: signed.commitmentAddr,
+    commitment: signed.commitment,
     signersBitmap: signed.signersBitmap,
     nonce: signed.nonce,
   };
@@ -219,7 +219,7 @@ function toAnchorStatement(statement: SignedStatementBytes) {
   return {
     value: Buffer.from(statement.value),
     aggSigS: Array.from(statement.aggSigS),
-    commitmentAddr: Array.from(statement.commitmentAddr),
+    commitmentAddr: Array.from(statement.commitment),
     signersBitmap: Array.from(statement.signersBitmap),
   };
 }
@@ -380,8 +380,8 @@ describe("punish_nonce_reuse", () => {
       nonce: statementA.nonce,
     });
     assert.deepEqual(
-      Array.from(statementA.commitmentAddr),
-      Array.from(statementB.commitmentAddr)
+      Array.from(statementA.commitment),
+      Array.from(statementB.commitment)
     );
 
     const reporterUsdcBefore = await readTokenAmount(
@@ -662,7 +662,7 @@ describe("punish_nonce_reuse", () => {
       canonicalTimestamp: tsA,
       signaturesRequired: SIGS_REQUIRED,
     });
-    // No `nonce` feedback — an independent, freshly-sampled nonce, so `commitmentAddr` differs.
+    // No `nonce` feedback — an independent, freshly-sampled nonce, so `commitment` differs.
     const statementB = buildStatement({
       registryVersion,
       material,
@@ -855,7 +855,7 @@ describe("punish_nonce_reuse", () => {
       signaturesRequired: SIGS_REQUIRED,
       nonce: statementA.nonce,
     });
-    // Tamper the signature only — leave `commitmentAddr` intact so the handler reaches step 7
+    // Tamper the signature only — leave `commitment` intact so the handler reaches step 7
     // (aggregate verification) rather than failing an earlier, cheaper guard.
     const tamperedSigS = Uint8Array.from(statementB.aggSigS);
     tamperedSigS[0] ^= 0xff;

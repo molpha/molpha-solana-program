@@ -80,7 +80,7 @@ export function buildVerifyAnswerEvmFixture(params: {
   attestation: E2eAttestationFields;
   signed: Pick<
     SignedE2eAttestation,
-    "aggSigS" | "commitmentAddr" | "signersBitmap"
+    "aggSigS" | "commitment" | "signersBitmap"
   >;
 }): VerifyAnswerEvmFixture {
   const signersBitmap = evmSignersBitmapNumberFromBytes(
@@ -104,7 +104,7 @@ export function buildVerifyAnswerEvmFixture(params: {
     },
     schnorrSignature: {
       signature: bytesToHex0x(params.signed.aggSigS),
-      commitment: bytesToHex0x(params.signed.commitmentAddr),
+      commitment: bytesToHex0x(params.signed.commitment),
       signersBitmap,
     },
   };

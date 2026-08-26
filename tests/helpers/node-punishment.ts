@@ -16,7 +16,7 @@ const PUNISHMENT_CASE_SEED = Buffer.from("molpha_punishment");
 export type SignedStatementBytes = {
   value: Uint8Array;
   aggSigS: Uint8Array;
-  commitmentAddr: Uint8Array;
+  commitment: Uint8Array;
   signersBitmap: Uint8Array;
 };
 
@@ -38,7 +38,7 @@ function statementHash(statement: SignedStatementBytes): Buffer {
       Buffer.concat([
         Buffer.from(statement.value),
         Buffer.from(statement.aggSigS),
-        Buffer.from(statement.commitmentAddr),
+        Buffer.from(statement.commitment),
         Buffer.from(statement.signersBitmap),
       ])
     )

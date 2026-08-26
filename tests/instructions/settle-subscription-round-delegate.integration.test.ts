@@ -266,15 +266,7 @@ describe("settle_subscription_round (owner / delegate / agent authorization)", (
       recordPda
     );
 
-    assert.equal(record.price.toNumber(), 0); // subscription-funded, no per-request USDC
-    assert.deepEqual(Array.from(record.sourceId), Array.from(sourceId));
-
-    // x402 metadata is zeroed on the subscription path.
     assert.deepEqual(record.kind, { subscription: {} });
-    assert.deepEqual(Array.from(record.payerId), Array.from(new Uint8Array(32)));
-    assert.equal(record.paymentRail, 0);
-    assert.equal(record.paymentRefLen, 0);
-    assert.deepEqual(Array.from(record.paymentRef), Array.from(new Uint8Array(64)));
   });
 
   it("blocks replay of the same (consumer, source_id, sigs, timestamp) via the record PDA", async () => {

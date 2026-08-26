@@ -24,6 +24,7 @@
     "cu:attestation:bankrun": "node scripts/cu-bench-attestation-bankrun.js",
     "cu:attestation:localnet": "node scripts/cu-bench-attestation-localnet.js",
     "cu:settle-subscription-round:localnet": "node scripts/cu-bench-settle-subscription-round-localnet.js",
+    "cu:settle_round:bankrun": "node scripts/cu-bench-settle-round-bankrun.js",
     "cu:node-registry:bankrun": "node scripts/cu-bench-node-registry-bankrun.js",
     "build:molpha:cu-bench": "anchor build -p molpha --ignore-keys -- --features cu-bench && cargo build-sbf --manifest-path programs/molpha/Cargo.toml --sbf-out-dir target/deploy -- --features cu-bench",
     "molpha": "node cli/dist/index.js",

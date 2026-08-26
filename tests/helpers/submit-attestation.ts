@@ -625,7 +625,7 @@ export function verifyFixtureSchnorrSignature(fixture: LoadedE2eFixture): void {
     coalitionPubkeyCompressed: coalition,
     messageHash,
     signature: signed.aggSigS,
-    commitment: signed.commitmentAddr,
+    commitment: signed.commitment,
   });
 
   const { ethers } = require("ethers") as typeof import("ethers");
@@ -639,7 +639,7 @@ export function verifyFixtureSchnorrSignature(fixture: LoadedE2eFixture): void {
   );
   if (
     recovered.toLowerCase() !==
-    `0x${Buffer.from(signed.commitmentAddr).toString("hex")}`
+    `0x${Buffer.from(signed.commitment).toString("hex")}`
   ) {
     throw new Error("Schnorr recovery address mismatch");
   }
@@ -697,12 +697,12 @@ function schnorrSignForVerifier(params: {
   coalitionPrivkey: bigint;
   /**
    * Pin the Schnorr nonce `k`. Omit for a fresh random nonce. Reusing one `k` across two
-   * signings forces both to share `commitmentAddr` (= address(k*G), a function of the nonce
+   * signings forces both to share `commitment` (= address(k*G), a function of the nonce
    * alone) while each stays individually valid over its own message — the exact shape
    * `punish_nonce_reuse` prosecutes.
    */
   nonce?: bigint;
-}): { s: Uint8Array; commitmentAddr: Uint8Array; nonce: bigint } {
+}): { s: Uint8Array; commitment: Uint8Array; nonce: bigint } {
   const px = params.coalitionPubkeyCompressed.subarray(1, 33);
   const recoveryId = params.coalitionPubkeyCompressed[0] & 1;
 
@@ -719,24 +719,24 @@ function schnorrSignForVerifier(params: {
     }
   }
   const r = Point.BASE.multiply(k);
-  const commitmentAddr = commitmentAddrFromPoint(r);
+  const commitment = commitmentAddrFromPoint(r);
 
   const challengeHash = keccakConcat([
     px,
     Uint8Array.from([recoveryId]),
     params.messageHash,
-    commitmentAddr,
+    commitment,
   ]);
   const e = modN(bigintFromBytesBE(challengeHash));
   const s = modN(k + e * modN(params.coalitionPrivkey));
-  return { s: bytes32FromBigintBE(s), commitmentAddr, nonce: k };
+  return { s: bytes32FromBigintBE(s), commitment, nonce: k };
 }
 
 export type SignedE2eAttestation = {
   messageHash: Uint8Array;
   submitArgs: ReturnType<typeof buildEvmSubmitAttestationArgs>;
   aggSigS: Uint8Array;
-  commitmentAddr: Uint8Array;
+  commitment: Uint8Array;
   signersBitmap: Uint8Array;
   /** The Schnorr nonce `k` actually used. Feed back as `nonce` to force a commitment collision. */
   nonce: bigint;
@@ -796,7 +796,7 @@ export function signE2eAttestation(
   const coalitionCompressed = coalitionPoint.toRawBytes(true);
   const {
     s,
-    commitmentAddr,
+    commitment,
     nonce: usedNonce,
   } = schnorrSignForVerifier({
     coalitionPubkeyCompressed: coalitionCompressed,
@@ -814,14 +814,14 @@ export function signE2eAttestation(
     canonicalTimestamp: new BN(attestation.canonicalTimestamp),
     aggSigR: Array.from(new Uint8Array(32)),
     aggSigS: Array.from(s),
-    commitmentAddr: Array.from(commitmentAddr),
+    commitment: Array.from(commitment),
   };
 
   return {
     messageHash,
     submitArgs,
     aggSigS: s,
-    commitmentAddr,
+    commitment,
     signersBitmap,
     nonce: usedNonce,
   };

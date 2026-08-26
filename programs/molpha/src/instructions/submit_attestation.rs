@@ -19,7 +19,7 @@ pub struct SubmitAttestationArgs {
 
     /// Schnorr signature R component
     pub agg_sig_s: [u8; 32],
-    pub commitment_addr: [u8; 20],
+    pub commitment: [u8; 20],
     pub signers_bitmap: [u8; 32],
 }
 
@@ -35,7 +35,7 @@ impl From<&SubmitAttestationArgs> for Attestation {
             },
             signature: SchnorrSignature {
                 agg_sig_s: args.agg_sig_s,
-                commitment_addr: args.commitment_addr,
+                commitment: args.commitment,
                 signers_bitmap: args.signers_bitmap,
             },
         }
@@ -144,7 +144,7 @@ mod tests {
             value: [0x44; 32],
             canonical_timestamp: 1_700_000_000,
             agg_sig_s: [0x66; 32],
-            commitment_addr: [0x77; 20],
+            commitment: [0x77; 20],
         }
     }
 
@@ -161,7 +161,7 @@ mod tests {
         assert_eq!(decoded.value, args.value);
         assert_eq!(decoded.canonical_timestamp, args.canonical_timestamp);
         assert_eq!(decoded.agg_sig_s, args.agg_sig_s);
-        assert_eq!(decoded.commitment_addr, args.commitment_addr);
+        assert_eq!(decoded.commitment, args.commitment);
     }
 
     #[test]
