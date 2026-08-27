@@ -121,11 +121,12 @@ molpha-tests/                       # Rust + LiteSVM test suite
 # Build the program — the test suite loads target/deploy/molpha.so
 anchor build -p molpha
 
-# Full test suite: in-crate unit tests + LiteSVM integration tests
+# Full test suite: unit tests + LiteSVM integration tests, all in molpha-tests
 cargo test --workspace
 
 # One area at a time
 cargo test -p molpha-tests --test settle_subscription
+cargo test -p molpha-tests --test encoding                # pure unit tests, no .so needed
 cargo test -p molpha-tests --test limits -- --nocapture   # prints CU and transaction sizes
 ```
 

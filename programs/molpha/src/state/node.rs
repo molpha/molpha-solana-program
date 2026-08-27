@@ -1,4 +1,4 @@
-use anchor_lang::{prelude::*, Discriminator};
+use anchor_lang::prelude::*;
 
 use crate::error::{map_attestation_accounts_err, map_attestation_err};
 
@@ -110,40 +110,4 @@ pub fn resolve_registry_signers_indexed(
         &entries,
     )
     .map_err(map_attestation_err)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn permanent_node_roundtrips() {
-        let account = Node {
-            owner: Pubkey::new_from_array([0xaa; 32]),
-            secp256k1_pubkey_x: [0x11; 32],
-            secp256k1_pubkey_y: [0x22; 32],
-            status: NodeStatus::Active,
-            ip: [127, 0, 0, 1],
-            port: 8080,
-            locked_amount: 100,
-            claimable_rewards: 9,
-            registered_at: 1,
-            deactivated_at: 0,
-            withdrawable_at: 0,
-            frozen_until: 0,
-            punished_at: 0,
-            bump: 7,
-        };
-        let mut body = Vec::new();
-        account.serialize(&mut body).unwrap();
-        assert_eq!(body.len(), Node::INIT_SPACE);
-
-        let mut data = [0u8; Node::SPACE];
-        data[..8].copy_from_slice(Node::DISCRIMINATOR);
-        data[8..].copy_from_slice(&body);
-        let decoded = Node::deserialize(&mut &data[8..]).unwrap();
-        assert_eq!(decoded.owner, account.owner);
-        assert_eq!(decoded.secp256k1_pubkey_x, account.secp256k1_pubkey_x);
-        assert_eq!(decoded.claimable_rewards, account.claimable_rewards);
-    }
 }

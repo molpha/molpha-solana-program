@@ -30,4 +30,5 @@ solana-keccak-hasher = { version = "3.1.0", features = ["sha3"] }
 solana-transaction-error = "*"
 solana-instruction = "*"
 base64 = "0.23.1"
+borsh = "1.7.0"
 bincode = "1.3"

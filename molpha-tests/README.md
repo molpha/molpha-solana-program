@@ -4,7 +4,7 @@ Rust + [LiteSVM](https://github.com/LiteSVM/litesvm) test suite for the Molpha S
 
 ```bash
 anchor build -p molpha        # the suite loads target/deploy/molpha.so
-cargo test --workspace        # in-crate unit tests + these integration tests
+cargo test --workspace        # the whole suite
 ```
 
 No validator, no ledger, no network. Every test builds its own VM, USDC mint and keypairs, so
@@ -27,6 +27,17 @@ One test file per instruction group: `protocol_config`, `plans_and_subscriptions
 `node_registry`, `reinstate_node`, `gateway`, `attestation`, `settle_subscription`, `settle_x402`,
 `rounds`, `punish_equivocation`, `punish_unsolicited_signing`, `punish_nonce_reuse`, plus
 `evm_compatibility` and `limits`.
+
+Four files hold the program's pure unit tests — no VM, no `.so`, they exercise the `molpha` crate
+as a library. They live here rather than in `#[cfg(test)]` modules so the whole suite is in one
+place:
+
+| File                    | What it pins                                                      |
+| ----------------------- | ----------------------------------------------------------------- |
+| `encoding.rs`           | instruction argument wire formats, `Node` layout, feed values      |
+| `hashing.rs`            | request-auth and punishment evidence hashes, domain separation     |
+| `registry_snapshot.rs`  | version succession, snapshot copy / `swap_remove`, `evict_nodes`   |
+| `penalties.rs`          | the fixed penalty table and `apply_penalty` arithmetic             |
 
 ## Writing a test
 

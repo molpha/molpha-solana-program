@@ -90,34 +90,3 @@ impl Feed {
         self.bump = params.bump;
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The only caller is `submit_attestation`, whose `value` is a fixed `[u8; 32]`.
-    #[test]
-    fn a_full_width_value_is_stored_verbatim() {
-        let raw = [0x11u8; Feed::STORED_VALUE_LEN];
-        let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
-        assert_eq!(kind, FeedValueKind::Value);
-        assert_eq!(stored, raw);
-    }
-
-    /// Reachable only if a future instruction submits a variable-length payload. The digest is
-    /// the same keccak the EVM side computes, so the branch is pinned even while unused.
-    #[test]
-    fn a_payload_longer_than_the_slot_is_stored_as_its_keccak_digest() {
-        let raw = vec![0x22u8; 64];
-        let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
-        assert_eq!(kind, FeedValueKind::Hash);
-        assert_eq!(stored.to_vec(), hashv(&[&raw]).to_bytes().to_vec());
-    }
-
-    #[test]
-    fn a_payload_over_the_maximum_is_rejected() {
-        let raw = vec![0u8; Feed::MAX_VALUE_LEN + 1];
-        assert!(Feed::encode_stored_value(&raw).is_err());
-        assert!(Feed::encode_stored_value(&vec![0u8; Feed::MAX_VALUE_LEN]).is_ok());
-    }
-}
