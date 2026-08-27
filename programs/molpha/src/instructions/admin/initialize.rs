@@ -7,13 +7,12 @@ use anchor_spl::{
 use crate::{
     error::MolphaError,
     events::ProtocolInitialized,
-    state::{ProtocolConfig, Registry, RegistryState, MAX_REGISTRY_NODES},
+    state::{ProtocolConfig, Registry, RegistryState, MIN_SIGNERS_FLOOR},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct InitializeArgs {
     pub withdrawal_cooldown_secs: i64,
-    pub max_node_count: u32,
     pub redundancy_buffer: u8,
     pub minimum_node_deposit: u64,
     pub reward_per_signature: u64,
@@ -25,19 +24,13 @@ pub struct InitializeArgs {
     pub usdc_mint: Pubkey,
     pub x402_round_base: u64,
     pub x402_round_per_sig: u64,
+    pub min_signers: u8,
 }
 
 pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> {
     let clock = Clock::get()?;
-    require_keys_eq!(
-        ctx.accounts.usdc_mint.key(),
-        args.usdc_mint,
-        MolphaError::InvalidOwnerUsdc
-    );
-    require!(
-        args.max_node_count > 0 && args.max_node_count <= MAX_REGISTRY_NODES as u32,
-        MolphaError::NodeCapExceeded
-    );
+
+    require!(args.min_signers >= MIN_SIGNERS_FLOOR, MolphaError::InvalidMinSigners);
 
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.authority = ctx.accounts.authority.key();
@@ -48,11 +41,11 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.dispute_window_slots = args.dispute_window_slots;
     protocol_config.gateway_bond_min = args.gateway_bond_min;
     protocol_config.challenger_bounty_bps = args.challenger_bounty_bps;
-    protocol_config.max_node_count = args.max_node_count;
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_secs = args.withdrawal_cooldown_secs;
     protocol_config.x402_round_base = args.x402_round_base;
     protocol_config.x402_round_per_sig = args.x402_round_per_sig;
+    protocol_config.min_signers = args.min_signers;
     protocol_config.bump = ctx.bumps.protocol_config;
 
     ctx.accounts.registry_state.init(ctx.bumps.registry_state);
@@ -134,7 +127,6 @@ mod tests {
     fn fixture_args() -> InitializeArgs {
         InitializeArgs {
             withdrawal_cooldown_secs: 3,
-            max_node_count: 8,
             redundancy_buffer: 2,
             minimum_node_deposit: 100_000_000,
             reward_per_signature: 10,
@@ -146,6 +138,7 @@ mod tests {
             usdc_mint: Pubkey::new_from_array([7; 32]),
             x402_round_base: 1_000,
             x402_round_per_sig: 15,
+            min_signers: 3,
         }
     }
 
@@ -155,7 +148,6 @@ mod tests {
         let bytes = borsh::to_vec(&args).expect("serialize");
         let decoded = borsh::from_slice::<InitializeArgs>(&bytes).expect("deserialize");
 
-        assert_eq!(decoded.max_node_count, args.max_node_count);
         assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
         assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
         assert_eq!(
@@ -165,16 +157,16 @@ mod tests {
         assert_eq!(decoded.usdc_mint, args.usdc_mint);
         assert_eq!(decoded.x402_round_base, args.x402_round_base);
         assert_eq!(decoded.x402_round_per_sig, args.x402_round_per_sig);
+        assert_eq!(decoded.min_signers, args.min_signers);
     }
 
     #[test]
     fn initialize_instruction_data_serializes_args() {
         let args = fixture_args();
         let data = crate::instruction::Initialize { args: args.clone() }.data();
-        assert_eq!(data.len(), 137);
+        assert_eq!(data.len(), 138);
 
         let decoded = borsh::from_slice::<InitializeArgs>(&data[8..]).expect("deserialize args");
         assert_eq!(decoded.usdc_mint, args.usdc_mint);
-        assert_eq!(decoded.max_node_count, args.max_node_count);
     }
 }

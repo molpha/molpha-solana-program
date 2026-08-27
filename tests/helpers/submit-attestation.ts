@@ -996,9 +996,6 @@ export function buildRegisterNodeArgs(params: {
     ip: params.ip ?? [127, 0, 0, 1],
     port: params.port ?? 8080 + params.newIndex,
     secp256K1PubkeyCompressed: Array.from(params.secp256k1PubkeyCompressed),
-    secp256K1KeyFingerprint: Array.from(
-      keccak_256(params.secp256k1PubkeyCompressed)
-    ),
     popSigR: Array.from(params.popSigR),
     popSigS: Array.from(params.popSigS),
   };

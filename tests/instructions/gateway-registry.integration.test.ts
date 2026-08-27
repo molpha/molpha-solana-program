@@ -7,6 +7,7 @@ import {
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
+import { rpcInitialize } from "../helpers/settlement-access";
 import {
   fundNodeOwnerInBankrun,
   getProtocolTreasury,
@@ -84,33 +85,18 @@ async function initializeProtocol(ctx: TestContext): Promise<{
     ctx.underlyingTokenMint
   );
 
-  await program.methods
-    .initialize({
-      withdrawalCooldownSecs: new BN(5),
-      maxNodeCount: 8,
-      redundancyBuffer: 2,
-      minimumNodeDeposit: new BN(100_000_000),
-      rewardPerSignature: new BN(10),
-      maxReceiptDelaySlots: new BN(256),
-      protocolFee: new BN(0),
-      disputeWindowSlots: new BN(256),
-      gatewayBondMin: GATEWAY_BOND_MIN,
-      challengerBountyBps: 500,
-      usdcMint: ctx.underlyingTokenMint,
-      x402RoundBase: new BN(1_000),
-      x402RoundPerSig: new BN(15),
-    })
-    .accountsPartial({
+  await rpcInitialize(
+    program,
+    {
       protocolConfig: protocolConfigPda,
       registryState: registryStatePda,
       usdcMint: ctx.underlyingTokenMint,
       treasury,
       authority: ctx.authority.publicKey,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc();
+    },
+    ctx.underlyingTokenMint,
+    { gateway_bond_min: GATEWAY_BOND_MIN }
+  );
 
   return { program, protocolConfigPda, treasury };
 }

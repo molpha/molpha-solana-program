@@ -10,7 +10,8 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { Clock } from "solana-bankrun";
-import { setupTestContext, TestContext } from "../setup";
+import { setupTestContext } from "../setup";
+import { rpcInitialize } from "../helpers/settlement-access";
 import {
   findPermanentNodePda,
   getProtocolTreasury,
@@ -50,29 +51,17 @@ describe("update_node_endpoint", () => {
       ctx.underlyingTokenMint
     );
 
-    await program.methods
-      .initialize({
-        withdrawalCooldownSecs: new BN(5),
-        maxNodeCount: 8,
-        redundancyBuffer: 2,
-        minimumNodeDeposit: new BN(100_000_000),
-        rewardPerSignature: new BN(10),
-        maxReceiptDelaySlots: new BN(256),
-        usdcMint: ctx.underlyingTokenMint,
-        x402RoundBase: new BN(1_000),
-        x402RoundPerSig: new BN(15),
-      })
-      .accountsPartial({
+    await rpcInitialize(
+      program,
+      {
         authority: ctx.authority.publicKey,
         protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
         treasury,
         usdcMint: ctx.underlyingTokenMint,
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      })
-      .rpc();
+      },
+      ctx.underlyingTokenMint
+    );
 
     await advanceClock(ctx, 5);
     const fixtureMaterial = signerMaterialForVerifyAnswerEvm();

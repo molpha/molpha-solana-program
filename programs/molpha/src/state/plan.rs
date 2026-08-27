@@ -20,6 +20,7 @@ pub struct Plan {
     pub max_signers: u8,
     /// Max delegates/agents an owner on this plan may provision.
     pub max_delegates: u32,
+    pub max_rounds: u64,
     pub private_api_enabled: bool,
     pub is_active: bool,
     pub bump: u8,
@@ -30,11 +31,20 @@ pub struct PlanInitParams {
     pub subscription_price: u64,
     pub max_signers: u8,
     pub max_delegates: u32,
+    pub max_rounds: u64,
     pub private_api_enabled: bool,
     pub is_active: bool,
     pub bump: u8,
 }
 
+pub struct UpdatePlanParams {
+    pub subscription_price: u64,
+    pub max_signers: u8,
+    pub max_delegates: u32,
+    pub max_rounds: u64,
+    pub private_api_enabled: bool,
+    pub is_active: bool,
+}
 impl Plan {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_plan";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
@@ -46,24 +56,21 @@ impl Plan {
         self.max_delegates = params.max_delegates;
         self.private_api_enabled = params.private_api_enabled;
         self.is_active = params.is_active;
+        self.max_rounds = params.max_rounds;
         self.bump = params.bump;
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
-        plan_type: PlanType,
-        subscription_price: u64,
-        max_signers: u8,
-        max_delegates: u32,
-        private_api_enabled: bool,
-        is_active: bool,
+        params: &UpdatePlanParams,
     ) {
-        self.plan_type = plan_type;
-        self.subscription_price = subscription_price;
-        self.max_signers = max_signers;
-        self.max_delegates = max_delegates;
-        self.private_api_enabled = private_api_enabled;
-        self.is_active = is_active;
+        self.subscription_price = params.subscription_price;
+        self.max_signers = params.max_signers;
+        self.max_delegates = params.max_delegates;
+        self.max_rounds = params.max_rounds;
+        self.private_api_enabled = params.private_api_enabled;
+        self.is_active = params.is_active;
+        self.max_rounds = params.max_rounds;
     }
 }

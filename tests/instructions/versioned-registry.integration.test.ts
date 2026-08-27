@@ -12,6 +12,7 @@ import {
 } from "@solana/spl-token";
 import { setupTestContext } from "../setup";
 import { signNodePop } from "../../cli/src/lib/signing/node-pop";
+import { rpcInitialize } from "../helpers/settlement-access";
 import {
   buildRegisterNodeArgs,
   deriveNodeId,
@@ -54,34 +55,22 @@ describe("immutable versioned node registry", () => {
     );
 
     try {
-      await program.methods
-        .initialize({
-          withdrawalCooldownSecs: new BN(5),
-          maxNodeCount: 256,
-          redundancyBuffer: 2,
-          minimumNodeDeposit: new BN(100_000_000),
-          rewardPerSignature: new BN(10),
-          maxReceiptDelaySlots: new BN(256),
-          protocolFee: new BN(30),
-          disputeWindowSlots: new BN(1),
-          gatewayBondMin: new BN(500_000_000),
-          challengerBountyBps: 500,
-          usdcMint: ctx.underlyingTokenMint,
-          x402RoundBase: new BN(1_000),
-          x402RoundPerSig: new BN(15),
-        })
-        .accountsPartial({
+      await rpcInitialize(
+        program,
+        {
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
           registry: registry0,
           usdcMint: ctx.underlyingTokenMint,
           treasury,
           authority: ctx.authority.publicKey,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
+        },
+        ctx.underlyingTokenMint,
+        {
+          protocol_fee: new BN(30),
+          dispute_window_slots: new BN(1),
+        }
+      );
     } catch (error) {
       throw new Error(`initialize failed: ${String(error)}`);
     }

@@ -44,7 +44,8 @@ import {
 } from "../helpers/settlement-access";
 
 const NODE_COUNT = 4;
-const SIGS_REQUIRED = 2;
+const SIGS_REQUIRED = 3;
+const CREDITED_BITS = [0, 1, 2];
 const SOURCE_ID = Uint8Array.from(Buffer.alloc(32, 0x66));
 const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
@@ -189,7 +190,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
         .addPlan({
           planType: { standard: {} },
           subscriptionPrice: new BN(2_000_000),
-          maxJobs: 3,
+          maxRounds: new BN(100),
           maxSigners: 4,
           maxDelegates: 2,
           privateApiEnabled: false,
@@ -238,10 +239,10 @@ describe("rounds: finalize + dispute through the shared path", () => {
       canonicalTimestamp: t,
       signaturesRequired: SIGS_REQUIRED,
       registryVersion,
-      aggSig: zeroedAggSig(bitmapWithBits([0, 1])),
+      aggSig: zeroedAggSig(bitmapWithBits(CREDITED_BITS)),
       creditedNodePdas: creditedNodePdasForBits(
         proto.program.programId,
-        [0, 1]
+        CREDITED_BITS
       ),
     });
     assert.equal(
@@ -267,7 +268,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
           gateway: gateway.gatewayPda,
         })
         .remainingAccounts(
-          [0, 1].map((bit) => ({
+          CREDITED_BITS.map((bit) => ({
             pubkey: registeredNodePda(proto.program.programId, bit),
             isWritable: true,
             isSigner: false,
@@ -564,10 +565,10 @@ describe("rounds: finalize + dispute through the shared path", () => {
         canonicalTimestamp: ++ts,
         signaturesRequired: SIGS_REQUIRED,
         registryVersion,
-        aggSig: zeroedAggSig(bitmapWithBits([0, 1])),
+        aggSig: zeroedAggSig(bitmapWithBits(CREDITED_BITS)),
         creditedNodePdas: creditedNodePdasForBits(
           proto.program.programId,
-          [0, 1]
+          CREDITED_BITS
         ),
       });
       assert.fail("expected GatewayNotBonded");
@@ -585,7 +586,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
 
     const t = ++ts;
     const sourceId = Buffer.alloc(32, 0x88);
-    const sigsRequired = 1;
+    const sigsRequired = SIGS_REQUIRED;
     const selection = deriveSignersBitmap(
       sourceId,
       registryVersion,
@@ -696,7 +697,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
       .addDelegate({
         delegate: delegateHotKey.publicKey,
         maxDataRequests: new BN(100),
-        maxSigners: 2,
+        maxSigners: 3,
       })
       .accountsPartial({
         owner: ctx.authority.publicKey,
@@ -712,7 +713,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
 
     const t = ++ts;
     const sourceId = Buffer.alloc(32, 0x89);
-    const sigsRequired = 1;
+    const sigsRequired = SIGS_REQUIRED;
     const selection = deriveSignersBitmap(
       sourceId,
       registryVersion,
@@ -838,7 +839,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
 
     const t = ++ts;
     const sourceId = Buffer.alloc(32, 0x77);
-    const requestAuthHash = hashRequestAuthFields(sourceId, 1, t);
+    const requestAuthHash = hashRequestAuthFields(sourceId, SIGS_REQUIRED, t);
     const consumerSigIx = Ed25519Program.createInstructionWithPrivateKey({
       privateKey: ctx.authority.payer.secretKey,
       message: requestAuthHash,
@@ -847,7 +848,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
       proto.program.programId,
       ctx.authority.publicKey,
       sourceId,
-      1,
+      SIGS_REQUIRED,
       t
     );
 
@@ -855,9 +856,9 @@ describe("rounds: finalize + dispute through the shared path", () => {
       .settleSubscriptionRound({
         timestamp: new BN(t),
         sourceId: Array.from(sourceId),
-        signaturesRequired: 1,
+        signaturesRequired: SIGS_REQUIRED,
         registryVersion,
-        aggSig: zeroedAggSig(bitmapWithBits([0])),
+        aggSig: zeroedAggSig(bitmapWithBits(CREDITED_BITS)),
         value: Buffer.alloc(32),
         consumerAuthority: ctx.authority.publicKey,
       })
@@ -873,13 +874,13 @@ describe("rounds: finalize + dispute through the shared path", () => {
         instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
         systemProgram: SystemProgram.programId,
       })
-      .remainingAccounts([
-        {
-          pubkey: registeredNodePda(proto.program.programId, 0),
+      .remainingAccounts(
+        CREDITED_BITS.map((bit) => ({
+          pubkey: registeredNodePda(proto.program.programId, bit),
           isWritable: true,
           isSigner: false,
-        },
-      ])
+        }))
+      )
       .signers([gateway.gatewayAuthority])
       .preInstructions([consumerSigIx])
       .rpc();
@@ -894,13 +895,13 @@ describe("rounds: finalize + dispute through the shared path", () => {
         roundRecord: roundRecordPda,
         gateway: gateway.gatewayPda,
       })
-      .remainingAccounts([
-        {
-          pubkey: registeredNodePda(proto.program.programId, 0),
+      .remainingAccounts(
+        CREDITED_BITS.map((bit) => ({
+          pubkey: registeredNodePda(proto.program.programId, bit),
           isWritable: true,
           isSigner: false,
-        },
-      ])
+        }))
+      )
       .rpc();
 
     const record = await proto.program.account.roundReceiptRecord.fetch(

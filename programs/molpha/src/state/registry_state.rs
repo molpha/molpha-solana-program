@@ -86,12 +86,9 @@ impl Registry {
         self.nodes.copy_from_slice(&previous.nodes);
     }
 
-    pub fn append(&mut self, node: Pubkey, max_node_count: u32) -> Result<u16> {
+    pub fn append(&mut self, node: Pubkey) -> Result<u16> {
         let index = usize::from(self.node_count);
-        require!(
-            index < MAX_REGISTRY_NODES && (index as u32) < max_node_count,
-            MolphaError::NodeCapExceeded
-        );
+        require!(index < MAX_REGISTRY_NODES, MolphaError::NodeCapExceeded);
         self.nodes[index] = node.to_bytes();
         self.node_count = self
             .node_count

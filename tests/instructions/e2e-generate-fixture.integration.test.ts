@@ -17,6 +17,7 @@ import {
 } from "@solana/spl-token";
 import { Clock } from "solana-bankrun";
 import { setupTestContext, TestContext } from "../setup";
+import { rpcInitialize } from "../helpers/settlement-access";
 import {
   defaultE2eFixtureOutputPath,
   generateE2eScenario,
@@ -88,36 +89,25 @@ describe("e2e generate verify-answer-evm fixture", () => {
     );
 
     // initialize
-    await program.methods
-      .initialize({
-        withdrawalCooldownSecs: new BN(5),
-        maxNodeCount: NODE_COUNT,
-        redundancyBuffer: REDUNDANCY_BUFFER,
-        minimumNodeDeposit: new BN(100_000_000),
-        rewardPerSignature: new BN(10),
-        maxReceiptDelaySlots: new BN(256),
-        usdcMint: ctx.underlyingTokenMint,
-        x402RoundBase: new BN(1_000),
-        x402RoundPerSig: new BN(15),
-      })
-      .accountsPartial({
+    await rpcInitialize(
+      program,
+      {
         protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
         usdcMint: ctx.underlyingTokenMint,
         treasury,
         authority: ctx.authority.publicKey,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+      },
+      ctx.underlyingTokenMint,
+      { redundancy_buffer: REDUNDANCY_BUFFER }
+    );
 
     // add_plan (3-of-10 standard plan with redundancy buffer 2)
     await program.methods
       .addPlan({
         planType: { standard: {} },
         subscriptionPrice: new BN(3_000_000),
-        maxJobs: 4,
+        maxRounds: new BN(100),
         maxSigners: SIGNATURES_REQUIRED,
         maxDelegates: 2,
         privateApiEnabled: true,

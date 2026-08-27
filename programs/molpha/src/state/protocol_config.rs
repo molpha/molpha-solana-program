@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 
+pub const MIN_SIGNERS_FLOOR: u8 = 3;
+
 #[account]
 #[derive(InitSpace)]
 pub struct ProtocolConfig {
@@ -12,12 +14,13 @@ pub struct ProtocolConfig {
     pub dispute_window_slots: u64,
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
-    pub max_node_count: u32,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_secs: i64,
     pub x402_round_base: u64,
     /// Ops should keep pricing solvent vs `reward_per_signature` and `protocol_fee`.
     pub x402_round_per_sig: u64,
+    /// Minimum `signatures_required` accepted by settlement instructions.
+    pub min_signers: u8,
     pub bump: u8,
 }
 

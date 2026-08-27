@@ -25,7 +25,8 @@ import {
 } from "../helpers/settlement-access";
 
 const NODE_COUNT = 4;
-const SIGS_REQUIRED = 2;
+const SIGS_REQUIRED = 3;
+const CREDITED_BITS = [0, 1, 2];
 const API_SOURCE_ID = Uint8Array.from(Buffer.alloc(32, 0x24));
 
 /**
@@ -86,8 +87,11 @@ describe("settle_x402_round (gateway-funded, all payment rails)", () => {
     canonicalTimestamp: ++ts,
     signaturesRequired: SIGS_REQUIRED,
     registryVersion,
-    aggSig: zeroedAggSig(bitmapWithBits([0, 1])),
-    creditedNodePdas: creditedNodePdasForBits(proto.program.programId, [0, 1]),
+    aggSig: zeroedAggSig(bitmapWithBits(CREDITED_BITS)),
+    creditedNodePdas: creditedNodePdasForBits(
+      proto.program.programId,
+      CREDITED_BITS
+    ),
     ...over,
   });
 
@@ -128,7 +132,7 @@ describe("settle_x402_round (gateway-funded, all payment rails)", () => {
     assert.deepEqual(record.kind, { x402: {} });
     assert.deepEqual(
       Array.from(record.signersBitmap),
-      Array.from(bitmapWithBits([0, 1]))
+      Array.from(bitmapWithBits(CREDITED_BITS))
     );
     assert.equal(record.registryVersion, registryVersion);
   });
@@ -279,24 +283,16 @@ describe("settle_x402_round (gateway-funded, all payment rails)", () => {
       assert.include(e.toString(), "QuorumBelowThreshold");
     }
 
-    // Selection size is min(node_count, sigs_required + redundancy_buffer). With
-    // sigs_required=1 and buffer=2 that is 3, so a 4-bit credit fails the subset
-    // check before CreditedExceedsSelection can fire.
     try {
       await settleX402Round(
         baseParams(newPayerId(), {
-          signaturesRequired: 1,
-          amount: x402Price(1),
-          aggSig: zeroedAggSig(bitmapWithBits([0, 1, 2, 3])),
-          creditedNodePdas: creditedNodePdasForBits(
-            proto.program.programId,
-            [0, 1, 2, 3]
-          ),
+          signaturesRequired: 2,
+          amount: x402Price(2),
         })
       );
-      assert.fail("expected SignersNotSubsetOfSelection");
+      assert.fail("expected SignaturesBelowMinSigners");
     } catch (e: any) {
-      assert.include(e.toString(), "SignersNotSubsetOfSelection");
+      assert.include(e.toString(), "SignaturesBelowMinSigners");
     }
 
     // Credited bits that are outside the derived selection also fail the subset
@@ -356,6 +352,20 @@ describe("settle_x402_round (gateway-funded, all payment rails)", () => {
       assert.fail("expected the unregistered gateway PDA to fail to load");
     } catch (e: any) {
       assert.match(e.toString(), /AccountNotInitialized|AccountOwnedByWrongProgram/);
+    }
+  });
+
+  it("rejects signatures_required below protocol min_signers", async () => {
+    try {
+      await settleX402Round(
+        baseParams(newPayerId(), {
+          signaturesRequired: 2,
+          amount: x402Price(2),
+        })
+      );
+      assert.fail("expected SignaturesBelowMinSigners");
+    } catch (e: any) {
+      assert.include(e.toString(), "SignaturesBelowMinSigners");
     }
   });
 

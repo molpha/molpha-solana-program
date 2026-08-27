@@ -11,7 +11,11 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
-import { advanceClock } from "../helpers/settlement-access";
+import {
+  advanceClock,
+  buildInitializeArgs,
+  rpcInitialize,
+} from "../helpers/settlement-access";
 import {
   findRegistryPda,
   getProtocolTreasury,
@@ -25,20 +29,10 @@ const LOCALNET_PROGRAM_ID = new PublicKey(
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 
-const INIT_ARGS = {
-  withdrawalCooldownSecs: new BN(5),
-  maxNodeCount: 8,
-  redundancyBuffer: 2,
-  minimumNodeDeposit: new BN(100_000_000),
-  rewardPerSignature: new BN(10),
-  maxReceiptDelaySlots: new BN(256),
-  protocolFee: new BN(30),
-  disputeWindowSlots: new BN(1_024),
-  gatewayBondMin: new BN(500_000_000),
-  challengerBountyBps: 500,
-  x402RoundBase: new BN(1_000),
-  x402RoundPerSig: new BN(15),
-};
+const INIT_ARGS = buildInitializeArgs(PublicKey.default, {
+  protocol_fee: new BN(30),
+  dispute_window_slots: new BN(1_024),
+});
 
 interface ProtocolAccounts {
   program: any;
@@ -114,23 +108,22 @@ async function initializeProtocol(
   const usdcMint = overrides.usdcMint ?? ctx.underlyingTokenMint;
   const accounts = findProtocolAccounts(program.programId, usdcMint);
 
-  await program.methods
-    .initialize({
-      ...INIT_ARGS,
-      usdcMint,
-      ...(overrides.args ?? {}),
-    })
-    .accountsPartial({
+  await rpcInitialize(
+    program,
+    {
       protocolConfig: accounts.protocolConfigPda,
       registryState: accounts.registryStatePda,
       usdcMint,
       treasury: accounts.treasury,
       authority: ctx.authority.publicKey,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc();
+    },
+    usdcMint,
+    {
+      protocol_fee: INIT_ARGS.protocol_fee,
+      dispute_window_slots: INIT_ARGS.dispute_window_slots,
+      ...(overrides.args ?? {}),
+    }
+  );
 
   return { program, ...accounts };
 }
@@ -158,11 +151,11 @@ describe("protocol initialization", () => {
     assert.equal(protocolConfig.disputeWindowSlots.toString(), "1024");
     assert.equal(protocolConfig.gatewayBondMin.toString(), "500000000");
     assert.equal(protocolConfig.challengerBountyBps, 500);
-    assert.equal(protocolConfig.maxNodeCount, 8);
     assert.equal(protocolConfig.minimumNodeDeposit.toString(), "100000000");
     assert.equal(protocolConfig.withdrawalCooldownSecs.toString(), "5");
     assert.equal(protocolConfig.x402RoundBase.toString(), "1000");
     assert.equal(protocolConfig.x402RoundPerSig.toString(), "15");
+    assert.equal(protocolConfig.minSigners, 3);
 
     const registryState = await program.account.registryState.fetch(
       registryStatePda
@@ -284,16 +277,4 @@ describe("protocol initialization", () => {
       assert.include(String(error), "AccountOwnedByWrongProgram");
     }
   });
-
-  for (const maxNodeCount of [0, 257]) {
-    it(`rejects max_node_count=${maxNodeCount}`, async () => {
-      const ctx = await setupTestContext();
-      try {
-        await initializeProtocol(ctx, { args: { maxNodeCount } });
-        assert.fail("expected invalid max node count to fail");
-      } catch (error: any) {
-        assert.include(String(error), "NodeCapExceeded");
-      }
-    });
-  }
 });

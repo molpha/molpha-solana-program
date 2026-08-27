@@ -288,7 +288,6 @@ function buildRegisterNodeArgs({
     ip: [127, 0, 0, 1],
     port: 8080 + index,
     secp256K1PubkeyCompressed: Array.from(secpCompressed),
-    secp256K1KeyFingerprint: Array.from(keccak_256(secpCompressed)),
     popSigR: Array.from(popSigR),
     popSigS: Array.from(popSigS),
   };
@@ -630,7 +629,7 @@ async function main() {
       console.log("Mode: generate new keys");
     }
     const generateCount = opts.countExplicit ? opts.count : DEFAULT_COUNT;
-    const maxNodes = Number(protocolConfig?.maxNodeCount ?? 0);
+    const maxNodes = Number(256);
     if (!opts.skipRegister && startIndex + generateCount > maxNodes) {
       throw new Error(
         `Cannot register ${generateCount} nodes: registry has ${startIndex}/${maxNodes} slots used`
@@ -724,7 +723,7 @@ async function main() {
         currentRegistryPda
       );
       const chainIndex = Number(currentRegistry.nodeCount);
-      const maxNodes = Number(protocolConfig.maxNodeCount);
+      const maxNodes = Number(256);
       if (chainIndex >= maxNodes) {
         throw new Error(
           `Registry full (${chainIndex}/${maxNodes}); cannot register more nodes`

@@ -6,7 +6,7 @@ use solana_keccak_hasher::hashv;
 use crate::{
     error::MolphaError,
     events::{NodeRegistered, RegistryVersionCreated, RegistryVersionReason},
-    state::{Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim},
+    state::{MAX_REGISTRY_NODES, Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim},
     utils::registry::derive_node_id,
 };
 
@@ -38,7 +38,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
     let node_index = {
         let registry = ctx.accounts.current_registry.load()?;
         require!(
-            u32::from(registry.node_count) < ctx.accounts.protocol_config.max_node_count,
+            u32::from(registry.node_count) < MAX_REGISTRY_NODES as u32,
             MolphaError::NodeCapExceeded
         );
         registry.node_count
@@ -97,10 +97,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         let current = ctx.accounts.current_registry.load()?;
         let mut next = ctx.accounts.new_registry.load_init()?;
         next.copy_from_previous(&current, args.new_registry_version, ctx.bumps.new_registry);
-        let appended_index = next.append(
-            ctx.accounts.node.key(),
-            ctx.accounts.protocol_config.max_node_count,
-        )?;
+        let appended_index = next.append(ctx.accounts.node.key())?;
         require!(appended_index == node_index, MolphaError::InvalidNodeIndex);
         (next.node_count, next.redundancy_buffer)
     };

@@ -14,6 +14,7 @@ import {
 import { keccak_256 } from "@noble/hashes/sha3";
 import { Clock } from "solana-bankrun";
 import { setupTestContext, TestContext } from "../setup";
+import { rpcInitialize } from "../helpers/settlement-access";
 import { generateE2eScenario } from "../helpers/e2e-fixture-export";
 import {
   findFeedPda,
@@ -76,35 +77,23 @@ describe("submit_attestation (current registry)", () => {
       ctx.underlyingTokenMint
     );
 
-    await program.methods
-      .initialize({
-        withdrawalCooldownSecs: new BN(5),
-        maxNodeCount: SIGNER_COUNT,
-        redundancyBuffer: 2,
-        minimumNodeDeposit: new BN(100_000_000),
-        rewardPerSignature: new BN(10),
-        maxReceiptDelaySlots: new BN(256),
-        usdcMint: ctx.underlyingTokenMint,
-        x402RoundBase: new BN(1_000),
-        x402RoundPerSig: new BN(15),
-      })
-      .accountsPartial({
+    await rpcInitialize(
+      program,
+      {
         protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
         usdcMint: ctx.underlyingTokenMint,
         treasury,
         authority: ctx.authority.publicKey,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+      },
+      ctx.underlyingTokenMint
+    );
 
     await program.methods
       .addPlan({
         planType: { standard: {} },
         subscriptionPrice: new BN(3_000_000),
-        maxJobs: 4,
+        maxRounds: new BN(100),
         maxSigners: SIGNER_COUNT,
         maxDelegates: 2,
         privateApiEnabled: true,

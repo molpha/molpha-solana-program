@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::state::PlanType;
+use crate::error::MolphaError;
 
 #[account]
 #[derive(InitSpace)]
@@ -24,6 +25,7 @@ pub struct SubscriptionInitArgs {
     pub monthly_price: u64,
     pub max_delegates: u32,
     pub max_signers: u8,
+    pub max_rounds: u64,
     pub now: i64,
     pub bump: u8,
 }
@@ -41,9 +43,9 @@ impl Subscription {
         self.valid_until = args
             .now
             .checked_add(Self::SECONDS_PER_MONTH)
-            .unwrap_or(i64::MAX);
+            .ok_or(MolphaError::InvalidTimestamp).unwrap();
         self.used_rounds = 0;
-        self.max_rounds = u64::MAX;
+        self.max_rounds = args.max_rounds;
         self.delegate_count = 0;
         self.max_delegates = args.max_delegates;
         self.max_signers = args.max_signers;

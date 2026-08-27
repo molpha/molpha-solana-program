@@ -81,7 +81,7 @@ describe("delegate lifecycle", () => {
       .addPlan({
         planType: { standard: {} },
         subscriptionPrice: new BN(2_000_000),
-        maxJobs: 3,
+        maxRounds: new BN(100),
         maxSigners: PLAN_MAX_SIGNERS,
         maxDelegates: PLAN_MAX_DELEGATES,
         privateApiEnabled: false,

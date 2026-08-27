@@ -18,6 +18,7 @@ import {
 } from "@solana/spl-token";
 import { Clock } from "solana-bankrun";
 import { setupTestContext, TestContext } from "../setup";
+import { rpcInitialize } from "../helpers/settlement-access";
 import {
   E2eSignerMaterial,
   deriveSignersBitmap,
@@ -114,33 +115,25 @@ async function setupPunishmentFixture(): Promise<PunishmentFixture> {
   );
   const treasury = getProtocolTreasury(protocolConfigPda, ctx.underlyingTokenMint);
 
-  await program.methods
-    .initialize({
-      withdrawalCooldownSecs: new BN(5),
-      maxNodeCount: SIGNER_COUNT,
-      redundancyBuffer: REDUNDANCY_BUFFER,
-      minimumNodeDeposit: new BN(MIN_DEPOSIT),
-      rewardPerSignature: new BN(1_000_000),
-      maxReceiptDelaySlots: new BN(256),
-      protocolFee: new BN(30),
-      disputeWindowSlots: new BN(5),
-      gatewayBondMin: new BN(500_000_000),
-      challengerBountyBps: BOUNTY_BPS,
-      usdcMint: ctx.underlyingTokenMint,
-      x402RoundBase: new BN(1_000),
-      x402RoundPerSig: new BN(15),
-    })
-    .accountsPartial({
+  await rpcInitialize(
+    program,
+    {
       protocolConfig: protocolConfigPda,
       registryState: registryStatePda,
       usdcMint: ctx.underlyingTokenMint,
       treasury,
       authority: ctx.authority.publicKey,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc();
+    },
+    ctx.underlyingTokenMint,
+    {
+      redundancy_buffer: REDUNDANCY_BUFFER,
+      minimum_node_deposit: new BN(MIN_DEPOSIT),
+      reward_per_signature: new BN(1_000_000),
+      protocol_fee: new BN(30),
+      dispute_window_slots: new BN(5),
+      challenger_bounty_bps: BOUNTY_BPS,
+    }
+  );
 
   const material = generateE2eSignerMaterialFromSeed(E2E_SEED, SIGNER_COUNT);
   await registerNodesForE2e(

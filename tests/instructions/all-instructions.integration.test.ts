@@ -9,8 +9,8 @@ import {
 import { Clock } from "solana-bankrun";
 import * as secp256k1 from "@noble/secp256k1";
 import { setupTestContext, TestContext } from "../setup";
+import { buildInitializeArgs, rpcInitialize } from "../helpers/settlement-access";
 import {
-  buildRegisterNodeArgs,
   findNodePda,
   findRegistryPda,
   findSecp256k1KeyClaimPda,
@@ -81,29 +81,17 @@ describe("Molpha instruction coverage integration", () => {
     );
 
     // 1) initialize
-    await program.methods
-      .initialize({
-        withdrawalCooldownSecs: new BN(5),
-        maxNodeCount: 8,
-        redundancyBuffer: 2,
-        minimumNodeDeposit: new BN(100_000_000),
-        rewardPerSignature: new BN(10),
-        maxReceiptDelaySlots: new BN(256),
-        usdcMint: ctx.underlyingTokenMint,
-        x402RoundBase: new BN(1_000),
-        x402RoundPerSig: new BN(15),
-      })
-      .accountsPartial({
+    await rpcInitialize(
+      program,
+      {
         protocolConfig: protocolConfigPda,
         registryState: registryStatePda,
         usdcMint: ctx.underlyingTokenMint,
         treasury,
         authority: ctx.authority.publicKey,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+      },
+      ctx.underlyingTokenMint
+    );
 
     const protocolConfig = await program.account.protocolConfig.fetch(
       protocolConfigPda
@@ -118,7 +106,7 @@ describe("Molpha instruction coverage integration", () => {
       .addPlan({
         planType: { standard: {} },
         subscriptionPrice: new BN(2_000_000),
-        maxJobs: 3,
+        maxRounds: new BN(100),
         maxSigners: 2,
         maxDelegates: 2,
         privateApiEnabled: false,
@@ -136,7 +124,7 @@ describe("Molpha instruction coverage integration", () => {
       .updatePlan({
         planType: { standard: {} },
         subscriptionPrice: new BN(3_000_000),
-        maxJobs: 4,
+        maxRounds: new BN(100),
         maxSigners: 3,
         maxDelegates: 3,
         privateApiEnabled: true,
@@ -292,12 +280,12 @@ describe("Molpha instruction coverage integration", () => {
       assert.include(String(error), "InvalidAggregateSignature");
     }
 
-    // 7) register_node rejects when registry is at capacity
+    // 7) register_node (registering 8 nodes)
     await program.methods
       .updatePlan({
         planType: { standard: {} },
         subscriptionPrice: new BN(3_000_000),
-        maxJobs: 4,
+        maxRounds: new BN(100),
         maxSigners: 8,
         maxDelegates: 3,
         privateApiEnabled: true,
@@ -333,62 +321,6 @@ describe("Molpha instruction coverage integration", () => {
       findRegistryPda(program.programId, 8)
     );
     assert.equal(registryAfterRegister.nodeCount, 8);
-
-    const capNodeOwner = ctx.nodes[8];
-    const extraSalt = Uint8Array.from(Buffer.alloc(32, 99));
-    // Fresh key so claim `init` succeeds and the handler can reach NodeCapExceeded
-    // (reusing a registered fixture key fails earlier with "already in use").
-    const extraCompressed = secp256k1.getPublicKey(
-      secp256k1.utils.randomPrivateKey(),
-      true
-    );
-    const capOwnerUsdc = await fundNodeOwnerInBankrun(
-      ctx,
-      capNodeOwner,
-      ctx.underlyingTokenMint
-    );
-    const extraNodePda = findNodePda(program.programId, capNodeOwner.publicKey);
-    const extraKeyClaimPda = findSecp256k1KeyClaimPda(
-      program.programId,
-      extraCompressed
-    );
-
-    try {
-      await program.methods
-        .registerNode(
-          buildRegisterNodeArgs({
-            newIndex: 8,
-            registrationSalt: extraSalt,
-            secp256k1PubkeyCompressed: extraCompressed,
-            popSigR: Buffer.alloc(32),
-            popSigS: Buffer.alloc(32),
-          })
-        )
-        .accountsPartial({
-          authority: ctx.authority.publicKey,
-          nodeOwner: capNodeOwner.publicKey,
-          protocolConfig: protocolConfigPda,
-          registryState: registryStatePda,
-          currentRegistry: findRegistryPda(program.programId, 8),
-          newRegistry: findRegistryPda(program.programId, 9),
-          node: extraNodePda,
-          secp256K1KeyClaim: extraKeyClaimPda,
-          usdcMint: ctx.underlyingTokenMint,
-          ownerUsdc: capOwnerUsdc,
-          treasury,
-          systemProgram: SystemProgram.programId,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .signers([capNodeOwner])
-        .rpc();
-      assert.fail("register_node should fail when registry is full");
-    } catch (error: any) {
-      const err = String(error);
-      assert.ok(
-        err.includes("NodeCapExceeded") || err.includes("InvalidNewIndex"),
-        `expected NodeCapExceeded or InvalidNewIndex, got: ${err}`
-      );
-    }
 
     // 8) deactivate_node (failure-path: authority has no node PDA)
     try {

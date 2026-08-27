@@ -22,7 +22,6 @@ import {
 
 type InitConfig = {
   withdrawalCooldownSecs?: string;
-  maxNodeCount?: number;
   redundancyBuffer?: number;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
@@ -34,6 +33,7 @@ type InitConfig = {
   usdcMint?: string;
   x402RoundBase?: string;
   x402RoundPerSig?: string;
+  minSigners?: number;
 };
 
 export function registerInitCommand(program: Command): void {
@@ -42,7 +42,6 @@ export function registerInitCommand(program: Command): void {
     .description("Initialize the Molpha protocol")
     .option("--config <path>", "json config file")
     .option("--withdrawal-cooldown-secs <seconds>", "node withdrawal cooldown")
-    .option("--max-node-count <count>", "max registry size")
     .option(
       "--redundancy-buffer <count>",
       "extra selection slots beyond signatures_required"
@@ -59,6 +58,10 @@ export function registerInitCommand(program: Command): void {
     .option(
       "--x402-round-per-sig <amount>",
       "per-required-signature x402 round settlement price"
+    )
+    .option(
+      "--min-signers <count>",
+      "minimum signatures_required accepted by settlement"
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -79,12 +82,6 @@ export function registerInitCommand(program: Command): void {
             "Missing --withdrawal-cooldown-secs"
           ),
           "withdrawal cooldown"
-        ),
-        maxNodeCount: Number(
-          requireValue(
-            optionOrConfig(options.maxNodeCount, config.maxNodeCount),
-            "Missing --max-node-count"
-          )
         ),
         redundancyBuffer: Number(
           optionOrConfig(options.redundancyBuffer, config.redundancyBuffer) ?? 2
@@ -169,6 +166,9 @@ export function registerInitCommand(program: Command): void {
             "Missing --x402-round-per-sig"
           ),
           "x402 round per signature"
+        ),
+        min_signers: Number(
+          optionOrConfig(options.minSigners, config.minSigners) ?? 3
         ),
       };
       const treasury = getAssociatedTokenAddressSync(

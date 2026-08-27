@@ -14,6 +14,7 @@ import {
 import { Clock } from "solana-bankrun";
 import { signNodePop } from "../../cli/src/lib/signing/node-pop";
 import { setupTestContext, TestContext } from "../setup";
+import { rpcInitialize } from "../helpers/settlement-access";
 import {
   buildRegisterNodeArgs,
   deriveNodeId,
@@ -66,29 +67,17 @@ async function initializeRegistry(ctx: TestContext) {
     protocolConfigPda,
     ctx.underlyingTokenMint
   );
-  await program.methods
-    .initialize({
-      withdrawalCooldownSecs: new BN(5),
-      maxNodeCount: 8,
-      redundancyBuffer: 2,
-      minimumNodeDeposit: new BN(100_000_000),
-      rewardPerSignature: new BN(10),
-      maxReceiptDelaySlots: new BN(256),
-      usdcMint: ctx.underlyingTokenMint,
-      x402RoundBase: new BN(1_000),
-      x402RoundPerSig: new BN(15),
-    })
-    .accountsPartial({
+  await rpcInitialize(
+    program,
+    {
       protocolConfig: protocolConfigPda,
       registryState: registryStatePda,
       usdcMint: ctx.underlyingTokenMint,
       treasury,
       authority: ctx.authority.publicKey,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc();
+    },
+    ctx.underlyingTokenMint
+  );
   await advanceClock(ctx, 5);
   return { program, protocolConfigPda, registryStatePda, treasury };
 }

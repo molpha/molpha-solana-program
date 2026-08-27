@@ -3,6 +3,10 @@ use molpha_verifier::{solana::AccountError, AttestationError};
 
 #[error_code]
 pub enum MolphaError {
+    #[msg("invalid min signers")]
+    InvalidMinSigners,
+    #[msg("invalid timestamp")]
+    InvalidTimestamp,
     #[msg("invalid usdc mint")]
     InvalidMint,
     #[msg("registry version counter overflow")]
@@ -13,7 +17,7 @@ pub enum MolphaError {
     InvalidNodeAccount,
     #[msg("Caller is not node.owner or registry.authority")]
     UnauthorizedNodeAuthority,
-    #[msg("pending_node_count >= max_node_count or node_index_hint >= max_node_count")]
+    #[msg("pending_node_count >= registry.node_count or node_index_hint >= registry.node_count")]
     NodeCapExceeded,
     #[msg("PoP Schnorr verification failed at registration")]
     InvalidPoP,
@@ -73,6 +77,8 @@ pub enum MolphaError {
     InsufficientSigners,
     #[msg("signatures_required exceeds subscription.max_signers")]
     SignaturesExceedSubscriptionMax,
+    #[msg("signatures_required is below protocol min_signers")]
+    SignaturesBelowMinSigners,
     #[msg("Signer bits outside selection bitmap")]
     SignersNotSubsetOfSelection,
     #[msg("PoP-Schnorr aggregate verification failed")]

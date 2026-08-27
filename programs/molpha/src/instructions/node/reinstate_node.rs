@@ -43,7 +43,6 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> R
 
     let previous_version = ctx.accounts.registry_state.current_version;
     let node_key = ctx.accounts.node.key();
-    let max_node_count = config.max_node_count;
     let (node_count, redundancy_buffer) = {
         let current = ctx.accounts.current_registry.load()?;
         require!(
@@ -53,7 +52,7 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> R
         );
         let mut next = ctx.accounts.new_registry.load_init()?;
         next.copy_from_previous(&current, args.new_registry_version, ctx.bumps.new_registry);
-        next.append(node_key, max_node_count)?;
+        next.append(node_key)?;
         (next.node_count, next.redundancy_buffer)
     };
     ctx.accounts.registry_state.current_version = args.new_registry_version;

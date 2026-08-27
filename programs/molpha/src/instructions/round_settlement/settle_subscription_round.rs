@@ -35,6 +35,10 @@ pub fn settle_subscription_round<'info>(
     let registry = ctx.accounts.registry.load()?;
 
     require!(
+        args.signatures_required >= config.min_signers,
+        MolphaError::SignaturesBelowMinSigners
+    );
+    require!(
         subscription.is_active_at(clock.unix_timestamp) && subscription.has_round_quota(),
         MolphaError::SubscriptionInactiveOrExhausted
     );

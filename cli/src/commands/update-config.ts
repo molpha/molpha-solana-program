@@ -12,7 +12,6 @@ import {
 
 type UpdateConfigFile = {
   withdrawalCooldownSecs?: string;
-  maxNodeCount?: number;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
   maxReceiptDelaySlots?: string;
@@ -22,11 +21,11 @@ type UpdateConfigFile = {
   challengerBountyBps?: number;
   x402RoundBase?: string;
   x402RoundPerSig?: string;
+  minSigners?: number;
 };
 
 type ProtocolConfigAccount = {
   withdrawalCooldownSecs: { toString(): string };
-  maxNodeCount: number;
   minimumNodeDeposit: { toString(): string };
   rewardPerSignature: { toString(): string };
   maxReceiptDelaySlots: { toString(): string };
@@ -36,6 +35,7 @@ type ProtocolConfigAccount = {
   challengerBountyBps: number;
   x402RoundBase: { toString(): string };
   x402RoundPerSig: { toString(): string };
+  minSigners: number;
 };
 
 export function registerUpdateConfigCommand(admin: Command): void {
@@ -44,7 +44,6 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .description("Update protocol config (authority only)")
     .option("--config <path>", "json config file with fields to override")
     .option("--withdrawal-cooldown-secs <seconds>", "node withdrawal cooldown")
-    .option("--max-node-count <count>", "max registry size")
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
     .option("--receipt-submitter-bonus <amount>", "receipt submitter bonus")
@@ -57,6 +56,10 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .option(
       "--x402-round-per-sig <amount>",
       "per-required-signature x402 round settlement price"
+    )
+    .option(
+      "--min-signers <count>",
+      "minimum signatures_required accepted by settlement"
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -107,11 +110,6 @@ function buildUpdateConfigArgs(
       ),
       "withdrawal cooldown"
     ),
-    maxNodeCount:
-      optionOrConfig(
-        options.maxNodeCount as number | undefined,
-        config.maxNodeCount
-      ) ?? current.maxNodeCount,
     minimumNodeDeposit: bn(
       requireValue(
         optionOrConfig(
@@ -197,5 +195,10 @@ function buildUpdateConfigArgs(
       ),
       "x402 round per signature"
     ),
+    min_signers:
+      optionOrConfig(
+        options.minSigners as number | undefined,
+        config.minSigners
+      ) ?? current.minSigners,
   };
 }

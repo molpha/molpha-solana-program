@@ -27,13 +27,13 @@ import {
 } from "../helpers/settlement-access";
 
 const NODE_COUNT = 4;
-const SIGS_REQUIRED = 2;
+const SIGS_REQUIRED = 3;
 const PLAN_SEED = Buffer.from("molpha_plan");
 const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 const DELEGATE_SEED = Buffer.from("molpha_delegate");
 
 const PLAN_MAX_SIGNERS = 3;
-const DELEGATE_MAX_SIGNERS = 2;
+const DELEGATE_MAX_SIGNERS = 3;
 
 function findDelegatePda(
   programId: PublicKey,
@@ -75,7 +75,7 @@ describe("settle_subscription_round (owner / delegate / agent authorization)", (
       .addPlan({
         planType,
         subscriptionPrice: new BN(2_000_000),
-        maxJobs: 3,
+        maxRounds: new BN(100),
         maxSigners,
         maxDelegates: 4,
         privateApiEnabled: false,

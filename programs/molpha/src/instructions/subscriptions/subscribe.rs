@@ -29,6 +29,7 @@ pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
         monthly_price: plan.subscription_price,
         max_delegates: plan.max_delegates,
         max_signers: plan.max_signers,
+        max_rounds: plan.max_rounds,
         now,
         bump: ctx.bumps.subscription,
     });

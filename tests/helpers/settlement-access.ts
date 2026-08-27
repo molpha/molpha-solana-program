@@ -6,8 +6,8 @@
  * agents are `Delegate` accounts settled through `settle_subscription_round` and are covered by
  * the delegate test suites.
  */
-import { BN, Idl, Program } from "@coral-xyz/anchor";
-import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import { BN, Idl, Program, BorshInstructionCoder } from "@coral-xyz/anchor";
+import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
@@ -26,6 +26,8 @@ import {
 } from "./submit-attestation";
 import molphaIdl from "../../target/idl/molpha.json";
 
+const initializeInstructionCoder = new BorshInstructionCoder(molphaIdl as Idl);
+
 /** Prefer the built IDL address (matches `declare_id!` / Anchor.toml localnet). */
 export const LOCALNET_PROGRAM_ID = new PublicKey(
   (molphaIdl as { address: string }).address
@@ -38,6 +40,7 @@ export const X402_ROUND_SEED = Buffer.from("molpha_x402_round");
 export const ROUND_SEED = Buffer.from("molpha_round");
 
 // Mirrors the `initialize` args used across the integration suite.
+// Anchor's TS client encodes camelCase fields; `min_signers` must stay snake_case.
 export const INIT = {
   rewardPerSignature: 10,
   disputeWindowSlots: 256,
@@ -46,7 +49,74 @@ export const INIT = {
   challengerBountyBps: 500,
   x402RoundBase: 1_000,
   x402RoundPerSig: 15,
+  minSigners: 3,
 };
+
+export function buildInitializeArgs(
+  usdcMint: PublicKey,
+  overrides: Record<string, unknown> = {}
+) {
+  return {
+    withdrawal_cooldown_secs: new BN(5),
+    redundancy_buffer: INIT.redundancyBuffer,
+    minimum_node_deposit: new BN(100_000_000),
+    reward_per_signature: new BN(INIT.rewardPerSignature),
+    max_receipt_delay_slots: new BN(256),
+    protocol_fee: new BN(0),
+    dispute_window_slots: new BN(INIT.disputeWindowSlots),
+    gateway_bond_min: new BN(INIT.gatewayBondMin),
+    challenger_bounty_bps: INIT.challengerBountyBps,
+    usdc_mint: usdcMint,
+    x402_round_base: new BN(INIT.x402RoundBase),
+    x402_round_per_sig: new BN(INIT.x402RoundPerSig),
+    min_signers: INIT.minSigners,
+    ...overrides,
+  };
+}
+
+export type InitializeAccounts = {
+  protocolConfig: PublicKey;
+  registryState: PublicKey;
+  usdcMint: PublicKey;
+  treasury: PublicKey;
+  authority: PublicKey;
+  registry?: PublicKey;
+  tokenProgram?: PublicKey;
+  associatedTokenProgram?: PublicKey;
+  systemProgram?: PublicKey;
+};
+
+/**
+ * Anchor's `program.methods.initialize()` drops `min_signers` when encoding args.
+ * Build the instruction with the Borsh coder directly, then reuse Anchor account resolution.
+ */
+export async function rpcInitialize(
+  program: Program,
+  accounts: InitializeAccounts,
+  usdcMint: PublicKey,
+  overrides: Record<string, unknown> = {},
+  signers: Keypair[] = []
+): Promise<string> {
+  const args = buildInitializeArgs(usdcMint, overrides);
+  const data = initializeInstructionCoder.encode("initialize", { args });
+  const ix = await program.methods
+    .initialize(args)
+    .accountsPartial({
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+      ...accounts,
+    })
+    .instruction();
+  const tx = new Transaction().add(
+    new TransactionInstruction({
+      programId: ix.programId,
+      keys: ix.keys,
+      data: Buffer.from(data),
+    })
+  );
+  return program.provider.sendAndConfirm!(tx, signers);
+}
 
 export function x402Price(signaturesRequired: number): number {
   return INIT.x402RoundBase + signaturesRequired * INIT.x402RoundPerSig;
@@ -245,34 +315,18 @@ export async function initializeProtocolForAgents(
   );
   const registry = findRegistryPda(program.programId, 0);
 
-  await program.methods
-    .initialize({
-      withdrawalCooldownSecs: new BN(5),
-      maxNodeCount: 8,
-      redundancyBuffer: INIT.redundancyBuffer,
-      minimumNodeDeposit: new BN(100_000_000),
-      rewardPerSignature: new BN(INIT.rewardPerSignature),
-      maxReceiptDelaySlots: new BN(256),
-      protocolFee: new BN(0),
-      disputeWindowSlots: new BN(INIT.disputeWindowSlots),
-      gatewayBondMin: new BN(INIT.gatewayBondMin),
-      challengerBountyBps: INIT.challengerBountyBps,
-      usdcMint: ctx.underlyingTokenMint,
-      x402RoundBase: new BN(INIT.x402RoundBase),
-      x402RoundPerSig: new BN(INIT.x402RoundPerSig),
-    })
-    .accountsPartial({
+  await rpcInitialize(
+    program,
+    {
       protocolConfig: protocolConfigPda,
       registryState: registryStatePda,
       registry,
       usdcMint: ctx.underlyingTokenMint,
       treasury,
       authority: ctx.authority.publicKey,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc();
+    },
+    ctx.underlyingTokenMint
+  );
 
   return {
     program,

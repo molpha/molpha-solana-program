@@ -54,6 +54,11 @@ pub fn settle_x402_round<'info>(
     let clock = Clock::get()?;
     let now_slot = clock.slot;
 
+    require!(
+        args.signatures_required >= config.min_signers,
+        MolphaError::SignaturesBelowMinSigners
+    );
+
     let price = compute_x402_price(config, args.signatures_required)?;
     require!(price == args.amount, MolphaError::AmountMismatch);
 

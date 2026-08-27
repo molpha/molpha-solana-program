@@ -11,6 +11,7 @@ pub struct AddPlanArgs {
     pub subscription_price: u64,
     pub max_signers: u8,
     pub max_delegates: u32,
+    pub max_rounds: u64,
     pub private_api_enabled: bool,
     pub is_active: bool,
 }
@@ -21,6 +22,7 @@ pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
         subscription_price: args.subscription_price,
         max_signers: args.max_signers,
         max_delegates: args.max_delegates,
+        max_rounds: args.max_rounds,
         private_api_enabled: args.private_api_enabled,
         is_active: args.is_active,
         bump: ctx.bumps.plan,

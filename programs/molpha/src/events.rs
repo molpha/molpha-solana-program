@@ -10,11 +10,11 @@ pub struct ProtocolConfigUpdated {
     pub dispute_window_slots: u64,
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
-    pub max_node_count: u32,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_secs: i64,
     pub x402_round_base: u64,
     pub x402_round_per_sig: u64,
+    pub min_signers: u8,
 }
 
 #[event]
