@@ -130,7 +130,6 @@ async function setupPunishmentFixture(): Promise<PunishmentFixture> {
       minimumNodeDeposit: new BN(MIN_DEPOSIT),
       rewardPerSignature: new BN(1_000_000),
       gatewayFee: new BN(20),
-      receiptSubmitterBonus: new BN(5),
       protocolFeeBps: 100,
       maxReceiptDelaySlots: new BN(256),
       protocolFee: new BN(30),

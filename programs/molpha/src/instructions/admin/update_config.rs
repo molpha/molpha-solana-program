@@ -12,8 +12,6 @@ pub struct UpdateConfigArgs {
     pub max_node_count: u32,
     pub minimum_node_deposit: u64,
     pub reward_per_signature: u64,
-    pub gateway_fee: u64,
-    pub receipt_submitter_bonus: u64,
     pub protocol_fee_bps: u16,
     pub max_receipt_delay_slots: u64,
     pub protocol_fee: u64,
@@ -25,11 +23,6 @@ pub struct UpdateConfigArgs {
 }
 
 pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Result<()> {
-    require_keys_eq!(
-        ctx.accounts.authority.key(),
-        ctx.accounts.protocol_config.authority,
-        MolphaError::UnauthorisedAuthority
-    );
     require!(
         args.max_node_count > 0 && args.max_node_count <= MAX_REGISTRY_NODES as u32,
         MolphaError::NodeCapExceeded
@@ -37,8 +30,6 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
 
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.reward_per_signature = args.reward_per_signature;
-    protocol_config.gateway_fee = args.gateway_fee;
-    protocol_config.receipt_submitter_bonus = args.receipt_submitter_bonus;
     protocol_config.protocol_fee_bps = args.protocol_fee_bps;
     protocol_config.max_receipt_delay_slots = args.max_receipt_delay_slots;
     protocol_config.protocol_fee = args.protocol_fee;
@@ -53,8 +44,6 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
 
     emit!(ProtocolConfigUpdated {
         reward_per_signature: args.reward_per_signature,
-        gateway_fee: args.gateway_fee,
-        receipt_submitter_bonus: args.receipt_submitter_bonus,
         protocol_fee_bps: args.protocol_fee_bps,
         max_receipt_delay_slots: args.max_receipt_delay_slots,
         protocol_fee: args.protocol_fee,
@@ -73,16 +62,17 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
 
 #[derive(Accounts)]
 pub struct UpdateConfig<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+   
     #[account(
         mut,
+        has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
-        bump = protocol_config.bump,
+        bump
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
-
-    pub authority: Signer<'info>,
 }
-
 #[cfg(test)]
 mod tests {
     use super::UpdateConfigArgs;
@@ -94,8 +84,6 @@ mod tests {
             max_node_count: 8,
             minimum_node_deposit: 100_000_000,
             reward_per_signature: 10,
-            gateway_fee: 20,
-            receipt_submitter_bonus: 5,
             protocol_fee_bps: 100,
             max_receipt_delay_slots: 256,
             protocol_fee: 30,
@@ -116,11 +104,6 @@ mod tests {
         assert_eq!(decoded.max_node_count, args.max_node_count);
         assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
         assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
-        assert_eq!(decoded.gateway_fee, args.gateway_fee);
-        assert_eq!(
-            decoded.receipt_submitter_bonus,
-            args.receipt_submitter_bonus
-        );
         assert_eq!(decoded.protocol_fee_bps, args.protocol_fee_bps);
         assert_eq!(
             decoded.max_receipt_delay_slots,

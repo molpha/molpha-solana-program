@@ -16,7 +16,6 @@ type UpdateConfigFile = {
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
   gatewayFee?: string;
-  receiptSubmitterBonus?: string;
   protocolFeeBps?: number;
   maxReceiptDelaySlots?: string;
   protocolFee?: string;
@@ -33,7 +32,6 @@ type ProtocolConfigAccount = {
   minimumNodeDeposit: { toString(): string };
   rewardPerSignature: { toString(): string };
   gatewayFee: { toString(): string };
-  receiptSubmitterBonus: { toString(): string };
   protocolFeeBps: number;
   maxReceiptDelaySlots: { toString(): string };
   protocolFee: { toString(): string };
@@ -149,16 +147,6 @@ function buildUpdateConfigArgs(
         "gateway fee"
       ),
       "gateway fee"
-    ),
-    receiptSubmitterBonus: bn(
-      requireValue(
-        optionOrConfig(
-          options.receiptSubmitterBonus as string | undefined,
-          config.receiptSubmitterBonus
-        ) ?? current.receiptSubmitterBonus.toString(),
-        "receipt submitter bonus"
-      ),
-      "receipt submitter bonus"
     ),
     protocolFeeBps:
       optionOrConfig(

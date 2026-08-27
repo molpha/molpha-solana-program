@@ -4,7 +4,7 @@ use solana_keccak_hasher::hashv;
 pub const DOMAIN_REQAUTH: &[u8] = b"MOLPHA_REQAUTH_V1";
 pub const DOMAIN_GWRCPT: &[u8] = b"MOLPHA_GWRCPT_V1";
 
-/// Consumer demand authorization (Ed25519-signed by `consumer.authority`).
+/// Consumer authorization fields signed by the requester.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq, InitSpace)]
 pub struct RequestAuth {
     pub source_id: [u8; 32],
@@ -12,7 +12,7 @@ pub struct RequestAuth {
     pub timestamp: u64,
 }
 
-/// The committed aggregate Schnorr signature. **Not verified on the happy path.**
+/// Aggregate Schnorr signature committed at settlement; not verified on the happy path.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AggregatedSig {
     pub agg_sig_s: [u8; 32],
@@ -73,7 +73,6 @@ mod tests {
 
     #[test]
     fn distinct_domains_separate_hashes() {
-        // Domain tags must not collide — they bind hashes to their role.
         assert_ne!(DOMAIN_REQAUTH, DOMAIN_GWRCPT);
     }
 }

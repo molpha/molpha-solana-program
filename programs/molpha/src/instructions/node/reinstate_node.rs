@@ -1,10 +1,4 @@
-//! `reinstate_node` — restoration path out of `NodeStatus::Frozen`.
-//!
-//! No punishment currently produces a `Freeze` (the only implemented offence,
-//! `punish_equivocation`, always tombstones), so this is exercised by tests today. It exists
-//! because the punishment primitives (`state::Penalty`, `MembershipAction::Freeze`) are built to
-//! be reused by a future, less-than-terminal offence, and freezing without a restoration path
-//! would not be a real primitive.
+//! Restore a `Frozen` node after its freeze window (or earlier by protocol authority).
 
 use anchor_lang::prelude::*;
 
@@ -66,7 +60,6 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> R
 
     let node = &mut ctx.accounts.node;
     node.status = NodeStatus::Active;
-    node.frozen_until = 0;
 
     emit!(NodeReinstated {
         node: node_key,
@@ -89,8 +82,7 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> R
 #[derive(Accounts)]
 #[instruction(args: ReinstateNodeArgs)]
 pub struct ReinstateNode<'info> {
-    /// Permissionless once `node.frozen_until` has passed; the protocol authority may reinstate
-    /// earlier.
+    /// Permissionless after `frozen_until`; authority may reinstate earlier.
     #[account(mut)]
     pub caller: Signer<'info>,
 

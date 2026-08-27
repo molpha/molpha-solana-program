@@ -31,7 +31,6 @@ const INIT_ARGS = {
   minimumNodeDeposit: new BN(100_000_000),
   rewardPerSignature: new BN(10),
   gatewayFee: new BN(20),
-  receiptSubmitterBonus: new BN(5),
   protocolFeeBps: 100,
   maxReceiptDelaySlots: new BN(256),
   protocolFee: new BN(30),
@@ -155,8 +154,6 @@ describe("protocol initialization", () => {
     );
     assert.equal(protocolConfig.treasury.toBase58(), treasury.toBase58());
     assert.equal(protocolConfig.rewardPerSignature.toString(), "10");
-    assert.equal(protocolConfig.gatewayFee.toString(), "20");
-    assert.equal(protocolConfig.receiptSubmitterBonus.toString(), "5");
     assert.equal(protocolConfig.protocolFeeBps, 100);
     assert.equal(protocolConfig.maxReceiptDelaySlots.toString(), "256");
     assert.equal(protocolConfig.protocolFee.toString(), "30");

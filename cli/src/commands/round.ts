@@ -327,7 +327,7 @@ export function registerRoundCommands(program: Command): void {
           paymentRef: Buffer.from(paymentRef),
         })
         .accountsPartial({
-          gatewayAuthority: gatewayAuthority.publicKey,
+          authority: gatewayAuthority.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
           registry: registryPda,

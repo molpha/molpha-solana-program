@@ -345,8 +345,8 @@ export function generateE2eSignerMaterialFromSeed(
     const skSeed = keccak_256(
       Buffer.concat([
         Buffer.from(seed),
-        Buffer.from([signerCount]),
-        Buffer.from([i]),
+        u32be(signerCount),
+        u32be(i),
       ])
     );
     const ecdh = crypto.createECDH("secp256k1");
@@ -1012,6 +1012,16 @@ export function getProtocolTreasury(
   return getAssociatedTokenAddressSync(usdcMint, protocolConfigPda, true);
 }
 
+function e2ePopNonce(programId: PublicKey, index: number): Uint8Array {
+  return keccak_256(
+    Buffer.concat([
+      Buffer.from("molpha-e2e-pop-nonce-v1"),
+      programId.toBuffer(),
+      u32be(index),
+    ])
+  );
+}
+
 export async function registerNodesForE2e(
   ctx: TestContext,
   program: Program,
@@ -1034,9 +1044,16 @@ export async function registerNodesForE2e(
     throw new Error("registerNodesForE2e: private/public key count mismatch");
   }
 
+  REGISTERED_NODE_PDAS.set(program.programId.toBase58(), []);
+
   for (let i = 0; i < signerMaterial.compressedPubkeys.length; i++) {
     const index = startIndex + i;
-    const secpCompressed = signerMaterial.compressedPubkeys[i];
+    if (!ctx.nodes[index]) {
+      throw new Error(
+        `registerNodesForE2e: missing node owner keypair at index ${index} (have ${ctx.nodes.length})`
+      );
+    }
+    let secpCompressed = signerMaterial.compressedPubkeys[i];
     if (secpCompressed.length !== 33) {
       throw new Error(
         `registerNodesForE2e: expected 33-byte secp pubkey at index ${index}, got ${secpCompressed.length}`
@@ -1051,13 +1068,18 @@ export async function registerNodesForE2e(
       accounts.usdcMint
     );
 
-    const registrationSalt = Uint8Array.from(Buffer.alloc(32, index + 1));
-    const nodeId = deriveNodeId(nodeOwner, secpCompressed, registrationSalt);
+    const registrationSalt = Uint8Array.from(
+      Buffer.alloc(32, ((index + 1) % 255) + 1)
+    );
     const pop = signNodePop({
       programId: program.programId,
-      nodeId,
+      nodeId: deriveNodeId(nodeOwner, secpCompressed, registrationSalt),
       secp256k1PrivateKey: bytes32FromBigintBE(signerMaterial.privKeys[i]),
+      nonce: e2ePopNonce(program.programId, index),
     });
+    secpCompressed = pop.secp256k1PubkeyCompressed;
+    signerMaterial.compressedPubkeys[i] = secpCompressed;
+    const nodeId = deriveNodeId(nodeOwner, secpCompressed, registrationSalt);
     const nodePda = findNodePda(program.programId, nodeOwner);
     const registered =
       REGISTERED_NODE_PDAS.get(program.programId.toBase58()) ?? [];

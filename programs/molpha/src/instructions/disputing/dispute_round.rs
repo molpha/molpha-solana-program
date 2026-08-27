@@ -14,8 +14,6 @@ use crate::{
 pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()> {
     let record = &ctx.accounts.round_record;
 
-    // Only run coalition reconstruction / Schnorr verification after deterministic
-    // selection validation passes.
     let signature = SchnorrSignature {
         agg_sig_s: record.agg_sig_s,
         commitment: record.commitment,
@@ -32,8 +30,7 @@ pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()>
 
     require!(!is_valid_sig, MolphaError::DisputeSignatureValid);
 
-    // Undo payer-side settlement effects before slashing. x402 rounds are not refunded — see the
-    // module doc.
+    // x402 rounds are not refunded on dispute.
     let round_restored = match ctx.accounts.round_record.kind {
         RoundRecordKind::X402 => {
             require!(

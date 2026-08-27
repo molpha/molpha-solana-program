@@ -5,8 +5,6 @@ use crate::state::{FeedValueKind, NodeStatus, OffenceKind};
 #[event]
 pub struct ProtocolConfigUpdated {
     pub reward_per_signature: u64,
-    pub gateway_fee: u64,
-    pub receipt_submitter_bonus: u64,
     pub protocol_fee_bps: u16,
     pub max_receipt_delay_slots: u64,
     pub protocol_fee: u64,
@@ -117,13 +115,6 @@ pub struct SubscriptionExtended {
 }
 
 #[event]
-pub struct SubscriptionVaultWithdrawn {
-    pub authority: Pubkey,
-    pub destination: Pubkey,
-    pub amount: u64,
-}
-
-#[event]
 pub struct GatewayRegistered {
     pub authority: Pubkey,
     pub ip: [u8; 4],
@@ -138,7 +129,6 @@ pub struct DelegateAdded {
     pub delegate: Pubkey,
     pub max_data_requests: u64,
     pub max_signers: u8,
-    /// Subscription delegate count after this addition.
     pub delegate_count: u32,
 }
 
@@ -147,7 +137,6 @@ pub struct DelegateRemoved {
     pub owner: Pubkey,
     pub delegate: Pubkey,
     pub data_requests_used: u64,
-    /// Subscription delegate count after this removal.
     pub delegate_count: u32,
 }
 
@@ -166,7 +155,6 @@ pub struct FeedUpdated {
     pub source_id: [u8; 32],
     pub registry_version: u32,
     pub canonical_timestamp: u64,
-    /// Compacted payload stored on the feed (raw ≤32 bytes, or keccak digest).
     pub value: [u8; 32],
     pub value_kind: FeedValueKind,
     pub signers_bitmap: [u8; 32],
@@ -181,7 +169,7 @@ pub struct RoundSettled {
     pub signers_bitmap: [u8; 32],
     pub credited_count: u32,
     pub reward_per_signature: u64,
-    pub gateway_fee: u64,
+    pub protocol_fee: u64,
     pub recorded_slot: u64,
 }
 
@@ -241,9 +229,7 @@ pub struct UnsolicitedSigningProven {
     pub registry_version: u32,
     pub signatures_required: u8,
     pub canonical_timestamp: u64,
-    /// The offending coalition's full signer bitmap, as submitted.
     pub signers_bitmap: [u8; 32],
-    /// `signers_bitmap` minus the derived selection — the punished bits.
     pub guilty_bitmap: [u8; 32],
     pub guilty_count: u16,
     pub evidence_hash: [u8; 32],
@@ -255,7 +241,6 @@ pub struct UnsolicitedSigningProven {
 #[event]
 pub struct NonceReuseProven {
     pub registry_version: u32,
-    /// The aggregate nonce commitment both statements were signed under.
     pub commitment_addr: [u8; 20],
     pub source_id_a: [u8; 32],
     pub signatures_required_a: u8,
@@ -265,7 +250,6 @@ pub struct NonceReuseProven {
     pub signatures_required_b: u8,
     pub canonical_timestamp_b: u64,
     pub signers_bitmap_b: [u8; 32],
-    /// Intersection of the two signer bitmaps - the punished bits.
     pub guilty_bitmap: [u8; 32],
     pub guilty_count: u16,
     pub evidence_hash: [u8; 32],

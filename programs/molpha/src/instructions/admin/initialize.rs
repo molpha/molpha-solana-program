@@ -17,8 +17,6 @@ pub struct InitializeArgs {
     pub redundancy_buffer: u8,
     pub minimum_node_deposit: u64,
     pub reward_per_signature: u64,
-    pub gateway_fee: u64,
-    pub receipt_submitter_bonus: u64,
     pub protocol_fee_bps: u16,
     pub max_receipt_delay_slots: u64,
     pub protocol_fee: u64,
@@ -47,8 +45,6 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.usdc_mint = args.usdc_mint;
     protocol_config.treasury = ctx.accounts.treasury.key();
     protocol_config.reward_per_signature = args.reward_per_signature;
-    protocol_config.gateway_fee = args.gateway_fee;
-    protocol_config.receipt_submitter_bonus = args.receipt_submitter_bonus;
     protocol_config.protocol_fee_bps = args.protocol_fee_bps;
     protocol_config.max_receipt_delay_slots = args.max_receipt_delay_slots;
     protocol_config.protocol_fee = args.protocol_fee;
@@ -141,8 +137,6 @@ mod tests {
             redundancy_buffer: 2,
             minimum_node_deposit: 100_000_000,
             reward_per_signature: 10,
-            gateway_fee: 20,
-            receipt_submitter_bonus: 5,
             protocol_fee_bps: 100,
             max_receipt_delay_slots: 256,
             protocol_fee: 30,
@@ -164,11 +158,6 @@ mod tests {
         assert_eq!(decoded.max_node_count, args.max_node_count);
         assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
         assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
-        assert_eq!(decoded.gateway_fee, args.gateway_fee);
-        assert_eq!(
-            decoded.receipt_submitter_bonus,
-            args.receipt_submitter_bonus
-        );
         assert_eq!(decoded.protocol_fee_bps, args.protocol_fee_bps);
         assert_eq!(
             decoded.max_receipt_delay_slots,
@@ -183,7 +172,6 @@ mod tests {
     fn initialize_instruction_data_serializes_args() {
         let args = fixture_args();
         let data = crate::instruction::Initialize { args: args.clone() }.data();
-        // Breaking registry ABI: dropped agent_epoch_len_secs (i64).
         assert_eq!(data.len(), 137);
 
         let decoded = borsh::from_slice::<InitializeArgs>(&data[8..]).expect("deserialize args");

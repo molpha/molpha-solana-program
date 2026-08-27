@@ -1,11 +1,5 @@
-//! `finalize_round` — permissionless finalization of round credits past the dispute window.
-//!
-//! After `dispute_window_slots` have elapsed and no successful dispute voided the round, this
-//! credits each node's `reward_per_signature` (and the gateway's `gateway_fee`) to
-//! `claimable_rewards`, after which `claim_*_rewards` may withdraw it.
-//!
-//! Credited nodes are resolved through the immutable registry version stored in the round record.
-//! Permanent Node accounts can therefore be credited even after later membership changes.
+//! Permissionless finalization after the dispute window: credits `reward_per_signature` (and
+//! gateway `protocol_fee`) to node/gateway `claimable_rewards` using the round's pinned registry.
 
 use anchor_lang::prelude::*;
 use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
@@ -13,7 +7,7 @@ use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
 use crate::{
     error::MolphaError,
     events::RoundFinalized,
-    state::{Gateway, Node, ProtocolConfig, Registry, RoundReceiptRecord, RoundRecordStatus},
+    state::{Node, ProtocolConfig, Registry, RoundReceiptRecord, RoundRecordStatus},
 };
 
 pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
@@ -71,14 +65,7 @@ pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
 
         Ok(())
     })?;
-
-    let gateway_fee = record.gateway_fee;
-    let gateway = &mut ctx.accounts.gateway;
-    gateway.claimable_rewards = gateway
-        .claimable_rewards
-        .checked_add(gateway_fee)
-        .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
-
+   
     let record = &mut ctx.accounts.round_record;
     record.status = RoundRecordStatus::Finalized;
 
@@ -107,16 +94,7 @@ pub struct FinalizeRound<'info> {
     )]
     pub registry: AccountLoader<'info, Registry>,
 
-    /// Subscription (`["molpha_round", subscription.owner, source_id, sig_req, ts]`) or x402
-    /// (`["molpha_x402_round", payer_id, gateway, source_id, sig_req, ts]`) settlement record.
-    /// No seeds constraint: owner + discriminator suffice — only the two settle instructions can
-    /// create this account type, and both write complete state, so stored contents are trusted.
+    /// Settlement record created by `settle_*_round`; seeds omitted because only those instructions init it.
     #[account(mut)]
     pub round_record: Account<'info, RoundReceiptRecord>,
-
-    #[account(
-        mut,
-        constraint = gateway.key() == round_record.gateway @ MolphaError::GatewayIndexMismatch,
-    )]
-    pub gateway: Account<'info, Gateway>,
 }

@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    error::MolphaError,
     events::PlanAdded,
     state::{Plan, PlanInitParams, PlanType, ProtocolConfig},
 };
@@ -17,12 +16,6 @@ pub struct AddPlanArgs {
 }
 
 pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
-    require_keys_eq!(
-        ctx.accounts.authority.key(),
-        ctx.accounts.protocol_config.authority,
-        MolphaError::UnauthorisedAuthority
-    );
-
     ctx.accounts.plan.init(&PlanInitParams {
         plan_type: args.plan_type,
         subscription_price: args.subscription_price,
@@ -49,6 +42,7 @@ pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
 #[instruction(args: AddPlanArgs)]
 pub struct AddPlan<'info> {
     #[account(
+        has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]

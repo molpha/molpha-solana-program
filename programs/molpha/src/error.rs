@@ -11,8 +11,6 @@ pub enum MolphaError {
     InvalidNodeAccount,
     #[msg("Caller is not node.owner or registry.authority")]
     UnauthorizedNodeAuthority,
-    #[msg("secp256k1_pubkey matches existing active node")]
-    NodeAlreadyRegistered,
     #[msg("pending_node_count >= max_node_count or node_index_hint >= max_node_count")]
     NodeCapExceeded,
     #[msg("PoP Schnorr verification failed at registration")]
@@ -61,8 +59,6 @@ pub enum MolphaError {
     UnexpectedDelegateAccount,
     #[msg("delegate data_requests_used >= max_data_requests")]
     DelegateDataRequestLimitReached,
-    #[msg("remove_delegate target not found")]
-    DelegateNotFound,
     #[msg("delegate is paused")]
     DelegateNotActive,
     #[msg("signatures_required exceeds delegate.max_signers")]
@@ -71,8 +67,6 @@ pub enum MolphaError {
     DelegateCapReached,
     #[msg("registration_salt must not be zero")]
     InvalidRegistrationSalt,
-    #[msg("secp256k1 key fingerprint does not match compressed key")]
-    InvalidSecp256k1KeyFingerprint,
     #[msg("popcount(signers_bitmap) < signatures_required")]
     InsufficientSigners,
     #[msg("signatures_required exceeds subscription.max_signers")]
@@ -88,8 +82,6 @@ pub enum MolphaError {
     #[msg("subscription has expired")]
     SubscriptionNotActive,
 
-    // ---- Receipt settlement (v0.2). Numeric codes are sequential from the macro; the
-    //      spec's 62xx values are illustrative. Names match the spec §9. ----
     #[msg("consumer Ed25519 signature missing or invalid")]
     ConsumerSigInvalid,
     #[msg("popcount(signers_bitmap) < signatures_required")]
@@ -100,16 +92,12 @@ pub enum MolphaError {
     GatewaySlashed,
     #[msg("subscription inactive or round quota exhausted")]
     SubscriptionInactiveOrExhausted,
-    #[msg("supplied signature does not match committed agg_sig_hash")]
-    DisputeAggSigMismatch,
     #[msg("dispute failed: the committed signature verifies (no fraud)")]
     DisputeSignatureValid,
     #[msg("gateway_index does not match the bonded gateway")]
     GatewayIndexMismatch,
     #[msg("bond amount below gateway_bond_min")]
     InsufficientBond,
-    #[msg("agg_sig.signers_bitmap does not match signers_bitmap")]
-    CreditedBitmapMismatch,
     #[msg("round still inside dispute window; cannot finalize")]
     RoundNotFinalizable,
     #[msg("round is not pending")]
@@ -123,7 +111,6 @@ pub enum MolphaError {
     #[msg("mismatched or missing credited node account")]
     InvalidCreditNodeAccount,
 
-    // ---- x402 settlement (unified pay-per-request access, all rails). ----
     #[msg("computed price does not match the gateway-signed amount")]
     AmountMismatch,
     #[msg("gateway USDC float balance below computed price")]
@@ -137,7 +124,6 @@ pub enum MolphaError {
     #[msg("dispute refund/restore accounts missing or do not match the round")]
     DisputeRefundAccountsMissing,
 
-    // ---- Node punishment. ----
     #[msg("equivocation requires two statements with different values")]
     EquivocationSameStatement,
     #[msg("recomputed evidence hash does not match the supplied evidence_hash")]

@@ -1,55 +1,38 @@
-//! `settle_x402_round` — unified gateway-funded settlement for every pay-per-request rail.
-//!
-//! A bonded gateway debits its own USDC ("float") into the protocol treasury at the
-//! protocol-quoted price and records how it was paid as attested metadata (`payment_rail`,
-//! `payment_ref`). The program enforces exactly what it can enforce: the signer is the bonded
-//! gateway authority, the treasury receives the exact protocol price, and the round identity is
-//! unique (PDA init). Which rail was used, the payment reference, and whether the payer actually
-//! paid are gateway-claimed and never verified on-chain — Solana cannot verify a Base
-//! transaction, and pretending otherwise would be theater. Node revenue is the invariant this
-//! instruction protects, and it is fully preserved: it is enforced identically to
-//! `settle_subscription_round`.
+//! Gateway-funded pay-per-request settlement: debits gateway USDC float at the protocol price and
+//! records the round like `settle_subscription_round`. Payment rail/ref metadata is attested only.
 
 use crate::{
-    error::{map_attestation_err, MolphaError},
+    error::MolphaError,
     events::X402RoundSettled,
     state::{
-        AggregatedSig, Gateway, ProtocolConfig, Registry, RegistryState, RoundReceiptRecord,
+        Gateway, ProtocolConfig, Registry, RegistryState, RoundReceiptInitArgs, RoundReceiptRecord,
         RoundRecordKind,
     },
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use molpha_verifier::{
-    bitmap::{bitmap_is_subset, bitmap_popcount},
-    compute_message_hash, derive_selection_bitmap, AttestationPayload,
-};
 
-/// Cap on `payment_ref`: a 64-byte Solana signature or any 32-byte EVM tx hash fits comfortably.
+use super::validate_attestation::{validate_settlement_attestation, SettlementAttestationInput};
+
 pub const MAX_PAYMENT_REF_LEN: usize = 64;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleX402RoundArgs {
-    /// Rail-scoped payer identity: `keccak256(rail_id_be ‖ payer_address_bytes)`. Needed in the
-    /// receipt and PDA seeds (replay scoping, charge accounting) — not derivable on-chain.
+    /// Rail-scoped payer identity for PDA seeds; not derivable on-chain.
     pub payer_id: [u8; 32],
-    /// Expected price; must equal the derived price exactly (§ below).
     pub amount: u64,
     pub source_id: [u8; 32],
     pub canonical_timestamp: u64,
     pub signatures_required: u8,
     pub registry_version: u32,
-    pub agg_sig: AggregatedSig,
+    pub agg_sig: crate::state::AggregatedSig,
     pub value: [u8; 32],
-    /// Payment rail registry id (gateway-level, not on-chain governed). 0 = none/subscription,
-    /// 1 = solana, 2 = base.
     pub payment_rail: u16,
-    /// Opaque payment reference (tx hash, facilitator receipt, ...); attested, never verified.
+    /// Attested off-chain payment reference; not verified on-chain.
     pub payment_ref: Vec<u8>,
 }
 
-/// Price from request-time parameters only (never the post-hoc bitmap popcount), so external
-/// rails requiring a locked price (x402 `exact`) stay applicable.
+/// Price from request-time parameters only (not post-hoc signer count).
 pub fn compute_x402_price(config: &ProtocolConfig, signatures_required: u8) -> Result<u64> {
     config
         .x402_round_base
@@ -71,12 +54,6 @@ pub fn settle_x402_round<'info>(
     let clock = Clock::get()?;
     let now_slot = clock.slot;
 
-    require!(
-        args.registry_version == ctx.accounts.registry_state.current_version
-            && registry.version == args.registry_version,
-        MolphaError::InvalidRegistryVersion
-    );
-
     let price = compute_x402_price(config, args.signatures_required)?;
     require!(price == args.amount, MolphaError::AmountMismatch);
 
@@ -85,32 +62,18 @@ pub fn settle_x402_round<'info>(
         MolphaError::PaymentRefTooLong
     );
 
-    // Selection subset + quorum bounds on the embedded bitmap (Schnorr verify stays on dispute).
-    let expected_selection = derive_selection_bitmap(
-        &args.source_id,
-        args.registry_version,
-        args.canonical_timestamp as u64,
-        u32::from(registry.node_count),
-        args.signatures_required,
-        registry.redundancy_buffer,
-    )
-    .map_err(map_attestation_err)?;
-
-    let selection_mismatch = !bitmap_is_subset(&args.agg_sig.signers_bitmap, &expected_selection);
-    require!(
-        !selection_mismatch,
-        MolphaError::SignersNotSubsetOfSelection
-    );
-
-    let count = bitmap_popcount(&args.agg_sig.signers_bitmap);
-    require!(
-        count >= u32::from(args.signatures_required),
-        MolphaError::QuorumBelowThreshold
-    );
-    require!(
-        count <= u32::from(args.signatures_required) + u32::from(registry.redundancy_buffer),
-        MolphaError::CreditedExceedsSelection
-    );
+    let validated = validate_settlement_attestation(
+        &ctx.accounts.registry_state,
+        &registry,
+        SettlementAttestationInput {
+            source_id: &args.source_id,
+            canonical_timestamp: args.canonical_timestamp,
+            signatures_required: args.signatures_required,
+            registry_version: args.registry_version,
+            value: &args.value,
+            agg_sig: &args.agg_sig,
+        },
+    )?;
 
     require!(
         ctx.accounts.gateway_usdc.amount >= price,
@@ -123,41 +86,26 @@ pub fn settle_x402_round<'info>(
             Transfer {
                 from: ctx.accounts.gateway_usdc.to_account_info(),
                 to: ctx.accounts.treasury.to_account_info(),
-                authority: ctx.accounts.gateway_authority.to_account_info(),
+                authority: ctx.accounts.authority.to_account_info(),
             },
         ),
         price,
     )?;
 
     let reward_per_signature = config.reward_per_signature;
-    let gateway_fee = config.gateway_fee;
+    let protocol_fee = config.protocol_fee;
 
-    let attestation_message_hash = compute_message_hash(
-        &AttestationPayload {
-            value: args.value,
-            source_id: args.source_id,
-            signatures_required: args.signatures_required,
-            registry_version: args.registry_version,
-            canonical_timestamp: args.canonical_timestamp,
-        },
-        args.agg_sig.signers_bitmap,
-    );
-
-    // Record. The price surplus over node + gateway credits is protocol revenue, implicit in the
-    // treasury (identical to subscription revenue). Payment rail / ref / payer_id remain instruction
-    // args and event fields only — they are not stored on the slim round receipt.
-    let record = &mut ctx.accounts.round_record;
-    record.signers_bitmap = args.agg_sig.signers_bitmap;
-    record.agg_sig_s = args.agg_sig.agg_sig_s;
-    record.commitment = args.agg_sig.commitment;
-    record.attestation_message_hash = attestation_message_hash;
-    record.gateway = gateway.key();
-    record.registry_version = args.registry_version;
-    record.reward_per_signature = reward_per_signature;
-    record.gateway_fee = gateway_fee;
-    record.recorded_slot = now_slot;
-    record.kind = RoundRecordKind::X402;
-    record.bump = ctx.bumps.round_record;
+    ctx.accounts.round_record.init(RoundReceiptInitArgs {
+        agg_sig: args.agg_sig,
+        attestation_message_hash: validated.attestation_message_hash,
+        gateway: gateway.key(),
+        registry_version: args.registry_version,
+        reward_per_signature,
+        protocol_fee,
+        recorded_slot: now_slot,
+        kind: RoundRecordKind::X402,
+        bump: ctx.bumps.round_record,
+    });
 
     emit!(X402RoundSettled {
         payer_id: args.payer_id,
@@ -166,8 +114,8 @@ pub fn settle_x402_round<'info>(
         source_id: args.source_id,
         timestamp: args.canonical_timestamp,
         gateway: gateway.key(),
-        signers_bitmap: record.signers_bitmap,
-        credited_count: count,
+        signers_bitmap: ctx.accounts.round_record.signers_bitmap,
+        credited_count: validated.credited_count,
         recorded_slot: now_slot,
     });
 
@@ -178,7 +126,7 @@ pub fn settle_x402_round<'info>(
 #[instruction(args: SettleX402RoundArgs)]
 pub struct SettleX402Round<'info> {
     #[account(mut)]
-    pub gateway_authority: Signer<'info>,
+    pub authority: Signer<'info>,
 
     #[account(
         seeds = [ProtocolConfig::SEED_PREFIX],
@@ -200,8 +148,7 @@ pub struct SettleX402Round<'info> {
 
     #[account(
         mut,
-        seeds = [Gateway::SEED_PREFIX, gateway_authority.key().as_ref()],
-        bump = gateway.bump,
+        has_one = authority,
         constraint = !gateway.slashed && gateway.bond >= protocol_config.gateway_bond_min @ MolphaError::GatewayNotBonded,
     )]
     pub gateway: Box<Account<'info, Gateway>>,
@@ -214,7 +161,7 @@ pub struct SettleX402Round<'info> {
     #[account(
         mut,
         constraint = gateway_usdc.mint == usdc_mint.key() @ MolphaError::InvalidOwnerUsdc,
-        constraint = gateway_usdc.owner == gateway_authority.key() @ MolphaError::InvalidOwnerUsdc,
+        constraint = gateway_usdc.owner == authority.key() @ MolphaError::InvalidOwnerUsdc,
     )]
     pub gateway_usdc: Box<Account<'info, TokenAccount>>,
 
@@ -229,7 +176,7 @@ pub struct SettleX402Round<'info> {
 
     #[account(
         init,
-        payer = gateway_authority,
+        payer = authority,
         space = RoundReceiptRecord::SPACE,
         seeds = [
             RoundReceiptRecord::X402_SEED_PREFIX,

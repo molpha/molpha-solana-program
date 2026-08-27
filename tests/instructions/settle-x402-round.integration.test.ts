@@ -111,15 +111,6 @@ describe("settle_x402_round (gateway-funded, all payment rails)", () => {
     assert.equal(treasuryAfter - treasuryBefore, BigInt(price));
     assert.equal(bondAfter, bondBefore);
 
-    // Crediting happens at finalize, not at settle.
-    const gwAfter = await proto.program.account.gateway.fetch(
-      gateway.gatewayPda
-    );
-    assert.equal(
-      gwAfter.claimableRewards.toNumber(),
-      gwBefore.claimableRewards.toNumber()
-    );
-
     assert.equal(
       recordPda.toBase58(),
       findX402RoundPda(
@@ -365,7 +356,7 @@ describe("settle_x402_round (gateway-funded, all payment rails)", () => {
       );
       assert.fail("expected a seeds constraint failure");
     } catch (e: any) {
-      assert.match(e.toString(), /ConstraintSeeds/);
+      assert.match(e.toString(), /ConstraintHasOne./);
     }
   });
 });

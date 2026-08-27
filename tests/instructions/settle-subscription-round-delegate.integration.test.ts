@@ -160,7 +160,7 @@ describe("settle_subscription_round (owner / delegate / agent authorization)", (
         consumerAuthority: consumer.publicKey,
       })
       .accountsPartial({
-        payer: ctx.authority.publicKey,
+        authority: gateway.gatewayAuthority.publicKey,
         protocolConfig: proto.protocolConfigPda,
         registryState: proto.registryStatePda,
         subscription: subscriptionPda,
@@ -180,6 +180,7 @@ describe("settle_subscription_round (owner / delegate / agent authorization)", (
           })
         )
       )
+      .signers([gateway.gatewayAuthority])
       .preInstructions([consumerSigIx])
       .rpc();
 

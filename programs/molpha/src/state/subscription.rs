@@ -50,8 +50,12 @@ impl Subscription {
         self.bump = args.bump;
     }
 
+    pub fn is_active_at(&self, now: i64) -> bool {
+        self.valid_until > now
+    }
+
     pub fn is_active(&self) -> bool {
-        self.valid_until > Clock::get().map(|c| c.unix_timestamp).unwrap_or(0)
+        self.is_active_at(Clock::get().map(|c| c.unix_timestamp).unwrap_or(0))
     }
 
     pub fn has_round_quota(&self) -> bool {

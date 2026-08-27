@@ -4,13 +4,7 @@ use crate::error::{map_attestation_accounts_err, map_attestation_err};
 
 use super::Registry;
 
-/// Permanent owner-keyed node identity, lifecycle, and reward account.
-///
-/// Historical registries retain this account address forever. Consequently the owner and
-/// secp256k1 key fields are initialized once and never changed, and the account is never closed.
-/// A tombstone binds this node *identity*, not the operator behind it — the same operator can
-/// register a fresh wallet and a fresh secp256k1 key, which is inherent to permissionless
-/// registration.
+/// Permanent node identity and reward account; never closed or re-keyed.
 #[account]
 #[derive(InitSpace)]
 pub struct Node {
@@ -25,10 +19,7 @@ pub struct Node {
     pub registered_at: i64,
     pub deactivated_at: i64,
     pub withdrawable_at: i64,
-    /// Unix timestamp a `Frozen` node becomes permissionlessly reinstatable via
-    /// `reinstate_node`. Unused for any other status.
     pub frozen_until: i64,
-    /// Unix timestamp of the most recent punishment, or `0` if never punished.
     pub punished_at: i64,
     pub bump: u8,
 }
@@ -85,12 +76,7 @@ pub enum NodeStatus {
     Tombstoned,
 }
 
-/// Resolve selected signer accounts against an immutable registry snapshot.
-///
-/// Anchor I/O adapter: owner-checks and Borsh-deserializes `Node` accounts via [`resolve_nodes`],
-/// then delegates slot binding to [`molpha_verifier::resolve_registry_signers`]. Accounts must be
-/// provided in ascending signer-bit order. Node status is deliberately ignored: a node
-/// deactivated in a later version remains valid evidence for historical versions.
+/// Resolve signer accounts against a registry snapshot in ascending bit order.
 pub fn resolve_registry_signers(
     accounts: &[AccountInfo],
     program_id: &Pubkey,
@@ -108,11 +94,7 @@ pub fn resolve_registry_signers(
     .map_err(map_attestation_err)
 }
 
-/// Like [`resolve_registry_signers`] but also returns each signer's bit position.
-///
-/// Used by callers that need to re-partition a resolved union bitmap back into per-statement
-/// subsets — e.g. equivocation punishment, which resolves the union of two signer sets once and
-/// then splits the result back into each statement's ordered signers.
+/// Like [`resolve_registry_signers`], but also returns each signer's bit position.
 pub fn resolve_registry_signers_indexed(
     accounts: &[AccountInfo],
     program_id: &Pubkey,

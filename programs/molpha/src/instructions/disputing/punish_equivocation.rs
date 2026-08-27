@@ -1,25 +1,6 @@
-//! `punish_equivocation` — offence #1: a node signs two different statements for the same
-//! execution duty.
+//! Two valid attestations for the same duty with different values. Guilty set = signer intersection.
 //!
-//! Permissionless and immediate: the proof is two valid Molpha attestations sharing a duty
-//! identity (`source_id`, `registry_version`, `signatures_required`, `canonical_timestamp`) but
-//! committing to different `value`s. Because the coalition key is a plain sum `Σ X_i` protected
-//! by proof-of-possession at registration (`molpha_verifier::validate_key_and_verify_pop`), a valid aggregate
-//! over a bitmap is only producible with the secret behind every node in it — so a node in the
-//! intersection of the two signer bitmaps demonstrably contributed a partial signature to both.
-//! The guilty set is exactly that intersection; the sentence is a 100% slash and a permanent
-//! tombstone (`OffenceKind::Equivocation::penalty`).
-//!
-//! Known limitation: an equivocation split across two registry versions (same
-//! `source_id`/`canonical_timestamp`, different `registry_version`) is out of scope. It is
-//! largely self-limiting since the selection set is version-derived, so a node is unlikely to be
-//! selected in both.
-//!
-//! This is the whole on-chain safety argument, so two off-chain rules become load-bearing: a
-//! node must never sign two different values for the same duty tuple (cache and replay the first
-//! answer), and a gateway retrying a failed round must mint a fresh `canonical_timestamp` rather
-//! than reusing one — exactly the monotonicity `submit_attestation` already enforces on the push
-//! path (`FeedNotNewer`).
+//! Cross-version equivocation is out of scope. Gateways must use fresh timestamps on retry.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
@@ -39,15 +20,12 @@ use crate::{
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct PunishEquivocationArgs {
     pub source_id: [u8; 32],
-    /// Registry version the two attestations were signed against; also the version
-    /// `guilty_bitmap` on `PunishmentCase` indexes into.
     pub registry_version: u32,
     pub signatures_required: u8,
     pub canonical_timestamp: u64,
     pub statement_a: SignedStatement,
     pub statement_b: SignedStatement,
-    /// Must equal `equivocation_evidence_hash(..)` over the fields above — validated in the
-    /// handler and reused as the `PunishmentCase` PDA seed (the anti-replay guard), mirroring how
+    /// Must match `equivocation_evidence_hash(..)`; used as the `PunishmentCase` PDA seed.
     pub evidence_hash: [u8; 32],
     pub new_registry_version: u32,
 }
@@ -76,8 +54,6 @@ pub fn punish_equivocation<'info>(
         .registry_state
         .require_next_version(args.new_registry_version)?;
 
-    // ---- Resolve the union of both signer sets once, against the pinned evidence-version
-    // snapshot, then re-partition into each statement's ordered signers. ----
     let bitmap_a = bitmap_load(&args.statement_a.signers_bitmap);
     let bitmap_b = bitmap_load(&args.statement_b.signers_bitmap);
     let guilty = bitmap_a & bitmap_b;
@@ -144,8 +120,6 @@ pub fn punish_equivocation<'info>(
         &ordered_b,
     )?;
 
-    // ---- Sentence: full slash + tombstone every guilty node, evict from a fresh registry
-    // snapshot, pay the reporter a bounty out of the total slashed. ----
     let reporter = ctx.accounts.reporter.key();
     let outcome = execute_punishment(
         ExecutePunishmentAccounts {
@@ -209,14 +183,12 @@ pub struct PunishEquivocation<'info> {
     )]
     pub registry_state: Box<Account<'info, RegistryState>>,
 
-    /// The registry snapshot both statements were signed against.
     #[account(
         seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub evidence_registry: AccountLoader<'info, Registry>,
 
-    /// The live registry snapshot guilty nodes are evicted from. May equal `evidence_registry`.
     #[account(
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
         bump,

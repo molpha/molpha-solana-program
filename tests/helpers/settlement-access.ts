@@ -254,7 +254,6 @@ export async function initializeProtocolForAgents(
       minimumNodeDeposit: new BN(100_000_000),
       rewardPerSignature: new BN(INIT.rewardPerSignature),
       gatewayFee: new BN(INIT.gatewayFee),
-      receiptSubmitterBonus: new BN(5),
       protocolFeeBps: 100,
       maxReceiptDelaySlots: new BN(256),
       protocolFee: new BN(0),
@@ -429,7 +428,7 @@ export async function settleX402Round(
       paymentRef: Buffer.from(params.paymentRef ?? new Uint8Array(0)),
     })
     .accountsPartial({
-      gatewayAuthority: params.gateway.gatewayAuthority.publicKey,
+      authority: params.gateway.gatewayAuthority.publicKey,
       protocolConfig: params.proto.protocolConfigPda,
       registryState: params.proto.registryStatePda,
       registry: findRegistryPda(programId, params.registryVersion),

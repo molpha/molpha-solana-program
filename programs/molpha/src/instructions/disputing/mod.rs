@@ -12,11 +12,7 @@ use anchor_lang::prelude::*;
 
 use crate::{error::map_attestation_err, error::MolphaError, state::SignedStatement};
 
-/// The Molpha message hash a statement's aggregate signature must be valid over.
-///
-/// Split out of [`verify_statement`] because `punish_nonce_reuse` needs to compare two
-/// statements' message hashes (its "distinct signed messages" predicate) before it is worth
-/// paying for the two `secp256k1_recover` syscalls signature verification costs.
+/// Message hash a statement aggregate must verify over.
 pub(crate) fn statement_message_hash(
     source_id: &[u8; 32],
     registry_version: u32,
@@ -36,12 +32,7 @@ pub(crate) fn statement_message_hash(
     )
 }
 
-/// Verify one signed statement's aggregate Schnorr signature against its resolved signers.
-///
-/// Shared by all three node-punishment offences: `punish_equivocation` and `punish_nonce_reuse`
-/// each call this once per statement (over each statement's own signer subset),
-/// `punish_unsolicited_signing` calls it once (over the full submitted signer set, since the
-/// signature itself is what proves the unselected node actually contributed).
+/// Verify one signed statement against its resolved signers.
 pub(crate) fn verify_statement(
     source_id: &[u8; 32],
     registry_version: u32,

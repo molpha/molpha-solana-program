@@ -7,27 +7,18 @@ pub struct ProtocolConfig {
     pub usdc_mint: Pubkey,
     pub treasury: Pubkey,
     pub reward_per_signature: u64,
-    pub gateway_fee: u64,
-    pub receipt_submitter_bonus: u64,
     pub protocol_fee_bps: u16,
     pub max_receipt_delay_slots: u64,
-    /// Fixed protocol fee per settled round (v0.2 §4.2 / §6).
+    /// Fixed protocol fee per settled x402 round.
     pub protocol_fee: u64,
-    /// Slots a settled round must wait before `finalize_round` can run (dispute window).
     pub dispute_window_slots: u64,
-    /// Minimum USDC bond a gateway must post to settle receipts.
     pub gateway_bond_min: u64,
-    /// Challenger reward, in bps of the slashed bond, on a successful dispute.
     pub challenger_bounty_bps: u16,
     pub max_node_count: u32,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_secs: i64,
-    // ---- x402 pay-per-request pricing (unified settlement spec v1.1). ----
-    /// Base price of an x402 round settlement (USDC atomic units).
     pub x402_round_base: u64,
-    /// Per-required-signature price component of an x402 round settlement.
-    /// Solvency invariant (ops-enforced): `x402_round_per_sig >= reward_per_signature`
-    /// and `x402_round_base >= registry.redundancy_buffer * reward_per_signature + gateway_fee`.
+    /// Ops should keep pricing solvent vs `reward_per_signature` and `protocol_fee`.
     pub x402_round_per_sig: u64,
     pub bump: u8,
 }

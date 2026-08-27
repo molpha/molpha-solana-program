@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    error::MolphaError,
     events::PlanUpdated,
     state::{Plan, PlanType, ProtocolConfig},
 };
@@ -17,12 +16,6 @@ pub struct UpdatePlanArgs {
 }
 
 pub fn update_plan(ctx: Context<UpdatePlan>, args: UpdatePlanArgs) -> Result<()> {
-    require_keys_eq!(
-        ctx.accounts.authority.key(),
-        ctx.accounts.protocol_config.authority,
-        MolphaError::UnauthorisedAuthority
-    );
-
     ctx.accounts.plan.update(
         args.plan_type,
         args.subscription_price,
@@ -46,9 +39,14 @@ pub fn update_plan(ctx: Context<UpdatePlan>, args: UpdatePlanArgs) -> Result<()>
 
 #[derive(Accounts)]
 pub struct UpdatePlan<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
     #[account(
+        mut,
+        has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
-        bump = protocol_config.bump,
+        bump
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
@@ -58,6 +56,4 @@ pub struct UpdatePlan<'info> {
         bump = plan.bump,
     )]
     pub plan: Account<'info, Plan>,
-
-    pub authority: Signer<'info>,
 }

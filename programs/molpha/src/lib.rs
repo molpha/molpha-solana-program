@@ -116,20 +116,12 @@ pub mod molpha {
         instructions::claim_node_rewards(ctx)
     }
 
-    pub fn claim_gateway_rewards(ctx: Context<ClaimGatewayRewards>) -> Result<()> {
-        instructions::claim_gateway_rewards(ctx)
-    }
-
-    // ---- Unified x402 settlement (gateway-funded, all payment rails). ----
-
     pub fn settle_x402_round<'info>(
         ctx: Context<SettleX402Round<'info>>,
         args: SettleX402RoundArgs,
     ) -> Result<()> {
         instructions::settle_x402_round(ctx, args)
     }
-
-    // ---- Node punishment. ----
 
     pub fn punish_equivocation<'info>(
         ctx: Context<'info, PunishEquivocation<'info>>,

@@ -23,7 +23,8 @@
     "molpha": "node cli/dist/index.js",
     "molpha:dev": "ts-node -r tsconfig-paths/register cli/src/index.ts",
     "register-nodes": "node scripts/generate-and-register-nodes.js",
-    "test:e2e-fixture": "yarn build:molpha && cp target/deploy/molpha.so tests/fixtures && RUST_LOG= jest --runInBand --verbose --forceExit --testPathIgnorePatterns=/node_modules/ --testPathPatterns=e2e-generate-fixture"
+    "test:e2e-fixture": "yarn build:molpha && cp target/deploy/molpha.so tests/fixtures && RUST_LOG= jest --runInBand --verbose --forceExit --testPathIgnorePatterns=/node_modules/ --testPathPatterns=e2e-generate-fixture",
+    "test:submit-attestation-cu": "yarn build:molpha && cp target/deploy/molpha.so tests/fixtures && RUST_LOG= jest --runInBand --verbose --forceExit --testPathIgnorePatterns=/node_modules/ --testPathPatterns=submit-attestation-cu"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

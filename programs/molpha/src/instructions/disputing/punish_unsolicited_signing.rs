@@ -1,5 +1,4 @@
-//! `punish_unsolicited_signing` — a node's signature appears in a valid Molpha
-//! attestation whose signer bitmap contains a bit outside the duty's deterministic selection set.
+//! Valid attestation with a signer outside the duty's deterministic selection set.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
@@ -19,14 +18,11 @@ use crate::{
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct PunishUnsolicitedSigningArgs {
     pub source_id: [u8; 32],
-    /// Registry version the statement was signed against; also the version `guilty_bitmap` on
-    /// `PunishmentCase` indexes into.
     pub registry_version: u32,
     pub signatures_required: u8,
     pub canonical_timestamp: u64,
     pub statement: SignedStatement,
-    /// Must equal `unsolicited_signing_evidence_hash(..)` over the fields above — validated in the
-    /// handler and reused as the `PunishmentCase` PDA seed (the anti-replay guard).
+    /// Must match `unsolicited_signing_evidence_hash(..)`; used as the `PunishmentCase` PDA seed.
     pub evidence_hash: [u8; 32],
     pub new_registry_version: u32,
 }
@@ -50,9 +46,7 @@ pub fn punish_unsolicited_signing<'info>(
         .registry_state
         .require_next_version(args.new_registry_version)?;
 
-    // ---- The guilty set is exactly the submitted bitmap minus the derived selection. Resolve
-    // the full submitted bitmap (not just the guilty bits) — the aggregate signature is only
-    // meaningful, and only checkable, over every signer that contributed to it. ----
+    // Resolve the full submitted bitmap; the aggregate is only verifiable over all contributors.
     let (resolved, guilty_bitmap, guilty_count) = {
         let evidence_registry = ctx.accounts.evidence_registry.load()?;
 
@@ -93,8 +87,6 @@ pub fn punish_unsolicited_signing<'info>(
         &ordered,
     )?;
 
-    // ---- Sentence: full slash + tombstone every guilty node, evict from a fresh registry
-    // snapshot, pay the reporter a bounty out of the total slashed. ----
     let reporter = ctx.accounts.reporter.key();
     let outcome = execute_punishment(
         ExecutePunishmentAccounts {
@@ -159,14 +151,12 @@ pub struct PunishUnsolicitedSigning<'info> {
     )]
     pub registry_state: Box<Account<'info, RegistryState>>,
 
-    /// The registry snapshot the statement was signed against.
     #[account(
         seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub evidence_registry: AccountLoader<'info, Registry>,
 
-    /// The live registry snapshot guilty nodes are evicted from. May equal `evidence_registry`.
     #[account(
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
         bump,

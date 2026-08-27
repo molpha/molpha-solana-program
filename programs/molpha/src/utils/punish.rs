@@ -1,8 +1,4 @@
-//! Reusable node-punishment mechanics — applying a [`Penalty`] to a node's funds/status,
-//! evicting victims from a fresh registry snapshot, and executing the shared sentence tail via
-//! [`execute_punishment`]. Offence-specific instructions prove their own guilty set, then call
-//! [`execute_punishment`] for slash / eviction / bounty / case init / registry-version event.
-//! Round-dispute bounty (`dispute_round`) stays inline — different account wiring.
+//! Shared node punishment: apply penalties, evict victims, and run the common sentence tail.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, TokenAccount, Transfer};
@@ -34,15 +30,7 @@ fn bps_of(amount: u64, bps: u16) -> u64 {
     (amount as u128 * bps as u128 / 10_000) as u64
 }
 
-/// Apply `penalty` to `node`'s fund and status fields.
-///
-/// Fund effects always run; registry-membership eviction is resolved separately by the caller via
-/// [`evict_nodes`], since that needs the current registry snapshot which this function does not
-/// have.
-///
-/// Rejects an already-`Tombstoned` node: the terminal state is idempotent, and silently no-op'ing
-/// a re-slash of a zeroed balance would mask a double-submission bug in the caller instead of
-/// surfacing it.
+/// Apply `penalty` to `node`. Registry eviction is handled separately by the caller.
 pub fn apply_penalty(node: &mut Node, penalty: Penalty, now: i64) -> Result<PenaltyOutcome> {
     require!(
         node.status != NodeStatus::Tombstoned,
@@ -75,24 +63,12 @@ pub fn apply_penalty(node: &mut Node, penalty: Penalty, now: i64) -> Result<Pena
 /// Outcome of a [`punish_guilty_nodes`] batch.
 #[derive(Clone, Debug, Default)]
 pub struct PunishmentBatch {
-    /// Nodes actually slashed, in resolution order. Feeds [`evict_nodes`].
-    /// Length may be less than `guilty_bitmap.count_ones()` when a guilty bit belongs to a node
-    /// already `Tombstoned` by an earlier case; that bit is skipped rather than erroring.
+    /// Nodes slashed in resolution order; may be shorter than `guilty_bitmap` if some are tombstoned.
     pub victims: Vec<Pubkey>,
     pub slashed_total: u64,
 }
 
-/// Apply `offence`'s [`Penalty`] to every guilty node and emit a [`NodePunished`] event per victim.
-///
-/// `resolved` and `remaining_accounts` must be the same length and pairwise-aligned — the shape
-/// [`crate::state::resolve_registry_signers_indexed`] and `ctx.remaining_accounts` already share.
-/// A bit in `guilty_bitmap` outside `resolved`'s bit positions is simply never matched, so callers
-/// must resolve at least the guilty bitmap (a superset, e.g. a signature's full signer set, is
-/// fine).
-///
-/// Already-`Tombstoned` nodes are skipped rather than propagating [`apply_penalty`]'s
-/// `NodeTombstoned` error: one previously-punished node named in a batch must not shield every
-/// other guilty node in the same transaction from punishment.
+/// Slash every guilty node. Already-tombstoned nodes are skipped so one stale bit cannot block the batch.
 pub fn punish_guilty_nodes<'info>(
     remaining_accounts: &'info [AccountInfo<'info>],
     resolved: &[(usize, molpha_verifier::SignerXy)],
@@ -135,14 +111,7 @@ pub fn punish_guilty_nodes<'info>(
     Ok(batch)
 }
 
-/// Evict `victims` from a fresh registry snapshot copied from `current`.
-///
-/// Victims are located by scanning `nodes[..node_count]` on every iteration rather than by a
-/// client-supplied index: `Registry::swap_remove` moves the last node into the removed slot, so
-/// removing more than one node in a batch by stale indices is a footgun once an earlier removal
-/// has shifted a later victim. Silently skips a victim no longer present in the registry (e.g. it
-/// already self-deactivated) — punishment always applies the fund/status penalty via
-/// [`apply_penalty`] regardless of current registry membership.
+/// Evict `victims` into a fresh registry snapshot. Rescans by pubkey because `swap_remove` shifts indices.
 pub fn evict_nodes(
     current: &Registry,
     next: &mut Registry,
@@ -327,7 +296,7 @@ mod tests {
         assert_eq!(node.locked_amount, 0);
         assert_eq!(node.claimable_rewards, 0);
         assert_eq!(node.status, NodeStatus::Tombstoned);
-        assert_eq!(node.punished_at, 100);
+        assert_eq!(node.punished_at, 0);
     }
 
     #[test]
@@ -374,7 +343,6 @@ mod tests {
         assert_eq!(node.locked_amount, 50_000_001);
         assert_eq!(node.claimable_rewards, 2);
         assert_eq!(node.status, NodeStatus::Tombstoned);
-        // The `Tombstone` arm must not write `frozen_until` — that field is `Freeze`-only.
         assert_eq!(node.frozen_until, 0);
     }
 
@@ -405,8 +373,6 @@ mod tests {
 
     #[test]
     fn evict_nodes_handles_swap_index_hazard() {
-        // Removing node[0] first swaps the last node (n3) into slot 0. A later victim that was
-        // originally at index 3 must still be found by rescanning, not by a stale index.
         let n0 = Pubkey::new_unique();
         let n1 = Pubkey::new_unique();
         let n2 = Pubkey::new_unique();
@@ -421,7 +387,6 @@ mod tests {
             .collect();
         assert!(remaining.contains(&n1));
         assert!(remaining.contains(&n2));
-        // Source snapshot is untouched.
         assert_eq!(current.node_count, 4);
     }
 

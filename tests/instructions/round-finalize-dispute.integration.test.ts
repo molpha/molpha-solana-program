@@ -305,18 +305,10 @@ describe("rounds: finalize + dispute through the shared path", () => {
     const nodeAfter = await proto.program.account.node.fetch(
       registeredNodePda(proto.program.programId, 0)
     );
-    const gwAfter = await proto.program.account.gateway.fetch(
-      gateway.gatewayPda
-    );
     assert.equal(
       nodeAfter.claimableRewards.toNumber() -
         nodeBefore.claimableRewards.toNumber(),
       INIT.rewardPerSignature
-    );
-    assert.equal(
-      gwAfter.claimableRewards.toNumber() -
-        gwBefore.claimableRewards.toNumber(),
-      INIT.gatewayFee
     );
 
     const record = await proto.program.account.roundReceiptRecord.fetch(
@@ -618,7 +610,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
         consumerAuthority: ctx.authority.publicKey,
       })
       .accountsPartial({
-        payer: ctx.authority.publicKey,
+        authority: subGateway.gatewayAuthority.publicKey,
         protocolConfig: proto.protocolConfigPda,
         registryState: proto.registryStatePda,
         registry: registryPda,
@@ -637,6 +629,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
         }))
       )
       .preInstructions([consumerSigIx])
+      .signers([subGateway.gatewayAuthority])
       .rpc();
 
     const subAfterSettle = await proto.program.account.subscription.fetch(
@@ -744,7 +737,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
         consumerAuthority: delegateHotKey.publicKey,
       })
       .accountsPartial({
-        payer: ctx.authority.publicKey,
+        authority: subGateway.gatewayAuthority.publicKey,
         protocolConfig: proto.protocolConfigPda,
         registryState: proto.registryStatePda,
         registry: registryPda,
@@ -763,6 +756,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
         }))
       )
       .preInstructions([consumerSigIx])
+      .signers([subGateway.gatewayAuthority])
       .rpc();
 
     const subAfterSettle = await proto.program.account.subscription.fetch(
@@ -857,7 +851,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
         consumerAuthority: ctx.authority.publicKey,
       })
       .accountsPartial({
-        payer: ctx.authority.publicKey,
+        authority: gateway.gatewayAuthority.publicKey,
         protocolConfig: proto.protocolConfigPda,
         registryState: proto.registryStatePda,
         registry: registryPda,
@@ -875,6 +869,7 @@ describe("rounds: finalize + dispute through the shared path", () => {
           isSigner: false,
         },
       ])
+      .signers([gateway.gatewayAuthority])
       .preInstructions([consumerSigIx])
       .rpc();
 

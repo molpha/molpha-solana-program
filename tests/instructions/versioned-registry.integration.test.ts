@@ -62,7 +62,6 @@ describe("immutable versioned node registry", () => {
           minimumNodeDeposit: new BN(100_000_000),
           rewardPerSignature: new BN(10),
           gatewayFee: new BN(20),
-          receiptSubmitterBonus: new BN(5),
           protocolFeeBps: 100,
           maxReceiptDelaySlots: new BN(256),
           protocolFee: new BN(30),
