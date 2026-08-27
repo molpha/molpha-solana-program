@@ -26,6 +26,7 @@ pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()>
         &ctx.accounts.registry.to_account_info(),
         signature,
         &record.attestation_message_hash,
+        record.registry_version,
         ctx.remaining_accounts,
         ctx.program_id,
     )

@@ -1938,7 +1938,7 @@ dependencies = [
  "anchor-spl",
  "borsh",
  "bytemuck",
- "molpha-verifier",
+ "molpha-verifier 0.3.0-dev.6",
  "solana-instructions-sysvar 3.0.1",
  "solana-keccak-hasher",
 ]
@@ -1955,7 +1955,7 @@ dependencies = [
  "libsecp256k1 0.7.2",
  "litesvm",
  "molpha",
- "molpha-verifier",
+ "molpha-verifier 0.3.0",
  "serde_json",
  "solana-account",
  "solana-clock",
@@ -1966,6 +1966,22 @@ dependencies = [
  "solana-signer",
  "solana-transaction",
  "solana-transaction-error",
+]
+
+[[package]]
+name = "molpha-verifier"
+version = "0.3.0-dev.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0001edc7015754f701ec0d265648ade411942df4893f0cc1b291b155945b4554"
+dependencies = [
+ "borsh",
+ "ethnum",
+ "libsecp256k1 0.6.0",
+ "solana-account-info",
+ "solana-keccak-hasher",
+ "solana-program-error",
+ "solana-pubkey 3.0.0",
+ "solana-secp256k1-recover",
 ]
 
 [[package]]
