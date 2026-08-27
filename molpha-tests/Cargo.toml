@@ -1,0 +1,33 @@
+[package]
+name = "molpha-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "LiteSVM integration tests for the Molpha Solana program"
+
+[lib]
+name = "molpha_tests"
+path = "src/lib.rs"
+
+[dependencies]
+molpha = { path = "../programs/molpha", features = ["no-entrypoint"] }
+molpha-verifier = { path = "../../molpha-verifier", features = ["solana"] }
+anchor-lang = "1.1.2"
+anchor-spl = { version = "1.1.2", default-features = false, features = [
+    "associated_token",
+    "token",
+] }
+litesvm = { version = "0.16.0", features = ["precompiles"] }
+solana-account = "*"
+solana-clock = "*"
+solana-keypair = "*"
+solana-message = "*"
+solana-signer = "*"
+solana-transaction = { version = "*", features = ["serde"] }
+libsecp256k1 = "0.7"
+serde_json = "1"
+solana-keccak-hasher = { version = "3.1.0", features = ["sha3"] }
+solana-transaction-error = "*"
+solana-instruction = "*"
+base64 = "0.23.1"
+bincode = "1.3"
