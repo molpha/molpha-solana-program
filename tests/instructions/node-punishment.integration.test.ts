@@ -128,8 +128,6 @@ async function setupPunishmentFixture(): Promise<PunishmentFixture> {
       redundancyBuffer: REDUNDANCY_BUFFER,
       minimumNodeDeposit: new BN(MIN_DEPOSIT),
       rewardPerSignature: new BN(1_000_000),
-      gatewayFee: new BN(20),
-      protocolFeeBps: 100,
       maxReceiptDelaySlots: new BN(256),
       protocolFee: new BN(30),
       disputeWindowSlots: new BN(5),
@@ -284,9 +282,11 @@ async function callPunishEquivocation(
       currentRegistry: currentRegistryPda,
       newRegistry: newRegistryPda,
       punishmentCase: punishmentCasePda,
+      usdcMint: fixture.ctx.underlyingTokenMint,
       treasury: fixture.treasury,
       reporterUsdc: fixture.ctx.userTokenAccount,
       tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(remainingAccounts)

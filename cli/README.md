@@ -84,7 +84,7 @@ yarn molpha plan add \
 
 yarn molpha plan add --plan-type basic --subscription-price 20000000 --max-signers 3 --max-delegates 10 --private-api-enabled --cluster devnet
 
-yarn molpha subscription subscribe --plan-id 1 --owner-usdc <OWNER_USDC_ATA>
+yarn molpha subscription subscribe --plan-id 1
 ```
 
 Register a node and submit an attestation. The first submit lazy-inits the feed:
@@ -94,8 +94,7 @@ yarn molpha registry register \
   --secp-pubkey <COMPRESSED_SECP256K1_PUBKEY> \
   --registration-salt <32_BYTE_HEX> \
   --pop-sig-r <32_BYTE_EVEN_NONCE_X_HEX> \
-  --pop-sig-s <32_BYTE_RESPONSE_SCALAR_HEX> \
-  --owner-usdc <OWNER_USDC_ATA>
+  --pop-sig-s <32_BYTE_RESPONSE_SCALAR_HEX>
 
 yarn molpha attestation submit \
   --source-id <SOURCE_ID_HEX> \
@@ -147,7 +146,7 @@ yarn molpha rewards claim-node
 yarn molpha gateway claim
 ```
 
-A gateway-funded x402 round (any payment rail; the gateway pays from its own USDC float and
+A gateway-funded x402 round (any payment rail; the gateway pays from its canonical USDC ATA and
 records how it was paid as attested metadata — see the program docs for `settle_x402_round`):
 
 ```bash
@@ -173,6 +172,8 @@ yarn molpha round settle-x402 \
 - There is no `Job` account or `create_job` instruction. Feeds are created via
   `init_if_needed` inside `submit_attestation`. `source_id` is a caller-provided
   32-byte identifier.
+- USDC accounts are always canonical ATAs derived by the CLI. Reward, challenger, and reporter
+  ATAs are created by the program when missing; funded source ATAs must already exist.
 - `attestation verify` only rebuilds/prints submit args off chain; verification happens on submit.
 - Subscription payment uses monthly `subscribe` / `extend` (not per-round top-ups).
 - `round settle-subscription` requires an Ed25519 RequestAuth pre-instruction; provide

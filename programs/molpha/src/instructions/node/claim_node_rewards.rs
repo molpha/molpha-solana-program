@@ -1,7 +1,10 @@
 //! Withdraw finalized rewards from a permanent Node account.
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{self, Mint, Token, TokenAccount, Transfer},
+};
 
 use crate::{
     error::MolphaError,
@@ -40,6 +43,7 @@ pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
 
 #[derive(Accounts)]
 pub struct ClaimNodeRewards<'info> {
+    #[account(mut)]
     pub owner: Signer<'info>,
 
     #[account(
@@ -57,18 +61,28 @@ pub struct ClaimNodeRewards<'info> {
     pub node: Account<'info, Node>,
 
     #[account(
+        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidMint
+    )]
+    pub usdc_mint: Box<Account<'info, Mint>>,
+
+    #[account(
         mut,
-        constraint = treasury.key() == protocol_config.treasury @ MolphaError::InvalidTreasury,
-        constraint = treasury.owner == protocol_config.key() @ MolphaError::InvalidTreasuryOwner,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = protocol_config,
+        associated_token::token_program = token_program,
     )]
     pub treasury: Account<'info, TokenAccount>,
 
     #[account(
-        mut,
-        constraint = destination.mint == protocol_config.usdc_mint @ MolphaError::InvalidWithdrawDestination,
-        constraint = destination.owner == owner.key() @ MolphaError::InvalidWithdrawDestination,
+        init_if_needed,
+        payer = owner,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = owner,
+        associated_token::token_program = token_program,
     )]
     pub destination: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
 }

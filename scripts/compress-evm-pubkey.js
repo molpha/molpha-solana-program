@@ -123,7 +123,7 @@ function main() {
     console.log(
       `  yarn molpha registry register --secp-pubkey 0x${compressed.toString(
         "hex"
-      )} --registration-salt <32_BYTE_HEX> --owner-usdc <ATA>`
+      )} --registration-salt <32_BYTE_HEX>`
     );
     console.log("");
   } catch (error) {

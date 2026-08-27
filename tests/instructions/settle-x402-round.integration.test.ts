@@ -30,7 +30,7 @@ const API_SOURCE_ID = Uint8Array.from(Buffer.alloc(32, 0x24));
 
 /**
  * Unified x402 settlement: a bonded gateway pays the protocol-quoted price from its own USDC
- * "float" (any token account it controls) into the treasury. Payment rail / ref / payer_id are
+ * canonical USDC ATA into the treasury. Payment rail / ref / payer_id are
  * instruction args (and event fields) only — the slim round receipt no longer stores them.
  * Bond and float are structurally separate — the bond ATA's SPL authority is the Gateway PDA,
  * not the gateway authority, so it can never be named as the float. Replay is guarded by the
@@ -215,9 +215,9 @@ describe("settle_x402_round (gateway-funded, all payment rails)", () => {
           gatewayUsdcOverride: gateway.gatewayBondAta,
         })
       );
-      assert.fail("expected InvalidOwnerUsdc");
+      assert.fail("expected ConstraintTokenOwner");
     } catch (e: any) {
-      assert.include(e.toString(), "InvalidOwnerUsdc");
+      assert.include(e.toString(), "ConstraintTokenOwner");
     }
     assert.equal(
       await readTokenAmount(ctx, gateway.gatewayBondAta),
@@ -239,9 +239,28 @@ describe("settle_x402_round (gateway-funded, all payment rails)", () => {
       await settleX402Round(
         baseParams(newPayerId(), { gatewayUsdcOverride: strangerAta })
       );
-      assert.fail("expected InvalidOwnerUsdc");
+      assert.fail("expected ConstraintTokenOwner");
     } catch (e: any) {
-      assert.include(e.toString(), "InvalidOwnerUsdc");
+      assert.include(e.toString(), "ConstraintTokenOwner");
+    }
+  });
+
+  it("rejects a same-owner, same-mint token account that is not the gateway ATA", async () => {
+    const nonAta = Keypair.generate().publicKey;
+    fundAtaInBankrun(
+      ctx,
+      nonAta,
+      proto.usdcMint,
+      gateway.gatewayAuthority.publicKey,
+      1_000_000
+    );
+    try {
+      await settleX402Round(
+        baseParams(newPayerId(), { gatewayUsdcOverride: nonAta })
+      );
+      assert.fail("expected ConstraintAssociated");
+    } catch (e: any) {
+      assert.include(e.toString(), "ConstraintAssociated");
     }
   });
 

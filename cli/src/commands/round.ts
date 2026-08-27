@@ -1,5 +1,6 @@
 import { BN } from "@coral-xyz/anchor";
 import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
@@ -223,10 +224,6 @@ export function registerRoundCommands(program: Command): void {
       "--payment-ref <hex>",
       "opaque payment reference (tx hash / facilitator receipt), <= 64 bytes"
     )
-    .option(
-      "--gateway-usdc <pubkey>",
-      "gateway float token account; defaults to the gateway authority's own USDC ATA"
-    )
     .option("--value <hex>", "oracle value bytes (hex)", "0x" + "00".repeat(32))
     .option("--agg-sig <path>", "JSON AggregatedSig file")
     .option("--signers-bitmap <hex>", "32-byte credited signers bitmap")
@@ -252,12 +249,10 @@ export function registerRoundCommands(program: Command): void {
         ctx.programId,
         gatewayAuthority.publicKey
       );
-      const gatewayUsdc = options.gatewayUsdc
-        ? parsePublicKey(options.gatewayUsdc, "gateway USDC account")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            gatewayAuthority.publicKey
-          );
+      const gatewayUsdc = getAssociatedTokenAddressSync(
+        protocolConfig.usdcMint,
+        gatewayAuthority.publicKey
+      );
 
       const payerId = hexToBytes(options.payerId, 32, "payer id");
       const sourceId = hexToBytes(options.sourceId, 32, "source id");
@@ -436,7 +431,6 @@ export function registerRoundCommands(program: Command): void {
       "--gateway-authority <pubkey>",
       "gateway authority pubkey (for PDA)"
     )
-    .option("--challenger-usdc <pubkey>", "challenger USDC ATA")
     .option(
       "--subscription <pubkey>",
       "subscription account (required for subscription rounds; omit for x402 rounds — they are never refunded)"
@@ -478,12 +472,10 @@ export function registerRoundCommands(program: Command): void {
         protocolConfig.usdcMint,
         gatewayPda
       );
-      const challengerUsdc = options.challengerUsdc
-        ? parsePublicKey(options.challengerUsdc, "challenger USDC")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            ctx.wallet.publicKey
-          );
+      const challengerUsdc = getAssociatedTokenAddressSync(
+        protocolConfig.usdcMint,
+        ctx.wallet.publicKey
+      );
 
       // `record.kind` discriminates the funding path: subscription rounds are restored on a
       // successful dispute; x402 rounds are never refunded (the price came from the gateway's
@@ -504,10 +496,13 @@ export function registerRoundCommands(program: Command): void {
           registry: registryPda,
           roundRecord,
           gateway: gatewayPda,
+          usdcMint: protocolConfig.usdcMint,
           gatewayBond,
           treasury: protocolConfig.treasury,
           challengerUsdc,
           tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
           subscription,
         })
         .remainingAccounts(

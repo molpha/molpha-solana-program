@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token_interface::{Mint, TokenAccount, TokenInterface},
+    token::{Mint, Token, TokenAccount},
 };
 
 use crate::{
@@ -17,7 +17,6 @@ pub struct InitializeArgs {
     pub redundancy_buffer: u8,
     pub minimum_node_deposit: u64,
     pub reward_per_signature: u64,
-    pub protocol_fee_bps: u16,
     pub max_receipt_delay_slots: u64,
     pub protocol_fee: u64,
     pub dispute_window_slots: u64,
@@ -43,9 +42,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.authority = ctx.accounts.authority.key();
     protocol_config.usdc_mint = args.usdc_mint;
-    protocol_config.treasury = ctx.accounts.treasury.key();
     protocol_config.reward_per_signature = args.reward_per_signature;
-    protocol_config.protocol_fee_bps = args.protocol_fee_bps;
     protocol_config.max_receipt_delay_slots = args.max_receipt_delay_slots;
     protocol_config.protocol_fee = args.protocol_fee;
     protocol_config.dispute_window_slots = args.dispute_window_slots;
@@ -78,6 +75,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
 }
 
 #[derive(Accounts)]
+#[instruction(args: InitializeArgs)]
 pub struct Initialize<'info> {
     #[account(
         init,
@@ -106,7 +104,10 @@ pub struct Initialize<'info> {
     )]
     pub registry: AccountLoader<'info, Registry>,
 
-    pub usdc_mint: InterfaceAccount<'info, Mint>,
+    #[account(
+        constraint = usdc_mint.key() == args.usdc_mint @ MolphaError::InvalidMint
+    )]
+    pub usdc_mint: Account<'info, Mint>,
 
     #[account(
         init,
@@ -115,12 +116,12 @@ pub struct Initialize<'info> {
         associated_token::authority = protocol_config,
         associated_token::token_program = token_program,
     )]
-    pub treasury: InterfaceAccount<'info, TokenAccount>,
+    pub treasury: Account<'info, TokenAccount>,
 
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    pub token_program: Interface<'info, TokenInterface>,
+    pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
@@ -137,7 +138,6 @@ mod tests {
             redundancy_buffer: 2,
             minimum_node_deposit: 100_000_000,
             reward_per_signature: 10,
-            protocol_fee_bps: 100,
             max_receipt_delay_slots: 256,
             protocol_fee: 30,
             dispute_window_slots: 1024,
@@ -158,7 +158,6 @@ mod tests {
         assert_eq!(decoded.max_node_count, args.max_node_count);
         assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
         assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
-        assert_eq!(decoded.protocol_fee_bps, args.protocol_fee_bps);
         assert_eq!(
             decoded.max_receipt_delay_slots,
             args.max_receipt_delay_slots

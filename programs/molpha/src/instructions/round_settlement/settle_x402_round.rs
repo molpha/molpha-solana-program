@@ -160,15 +160,17 @@ pub struct SettleX402Round<'info> {
 
     #[account(
         mut,
-        constraint = gateway_usdc.mint == usdc_mint.key() @ MolphaError::InvalidOwnerUsdc,
-        constraint = gateway_usdc.owner == authority.key() @ MolphaError::InvalidOwnerUsdc,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = authority,
+        associated_token::token_program = token_program,
     )]
     pub gateway_usdc: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
-        constraint = treasury.key() == protocol_config.treasury @ MolphaError::InvalidTreasury,
-        constraint = treasury.mint == usdc_mint.key() @ MolphaError::InvalidTreasury,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = protocol_config,
+        associated_token::token_program = token_program,
     )]
     pub treasury: Box<Account<'info, TokenAccount>>,
 

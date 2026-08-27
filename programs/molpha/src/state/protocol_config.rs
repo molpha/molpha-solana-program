@@ -5,9 +5,7 @@ use anchor_lang::prelude::*;
 pub struct ProtocolConfig {
     pub authority: Pubkey,
     pub usdc_mint: Pubkey,
-    pub treasury: Pubkey,
     pub reward_per_signature: u64,
-    pub protocol_fee_bps: u16,
     pub max_receipt_delay_slots: u64,
     /// Fixed protocol fee per settled x402 round.
     pub protocol_fee: u64,

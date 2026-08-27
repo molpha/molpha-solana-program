@@ -5,7 +5,6 @@ use crate::state::{FeedValueKind, NodeStatus, OffenceKind};
 #[event]
 pub struct ProtocolConfigUpdated {
     pub reward_per_signature: u64,
-    pub protocol_fee_bps: u16,
     pub max_receipt_delay_slots: u64,
     pub protocol_fee: u64,
     pub dispute_window_slots: u64,

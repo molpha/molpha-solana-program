@@ -15,8 +15,6 @@ type UpdateConfigFile = {
   maxNodeCount?: number;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
-  gatewayFee?: string;
-  protocolFeeBps?: number;
   maxReceiptDelaySlots?: string;
   protocolFee?: string;
   disputeWindowSlots?: string;
@@ -31,8 +29,6 @@ type ProtocolConfigAccount = {
   maxNodeCount: number;
   minimumNodeDeposit: { toString(): string };
   rewardPerSignature: { toString(): string };
-  gatewayFee: { toString(): string };
-  protocolFeeBps: number;
   maxReceiptDelaySlots: { toString(): string };
   protocolFee: { toString(): string };
   disputeWindowSlots: { toString(): string };
@@ -51,9 +47,7 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .option("--max-node-count <count>", "max registry size")
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
-    .option("--gateway-fee <amount>", "gateway fee")
     .option("--receipt-submitter-bonus <amount>", "receipt submitter bonus")
-    .option("--protocol-fee-bps <bps>", "protocol fee in basis points")
     .option("--max-receipt-delay-slots <slots>", "max receipt delay")
     .option("--protocol-fee <amount>", "fixed protocol fee per round")
     .option("--dispute-window-slots <slots>", "settled round dispute window")
@@ -138,21 +132,6 @@ function buildUpdateConfigArgs(
       ),
       "reward per signature"
     ),
-    gatewayFee: bn(
-      requireValue(
-        optionOrConfig(
-          options.gatewayFee as string | undefined,
-          config.gatewayFee
-        ) ?? current.gatewayFee.toString(),
-        "gateway fee"
-      ),
-      "gateway fee"
-    ),
-    protocolFeeBps:
-      optionOrConfig(
-        options.protocolFeeBps as number | undefined,
-        config.protocolFeeBps
-      ) ?? current.protocolFeeBps,
     maxReceiptDelaySlots: bn(
       requireValue(
         optionOrConfig(

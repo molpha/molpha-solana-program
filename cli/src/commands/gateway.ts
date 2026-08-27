@@ -17,7 +17,6 @@ import {
   loadKeypair,
   parseInteger,
   parseIpv4,
-  parsePublicKey,
   writeJson,
 } from "../lib/utils";
 
@@ -37,7 +36,6 @@ export function registerGatewayCommands(program: Command): void {
       "--gateway-wallet <path>",
       "gateway authority keypair; defaults to provider wallet"
     )
-    .option("--authority-usdc <pubkey>", "gateway authority USDC ATA")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
@@ -57,12 +55,10 @@ export function registerGatewayCommands(program: Command): void {
         ctx.programId,
         gatewayAuthority.publicKey
       );
-      const authorityUsdc = options.authorityUsdc
-        ? parsePublicKey(options.authorityUsdc, "authority USDC")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            gatewayAuthority.publicKey
-          );
+      const authorityUsdc = getAssociatedTokenAddressSync(
+        protocolConfig.usdcMint,
+        gatewayAuthority.publicKey
+      );
       const gatewayBond = findGatewayBondAta(
         protocolConfig.usdcMint,
         gatewayPda

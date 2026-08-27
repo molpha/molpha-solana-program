@@ -26,8 +26,6 @@ type InitConfig = {
   redundancyBuffer?: number;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
-  gatewayFee?: string;
-  protocolFeeBps?: number;
   maxReceiptDelaySlots?: string;
   protocolFee?: string;
   disputeWindowSlots?: string;
@@ -51,8 +49,6 @@ export function registerInitCommand(program: Command): void {
     )
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
-    .option("--gateway-fee <amount>", "gateway fee")
-    .option("--protocol-fee-bps <bps>", "protocol fee in basis points")
     .option("--max-receipt-delay-slots <slots>", "max receipt delay")
     .option("--protocol-fee <amount>", "fixed protocol fee per round")
     .option("--dispute-window-slots <slots>", "settled round dispute window")
@@ -112,19 +108,6 @@ export function registerInitCommand(program: Command): void {
             "Missing --reward-per-signature"
           ),
           "reward per signature"
-        ),
-        gatewayFee: bn(
-          requireValue(
-            optionOrConfig(options.gatewayFee, config.gatewayFee),
-            "Missing --gateway-fee"
-          ),
-          "gateway fee"
-        ),
-        protocolFeeBps: Number(
-          requireValue(
-            optionOrConfig(options.protocolFeeBps, config.protocolFeeBps),
-            "Missing --protocol-fee-bps"
-          )
         ),
         maxReceiptDelaySlots: bn(
           requireValue(

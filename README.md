@@ -44,7 +44,7 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 
 - Two settlement instructions, discriminated by funding source: `settle_subscription_round`
   (draws down a subscription's round quota) and `settle_x402_round` (a bonded gateway pays the
-  protocol-quoted price from its own USDC float — any payment rail, e.g. Solana or Base x402 —
+  protocol-quoted price from its canonical USDC ATA — any payment rail, e.g. Solana or Base x402 —
   and records `payment_rail` / `payment_ref` as attested, gateway-claimed metadata the program
   never verifies). Both take `source_id` directly (not a derived `feed_id` / `api_config_hash`).
 - `RequestAuth` is `H(source_id, signatures_required, timestamp)`, verified on-chain for the
@@ -222,7 +222,7 @@ submit_attestation → init feed if needed → verify bitmap + signature → upd
 Consumers read Feed account OR CPI verify_attestation (no write)
         ↓
 Gateway settle_subscription_round (subscription draw) OR
-Gateway settle_x402_round (pays price from its own USDC float, any rail)
+Gateway settle_x402_round (pays price from its canonical USDC ATA, any rail)
 ```
 
 ### PDA seeds

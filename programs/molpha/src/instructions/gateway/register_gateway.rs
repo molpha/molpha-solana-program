@@ -90,8 +90,9 @@ pub struct RegisterGateway<'info> {
 
     #[account(
         mut,
-        constraint = authority_usdc.mint == usdc_mint.key() @ MolphaError::InvalidOwnerUsdc,
-        constraint = authority_usdc.owner == gateway_authority.key() @ MolphaError::InvalidOwnerUsdc,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = gateway_authority,
+        associated_token::token_program = token_program,
     )]
     pub authority_usdc: Account<'info, TokenAccount>,
 
@@ -100,6 +101,7 @@ pub struct RegisterGateway<'info> {
         payer = gateway_authority,
         associated_token::mint = usdc_mint,
         associated_token::authority = gateway,
+        associated_token::token_program = token_program,
     )]
     pub gateway_bond: Account<'info, TokenAccount>,
 

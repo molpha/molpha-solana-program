@@ -7,6 +7,7 @@ import { assert } from "chai";
 import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { setupTestContext, TestContext } from "../setup";
@@ -30,8 +31,6 @@ const INIT_ARGS = {
   redundancyBuffer: 2,
   minimumNodeDeposit: new BN(100_000_000),
   rewardPerSignature: new BN(10),
-  gatewayFee: new BN(20),
-  protocolFeeBps: 100,
   maxReceiptDelaySlots: new BN(256),
   protocolFee: new BN(30),
   disputeWindowSlots: new BN(1_024),
@@ -86,7 +85,8 @@ async function readTokenAmount(
 function seedMint(
   ctx: TestContext,
   mint: PublicKey,
-  mintAuthority: PublicKey
+  mintAuthority: PublicKey,
+  tokenProgram: PublicKey = TOKEN_PROGRAM_ID
 ): void {
   const mintData = Buffer.alloc(82);
   mintData.writeUInt32LE(1, 0);
@@ -97,7 +97,7 @@ function seedMint(
   mintData.writeUInt32LE(0, 46);
   ctx.provider.context.setAccount(mint, {
     lamports: 1_000_000_000,
-    owner: TOKEN_PROGRAM_ID,
+    owner: tokenProgram,
     executable: false,
     data: mintData,
   });
@@ -152,9 +152,7 @@ describe("protocol initialization", () => {
       protocolConfig.usdcMint.toBase58(),
       ctx.underlyingTokenMint.toBase58()
     );
-    assert.equal(protocolConfig.treasury.toBase58(), treasury.toBase58());
     assert.equal(protocolConfig.rewardPerSignature.toString(), "10");
-    assert.equal(protocolConfig.protocolFeeBps, 100);
     assert.equal(protocolConfig.maxReceiptDelaySlots.toString(), "256");
     assert.equal(protocolConfig.protocolFee.toString(), "30");
     assert.equal(protocolConfig.disputeWindowSlots.toString(), "1024");
@@ -265,7 +263,25 @@ describe("protocol initialization", () => {
         .rpc();
       assert.fail("expected mint mismatch to fail");
     } catch (error: any) {
-      assert.include(String(error), "InvalidOwnerUsdc");
+      assert.include(String(error), "InvalidMint");
+    }
+  });
+
+  it("rejects a Token-2022 mint", async () => {
+    const ctx = await setupTestContext();
+    const token2022Mint = Keypair.generate().publicKey;
+    seedMint(
+      ctx,
+      token2022Mint,
+      ctx.authority.publicKey,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    try {
+      await initializeProtocol(ctx, { usdcMint: token2022Mint });
+      assert.fail("expected Token-2022 mint to fail");
+    } catch (error: any) {
+      assert.include(String(error), "AccountOwnedByWrongProgram");
     }
   });
 

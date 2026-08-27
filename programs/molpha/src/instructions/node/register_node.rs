@@ -200,15 +200,17 @@ pub struct RegisterNode<'info> {
 
     #[account(
         mut,
-        constraint = owner_usdc.mint == usdc_mint.key() @ MolphaError::InvalidOwnerUsdc,
-        constraint = owner_usdc.owner == node_owner.key() @ MolphaError::InvalidOwnerUsdc,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = node_owner,
+        associated_token::token_program = token_program,
     )]
     pub owner_usdc: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
-        constraint = treasury.key() == protocol_config.treasury @ MolphaError::InvalidTreasury,
-        constraint = treasury.mint == usdc_mint.key() @ MolphaError::InvalidTreasury,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = protocol_config,
+        associated_token::token_program = token_program,
     )]
     pub treasury: Box<Account<'info, TokenAccount>>,
 

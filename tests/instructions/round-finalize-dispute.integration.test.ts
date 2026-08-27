@@ -9,6 +9,7 @@ import {
   SYSVAR_INSTRUCTIONS_PUBKEY,
 } from "@solana/web3.js";
 import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
@@ -150,10 +151,13 @@ describe("rounds: finalize + dispute through the shared path", () => {
         registry: params.registry ?? registryPda,
         roundRecord: params.roundRecord,
         gateway: params.gateway.gatewayPda,
+        usdcMint: proto.usdcMint,
         gatewayBond: params.gateway.gatewayBondAta,
         treasury: proto.treasury,
         challengerUsdc: params.challengerUsdc,
         tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
         subscription: params.subscription ?? null,
       })
       .remainingAccounts(
@@ -347,11 +351,18 @@ describe("rounds: finalize + dispute through the shared path", () => {
     });
 
     const challenger = ctx.nodes[30];
-    const challengerUsdc = await fundNodeOwnerInBankrun(
-      ctx,
-      challenger,
+    ctx.provider.context.setAccount(challenger.publicKey, {
+      lamports: 10_000_000_000,
+      owner: SystemProgram.programId,
+      executable: false,
+      data: Buffer.alloc(0),
+    });
+    const challengerUsdc = getAssociatedTokenAddressSync(
       ctx.underlyingTokenMint,
-      BigInt(0)
+      challenger.publicKey
+    );
+    assert.isNull(
+      await ctx.provider.context.banksClient.getAccount(challengerUsdc)
     );
 
     const expectedBounty = BigInt(
@@ -943,9 +954,12 @@ describe("rounds: finalize + dispute through the shared path", () => {
         owner: nodeOwner.publicKey,
         protocolConfig: proto.protocolConfigPda,
         node,
+        usdcMint: proto.usdcMint,
         treasury: proto.treasury,
         destination,
         tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .signers([nodeOwner])
       .rpc();

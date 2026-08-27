@@ -40,7 +40,6 @@ export const ROUND_SEED = Buffer.from("molpha_round");
 // Mirrors the `initialize` args used across the integration suite.
 export const INIT = {
   rewardPerSignature: 10,
-  gatewayFee: 20,
   disputeWindowSlots: 256,
   gatewayBondMin: 500_000_000,
   redundancyBuffer: 2,
@@ -104,8 +103,8 @@ export function findGatewayBondAta(
 
 /**
  * Directly write a funded USDC token account at `ata` owned by `owner` (may be a PDA).
- * Mirrors `fundNodeOwnerInBankrun`, but for an arbitrary ATA — used to fund a gateway's
- * operating float, or any other ad hoc account, without a program call.
+ * Mirrors `fundNodeOwnerInBankrun`, but for an arbitrary token-account address. Production
+ * flows enforce canonical ATAs; arbitrary addresses are retained here for negative tests.
  */
 export function fundAtaInBankrun(
   ctx: TestContext,
@@ -253,8 +252,6 @@ export async function initializeProtocolForAgents(
       redundancyBuffer: INIT.redundancyBuffer,
       minimumNodeDeposit: new BN(100_000_000),
       rewardPerSignature: new BN(INIT.rewardPerSignature),
-      gatewayFee: new BN(INIT.gatewayFee),
-      protocolFeeBps: 100,
       maxReceiptDelaySlots: new BN(256),
       protocolFee: new BN(0),
       disputeWindowSlots: new BN(INIT.disputeWindowSlots),

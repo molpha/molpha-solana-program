@@ -3,6 +3,8 @@ use molpha_verifier::{solana::AccountError, AttestationError};
 
 #[error_code]
 pub enum MolphaError {
+    #[msg("invalid usdc mint")]
+    InvalidMint,
     #[msg("registry version counter overflow")]
     RegistryVersionOverflow,
     #[msg("Signer index outside node_count(version)")]

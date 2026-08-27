@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{self, Mint, Token, TokenAccount, Transfer},
+};
 use molpha_verifier::SchnorrSignature;
 
 use crate::{
@@ -160,27 +163,38 @@ pub struct DisputeRound<'info> {
     pub gateway: Box<Account<'info, Gateway>>,
 
     #[account(
+        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidMint
+    )]
+    pub usdc_mint: Box<Account<'info, Mint>>,
+
+    #[account(
         mut,
-        constraint = gateway_bond.mint == protocol_config.usdc_mint @ MolphaError::InvalidOwnerUsdc,
-        constraint = gateway_bond.owner == gateway.key() @ MolphaError::InvalidOwnerUsdc,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = gateway,
+        associated_token::token_program = token_program,
     )]
     pub gateway_bond: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
-        constraint = treasury.key() == protocol_config.treasury @ MolphaError::InvalidTreasury,
-        constraint = treasury.owner == protocol_config.key() @ MolphaError::InvalidTreasuryOwner,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = protocol_config,
+        associated_token::token_program = token_program,
     )]
     pub treasury: Box<Account<'info, TokenAccount>>,
 
     #[account(
-        mut,
-        constraint = challenger_usdc.mint == protocol_config.usdc_mint @ MolphaError::InvalidWithdrawDestination,
-        constraint = challenger_usdc.owner == challenger.key() @ MolphaError::InvalidWithdrawDestination,
+        init_if_needed,
+        payer = challenger,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = challenger,
+        associated_token::token_program = token_program,
     )]
     pub challenger_usdc: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
 
     /// Subscription path (`record.kind == Subscription`). Must be `None` for x402 rounds.
     #[account(mut)]

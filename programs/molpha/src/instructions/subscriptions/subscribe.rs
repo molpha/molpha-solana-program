@@ -79,15 +79,17 @@ pub struct Subscribe<'info> {
 
     #[account(
         mut,
-        constraint = owner_usdc.mint == usdc_mint.key() @ MolphaError::InvalidOwnerUsdc,
-        constraint = owner_usdc.owner == owner.key() @ MolphaError::InvalidOwnerUsdc,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = owner,
+        associated_token::token_program = token_program,
     )]
     pub owner_usdc: Account<'info, TokenAccount>,
 
     #[account(
         mut,
-        constraint = treasury.key() == protocol_config.treasury @ MolphaError::InvalidTreasury,
-        constraint = treasury.mint == usdc_mint.key() @ MolphaError::InvalidTreasury,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = protocol_config,
+        associated_token::token_program = token_program,
     )]
     pub treasury: Account<'info, TokenAccount>,
 

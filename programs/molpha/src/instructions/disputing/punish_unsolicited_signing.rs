@@ -1,7 +1,10 @@
 //! Valid attestation with a signer outside the duty's deterministic selection set.
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Token, TokenAccount};
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{Mint, Token, TokenAccount},
+};
 use molpha_verifier::bitmap::{bitmap_is_subset, bitmap_load, bitmap_store};
 
 use crate::{
@@ -182,19 +185,28 @@ pub struct PunishUnsolicitedSigning<'info> {
     pub punishment_case: Box<Account<'info, PunishmentCase>>,
 
     #[account(
+        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidMint
+    )]
+    pub usdc_mint: Box<Account<'info, Mint>>,
+
+    #[account(
         mut,
-        constraint = treasury.key() == protocol_config.treasury @ MolphaError::InvalidTreasury,
-        constraint = treasury.owner == protocol_config.key() @ MolphaError::InvalidTreasuryOwner,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = protocol_config,
+        associated_token::token_program = token_program,
     )]
     pub treasury: Box<Account<'info, TokenAccount>>,
 
     #[account(
-        mut,
-        constraint = reporter_usdc.mint == protocol_config.usdc_mint @ MolphaError::InvalidWithdrawDestination,
-        constraint = reporter_usdc.owner == reporter.key() @ MolphaError::InvalidWithdrawDestination,
+        init_if_needed,
+        payer = reporter,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = reporter,
+        associated_token::token_program = token_program,
     )]
     pub reporter_usdc: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }

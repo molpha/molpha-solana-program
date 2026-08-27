@@ -13,7 +13,6 @@ import {
 } from "../lib/pdas";
 import {
   parseInteger,
-  parsePublicKey,
   requireValue,
   writeJson,
 } from "../lib/utils";
@@ -39,7 +38,6 @@ export function registerSubscriptionCommands(program: Command): void {
       "--plan-id <number>",
       "plan type id (0=basic, 1=standard, 2=professional, 3=enterprise)"
     )
-    .option("--owner-usdc <pubkey>", "owner token account")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
@@ -58,12 +56,10 @@ export function registerSubscriptionCommands(program: Command): void {
         ctx.programId,
         ctx.wallet.publicKey
       );
-      const ownerUsdc = options.ownerUsdc
-        ? parsePublicKey(options.ownerUsdc, "owner USDC account")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            ctx.wallet.publicKey
-          );
+      const ownerUsdc = getAssociatedTokenAddressSync(
+        protocolConfig.usdcMint,
+        ctx.wallet.publicKey
+      );
 
       const signature = await (ctx.program.methods as any)
         .subscribe(planTypeToAnchor(planId))
@@ -89,7 +85,6 @@ export function registerSubscriptionCommands(program: Command): void {
   subscription
     .command("extend")
     .description("Extend an existing subscription by one month")
-    .option("--owner-usdc <pubkey>", "owner token account")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
@@ -129,12 +124,10 @@ export function registerSubscriptionCommands(program: Command): void {
           ? 3
           : Number(subscriptionAccount.planType);
       const [planPda] = findPlanPda(ctx.programId, planId);
-      const ownerUsdc = options.ownerUsdc
-        ? parsePublicKey(options.ownerUsdc, "owner USDC account")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            ctx.wallet.publicKey
-          );
+      const ownerUsdc = getAssociatedTokenAddressSync(
+        protocolConfig.usdcMint,
+        ctx.wallet.publicKey
+      );
 
       const signature = await (ctx.program.methods as any)
         .extendSubscription()

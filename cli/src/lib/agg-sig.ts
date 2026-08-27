@@ -1,4 +1,4 @@
-import { hexToBytes, readJsonFile } from "./utils";
+import { hexToBytes, parseInteger, readJsonFile } from "./utils";
 import {
   evmBitmapBitSet,
   evmUint256BitmapForFirstN,
@@ -79,6 +79,32 @@ export function parseAggregatedSigJson(filePath: string): AggregatedSigArgs {
       ? bytesFromField(raw.commitment, 20, "commitment")
       : undefined,
   });
+}
+
+export function signersBitmapFromOptions(options: {
+  signersBitmap?: string;
+  creditedBits?: string;
+  signerCount?: string;
+}): Uint8Array {
+  if (options.signersBitmap) {
+    return hexToBytes(options.signersBitmap, 32, "signers bitmap");
+  }
+  if (options.creditedBits) {
+    const bits = options.creditedBits
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => parseInteger(part, "credited bit"));
+    return bitmapFromBits(bits);
+  }
+  if (options.signerCount) {
+    return evmUint256BitmapForFirstN(
+      parseInteger(options.signerCount, "signer count")
+    );
+  }
+  throw new Error(
+    "Provide --signers-bitmap, --credited-bits, or --signer-count"
+  );
 }
 
 export function firstNSignersBitmap(n: number): Uint8Array {

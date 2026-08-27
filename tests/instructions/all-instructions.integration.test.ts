@@ -88,8 +88,6 @@ describe("Molpha instruction coverage integration", () => {
         redundancyBuffer: 2,
         minimumNodeDeposit: new BN(100_000_000),
         rewardPerSignature: new BN(10),
-        gatewayFee: new BN(20),
-        protocolFeeBps: 100,
         maxReceiptDelaySlots: new BN(256),
         usdcMint: ctx.underlyingTokenMint,
         x402RoundBase: new BN(1_000),
