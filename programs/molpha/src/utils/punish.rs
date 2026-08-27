@@ -206,7 +206,10 @@ pub fn execute_punishment<'a, 'b, 'info>(
     };
     accounts.registry_state.current_version = input.new_registry_version;
 
-    let bounty = bps_of(slashed_total, accounts.protocol_config.challenger_bounty_bps);
+    let bounty = bps_of(
+        slashed_total,
+        accounts.protocol_config.challenger_bounty_bps,
+    );
     if bounty > 0 {
         let bump = [accounts.protocol_config.bump];
         let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
@@ -296,7 +299,7 @@ mod tests {
         assert_eq!(node.locked_amount, 0);
         assert_eq!(node.claimable_rewards, 0);
         assert_eq!(node.status, NodeStatus::Tombstoned);
-        assert_eq!(node.punished_at, 0);
+        assert_eq!(node.punished_at, 100, "the sentence is stamped with `now`");
     }
 
     #[test]

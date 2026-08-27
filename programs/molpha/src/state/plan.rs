@@ -61,10 +61,7 @@ impl Plan {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn update(
-        &mut self,
-        params: &UpdatePlanParams,
-    ) {
+    pub fn update(&mut self, params: &UpdatePlanParams) {
         self.subscription_price = params.subscription_price;
         self.max_signers = params.max_signers;
         self.max_delegates = params.max_delegates;

@@ -50,8 +50,7 @@ fn ed25519_instruction_attests(
         let message_size = read_u16_le(data, base + 10)? as usize;
         let message_ix_index = read_u16_le(data, base + 12)?;
 
-        if pubkey_ix_index != SELF_CONTAINED_IX_INDEX
-            || message_ix_index != SELF_CONTAINED_IX_INDEX
+        if pubkey_ix_index != SELF_CONTAINED_IX_INDEX || message_ix_index != SELF_CONTAINED_IX_INDEX
         {
             continue;
         }

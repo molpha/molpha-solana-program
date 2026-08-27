@@ -138,7 +138,7 @@ mod tests {
         account.serialize(&mut body).unwrap();
         assert_eq!(body.len(), Node::INIT_SPACE);
 
-        let mut data = vec![0u8; Node::SPACE];
+        let mut data = [0u8; Node::SPACE];
         data[..8].copy_from_slice(Node::DISCRIMINATOR);
         data[8..].copy_from_slice(&body);
         let decoded = Node::deserialize(&mut &data[8..]).unwrap();

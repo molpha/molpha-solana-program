@@ -66,10 +66,7 @@ impl Feed {
         if raw.len() <= Self::STORED_VALUE_LEN {
             Ok((raw.try_into().unwrap(), FeedValueKind::Value))
         } else {
-            Ok((
-                hashv(&[raw]).to_bytes().try_into().unwrap(),
-                FeedValueKind::Hash,
-            ))
+            Ok((hashv(&[raw]).to_bytes(), FeedValueKind::Hash))
         }
     }
 
@@ -98,24 +95,19 @@ impl Feed {
 mod tests {
     use super::*;
 
+    /// The only caller is `submit_attestation`, whose `value` is a fixed `[u8; 32]`.
     #[test]
-    fn encode_short_value_stores_raw_bytes() {
-        let raw = vec![0xabu8; 16];
+    fn a_full_width_value_is_stored_verbatim() {
+        let raw = [0x11u8; Feed::STORED_VALUE_LEN];
         let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
         assert_eq!(kind, FeedValueKind::Value);
-        assert_eq!(stored.to_vec(), raw);
+        assert_eq!(stored, raw);
     }
 
+    /// Reachable only if a future instruction submits a variable-length payload. The digest is
+    /// the same keccak the EVM side computes, so the branch is pinned even while unused.
     #[test]
-    fn encode_exact_32_stores_raw_bytes() {
-        let raw = vec![0x11u8; 32];
-        let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
-        assert_eq!(kind, FeedValueKind::Value);
-        assert_eq!(stored.to_vec(), raw);
-    }
-
-    #[test]
-    fn encode_long_value_stores_keccak_hash() {
+    fn a_payload_longer_than_the_slot_is_stored_as_its_keccak_digest() {
         let raw = vec![0x22u8; 64];
         let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
         assert_eq!(kind, FeedValueKind::Hash);
@@ -123,8 +115,9 @@ mod tests {
     }
 
     #[test]
-    fn encode_rejects_over_max_len() {
+    fn a_payload_over_the_maximum_is_rejected() {
         let raw = vec![0u8; Feed::MAX_VALUE_LEN + 1];
         assert!(Feed::encode_stored_value(&raw).is_err());
+        assert!(Feed::encode_stored_value(&vec![0u8; Feed::MAX_VALUE_LEN]).is_ok());
     }
 }

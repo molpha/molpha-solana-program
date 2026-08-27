@@ -47,7 +47,7 @@ mod tests {
         RequestAuth {
             source_id: [0x11; 32],
             signatures_required: 3,
-            timestamp: 1_700_000_000 as u64,
+            timestamp: 1_700_000_000,
         }
     }
 

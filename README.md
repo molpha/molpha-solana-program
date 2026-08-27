@@ -91,7 +91,10 @@ programs/
 ```
 cli/                                # TypeScript operator CLI
 scripts/                            # Benchmarks, batch registration, e2e flows
-tests/                              # Jest + bankrun instruction tests
+molpha-tests/                       # Rust + LiteSVM test suite
+│   ├── src/                        # harness: env, PDAs, secp256k1 signing, scenarios
+│   ├── tests/                      # one file per instruction group
+│   └── fixtures/                   # cross-chain golden vector
 ```
 
 ## Getting started
@@ -111,18 +114,25 @@ tests/                              # Jest + bankrun instruction tests
 
 ### For developers (build & test)
 
-**Prerequisites:** Rust 1.70+, Solana CLI 1.17+, Anchor **0.32.1**, Node.js 18+, Yarn 1.22+
+**Prerequisites:** Rust 1.70+, Solana CLI 1.17+, Anchor **1.1.2**, Node.js 18+, Yarn 1.22+
+(Node and Yarn are needed only for the CLI; the test suite is pure Rust.)
 
 ```bash
-# Build program + copy .so for bankrun tests
-yarn build:molpha
+# Build the program — the test suite loads target/deploy/molpha.so
+anchor build -p molpha
 
-# Full test suite (build + jest/bankrun)
-yarn test
+# Full test suite: in-crate unit tests + LiteSVM integration tests
+cargo test --workspace
 
-# Anchor integration tests (validator)
-anchor test
+# One area at a time
+cargo test -p molpha-tests --test settle_subscription
+cargo test -p molpha-tests --test limits -- --nocapture   # prints CU and transaction sizes
 ```
+
+Tests run against [LiteSVM](https://github.com/LiteSVM/litesvm): no validator, no ledger, no
+network. Each test builds its own VM, mint and keypairs, so they are order-independent and safe
+to run in parallel. Rebuild the program after changing it — a stale `.so` silently tests the old
+binary.
 
 **TypeScript CLI:**
 
@@ -141,17 +151,23 @@ anchor deploy --provider.cluster devnet
 
 Program IDs are defined in [`Anchor.toml`](Anchor.toml) (see below).
 
-### Compute budgets (`submit_attestation` / `verify_attestation`)
+### Coalition size limits (`submit_attestation`)
 
-Bankrun/localnet measurements (May 2026 — details in [NODE_OPERATOR_GUIDE.md §10](NODE_OPERATOR_GUIDE.md#10-compute-budgets-and-limits)):
+Measured by `cargo test -p molpha-tests --test limits -- --nocapture`, which asserts these
+numbers rather than reporting them:
 
-| Signers | `verify_attestation` | `submit_attestation` |
-| ------- | -------------------- | -------------------- |
-| 3       | ~296K                | ~300K                |
-| 8       | ~384K                | ~387K                |
-| 18      | ~529K                | ~532K                |
+| Signers | Compute units | Transaction bytes |
+| ------- | ------------- | ----------------- |
+| 5       | ~233K         | 740               |
+| 10      | ~279K         | 905               |
+| 15      | ~325K         | 1,070             |
+| 19      | ~361K         | 1,202             |
+| 20      | —             | 1,235 ✗           |
 
-Use `ComputeBudgetProgram.setComputeUnitLimit` ≥ **550_000** for large coalitions.
+**19 signers** is the ceiling for a legacy transaction: each extra signer costs 33 bytes and the
+packet limit is 1,232. The compute budget is not the binding constraint — a 19-signer round uses
+about a quarter of the 1.4M maximum. Set `ComputeBudgetProgram.setComputeUnitLimit` ≥ **400_000**
+for large coalitions; go past 19 signers only with address lookup tables.
 
 ### Example: read feed via CLI
 
@@ -256,7 +272,7 @@ Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_G
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Run `yarn test` and/or `anchor test`
+4. Run `anchor build -p molpha && cargo test --workspace`
 5. Open a pull request
 
 ## License

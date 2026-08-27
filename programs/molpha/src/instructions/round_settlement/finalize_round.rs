@@ -65,7 +65,7 @@ pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
 
         Ok(())
     })?;
-   
+
     let record = &mut ctx.accounts.round_record;
     record.status = RoundRecordStatus::Finalized;
 

@@ -123,5 +123,6 @@ jobs:
           mkdir -p "$HOME/.config/solana"
           solana-keygen new --no-bip39-passphrase --silent --outfile "$HOME/.config/solana/id.json"
 
-      - name: Run tests
-        run: yarn test
+      - name: Run Rust + LiteSVM tests
+        # The suite loads target/deploy/molpha.so, so it depends on the Anchor build above.
+        run: cargo test --workspace

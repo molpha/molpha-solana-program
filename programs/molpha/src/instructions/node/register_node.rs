@@ -6,7 +6,7 @@ use solana_keccak_hasher::hashv;
 use crate::{
     error::MolphaError,
     events::{NodeRegistered, RegistryVersionCreated, RegistryVersionReason},
-    state::{MAX_REGISTRY_NODES, Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim},
+    state::{Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim, MAX_REGISTRY_NODES},
     utils::registry::derive_node_id,
 };
 
@@ -126,7 +126,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
 }
 
 pub fn hash_seed(input: &[u8]) -> [u8; 32] {
-    let hash_result = hashv(&[input.as_ref()]);
+    let hash_result = hashv(&[input]);
     hash_result.to_bytes()
 }
 

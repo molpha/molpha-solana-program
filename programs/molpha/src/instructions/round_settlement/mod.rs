@@ -1,7 +1,7 @@
 pub mod finalize_round;
-mod validate_attestation;
 pub mod settle_subscription_round;
 pub mod settle_x402_round;
+mod validate_attestation;
 
 pub use finalize_round::*;
 pub use settle_subscription_round::*;

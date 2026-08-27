@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
-use crate::state::PlanType;
 use crate::error::MolphaError;
+use crate::state::PlanType;
 
 #[account]
 #[derive(InitSpace)]
@@ -43,7 +43,8 @@ impl Subscription {
         self.valid_until = args
             .now
             .checked_add(Self::SECONDS_PER_MONTH)
-            .ok_or(MolphaError::InvalidTimestamp).unwrap();
+            .ok_or(MolphaError::InvalidTimestamp)
+            .unwrap();
         self.used_rounds = 0;
         self.max_rounds = args.max_rounds;
         self.delegate_count = 0;

@@ -15,11 +15,7 @@ impl Secp256k1KeyClaim {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_secp_key";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
-    pub fn init(
-        &mut self,
-        node_pubkey: Pubkey,
-        bump: u8,
-    ) {
+    pub fn init(&mut self, node_pubkey: Pubkey, bump: u8) {
         self.node_pubkey = node_pubkey;
         self.bump = bump;
     }

@@ -30,7 +30,10 @@ pub struct InitializeArgs {
 pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> {
     let clock = Clock::get()?;
 
-    require!(args.min_signers >= MIN_SIGNERS_FLOOR, MolphaError::InvalidMinSigners);
+    require!(
+        args.min_signers >= MIN_SIGNERS_FLOOR,
+        MolphaError::InvalidMinSigners
+    );
 
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.authority = ctx.accounts.authority.key();
@@ -124,6 +127,12 @@ mod tests {
     use super::InitializeArgs;
     use anchor_lang::{prelude::Pubkey, InstructionData};
 
+    /// Borsh encoding of `InitializeArgs`, plus the 8-byte Anchor discriminator.
+    ///
+    /// Pinned because the CLI, gateway and SDK all build this instruction off-chain: any field
+    /// added, removed or retyped here is a breaking wire change and should be a deliberate one.
+    const INITIALIZE_IX_DATA_LEN: usize = 116;
+
     fn fixture_args() -> InitializeArgs {
         InitializeArgs {
             withdrawal_cooldown_secs: 3,
@@ -143,30 +152,30 @@ mod tests {
     }
 
     #[test]
-    fn initialize_args_roundtrip() {
+    fn initialize_instruction_data_is_stable_and_round_trips() {
         let args = fixture_args();
-        let bytes = borsh::to_vec(&args).expect("serialize");
-        let decoded = borsh::from_slice::<InitializeArgs>(&bytes).expect("deserialize");
+        let data = crate::instruction::Initialize { args: args.clone() }.data();
+        assert_eq!(data.len(), INITIALIZE_IX_DATA_LEN);
 
+        let decoded = borsh::from_slice::<InitializeArgs>(&data[8..]).expect("deserialize args");
+        assert_eq!(
+            decoded.withdrawal_cooldown_secs,
+            args.withdrawal_cooldown_secs
+        );
+        assert_eq!(decoded.redundancy_buffer, args.redundancy_buffer);
         assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
         assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
         assert_eq!(
             decoded.max_receipt_delay_slots,
             args.max_receipt_delay_slots
         );
+        assert_eq!(decoded.protocol_fee, args.protocol_fee);
+        assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
+        assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
+        assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
         assert_eq!(decoded.usdc_mint, args.usdc_mint);
         assert_eq!(decoded.x402_round_base, args.x402_round_base);
         assert_eq!(decoded.x402_round_per_sig, args.x402_round_per_sig);
         assert_eq!(decoded.min_signers, args.min_signers);
-    }
-
-    #[test]
-    fn initialize_instruction_data_serializes_args() {
-        let args = fixture_args();
-        let data = crate::instruction::Initialize { args: args.clone() }.data();
-        assert_eq!(data.len(), 138);
-
-        let decoded = borsh::from_slice::<InitializeArgs>(&data[8..]).expect("deserialize args");
-        assert_eq!(decoded.usdc_mint, args.usdc_mint);
     }
 }

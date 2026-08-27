@@ -30,7 +30,7 @@ impl From<&SubmitAttestationArgs> for Attestation {
                 source_id: args.source_id,
                 registry_version: args.registry_version,
                 value: args.value,
-                canonical_timestamp: args.canonical_timestamp as u64,
+                canonical_timestamp: args.canonical_timestamp,
                 signatures_required: args.signatures_required,
             },
             signature: SchnorrSignature {
@@ -54,7 +54,7 @@ pub fn submit_attestation(
         require!(args.source_id != [0u8; 32], MolphaError::InvalidSourceId);
         feed.init(&FeedInitParams {
             source_id: args.source_id,
-            value: stored_value.try_into().unwrap(),
+            value: stored_value,
             value_kind,
             canonical_timestamp: args.canonical_timestamp,
             signatures_required: args.signatures_required,
@@ -68,7 +68,7 @@ pub fn submit_attestation(
             MolphaError::FeedNotNewer
         );
         feed.update(&FeedUpdateParams {
-            value: stored_value.try_into().unwrap(),
+            value: stored_value,
             value_kind,
             canonical_timestamp: args.canonical_timestamp,
             registry_version: args.registry_version,
@@ -81,8 +81,8 @@ pub fn submit_attestation(
     verify_attestation_accounts(
         &attestation,
         &ctx.accounts.registry.to_account_info(),
-        &ctx.remaining_accounts,
-        &ctx.program_id,
+        ctx.remaining_accounts,
+        ctx.program_id,
     )
     .map_err(map_attestation_accounts_err)?;
 
@@ -90,7 +90,7 @@ pub fn submit_attestation(
         source_id: feed.source_id,
         registry_version: args.registry_version,
         canonical_timestamp: args.canonical_timestamp,
-        value: stored_value.try_into().unwrap(),
+        value: stored_value,
         value_kind,
         signers_bitmap: args.signers_bitmap,
         last_updated_slot: clock.slot,
@@ -132,8 +132,9 @@ pub struct SubmitAttestation<'info> {
 mod tests {
     use super::SubmitAttestationArgs;
 
-    /// Borsh size for a 32-byte `value` (u32 length prefix + 32 bytes + fixed fields).
-    const ARGS_SERIALIZED_LEN_32: usize = 165;
+    /// Borsh encoding of `SubmitAttestationArgs`. Every field is fixed-width, so this is a
+    /// constant — and a change to it is a breaking change for every off-chain submitter.
+    const ARGS_SERIALIZED_LEN: usize = 161;
 
     fn fixture_args() -> SubmitAttestationArgs {
         SubmitAttestationArgs {
@@ -149,24 +150,19 @@ mod tests {
     }
 
     #[test]
-    fn submit_attestation_args_roundtrip() {
+    fn submit_attestation_args_are_stable_and_round_trip() {
         let args = fixture_args();
-        let bytes = borsh::to_vec(&args).expect("SubmitAttestationArgs should serialize");
-        let decoded = borsh::from_slice::<SubmitAttestationArgs>(&bytes)
-            .expect("SubmitAttestationArgs should deserialize");
+        let bytes = borsh::to_vec(&args).expect("serialize");
+        assert_eq!(bytes.len(), ARGS_SERIALIZED_LEN);
 
+        let decoded = borsh::from_slice::<SubmitAttestationArgs>(&bytes).expect("deserialize");
         assert_eq!(decoded.source_id, args.source_id);
         assert_eq!(decoded.registry_version, args.registry_version);
+        assert_eq!(decoded.signatures_required, args.signatures_required);
         assert_eq!(decoded.signers_bitmap, args.signers_bitmap);
         assert_eq!(decoded.value, args.value);
         assert_eq!(decoded.canonical_timestamp, args.canonical_timestamp);
         assert_eq!(decoded.agg_sig_s, args.agg_sig_s);
         assert_eq!(decoded.commitment, args.commitment);
-    }
-
-    #[test]
-    fn submit_attestation_args_serialized_len_is_stable() {
-        let bytes = borsh::to_vec(&fixture_args()).expect("SubmitAttestationArgs should serialize");
-        assert_eq!(bytes.len(), ARGS_SERIALIZED_LEN_32);
     }
 }

@@ -27,7 +27,7 @@ pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()>
         signature,
         &record.attestation_message_hash,
         ctx.remaining_accounts,
-        &ctx.program_id,
+        ctx.program_id,
     )
     .map_err(map_attestation_accounts_err)?;
 

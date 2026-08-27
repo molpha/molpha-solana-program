@@ -113,7 +113,7 @@ pub fn equivocation_evidence_hash(
         source_id.as_slice(),
         registry_version.to_be_bytes().as_slice(),
         signatures_required.to_be_bytes().as_slice(),
-        (canonical_timestamp as u64).to_be_bytes().as_slice(),
+        canonical_timestamp.to_be_bytes().as_slice(),
         lo.as_slice(),
         hi.as_slice(),
     ])
@@ -133,7 +133,7 @@ pub fn unsolicited_signing_evidence_hash(
         source_id.as_slice(),
         registry_version.to_be_bytes().as_slice(),
         signatures_required.to_be_bytes().as_slice(),
-        (canonical_timestamp as u64).to_be_bytes().as_slice(),
+        canonical_timestamp.to_be_bytes().as_slice(),
         statement_hash(statement).as_slice(),
     ])
     .to_bytes()
@@ -144,9 +144,7 @@ fn context_statement_hash(context: &SigningContext, statement: &SignedStatement)
     hashv(&[
         context.source_id.as_slice(),
         context.signatures_required.to_be_bytes().as_slice(),
-        (context.canonical_timestamp as u64)
-            .to_be_bytes()
-            .as_slice(),
+        context.canonical_timestamp.to_be_bytes().as_slice(),
         statement_hash(statement).as_slice(),
     ])
     .to_bytes()

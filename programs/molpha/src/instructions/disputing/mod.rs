@@ -24,8 +24,8 @@ pub(crate) fn statement_message_hash(
         &molpha_verifier::AttestationPayload {
             source_id: *source_id,
             registry_version,
-            value: statement.value.clone(),
-            canonical_timestamp: canonical_timestamp as u64,
+            value: statement.value,
+            canonical_timestamp,
             signatures_required,
         },
         statement.signers_bitmap,

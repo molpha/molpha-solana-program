@@ -1,10 +1,7 @@
 use anchor_lang::prelude::*;
 use molpha_verifier::{solana::verify_attestation_accounts, Attestation};
 
-use crate::{
-    error::map_attestation_accounts_err,
-    state::Registry,
-};
+use crate::{error::map_attestation_accounts_err, state::Registry};
 
 use super::SubmitAttestationArgs;
 
@@ -17,8 +14,8 @@ pub fn verify_attestation(
     verify_attestation_accounts(
         &attestation,
         &ctx.accounts.registry.to_account_info(),
-        &ctx.remaining_accounts,
-        &ctx.program_id,
+        ctx.remaining_accounts,
+        ctx.program_id,
     )
     .map_err(map_attestation_accounts_err)
 }
