@@ -91,6 +91,18 @@ fn initialize_rejects_min_signers_below_the_floor() {
 }
 
 #[test]
+fn initialize_rejects_a_negative_withdrawal_cooldown() {
+    let mut b = bare();
+    let args = molpha::instructions::InitializeArgs {
+        withdrawal_cooldown_secs: -1,
+        ..default_initialize_args(b.usdc_mint)
+    };
+    let ix = initialize_ix(&b.authority.pubkey(), &b.usdc_mint, &args);
+    let failed = b.env.send_err(&[ix], &[&b.authority]);
+    assert_molpha_error(&failed, MolphaError::InvalidWithdrawalCooldown);
+}
+
+#[test]
 fn initialize_accepts_min_signers_exactly_at_the_floor() {
     let mut b = bare();
     let args = molpha::instructions::InitializeArgs {
@@ -213,4 +225,17 @@ fn update_config_rejects_min_signers_below_the_floor() {
     let config: ProtocolConfig = p.env.get(&pda::protocol_config());
     assert_eq!(config.min_signers, 3);
     assert_eq!(config.protocol_fee, p.args.protocol_fee);
+}
+
+#[test]
+fn update_config_rejects_a_negative_withdrawal_cooldown() {
+    let mut p = Protocol::start();
+    let args = UpdateConfigArgs {
+        withdrawal_cooldown_secs: -1,
+        ..tuned_update_args()
+    };
+    let authority = p.authority.insecure_clone();
+    let ix = update_config_ix(&authority.pubkey(), &args);
+    let failed = p.env.send_err(&[ix], &[&authority]);
+    assert_molpha_error(&failed, MolphaError::InvalidWithdrawalCooldown);
 }

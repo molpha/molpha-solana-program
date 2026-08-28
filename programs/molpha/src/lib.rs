@@ -116,6 +116,18 @@ pub mod molpha {
         instructions::claim_node_rewards(ctx)
     }
 
+    pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
+        instructions::withdraw_node_deposit(ctx)
+    }
+
+    pub fn deactivate_gateway(ctx: Context<DeactivateGateway>) -> Result<()> {
+        instructions::deactivate_gateway(ctx)
+    }
+
+    pub fn withdraw_gateway_bond(ctx: Context<WithdrawGatewayBond>) -> Result<()> {
+        instructions::withdraw_gateway_bond(ctx)
+    }
+
     pub fn settle_x402_round<'info>(
         ctx: Context<SettleX402Round<'info>>,
         args: SettleX402RoundArgs,

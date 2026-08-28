@@ -20,7 +20,6 @@ pub struct Node {
     pub deactivated_at: i64,
     pub withdrawable_at: i64,
     pub frozen_until: i64,
-    pub punished_at: i64,
     pub bump: u8,
 }
 
@@ -52,7 +51,6 @@ impl Node {
         self.deactivated_at = 0;
         self.withdrawable_at = 0;
         self.frozen_until = 0;
-        self.punished_at = 0;
         self.bump = bump;
     }
 

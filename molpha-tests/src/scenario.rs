@@ -632,6 +632,44 @@ impl Protocol {
         authority
     }
 
+    pub fn deactivate_gateway_ix(
+        &self,
+        protocol_authority: &Pubkey,
+        gateway_authority: &Pubkey,
+    ) -> Instruction {
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::DeactivateGateway {
+                authority: *protocol_authority,
+                protocol_config: pda::protocol_config(),
+                gateway: pda::gateway(gateway_authority),
+                system_program: anchor_lang::solana_program::system_program::ID,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::DeactivateGateway {}.data(),
+        }
+    }
+
+    pub fn withdraw_gateway_bond_ix(&self, authority: &Pubkey) -> Instruction {
+        let gateway = pda::gateway(authority);
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::WithdrawGatewayBond {
+                authority: *authority,
+                protocol_config: pda::protocol_config(),
+                gateway,
+                usdc_mint: self.usdc_mint,
+                gateway_bond: pda::ata(&gateway, &self.usdc_mint),
+                destination: pda::ata(authority, &self.usdc_mint),
+                token_program: pda::TOKEN_PROGRAM_ID,
+                associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
+                system_program: anchor_lang::solana_program::system_program::ID,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::WithdrawGatewayBond {}.data(),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // attestations
     // -----------------------------------------------------------------------
@@ -781,8 +819,17 @@ impl Protocol {
     }
 
     /// The Ed25519 instruction that must sit immediately before a subscription settlement.
-    pub fn consumer_authorization_ix(&self, consumer: &Keypair, duty: &Duty) -> Instruction {
+    ///
+    /// `gateway_authority` names the gateway the authorization is scoped to; the preimage commits
+    /// to that gateway's PDA, so no other gateway can redeem the signature.
+    pub fn consumer_authorization_ix(
+        &self,
+        consumer: &Keypair,
+        gateway_authority: &Pubkey,
+        duty: &Duty,
+    ) -> Instruction {
         let request_auth_hash = molpha::state::hash_request_auth_fields(
+            &pda::gateway(gateway_authority),
             &duty.source_id,
             duty.signatures_required,
             duty.canonical_timestamp,
@@ -919,6 +966,25 @@ impl Protocol {
             }
             .to_account_metas(None),
             data: molpha::instruction::ClaimNodeRewards {}.data(),
+        }
+    }
+
+    pub fn withdraw_node_deposit_ix(&self, owner: &Pubkey) -> Instruction {
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::WithdrawNodeDeposit {
+                owner: *owner,
+                protocol_config: pda::protocol_config(),
+                node: pda::node(owner),
+                usdc_mint: self.usdc_mint,
+                treasury: self.treasury(),
+                destination: pda::ata(owner, &self.usdc_mint),
+                token_program: pda::TOKEN_PROGRAM_ID,
+                associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
+                system_program: anchor_lang::solana_program::system_program::ID,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::WithdrawNodeDeposit {}.data(),
         }
     }
 }

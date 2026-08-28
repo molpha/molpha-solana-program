@@ -157,7 +157,6 @@ fn permanent_node_roundtrips() {
         deactivated_at: 0,
         withdrawable_at: 0,
         frozen_until: 0,
-        punished_at: 0,
         bump: 7,
     };
     let mut body = Vec::new();

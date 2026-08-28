@@ -108,7 +108,14 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
         assert_eq!(account.status, NodeStatus::Tombstoned);
         assert_eq!(account.locked_amount, 0);
         assert_eq!(account.claimable_rewards, 0);
-        assert_eq!(account.punished_at, case.p.env.unix_timestamp());
+        assert_eq!(
+            account.withdrawable_at,
+            case.p
+                .env
+                .unix_timestamp()
+                .checked_add(case.p.args.withdrawal_cooldown_secs)
+                .unwrap()
+        );
     }
     // Everyone else is untouched, including the non-overlapping signers.
     for node in &innocent {
@@ -169,6 +176,22 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
     let version_event: RegistryVersionCreated = only_event(&meta);
     assert_eq!(version_event.previous_version, evidence_version);
     assert_eq!(version_event.new_version, args.new_registry_version);
+
+    let fully_slashed = guilty[0];
+    let owner = case
+        .p
+        .nodes
+        .iter()
+        .find(|registered| registered.pda == fully_slashed)
+        .expect("guilty node is registered")
+        .owner
+        .insecure_clone();
+    case.p
+        .env
+        .advance_seconds(case.p.args.withdrawal_cooldown_secs);
+    let withdraw = case.p.withdraw_node_deposit_ix(&owner.pubkey());
+    let failed = case.p.env.send_err(&[withdraw], &[&owner]);
+    assert_molpha_error(&failed, MolphaError::NothingToWithdraw);
 }
 
 #[test]

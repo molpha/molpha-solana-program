@@ -5,11 +5,12 @@ use crate::{
         hash_request_auth_fields, Delegate, Gateway, ProtocolConfig, Registry, RegistryState,
         RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
     },
-    utils::ed25519::verify_ed25519_signature,
+    utils::{
+        ed25519::verify_ed25519_signature,
+        settlement::{validate_settlement_attestation, SettlementAttestationInput},
+    },
 };
 use anchor_lang::prelude::*;
-
-use super::validate_attestation::{validate_settlement_attestation, SettlementAttestationInput};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleRoundArgs {
@@ -49,8 +50,12 @@ pub fn settle_subscription_round<'info>(
         args.signatures_required,
     )?;
 
-    let request_auth_hash =
-        hash_request_auth_fields(&args.source_id, args.signatures_required, args.timestamp);
+    let request_auth_hash = hash_request_auth_fields(
+        &gateway.key(),
+        &args.source_id,
+        args.signatures_required,
+        args.timestamp,
+    );
     require!(
         verify_ed25519_signature(
             &ctx.accounts.instructions_sysvar,
@@ -176,7 +181,8 @@ pub struct SettleSubscriptionRound<'info> {
     #[account(
         mut,
         has_one = authority,
-        constraint = !gateway.slashed && gateway.bond >= protocol_config.gateway_bond_min @ MolphaError::GatewayNotBonded,
+        constraint = !gateway.slashed @ MolphaError::GatewaySlashed,
+        constraint = gateway.deactivated_at == 0 @ MolphaError::GatewayDeactivated,
     )]
     pub gateway: Account<'info, Gateway>,
 

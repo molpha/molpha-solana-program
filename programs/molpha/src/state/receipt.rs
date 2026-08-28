@@ -2,11 +2,17 @@ use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
 pub const DOMAIN_REQAUTH: &[u8] = b"MOLPHA_REQAUTH_V1";
-pub const DOMAIN_GWRCPT: &[u8] = b"MOLPHA_GWRCPT_V1";
 
 /// Consumer authorization fields signed by the requester.
+///
+/// `program_id` and `gateway` scope the authorization: the signature is only redeemable by the
+/// gateway the consumer chose, on the deployment they meant to pay. Without them the hash is a
+/// bearer token any observer can lift out of the settling transaction and redeem under their own
+/// gateway.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq, InitSpace)]
 pub struct RequestAuth {
+    pub program_id: Pubkey,
+    pub gateway: Pubkey,
     pub source_id: [u8; 32],
     pub signatures_required: u8,
     pub timestamp: u64,
@@ -20,19 +26,24 @@ pub struct AggregatedSig {
     pub signers_bitmap: [u8; 32],
 }
 
-/// `H(RequestAuth)` — domain-separated SHA-256 over the borsh encoding.
+/// `H(RequestAuth)` — domain-separated Keccak256 over the borsh encoding.
 pub fn hash_request_auth(request_auth: &RequestAuth) -> [u8; 32] {
     let body = borsh::to_vec(request_auth).expect("RequestAuth serialization is infallible");
     hashv(&[DOMAIN_REQAUTH, &body]).to_bytes()
 }
 
-/// `H(RequestAuth)` from the instruction-level `(source_id, signatures_required, timestamp)` pair.
+/// `H(RequestAuth)` from the instruction-level `(gateway, source_id, signatures_required,
+/// timestamp)` tuple. `program_id` is always this program's own id, so a signature made for one
+/// deployment never verifies against another.
 pub fn hash_request_auth_fields(
+    gateway: &Pubkey,
     source_id: &[u8; 32],
     signatures_required: u8,
     timestamp: u64,
 ) -> [u8; 32] {
     hash_request_auth(&RequestAuth {
+        program_id: crate::ID,
+        gateway: *gateway,
         source_id: *source_id,
         signatures_required,
         timestamp,

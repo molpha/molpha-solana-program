@@ -75,7 +75,8 @@ impl Fixture {
 
     fn settle_subscription(&mut self, owner: &Keypair, signed: &SignedAttestation) -> Pubkey {
         let ixs = vec![
-            self.p.consumer_authorization_ix(owner, &signed.duty),
+            self.p
+                .consumer_authorization_ix(owner, &self.gateway.pubkey(), &signed.duty),
             self.p.settle_subscription_round_ix(
                 &self.gateway.pubkey(),
                 &owner.pubkey(),
@@ -321,7 +322,6 @@ fn disputing_a_fabricated_x402_round_voids_it_and_slashes_the_bond() {
     assert_eq!(updated.status, RoundRecordStatus::Voided);
 
     let gateway: Gateway = f.p.env.get(&f.gateway_pda());
-    assert_eq!(gateway.bond, 0);
     assert!(gateway.slashed);
     assert_eq!(f.p.env.token_balance(&f.bond_ata()), 0);
 
@@ -395,7 +395,58 @@ fn a_genuinely_valid_round_cannot_be_disputed() {
 
     let gateway: Gateway = f.p.env.get(&f.gateway_pda());
     assert!(!gateway.slashed);
-    assert_eq!(gateway.bond, f.p.args.gateway_bond_min);
+    assert_eq!(
+        f.p.env.token_balance(&f.bond_ata()),
+        f.p.args.gateway_bond_min
+    );
+}
+
+#[test]
+fn a_deactivated_gateway_remains_slashable_through_the_dispute_boundary() {
+    let mut f = fixture();
+    f.p.env.advance_seconds(1);
+    let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
+    let record = f.settle_x402(&fabricated, [0xc1; 32]);
+    let signers = f.credited_nodes(&record);
+    let bond = f.p.env.token_balance(&f.bond_ata());
+
+    let gateway = f.gateway.insecure_clone();
+    let protocol_authority = f.p.authority.insecure_clone();
+    let deactivate =
+        f.p.deactivate_gateway_ix(&protocol_authority.pubkey(), &gateway.pubkey());
+    f.p.env.send_ok(&[deactivate], &[&protocol_authority]);
+    assert!(f.p.env.get::<Gateway>(&f.gateway_pda()).deactivated_at > 0);
+    assert_eq!(f.p.env.token_balance(&f.bond_ata()), bond);
+
+    f.p.env.advance_slots(f.p.args.dispute_window_slots);
+    let challenger = f.p.env.keypair();
+    let dispute =
+        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+    f.p.env.send_ok(&[dispute], &[&challenger]);
+
+    let gateway_state: Gateway = f.p.env.get(&f.gateway_pda());
+    assert!(gateway_state.slashed);
+    assert_eq!(f.p.env.token_balance(&f.bond_ata()), 0);
+
+    f.p.env.advance_slots(1);
+    let withdraw = f.p.withdraw_gateway_bond_ix(&gateway.pubkey());
+    let failed = f.p.env.send_err(&[withdraw], &[&gateway]);
+    assert_molpha_error(&failed, MolphaError::GatewaySlashed);
+}
+
+#[test]
+fn a_round_cannot_be_disputed_after_its_window() {
+    let mut f = fixture();
+    let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
+    let record = f.settle_x402(&fabricated, [0xc2; 32]);
+    let signers = f.credited_nodes(&record);
+    f.past_the_dispute_window();
+
+    let challenger = f.p.env.keypair();
+    let dispute =
+        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+    let failed = f.p.env.send_err(&[dispute], &[&challenger]);
+    assert_molpha_error(&failed, MolphaError::DisputeWindowElapsed);
 }
 
 #[test]
@@ -512,7 +563,7 @@ fn a_slashed_gateway_can_no_longer_settle() {
     let ix = f.p.settle_x402_round_ix(&f.gateway.pubkey(), args);
     let gateway = f.gateway.insecure_clone();
     let failed = f.p.env.send_err(&[ix], &[&gateway]);
-    assert_molpha_error(&failed, MolphaError::GatewayNotBonded);
+    assert_molpha_error(&failed, MolphaError::GatewaySlashed);
 }
 
 // ---------------------------------------------------------------------------

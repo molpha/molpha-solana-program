@@ -22,11 +22,6 @@ pub struct RegisterNodeArgs {
 }
 
 pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Result<()> {
-    require_keys_eq!(
-        ctx.accounts.authority.key(),
-        ctx.accounts.protocol_config.authority,
-        MolphaError::UnauthorisedAuthority
-    );
     require!(
         args.ip != [0, 0, 0, 0] && args.port != 0,
         MolphaError::InvalidNodeEndpoint
@@ -139,6 +134,7 @@ pub struct RegisterNode<'info> {
     pub node_owner: Signer<'info>,
 
     #[account(
+        has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]

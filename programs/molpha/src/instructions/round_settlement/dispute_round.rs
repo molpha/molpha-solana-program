@@ -15,8 +15,14 @@ use crate::{
 };
 
 pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()> {
-    let now = Clock::get()?.unix_timestamp;
+    let clock = Clock::get()?;
+    let now = clock.unix_timestamp;
     let record = &ctx.accounts.round_record;
+    require!(
+        clock.slot.saturating_sub(record.recorded_slot)
+            <= ctx.accounts.protocol_config.dispute_window_slots,
+        MolphaError::DisputeWindowElapsed
+    );
 
     let signature = SchnorrSignature {
         agg_sig_s: record.agg_sig_s,
@@ -50,13 +56,8 @@ pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()>
         }
     };
 
-    // Fraud: void the round and slash the gateway bond from the gateway ATA.
     let config = &ctx.accounts.protocol_config;
-    let slashed_bond = ctx.accounts.gateway.bond;
-    require!(
-        ctx.accounts.gateway_bond.amount >= slashed_bond,
-        MolphaError::InsufficientBond
-    );
+    let slashed_bond = ctx.accounts.gateway_bond.amount;
     let bounty = (slashed_bond as u128)
         .saturating_mul(config.challenger_bounty_bps as u128)
         .checked_div(10_000)
@@ -71,7 +72,6 @@ pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()>
     }
 
     let gateway = &mut ctx.accounts.gateway;
-    gateway.bond = 0;
     gateway.slashed = true;
 
     let record = &mut ctx.accounts.round_record;

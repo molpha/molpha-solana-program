@@ -11,10 +11,10 @@ pub struct Gateway {
     pub index: u32,
     pub ip: [u8; 4],
     pub port: u16,
-    /// USDC bond held in the gateway bond ATA, slashable on a successful dispute.
-    pub bond: u64,
     pub slashed: bool,
     pub registered_at: i64,
+    pub deactivated_at: i64,
+    pub withdrawable_slot: u64,
     pub bump: u8,
 }
 

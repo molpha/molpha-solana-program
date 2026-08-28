@@ -20,15 +20,7 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>, args: DeactivateNodeArgs) -
             || ctx.accounts.authority.key() == config.authority,
         MolphaError::UnauthorizedNodeAuthority
     );
-    require!(
-        ctx.accounts.node.status == NodeStatus::Active,
-        MolphaError::NodeNotActive
-    );
-    require_keys_eq!(
-        ctx.accounts.node.owner,
-        args.node_owner,
-        MolphaError::InvalidNodeAccount
-    );
+
     ctx.accounts
         .registry_state
         .require_next_version(args.new_registry_version)?;
@@ -36,10 +28,6 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>, args: DeactivateNodeArgs) -
     let previous_version = ctx.accounts.registry_state.current_version;
     let (node_count, redundancy_buffer) = {
         let current = ctx.accounts.current_registry.load()?;
-        require!(
-            current.version == previous_version,
-            MolphaError::InvalidRegistryVersion
-        );
         require_keys_eq!(
             current.node(usize::from(args.remove_index))?,
             ctx.accounts.node.key(),
@@ -113,6 +101,7 @@ pub struct DeactivateNode<'info> {
 
     #[account(
         mut,
+        constraint = node.status == NodeStatus::Active @ MolphaError::NodeNotActive,
         seeds = [Node::SEED_PREFIX, args.node_owner.as_ref()],
         bump = node.bump,
     )]

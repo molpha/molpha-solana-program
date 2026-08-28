@@ -5,11 +5,11 @@ use anchor_spl::token::{self, TokenAccount, Transfer};
 use molpha_verifier::bitmap::bitmap_bit_set;
 
 use crate::{
-    error::MolphaError,
+    error::{map_attestation_err, MolphaError},
     events::{NodePunished, RegistryVersionCreated, RegistryVersionReason},
     state::{
         MembershipAction, Node, NodeStatus, OffenceKind, Penalty, ProtocolConfig, PunishmentCase,
-        Registry, RegistryState,
+        Registry, RegistryState, SignedStatement,
     },
 };
 
@@ -41,7 +41,6 @@ pub fn apply_penalty(node: &mut Node, penalty: Penalty, now: i64) -> Result<Pena
     let slashed_rewards = bps_of(node.claimable_rewards, penalty.slash_bps);
     node.locked_amount = node.locked_amount.saturating_sub(slashed_locked);
     node.claimable_rewards = node.claimable_rewards.saturating_sub(slashed_rewards);
-    node.punished_at = now;
 
     match penalty.membership {
         MembershipAction::None => {}
@@ -69,12 +68,13 @@ pub struct PunishmentBatch {
 }
 
 /// Slash every guilty node. Already-tombstoned nodes are skipped so one stale bit cannot block the batch.
-pub fn punish_guilty_nodes<'info>(
+pub fn slash_guilty_nodes<'info>(
     remaining_accounts: &'info [AccountInfo<'info>],
     resolved: &[(usize, molpha_verifier::SignerXy)],
     guilty_bitmap: &[u8; 32],
     offence: OffenceKind,
     now: i64,
+    withdrawal_cooldown_secs: i64,
     program_id: &Pubkey,
 ) -> Result<PunishmentBatch> {
     let penalty = offence.penalty();
@@ -93,6 +93,16 @@ pub fn punish_guilty_nodes<'info>(
             continue;
         }
         let outcome = apply_penalty(&mut node, penalty, now)?;
+        if node.status == NodeStatus::Tombstoned {
+            require!(
+                withdrawal_cooldown_secs >= 0,
+                MolphaError::InvalidWithdrawalCooldown
+            );
+            node.deactivated_at = now;
+            node.withdrawable_at = now
+                .checked_add(withdrawal_cooldown_secs)
+                .ok_or(MolphaError::WithdrawalArithmeticOverflow)?;
+        }
         batch.slashed_total = batch.slashed_total.saturating_add(outcome.total());
 
         emit!(NodePunished {
@@ -131,7 +141,7 @@ pub fn evict_nodes(
 }
 
 /// Mutable accounts shared by every node-punishment sentence.
-pub struct ExecutePunishmentAccounts<'a, 'info> {
+pub struct SlashAccounts<'a, 'info> {
     pub registry_state: &'a mut Account<'info, RegistryState>,
     pub current_registry: &'a AccountLoader<'info, Registry>,
     pub new_registry: &'a AccountLoader<'info, Registry>,
@@ -146,7 +156,7 @@ pub struct ExecutePunishmentAccounts<'a, 'info> {
 }
 
 /// Proof output from an offence-specific handler, fed into [`execute_punishment`].
-pub struct ExecutePunishmentInput<'a, 'info> {
+pub struct SlashInput<'a, 'info> {
     pub remaining_accounts: &'info [AccountInfo<'info>],
     pub program_id: &'info Pubkey,
     pub resolved: &'a [(usize, molpha_verifier::SignerXy)],
@@ -160,7 +170,7 @@ pub struct ExecutePunishmentInput<'a, 'info> {
 
 /// Values the offence-specific `*Proven` event needs after the shared sentence runs.
 #[derive(Clone, Copy, Debug)]
-pub struct ExecutePunishmentOutcome {
+pub struct SlashOutcome {
     pub slashed_total: u64,
     pub bounty_paid: u64,
     pub previous_version: u32,
@@ -172,20 +182,21 @@ pub struct ExecutePunishmentOutcome {
 
 /// Shared sentence: slash guilty nodes, evict them into a successor registry, pay the reporter
 /// bounty, init `PunishmentCase`, and emit `RegistryVersionCreated`.
-pub fn execute_punishment<'a, 'b, 'info>(
-    accounts: ExecutePunishmentAccounts<'a, 'info>,
-    input: ExecutePunishmentInput<'b, 'info>,
-) -> Result<ExecutePunishmentOutcome> {
+pub fn slash_nodes<'a, 'b, 'info>(
+    accounts: SlashAccounts<'a, 'info>,
+    input: SlashInput<'b, 'info>,
+) -> Result<SlashOutcome> {
     let clock = Clock::get()?;
     let now = clock.unix_timestamp;
     let now_slot = clock.slot;
 
-    let batch = punish_guilty_nodes(
+    let batch = slash_guilty_nodes(
         input.remaining_accounts,
         input.resolved,
         &input.guilty_bitmap,
         input.offence,
         now,
+        accounts.protocol_config.withdrawal_cooldown_secs,
         input.program_id,
     )?;
     require!(!batch.victims.is_empty(), MolphaError::NothingToPunish);
@@ -249,7 +260,7 @@ pub fn execute_punishment<'a, 'b, 'info>(
         created_at: now,
     });
 
-    Ok(ExecutePunishmentOutcome {
+    Ok(SlashOutcome {
         slashed_total,
         bounty_paid: bounty,
         previous_version,
@@ -258,4 +269,51 @@ pub fn execute_punishment<'a, 'b, 'info>(
         now,
         now_slot,
     })
+}
+
+/// Message hash a statement aggregate must verify over.
+pub(crate) fn statement_message_hash(
+    source_id: &[u8; 32],
+    registry_version: u32,
+    signatures_required: u8,
+    canonical_timestamp: u64,
+    statement: &SignedStatement,
+) -> [u8; 32] {
+    molpha_verifier::compute_message_hash(
+        &molpha_verifier::AttestationPayload {
+            source_id: *source_id,
+            registry_version,
+            value: statement.value,
+            canonical_timestamp,
+            signatures_required,
+        },
+        statement.signers_bitmap,
+    )
+}
+
+/// Verify one signed statement against its resolved signers.
+pub(crate) fn verify_statement(
+    source_id: &[u8; 32],
+    registry_version: u32,
+    signatures_required: u8,
+    canonical_timestamp: u64,
+    statement: &SignedStatement,
+    ordered_signers: &[molpha_verifier::SignerXy],
+) -> Result<()> {
+    let message_hash = statement_message_hash(
+        source_id,
+        registry_version,
+        signatures_required,
+        canonical_timestamp,
+        statement,
+    );
+    let is_valid = molpha_verifier::verify_aggregate_over_hash(
+        ordered_signers,
+        &statement.agg_sig_s,
+        &statement.commitment_addr,
+        &message_hash,
+    )
+    .map_err(map_attestation_err)?;
+    require!(is_valid, MolphaError::InvalidAggregateSignature);
+    Ok(())
 }

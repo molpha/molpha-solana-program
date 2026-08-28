@@ -5,14 +5,19 @@
 //! each domain is asserted distinct from the others, so no offence can be filed under another's
 //! evidence hash.
 
+use anchor_lang::prelude::Pubkey;
 use molpha::state::{
     equivocation_evidence_hash, hash_request_auth, hash_request_auth_fields,
     nonce_reuse_evidence_hash, unsolicited_signing_evidence_hash, RequestAuth, SignedStatement,
-    SigningContext, DOMAIN_GWRCPT, DOMAIN_REQAUTH,
+    SigningContext, DOMAIN_EQUIVOCATION, DOMAIN_REQAUTH,
 };
+
+const GATEWAY: Pubkey = Pubkey::new_from_array([0x22; 32]);
 
 fn fixture_request_auth() -> RequestAuth {
     RequestAuth {
+        program_id: molpha::ID,
+        gateway: GATEWAY,
         source_id: [0x11; 32],
         signatures_required: 3,
         timestamp: 1_700_000_000,
@@ -23,8 +28,30 @@ fn fixture_request_auth() -> RequestAuth {
 fn hash_request_auth_fields_matches_struct_hash() {
     let auth = fixture_request_auth();
     assert_eq!(
-        hash_request_auth_fields(&auth.source_id, auth.signatures_required, auth.timestamp),
+        hash_request_auth_fields(
+            &auth.gateway,
+            &auth.source_id,
+            auth.signatures_required,
+            auth.timestamp
+        ),
         hash_request_auth(&auth)
+    );
+}
+
+#[test]
+fn hash_request_auth_fields_commits_to_this_program() {
+    // The field-level helper is what the program calls; it must never let a caller name another
+    // deployment's program id.
+    let mut foreign = fixture_request_auth();
+    foreign.program_id = Pubkey::new_from_array([0x99; 32]);
+    assert_ne!(
+        hash_request_auth(&foreign),
+        hash_request_auth_fields(
+            &foreign.gateway,
+            &foreign.source_id,
+            foreign.signatures_required,
+            foreign.timestamp
+        )
     );
 }
 
@@ -37,11 +64,21 @@ fn request_auth_hash_is_field_sensitive() {
     let mut b = fixture_request_auth();
     b.source_id[0] ^= 0x01;
     assert_ne!(hash_request_auth(&b), base);
+    let mut c = fixture_request_auth();
+    c.signatures_required += 1;
+    assert_ne!(hash_request_auth(&c), base);
+    // An authorization is redeemable by exactly one gateway on exactly one deployment.
+    let mut d = fixture_request_auth();
+    d.gateway = Pubkey::new_from_array([0x33; 32]);
+    assert_ne!(hash_request_auth(&d), base);
+    let mut e = fixture_request_auth();
+    e.program_id = Pubkey::new_from_array([0x44; 32]);
+    assert_ne!(hash_request_auth(&e), base);
 }
 
 #[test]
 fn distinct_domains_separate_hashes() {
-    assert_ne!(DOMAIN_REQAUTH, DOMAIN_GWRCPT);
+    assert_ne!(DOMAIN_REQAUTH, DOMAIN_EQUIVOCATION);
 }
 
 fn fixture_statement(value: u8, bitmap_byte: u8) -> SignedStatement {

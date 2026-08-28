@@ -31,6 +31,10 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     let clock = Clock::get()?;
 
     require!(
+        args.withdrawal_cooldown_secs >= 0,
+        MolphaError::InvalidWithdrawalCooldown
+    );
+    require!(
         args.min_signers >= MIN_SIGNERS_FLOOR,
         MolphaError::InvalidMinSigners
     );

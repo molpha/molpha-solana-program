@@ -18,10 +18,6 @@ pub fn update_registry_policy(
     let previous_version = ctx.accounts.registry_state.current_version;
     let (node_count, previous_buffer) = {
         let current = ctx.accounts.current_registry.load()?;
-        require!(
-            current.version == previous_version,
-            MolphaError::InvalidRegistryVersion
-        );
         let mut next = ctx.accounts.new_registry.load_init()?;
         next.copy_from_previous(&current, new_registry_version, ctx.bumps.new_registry);
         let previous_buffer = next.redundancy_buffer;
