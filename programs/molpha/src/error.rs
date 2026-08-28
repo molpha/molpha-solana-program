@@ -94,10 +94,12 @@ pub enum MolphaError {
     ConsumerSigInvalid,
     #[msg("popcount(signers_bitmap) < signatures_required")]
     QuorumBelowThreshold,
-    #[msg("gateway not registered or bonded below gateway_bond_min")]
-    GatewayNotBonded,
+    #[msg("gateway is deactivated")]
+    GatewayDeactivated,
     #[msg("gateway is slashed")]
     GatewaySlashed,
+    #[msg("gateway is active")]
+    GatewayActive,
     #[msg("subscription inactive or round quota exhausted")]
     SubscriptionInactiveOrExhausted,
     #[msg("dispute failed: the committed signature verifies (no fraud)")]
@@ -112,6 +114,20 @@ pub enum MolphaError {
     RoundNotPending,
     #[msg("no claimable rewards")]
     NothingToClaim,
+    #[msg("account is not in a state that permits withdrawal")]
+    InvalidWithdrawalState,
+    #[msg("withdrawable balance is zero")]
+    NothingToWithdraw,
+    #[msg("withdrawal cooldown has not elapsed")]
+    WithdrawalCooldownActive,
+    #[msg("gateway bond is still inside its dispute window")]
+    GatewayDisputeWindowActive,
+    #[msg("round dispute window has elapsed")]
+    DisputeWindowElapsed,
+    #[msg("withdrawal deadline arithmetic overflow")]
+    WithdrawalArithmeticOverflow,
+    #[msg("withdrawal cooldown must be non-negative")]
+    InvalidWithdrawalCooldown,
     #[msg("instructions sysvar account is invalid")]
     InvalidInstructionsSysvar,
     #[msg("consumer authority is not the delegate authority")]

@@ -1,4 +1,5 @@
 import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
@@ -240,6 +241,57 @@ export function registerRegistryCommands(program: Command): void {
         node: node.toBase58(),
         removeIndex,
         registryVersion: newRegistryVersion,
+      });
+    });
+
+  registry
+    .command("withdraw-deposit")
+    .description("Withdraw a cooled-down node security deposit")
+    .option(
+      "--node-owner-wallet <path>",
+      "node owner keypair; defaults to provider wallet"
+    )
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const owner = options.nodeOwnerWallet
+        ? loadKeypair(options.nodeOwnerWallet)
+        : ctx.payer;
+      const [protocolConfig] = findProtocolConfigPda(ctx.programId);
+      const config = await fetchAccountOrNull<any>(
+        ctx.program,
+        "protocolConfig",
+        protocolConfig
+      );
+      if (!config) throw new Error("Protocol is not initialized");
+
+      const [node] = findNodePda(ctx.programId, owner.publicKey);
+      const destination = getAssociatedTokenAddressSync(
+        config.usdcMint,
+        owner.publicKey
+      );
+      const builder = (ctx.program.methods as any)
+        .withdrawNodeDeposit()
+        .accountsPartial({
+          owner: owner.publicKey,
+          protocolConfig,
+          node,
+          usdcMint: config.usdcMint,
+          treasury: config.treasury,
+          destination,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        });
+      if (!owner.publicKey.equals(ctx.wallet.publicKey)) {
+        builder.signers([owner]);
+      }
+
+      const signature = await builder.rpc();
+      writeJson({
+        signature,
+        owner: owner.publicKey.toBase58(),
+        node: node.toBase58(),
+        destination: destination.toBase58(),
       });
     });
 

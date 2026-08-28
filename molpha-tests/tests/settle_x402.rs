@@ -333,12 +333,14 @@ fn settlement_rejects_a_registry_version_that_is_no_longer_current() {
 #[test]
 fn a_settlement_leaves_the_gateway_bond_and_status_untouched() {
     let mut f = fixture();
-    let before: Gateway = f.p.env.get(&f.gateway_pda());
+    let bond_before = f.p.env.token_balance(&f.bond_ata());
     let signed = f.p.sign_duty(duty(4));
     let args = f.p.x402_args(&signed, [0xaa; 32]);
     f.settle(args).expect("settles");
 
     let after: Gateway = f.p.env.get(&f.gateway_pda());
-    assert_eq!(after.bond, before.bond);
+    assert_eq!(f.p.env.token_balance(&f.bond_ata()), bond_before);
     assert!(!after.slashed);
+    assert_eq!(after.deactivated_at, 0);
+    assert_eq!(after.withdrawable_slot, 0);
 }

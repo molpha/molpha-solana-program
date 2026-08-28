@@ -133,6 +133,7 @@ export function registerRoundCommands(program: Command): void {
       const [roundRecordPda] = findSubscriptionRoundPda(
         ctx.programId,
         subscriptionOwner,
+        gatewayPda,
         sourceId,
         signaturesRequired,
         timestamp
@@ -147,6 +148,8 @@ export function registerRoundCommands(program: Command): void {
           )[0];
 
       const authHash = hashRequestAuthFields(
+        ctx.programId,
+        gatewayPda,
         sourceId,
         signaturesRequired,
         timestamp

@@ -47,8 +47,10 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
   protocol-quoted price from its canonical USDC ATA — any payment rail, e.g. Solana or Base x402 —
   and records `payment_rail` / `payment_ref` as attested, gateway-claimed metadata the program
   never verifies). Both take `source_id` directly (not a derived `feed_id` / `api_config_hash`).
-- `RequestAuth` is `H(source_id, signatures_required, timestamp)`, verified on-chain for the
-  subscription path. The x402 path has no on-chain payer authentication — the gateway self-attests
+- `RequestAuth` is `H(program_id, gateway, source_id, signatures_required, timestamp)`, verified
+  on-chain for the subscription path. The `program_id` and `gateway` fields scope the
+  authorization: it can only be redeemed by the gateway the consumer chose, on the deployment they
+  meant to pay. The x402 path has no on-chain payer authentication — the gateway self-attests
   and is economically deterred by paying real USDC per round; demand authenticity is a bilateral,
   rail-level concern.
 
@@ -256,7 +258,7 @@ Gateway settle_x402_round (pays price from its canonical USDC ATA, any rail)
 | Delegate            | `molpha_delegate`      | owner, delegate                                               |
 | Feed                | `molpha_feed`          | `source_id` (32), `signatures_required` (u8), submitter       |
 | Gateway             | `molpha_gateway`       | gateway authority                                             |
-| Subscription round  | `molpha_round`         | subscription owner, `source_id`, `signatures_required` (u8), ts (`u64` LE) |
+| Subscription round  | `molpha_round`         | subscription owner, gateway, `source_id`, `signatures_required` (u8), ts (`u64` LE) |
 | x402 round          | `molpha_x402_round`    | `payer_id` (32), gateway, `source_id`, `signatures_required` (u8), ts (`u64` LE) |
 
 Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_GUIDE.md#3-on-chain-accounts-and-pdas).
@@ -267,6 +269,19 @@ Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_G
 - Registry version checks on attestations
 - PDA-scoped accounts and authority checks per instruction
 - USDC deposits and protocol fee configuration for node registration and subscriptions
+- Gateway deactivation keeps its bond ATA slashable through the full dispute window
+
+### Withdrawals
+
+- `registry withdraw-deposit` releases a deactivated node's deposit after `withdrawable_at`, or
+  the surviving balance of a tombstoned node after its punishment cooldown. Rewards remain on the
+  separate `claim_node_rewards` path.
+- `gateway deactivate` is protocol-authority controlled. It immediately disables new settlement,
+  records deactivation on the permanent Gateway account, and leaves the bond ATA intact and
+  slashable.
+- `gateway withdraw-bond` is gateway-authority controlled and succeeds at the snapshotted first
+  slot past the dispute window. It transfers the surviving balance and closes only the bond ATA;
+  the deactivated Gateway identity remains permanent and cannot re-register.
 
 ## Contributing
 

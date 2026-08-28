@@ -155,7 +155,8 @@ pub struct SettleX402Round<'info> {
     #[account(
         mut,
         has_one = authority,
-        constraint = !gateway.slashed && gateway.bond >= protocol_config.gateway_bond_min @ MolphaError::GatewayNotBonded,
+        constraint = !gateway.slashed @ MolphaError::GatewaySlashed,
+        constraint = gateway.deactivated_at == 0 @ MolphaError::GatewayDeactivated,
     )]
     pub gateway: Box<Account<'info, Gateway>>,
 

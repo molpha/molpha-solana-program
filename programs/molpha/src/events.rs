@@ -58,6 +58,15 @@ pub struct NodeDeactivated {
 }
 
 #[event]
+pub struct NodeDepositWithdrawn {
+    pub node: Pubkey,
+    pub owner: Pubkey,
+    pub destination: Pubkey,
+    pub amount: u64,
+    pub withdrawn_at: i64,
+}
+
+#[event]
 pub struct RegistryVersionCreated {
     pub previous_version: u32,
     pub new_version: u32,
@@ -120,6 +129,24 @@ pub struct GatewayRegistered {
     pub port: u16,
     pub bond: u64,
     pub registered_at: i64,
+}
+
+#[event]
+pub struct GatewayDeactivated {
+    pub gateway: Pubkey,
+    pub authority: Pubkey,
+    pub deactivated_at: i64,
+    pub withdrawable_slot: u64,
+}
+
+#[event]
+pub struct GatewayBondWithdrawn {
+    pub gateway: Pubkey,
+    pub authority: Pubkey,
+    pub destination: Pubkey,
+    pub amount: u64,
+    pub withdrawn_at: i64,
+    pub withdrawn_slot: u64,
 }
 
 #[event]

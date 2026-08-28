@@ -34,9 +34,10 @@ fn register_gateway_moves_the_bond_into_a_gateway_owned_escrow() {
     assert_eq!(gateway.authority, authority.pubkey());
     assert_eq!(gateway.ip, [198, 51, 100, 4]);
     assert_eq!(gateway.port, 8_443);
-    assert_eq!(gateway.bond, bond);
     assert!(!gateway.slashed);
     assert_eq!(gateway.registered_at, p.env.unix_timestamp());
+    assert_eq!(gateway.deactivated_at, 0);
+    assert_eq!(gateway.withdrawable_slot, 0);
 
     // The bond lives in an ATA owned by the gateway PDA, not by the authority and not by the
     // treasury — dispute slashing depends on that separation.
@@ -62,8 +63,11 @@ fn register_gateway_accepts_a_bond_above_the_minimum() {
     let ix = p.register_gateway_ix(&authority.pubkey(), &args(bond));
     p.env.send_ok(&[ix], &[&authority]);
 
-    let gateway: Gateway = p.env.get(&pda::gateway(&authority.pubkey()));
-    assert_eq!(gateway.bond, bond);
+    let gateway_pda = pda::gateway(&authority.pubkey());
+    assert_eq!(
+        p.env.token_balance(&pda::ata(&gateway_pda, &p.usdc_mint)),
+        bond
+    );
 }
 
 #[test]
@@ -198,5 +202,10 @@ fn gateways_are_independent_of_one_another() {
     let b: Gateway = p.env.get(&pda::gateway(&second.pubkey()));
     assert_eq!(a.authority, first.pubkey());
     assert_eq!(b.authority, second.pubkey());
-    assert_eq!(a.bond, b.bond);
+    assert_eq!(
+        p.env
+            .token_balance(&pda::ata(&pda::gateway(&first.pubkey()), &p.usdc_mint)),
+        p.env
+            .token_balance(&pda::ata(&pda::gateway(&second.pubkey()), &p.usdc_mint))
+    );
 }

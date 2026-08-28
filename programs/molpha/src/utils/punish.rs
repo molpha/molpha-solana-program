@@ -75,6 +75,7 @@ pub fn punish_guilty_nodes<'info>(
     guilty_bitmap: &[u8; 32],
     offence: OffenceKind,
     now: i64,
+    withdrawal_cooldown_secs: i64,
     program_id: &Pubkey,
 ) -> Result<PunishmentBatch> {
     let penalty = offence.penalty();
@@ -93,6 +94,16 @@ pub fn punish_guilty_nodes<'info>(
             continue;
         }
         let outcome = apply_penalty(&mut node, penalty, now)?;
+        if node.status == NodeStatus::Tombstoned {
+            require!(
+                withdrawal_cooldown_secs >= 0,
+                MolphaError::InvalidWithdrawalCooldown
+            );
+            node.deactivated_at = now;
+            node.withdrawable_at = now
+                .checked_add(withdrawal_cooldown_secs)
+                .ok_or(MolphaError::WithdrawalArithmeticOverflow)?;
+        }
         batch.slashed_total = batch.slashed_total.saturating_add(outcome.total());
 
         emit!(NodePunished {
@@ -186,6 +197,7 @@ pub fn execute_punishment<'a, 'b, 'info>(
         &input.guilty_bitmap,
         input.offence,
         now,
+        accounts.protocol_config.withdrawal_cooldown_secs,
         input.program_id,
     )?;
     require!(!batch.victims.is_empty(), MolphaError::NothingToPunish);

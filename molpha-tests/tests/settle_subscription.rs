@@ -60,7 +60,7 @@ fn settle_ixs(
     signed: &SignedAttestation,
 ) -> Vec<Instruction> {
     vec![
-        f.p.consumer_authorization_ix(consumer, &signed.duty),
+        f.p.consumer_authorization_ix(consumer, &f.gateway.pubkey(), &signed.duty),
         f.p.settle_subscription_round_ix(
             &f.gateway.pubkey(),
             &f.owner.pubkey(),
@@ -238,7 +238,7 @@ fn settlement_rejects_an_authorization_signed_by_someone_else() {
 
     // Ed25519 instruction is present and internally valid, but for the wrong pubkey.
     let ixs = vec![
-        f.p.consumer_authorization_ix(&impostor, &signed.duty),
+        f.p.consumer_authorization_ix(&impostor, &gateway.pubkey(), &signed.duty),
         f.p.settle_subscription_round_ix(
             &gateway.pubkey(),
             &owner.pubkey(),
@@ -262,7 +262,7 @@ fn settlement_rejects_an_authorization_over_a_different_request() {
     // Signed over a neighbouring timestamp: the request-auth hash no longer matches.
     let other_request = duty.at(duty.canonical_timestamp + 1);
     let ixs = vec![
-        f.p.consumer_authorization_ix(&owner, &other_request),
+        f.p.consumer_authorization_ix(&owner, &gateway.pubkey(), &other_request),
         f.p.settle_subscription_round_ix(
             &gateway.pubkey(),
             &owner.pubkey(),
@@ -276,6 +276,30 @@ fn settlement_rejects_an_authorization_over_a_different_request() {
 }
 
 #[test]
+fn an_authorization_naming_one_gateway_cannot_be_redeemed_by_another() {
+    let mut f = fixture();
+    let owner = f.owner.insecure_clone();
+    let other_gateway = f.p.register_gateway(0);
+    let signed = f.p.sign_duty(duty(4));
+
+    // The consumer authorized the fixture gateway. `other_gateway` lifts that plaintext Ed25519
+    // instruction out of the transaction and settles the same round under its own gateway account:
+    // the preimage commits to the chosen gateway, so the signature no longer matches.
+    let ixs = vec![
+        f.p.consumer_authorization_ix(&owner, &f.gateway.pubkey(), &signed.duty),
+        f.p.settle_subscription_round_ix(
+            &other_gateway.pubkey(),
+            &owner.pubkey(),
+            &owner.pubkey(),
+            None,
+            &signed,
+        ),
+    ];
+    let failed = f.p.env.send_err(&ixs, &[&owner, &other_gateway]);
+    assert_molpha_error(&failed, MolphaError::ConsumerSigInvalid);
+}
+
+#[test]
 fn the_authorization_must_be_the_immediately_preceding_instruction() {
     let mut f = fixture();
     let owner = f.owner.insecure_clone();
@@ -283,7 +307,7 @@ fn the_authorization_must_be_the_immediately_preceding_instruction() {
     let signed = f.p.sign_duty(duty(4));
 
     let ixs = vec![
-        f.p.consumer_authorization_ix(&owner, &signed.duty),
+        f.p.consumer_authorization_ix(&owner, &gateway.pubkey(), &signed.duty),
         // Anything wedged in between breaks the introspection contract.
         set_compute_unit_price(1),
         f.p.settle_subscription_round_ix(
@@ -558,7 +582,10 @@ fn settlement_requires_the_named_gateway_to_sign() {
         signed.duty.canonical_timestamp,
     );
 
-    let ixs = vec![f.p.consumer_authorization_ix(&owner, &signed.duty), ix];
+    let ixs = vec![
+        f.p.consumer_authorization_ix(&owner, &f.gateway.pubkey(), &signed.duty),
+        ix,
+    ];
     let failed = f.p.env.send_err(&ixs, &[&owner, &other_gateway]);
     assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintHasOne);
 }

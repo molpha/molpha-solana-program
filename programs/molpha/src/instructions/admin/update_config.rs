@@ -23,6 +23,10 @@ pub struct UpdateConfigArgs {
 
 pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Result<()> {
     require!(
+        args.withdrawal_cooldown_secs >= 0,
+        MolphaError::InvalidWithdrawalCooldown
+    );
+    require!(
         args.min_signers >= MIN_SIGNERS_FLOOR,
         MolphaError::InvalidMinSigners
     );

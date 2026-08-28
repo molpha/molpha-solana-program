@@ -36,11 +36,11 @@ yarn molpha:dev --help
 | Group | Commands |
 |---|---|
 | `init` | initialize protocol |
-| `registry` | `register` \| `update-endpoint` \| `deactivate` \| `set-buffer` |
+| `registry` | `register` \| `update-endpoint` \| `deactivate` \| `withdraw-deposit` \| `set-buffer` |
 | `plan` | `add` \| `update` \| `show` |
 | `subscription` | `subscribe` \| `extend` |
 | `delegate` | `add` \| `remove` \| `pause` |
-| `gateway` | `register` \| `claim` |
+| `gateway` | `register` \| `deactivate` \| `withdrawal-status` \| `withdraw-bond` |
 | `round` | `settle-subscription` \| `settle-x402` \| `finalize` \| `dispute` |
 | `rewards` | `claim-node` |
 | `attestation` | `sign` \| `submit` \| `verify` (historical, read-only) |
@@ -143,8 +143,27 @@ yarn molpha round finalize \
   --gateway-authority <GATEWAY_AUTHORITY>
 
 yarn molpha rewards claim-node
-yarn molpha gateway claim
 ```
+
+Node deposits and gateway bonds have separate exit paths:
+
+```bash
+# Run after registry deactivate and the node's cooldown.
+yarn molpha registry withdraw-deposit
+
+# Protocol authority: deactivate the target gateway and start its slot deadline.
+yarn molpha gateway deactivate --gateway-authority <GATEWAY_AUTHORITY>
+yarn molpha gateway withdrawal-status --gateway-authority <GATEWAY_AUTHORITY>
+
+# Gateway authority: withdraw after the reported slot deadline.
+yarn molpha gateway withdraw-bond --gateway-wallet <GATEWAY_KEYPAIR_PATH>
+```
+
+Deactivation writes `deactivated_at` and `withdrawable_slot` directly into the Gateway account.
+Settlement stops immediately, while the bond remains slashable through
+`deactivation_slot + dispute_window_slots`. Withdrawal opens at the first slot strictly beyond
+that boundary. A successful dispute blocks withdrawal. A clean withdrawal closes only the bond
+ATA; the deactivated Gateway account remains, so the same authority cannot register again.
 
 A gateway-funded x402 round (any payment rail; the gateway pays from its canonical USDC ATA and
 records how it was paid as attested metadata — see the program docs for `settle_x402_round`):
@@ -177,5 +196,6 @@ yarn molpha round settle-x402 \
 - `attestation verify` only rebuilds/prints submit args off chain; verification happens on submit.
 - Subscription payment uses monthly `subscribe` / `extend` (not per-round top-ups).
 - `round settle-subscription` requires an Ed25519 RequestAuth pre-instruction; provide
-  `--consumer-wallet` so the CLI can sign the auth message. `round settle-x402` has no
+  `--consumer-wallet` so the CLI can sign the auth message. The message is bound to the program id
+  and to the `--gateway-authority` gateway PDA, so it is only redeemable by that gateway. `round settle-x402` has no
   on-chain payer authentication — the gateway self-attests and pays from its own float.

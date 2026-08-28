@@ -147,6 +147,7 @@ export function derivePayerId(
 export function findSubscriptionRoundPda(
   programId: PublicKey,
   subscriptionOwner: PublicKey,
+  gatewayPda: PublicKey,
   sourceId: Uint8Array,
   signaturesRequired: number,
   timestamp: number | bigint
@@ -155,6 +156,7 @@ export function findSubscriptionRoundPda(
     [
       ROUND_SEED,
       subscriptionOwner.toBuffer(),
+      gatewayPda.toBuffer(),
       Buffer.from(sourceId),
       Buffer.from([signaturesRequired & 0xff]),
       u64Le(timestamp),

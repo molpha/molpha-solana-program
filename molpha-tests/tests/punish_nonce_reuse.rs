@@ -124,6 +124,11 @@ fn a_proven_nonce_reuse_halves_the_stake_tombstones_and_evicts_the_intersection(
             locked_each - locked_each / 2,
             "half the deposit survives the slash"
         );
+        assert_eq!(account.deactivated_at, case.p.env.unix_timestamp());
+        assert_eq!(
+            account.withdrawable_at,
+            account.punished_at + case.p.args.withdrawal_cooldown_secs
+        );
     }
     for node in case.p.node_pdas() {
         if !guilty.contains(&node) {
@@ -156,6 +161,27 @@ fn a_proven_nonce_reuse_halves_the_stake_tombstones_and_evicts_the_intersection(
     assert_eq!(proven.source_id_b, case.b.duty.source_id);
     assert_eq!(proven.guilty_count, guilty.len() as u16);
     assert_eq!(events::<NodePunished>(&meta).len(), guilty.len());
+
+    case.p
+        .env
+        .advance_seconds(case.p.args.withdrawal_cooldown_secs);
+    for node in &guilty {
+        let owner = case
+            .p
+            .nodes
+            .iter()
+            .find(|registered| registered.pda == *node)
+            .expect("guilty node is registered")
+            .owner
+            .insecure_clone();
+        let survivor = case.p.env.get::<Node>(node).locked_amount;
+        let destination = pda::ata(&owner.pubkey(), &case.p.usdc_mint);
+        let before = case.p.env.token_balance(&destination);
+        let ix = case.p.withdraw_node_deposit_ix(&owner.pubkey());
+        case.p.env.send_ok(&[ix], &[&owner]);
+        assert_eq!(case.p.env.token_balance(&destination), before + survivor);
+        assert_eq!(case.p.env.get::<Node>(node).locked_amount, 0);
+    }
 }
 
 #[test]
