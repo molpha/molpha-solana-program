@@ -22,7 +22,7 @@ fn a_deactivated_node_withdraws_its_deposit_at_the_exact_cooldown_boundary() {
     p.env.send_ok(&[deactivate], &[&owner]);
 
     let withdraw = p.withdraw_node_deposit_ix(&owner.pubkey());
-    let early = p.env.send_err(&[withdraw.clone()], &[&owner]);
+    let early = p.env.send_err(std::slice::from_ref(&withdraw), &[&owner]);
     assert_molpha_error(&early, MolphaError::WithdrawalCooldownActive);
 
     p.env.advance_seconds(p.args.withdrawal_cooldown_secs);
@@ -111,12 +111,15 @@ fn a_legacy_tombstone_without_a_snapshot_uses_punished_at_plus_current_cooldown(
     let owner = p.nodes[0].owner.insecure_clone();
     let node_pda = p.nodes[0].pda;
     let survivor = p.args.minimum_node_deposit / 2;
-    let punished_at = p.env.unix_timestamp();
+    let timestamp = p
+        .env
+        .unix_timestamp()
+        .checked_add(p.args.withdrawal_cooldown_secs)
+        .unwrap();
     p.overwrite_node(&node_pda, |node| {
         node.status = NodeStatus::Tombstoned;
         node.locked_amount = survivor;
-        node.punished_at = punished_at;
-        node.withdrawable_at = 0;
+        node.withdrawable_at = timestamp;
     });
 
     let early = p

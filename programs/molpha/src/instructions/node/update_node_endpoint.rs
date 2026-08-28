@@ -22,11 +22,6 @@ pub fn update_node_endpoint(
     );
 
     let node = &mut ctx.accounts.node;
-    require!(
-        node.status == NodeStatus::Active,
-        MolphaError::NodeNotActive
-    );
-
     node.update_endpoint(args.ip, args.port);
 
     emit!(NodeEndpointUpdated {
@@ -45,9 +40,9 @@ pub struct UpdateNodeEndpoint<'info> {
 
     #[account(
         mut,
+        constraint = node.status == NodeStatus::Active @ MolphaError::NodeNotActive,
         seeds = [Node::SEED_PREFIX, node_owner.key().as_ref()],
         bump = node.bump,
-        constraint = node.owner == node_owner.key() @ MolphaError::UnauthorizedNodeAuthority,
     )]
     pub node: Account<'info, Node>,
 }

@@ -15,23 +15,10 @@ pub struct ReinstateNodeArgs {
 }
 
 pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> Result<()> {
-    require_keys_eq!(
-        ctx.accounts.node.owner,
-        args.node_owner,
-        MolphaError::InvalidNodeAccount
-    );
-    require!(
-        ctx.accounts.node.status != NodeStatus::Tombstoned,
-        MolphaError::NodeTombstoned
-    );
-    require!(
-        ctx.accounts.node.status == NodeStatus::Frozen,
-        MolphaError::NodeNotFrozen
-    );
-
     let config = &ctx.accounts.protocol_config;
     let now = Clock::get()?.unix_timestamp;
     let is_authority = ctx.accounts.caller.key() == config.authority;
+
     require!(
         is_authority || now >= ctx.accounts.node.frozen_until,
         MolphaError::NodeStillFrozen
@@ -115,6 +102,7 @@ pub struct ReinstateNode<'info> {
 
     #[account(
         mut,
+        constraint = node.status == NodeStatus::Frozen @ MolphaError::NodeNotFrozen,
         seeds = [Node::SEED_PREFIX, args.node_owner.as_ref()],
         bump = node.bump,
     )]

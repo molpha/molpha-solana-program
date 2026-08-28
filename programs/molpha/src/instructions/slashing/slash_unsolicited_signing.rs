@@ -10,12 +10,14 @@ use molpha_verifier::bitmap::{bitmap_is_subset, bitmap_load, bitmap_store};
 use crate::{
     error::{map_attestation_err, MolphaError},
     events::UnsolicitedSigningProven,
-    instructions::disputing::verify_statement,
     state::{
         resolve_registry_signers_indexed, unsolicited_signing_evidence_hash, OffenceKind,
         ProtocolConfig, PunishmentCase, Registry, RegistryState, SignedStatement,
     },
-    utils::punish::{execute_punishment, ExecutePunishmentAccounts, ExecutePunishmentInput},
+    utils::{
+        slash::{slash_nodes, SlashAccounts, SlashInput},
+        verify_statement,
+    },
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -91,8 +93,8 @@ pub fn punish_unsolicited_signing<'info>(
     )?;
 
     let reporter = ctx.accounts.reporter.key();
-    let outcome = execute_punishment(
-        ExecutePunishmentAccounts {
+    let outcome = slash_nodes(
+        SlashAccounts {
             registry_state: &mut ctx.accounts.registry_state,
             current_registry: &ctx.accounts.current_registry,
             new_registry: &ctx.accounts.new_registry,
@@ -105,7 +107,7 @@ pub fn punish_unsolicited_signing<'info>(
             reporter_usdc: &ctx.accounts.reporter_usdc,
             token_program: ctx.accounts.token_program.key(),
         },
-        ExecutePunishmentInput {
+        SlashInput {
             remaining_accounts: ctx.remaining_accounts,
             program_id: ctx.program_id,
             resolved: &resolved,

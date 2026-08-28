@@ -12,12 +12,14 @@ use molpha_verifier::bitmap::{bitmap_bit_set, bitmap_is_subset, bitmap_load, bit
 use crate::{
     error::{map_attestation_err, MolphaError},
     events::NonceReuseProven,
-    instructions::disputing::{statement_message_hash, verify_statement},
     state::{
         nonce_reuse_evidence_hash, resolve_registry_signers_indexed, OffenceKind, ProtocolConfig,
         PunishmentCase, Registry, RegistryState, SignedStatement, SigningContext,
     },
-    utils::punish::{execute_punishment, ExecutePunishmentAccounts, ExecutePunishmentInput},
+    utils::{
+        slash::{slash_nodes, SlashAccounts, SlashInput},
+        statement_message_hash, verify_statement,
+    },
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -148,8 +150,8 @@ pub fn punish_nonce_reuse<'info>(
     )?;
 
     let reporter = ctx.accounts.reporter.key();
-    let outcome = execute_punishment(
-        ExecutePunishmentAccounts {
+    let outcome = slash_nodes(
+        SlashAccounts {
             registry_state: &mut ctx.accounts.registry_state,
             current_registry: &ctx.accounts.current_registry,
             new_registry: &ctx.accounts.new_registry,
@@ -162,7 +164,7 @@ pub fn punish_nonce_reuse<'info>(
             reporter_usdc: &ctx.accounts.reporter_usdc,
             token_program: ctx.accounts.token_program.key(),
         },
-        ExecutePunishmentInput {
+        SlashInput {
             remaining_accounts: ctx.remaining_accounts,
             program_id: ctx.program_id,
             resolved: &resolved,

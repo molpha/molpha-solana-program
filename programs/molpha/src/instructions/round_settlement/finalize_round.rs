@@ -19,17 +19,8 @@ pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
     let now_slot = clock.slot;
 
     require!(
-        record.status == RoundRecordStatus::Pending,
-        MolphaError::RoundNotPending
-    );
-    require!(
         now_slot.saturating_sub(record.recorded_slot) > config.dispute_window_slots,
         MolphaError::RoundNotFinalizable
-    );
-
-    require!(
-        record.registry_version == registry.version,
-        MolphaError::InvalidRegistryVersion
     );
 
     let credited = bitmap_load(&record.signers_bitmap);
@@ -95,6 +86,9 @@ pub struct FinalizeRound<'info> {
     pub registry: AccountLoader<'info, Registry>,
 
     /// Settlement record created by `settle_*_round`; seeds omitted because only those instructions init it.
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = round_record.status == RoundRecordStatus::Pending @ MolphaError::RoundNotPending,
+    )]
     pub round_record: Account<'info, RoundReceiptRecord>,
 }

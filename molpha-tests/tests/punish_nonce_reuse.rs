@@ -127,7 +127,11 @@ fn a_proven_nonce_reuse_halves_the_stake_tombstones_and_evicts_the_intersection(
         assert_eq!(account.deactivated_at, case.p.env.unix_timestamp());
         assert_eq!(
             account.withdrawable_at,
-            account.punished_at + case.p.args.withdrawal_cooldown_secs
+            case.p
+                .env
+                .unix_timestamp()
+                .checked_add(case.p.args.withdrawal_cooldown_secs)
+                .unwrap()
         );
     }
     for node in case.p.node_pdas() {

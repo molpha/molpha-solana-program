@@ -58,10 +58,6 @@ pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()>
 
     let config = &ctx.accounts.protocol_config;
     let slashed_bond = ctx.accounts.gateway_bond.amount;
-    require!(
-        ctx.accounts.gateway_bond.amount >= slashed_bond,
-        MolphaError::InsufficientBond
-    );
     let bounty = (slashed_bond as u128)
         .saturating_mul(config.challenger_bounty_bps as u128)
         .checked_div(10_000)

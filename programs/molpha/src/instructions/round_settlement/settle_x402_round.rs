@@ -8,11 +8,10 @@ use crate::{
         Gateway, ProtocolConfig, Registry, RegistryState, RoundReceiptInitArgs, RoundReceiptRecord,
         RoundRecordKind,
     },
+    utils::settlement::{validate_settlement_attestation, SettlementAttestationInput},
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-
-use super::validate_attestation::{validate_settlement_attestation, SettlementAttestationInput};
 
 pub const MAX_PAYMENT_REF_LEN: usize = 64;
 

@@ -108,10 +108,13 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
         assert_eq!(account.status, NodeStatus::Tombstoned);
         assert_eq!(account.locked_amount, 0);
         assert_eq!(account.claimable_rewards, 0);
-        assert_eq!(account.punished_at, case.p.env.unix_timestamp());
         assert_eq!(
             account.withdrawable_at,
-            account.punished_at + case.p.args.withdrawal_cooldown_secs
+            case.p
+                .env
+                .unix_timestamp()
+                .checked_add(case.p.args.withdrawal_cooldown_secs)
+                .unwrap()
         );
     }
     // Everyone else is untouched, including the non-overlapping signers.

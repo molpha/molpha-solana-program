@@ -16,29 +16,20 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
     let node = &ctx.accounts.node;
     let amount = node.locked_amount;
     require!(amount > 0, MolphaError::NothingToWithdraw);
-
-    let ready_at = match node.status {
-        NodeStatus::Deactivated => node.withdrawable_at,
-        NodeStatus::Tombstoned => {
-            if node.withdrawable_at > 0 {
-                node.withdrawable_at
-            } else {
-                require!(
-                    ctx.accounts.protocol_config.withdrawal_cooldown_secs >= 0,
-                    MolphaError::InvalidWithdrawalCooldown
-                );
-                node.punished_at
-                    .checked_add(ctx.accounts.protocol_config.withdrawal_cooldown_secs)
-                    .ok_or(MolphaError::WithdrawalArithmeticOverflow)?
-            }
-        }
-        NodeStatus::Active | NodeStatus::Frozen => {
-            return err!(MolphaError::InvalidWithdrawalState)
-        }
-    };
+    require!(
+        node.status == NodeStatus::Deactivated || node.status == NodeStatus::Tombstoned,
+        MolphaError::InvalidWithdrawalState
+    );
+    require!(
+        node.withdrawable_at > 0,
+        MolphaError::InvalidWithdrawalState
+    );
 
     let now = Clock::get()?.unix_timestamp;
-    require!(now >= ready_at, MolphaError::WithdrawalCooldownActive);
+    require!(
+        now >= node.withdrawable_at,
+        MolphaError::WithdrawalCooldownActive
+    );
 
     let config = &ctx.accounts.protocol_config;
     let bump = [config.bump];

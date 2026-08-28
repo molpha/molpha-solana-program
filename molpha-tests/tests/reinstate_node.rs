@@ -125,7 +125,7 @@ fn a_tombstoned_node_is_never_reinstated_even_by_the_authority() {
     let authority = p.authority.insecure_clone();
     let ix = p.reinstate_node_ix(&authority.pubkey(), &owner.pubkey());
     let failed = p.env.send_err(&[ix], &[&authority]);
-    assert_molpha_error(&failed, MolphaError::NodeTombstoned);
+    assert_molpha_error(&failed, MolphaError::NodeNotFrozen);
 }
 
 #[test]

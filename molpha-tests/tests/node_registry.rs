@@ -67,7 +67,6 @@ fn register_node_writes_identity_takes_the_deposit_and_appends_a_snapshot() {
     assert_eq!(node.deactivated_at, 0);
     assert_eq!(node.withdrawable_at, 0);
     assert_eq!(node.frozen_until, 0);
-    assert_eq!(node.punished_at, 0);
 
     // The secp256k1 key is permanently reserved for this node.
     let claim: Secp256k1KeyClaim = p.env.get(&pda::secp256k1_key_claim(&key.compressed));
@@ -116,7 +115,7 @@ fn register_node_requires_the_protocol_authority() {
     let args = p.register_node_args(&owner.pubkey(), &key, salt(1), 8_001);
     let ix = p.register_node_ix(&owner.pubkey(), &args, &impostor.pubkey());
     let failed = p.env.send_err(&[ix], &[&impostor, &owner]);
-    assert_molpha_error(&failed, MolphaError::UnauthorisedAuthority);
+    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintHasOne);
     assert_eq!(p.current_version(), 0);
 }
 

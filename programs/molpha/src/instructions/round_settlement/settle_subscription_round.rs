@@ -5,11 +5,12 @@ use crate::{
         hash_request_auth_fields, Delegate, Gateway, ProtocolConfig, Registry, RegistryState,
         RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
     },
-    utils::ed25519::verify_ed25519_signature,
+    utils::{
+        ed25519::verify_ed25519_signature,
+        settlement::{validate_settlement_attestation, SettlementAttestationInput},
+    },
 };
 use anchor_lang::prelude::*;
-
-use super::validate_attestation::{validate_settlement_attestation, SettlementAttestationInput};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleRoundArgs {

@@ -21,7 +21,6 @@ fn node_fixture(locked: u64, rewards: u64, status: NodeStatus) -> Node {
         deactivated_at: 0,
         withdrawable_at: 0,
         frozen_until: 0,
-        punished_at: 0,
         bump: 0,
     }
 }
@@ -59,7 +58,6 @@ fn full_slash_zeroes_balances_and_tombstones() {
     assert_eq!(node.locked_amount, 0);
     assert_eq!(node.claimable_rewards, 0);
     assert_eq!(node.status, NodeStatus::Tombstoned);
-    assert_eq!(node.punished_at, 100, "the sentence is stamped with `now`");
 }
 
 #[test]
