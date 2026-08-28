@@ -11,11 +11,7 @@ import {
   findProtocolConfigPda,
   findSubscriptionPda,
 } from "../lib/pdas";
-import {
-  parseInteger,
-  requireValue,
-  writeJson,
-} from "../lib/utils";
+import { parseInteger, requireValue, writeJson } from "../lib/utils";
 
 function planTypeToAnchor(planId: number) {
   const types = ["basic", "standard", "professional", "enterprise"] as const;

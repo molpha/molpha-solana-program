@@ -227,11 +227,7 @@ function buildSignedPayload(
           "signers bitmap"
         ),
         aggSigS: bytesFromField(submitArgs.aggSigS, 32, "agg sig s"),
-        commitment: bytesFromField(
-          submitArgs.commitment,
-          20,
-          "commitment"
-        ),
+        commitment: bytesFromField(submitArgs.commitment, 20, "commitment"),
       },
       remaining: [],
     };
@@ -332,9 +328,7 @@ function normalizeSubmitArgs(value: SubmitArgsShape) {
         ? value.signaturesRequired
         : parseInteger(value.signaturesRequired, "signatures required"),
     aggSigS: Array.from(bytesFromField(value.aggSigS, 32, "agg sig s")),
-    commitment: Array.from(
-      bytesFromField(value.commitment, 20, "commitment")
-    ),
+    commitment: Array.from(bytesFromField(value.commitment, 20, "commitment")),
     signersBitmap: Array.from(
       bytesFromField(value.signersBitmap, 32, "signers bitmap")
     ),

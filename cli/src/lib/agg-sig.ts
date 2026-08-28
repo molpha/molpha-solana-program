@@ -73,8 +73,8 @@ export function parseAggregatedSigJson(filePath: string): AggregatedSigArgs {
     aggSigS: raw.aggSigS
       ? bytesFromField(raw.aggSigS, 32, "agg sig s")
       : raw.s
-        ? bytesFromField(raw.s, 32, "agg sig s")
-        : undefined,
+      ? bytesFromField(raw.s, 32, "agg sig s")
+      : undefined,
     commitment: raw.commitment
       ? bytesFromField(raw.commitment, 20, "commitment")
       : undefined,

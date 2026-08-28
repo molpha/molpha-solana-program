@@ -210,7 +210,6 @@ export function registerAccountCommands(program: Command): void {
       await printNamedAccount(command, "gateway", address);
     });
 
-
   account
     .command("round")
     .description("Fetch round receipt record by address")
