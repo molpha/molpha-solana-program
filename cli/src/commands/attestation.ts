@@ -5,11 +5,7 @@ import { Command } from "commander";
 import { accountJson, fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext, getGlobalOptions } from "../lib/client";
 import { resolveCliOptions } from "../lib/config";
-import {
-  findFeedPda,
-  findRegistryPda,
-  findRegistryStatePda,
-} from "../lib/pdas";
+import { findFeedPda, findRegistryPda } from "../lib/pdas";
 import {
   buildBitmapFromFlag,
   buildSubmitArgsFromFixture,
@@ -96,16 +92,6 @@ export function registerAttestationCommands(program: Command): void {
     .option("--compute-unit-limit <number>", "compute unit limit", "1400000")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const [registryStatePda] = findRegistryStatePda(ctx.programId);
-      const registryState = await fetchAccountOrNull<any>(
-        ctx.program,
-        "registryState",
-        registryStatePda
-      );
-      if (!registryState) {
-        throw new Error("Registry state is not initialized");
-      }
-
       const submitArgs = resolveSubmitArgs(options, ctx.programId);
       const [feedPda] = feedPdaFromSubmitArgs(
         ctx.programId,
@@ -122,14 +108,13 @@ export function registerAttestationCommands(program: Command): void {
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const remaining = signerRemainingAccounts(
         registry,
-        bytesFromField(submitArgs.signersBitmap, 32, "signers bitmap")
+        submitArgs.signersBitmap
       );
 
       const signature = await (ctx.program.methods as any)
         .submitAttestation(submitArgs)
         .accountsPartial({
           submitter: ctx.wallet.publicKey,
-          registryState: registryStatePda,
           registry: registryPda,
           feed: feedPda,
           systemProgram: SystemProgram.programId,
@@ -190,7 +175,7 @@ export function registerAttestationCommands(program: Command): void {
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const remaining = signerRemainingAccounts(
         registry,
-        bytesFromField(submitArgs.signersBitmap, 32, "signers bitmap")
+        submitArgs.signersBitmap
       );
       await (ctx.program.methods as any)
         .verifyAttestation(submitArgs)
@@ -218,18 +203,25 @@ function buildSignedPayload(
   if (options.fixture) {
     const fixture = loadVerifyFixture(options.fixture);
     const submitArgs = buildSubmitArgsFromFixture(fixture);
+    const signersBitmap = bytesFromField(
+      submitArgs.signersBitmap,
+      32,
+      "signers bitmap"
+    );
+    const registry = {
+      nodeCount: fixture.nodePubkeys.length,
+      nodes: fixture.nodePubkeys.map((pubkey) =>
+        hexToBytes(pubkey, 33, "node pubkey")
+      ),
+    };
     return {
       payload: {
         submitArgs,
-        signersBitmap: bytesFromField(
-          submitArgs.signersBitmap,
-          32,
-          "signers bitmap"
-        ),
+        signersBitmap,
         aggSigS: bytesFromField(submitArgs.aggSigS, 32, "agg sig s"),
         commitment: bytesFromField(submitArgs.commitment, 20, "commitment"),
       },
-      remaining: [],
+      remaining: signerRemainingAccounts(registry, signersBitmap),
     };
   }
 
@@ -276,7 +268,13 @@ function buildSignedPayload(
 
   return {
     payload,
-    remaining: [],
+    remaining: signerRemainingAccounts(
+      {
+        nodeCount: signerMaterial.compressedPubkeys.length,
+        nodes: signerMaterial.compressedPubkeys,
+      },
+      payload.signersBitmap
+    ),
   };
 }
 
@@ -315,14 +313,20 @@ function sourceIdFromArgs(value: SubmitArgsShape): number[] {
 }
 
 function normalizeSubmitArgs(value: SubmitArgsShape) {
+  const valueBytes = bytesFromField(value.value, 32, "value");
+  const canonicalTimestamp =
+    typeof value.canonicalTimestamp === "number"
+      ? value.canonicalTimestamp
+      : parseInteger(value.canonicalTimestamp, "canonical timestamp");
+
   return {
     sourceId: sourceIdFromArgs(value),
     registryVersion:
       typeof value.registryVersion === "number"
         ? value.registryVersion
         : parseInteger(value.registryVersion, "registry version"),
-    value: Buffer.from(bytesFromField(value.value, undefined, "value")),
-    canonicalTimestamp: new BN(String(value.canonicalTimestamp)),
+    value: Array.from(valueBytes),
+    canonicalTimestamp: new BN(String(canonicalTimestamp)),
     signaturesRequired:
       typeof value.signaturesRequired === "number"
         ? value.signaturesRequired

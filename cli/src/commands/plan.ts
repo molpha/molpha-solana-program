@@ -11,6 +11,8 @@ import {
   writeJson,
 } from "../lib/utils";
 
+type AnchorPlanType = ReturnType<typeof planTypeToAnchor>;
+
 export function registerPlanCommands(program: Command): void {
   const plan = program.command("plan").description("Manage Molpha plans");
 
@@ -29,6 +31,10 @@ export function registerPlanCommands(program: Command): void {
     .requiredOption(
       "--max-delegates <count>",
       "max delegates/agents an owner may provision"
+    )
+    .requiredOption(
+      "--max-rounds <count>",
+      "monthly round quota included in the plan"
     )
     .option("--private-api-enabled", "enable private api")
     .option("--inactive", "create the plan inactive")
@@ -72,6 +78,7 @@ export function registerPlanCommands(program: Command): void {
       "--max-delegates <count>",
       "max delegates/agents an owner may provision"
     )
+    .option("--max-rounds <count>", "monthly round quota included in the plan")
     .option("--private-api-enabled", "enable private api")
     .option("--inactive", "set inactive")
     .action(async (options, command: Command) => {
@@ -155,6 +162,10 @@ function buildPlanArgs(options: Record<string, string | boolean>) {
       requireValue(options.maxDelegates as string, "Missing --max-delegates"),
       "max delegates"
     ),
+    maxRounds: parseInteger(
+      requireValue(options.maxRounds as string, "Missing --max-rounds"),
+      "max rounds"
+    ),
     privateApiEnabled: Boolean(options.privateApiEnabled),
     isActive: !options.inactive,
   };
@@ -163,10 +174,11 @@ function buildPlanArgs(options: Record<string, string | boolean>) {
 function buildUpdatePlanArgs(
   options: Record<string, string | boolean | undefined>,
   current: {
-    planType: Record<string, object>;
+    planType: AnchorPlanType;
     subscriptionPrice: { toString(): string };
     maxSigners: number;
     maxDelegates: number;
+    maxRounds: { toString(): string } | number;
     privateApiEnabled: boolean;
     isActive: boolean;
   }
@@ -187,13 +199,19 @@ function buildUpdatePlanArgs(
       options.maxDelegates !== undefined
         ? parseInteger(options.maxDelegates as string, "max delegates")
         : current.maxDelegates,
+    maxRounds:
+      options.maxRounds !== undefined
+        ? parseInteger(options.maxRounds as string, "max rounds")
+        : typeof current.maxRounds === "number"
+        ? current.maxRounds
+        : parseInteger(current.maxRounds.toString(), "max rounds"),
     privateApiEnabled:
       options.privateApiEnabled === true ? true : current.privateApiEnabled,
     isActive: options.inactive === true ? false : current.isActive,
   };
 }
 
-function planTypeId(planType: Record<string, object>) {
+function planTypeId(planType: AnchorPlanType) {
   if ("basic" in planType) return 0;
   if ("standard" in planType) return 1;
   if ("professional" in planType) return 2;
@@ -221,7 +239,7 @@ function resolvePlanTarget(
   throw new Error("Provide --plan-type, --plan-id, or --address");
 }
 
-function planTypeName(planType: Record<string, object> | number): string {
+function planTypeName(planType: AnchorPlanType | number): string {
   if (typeof planType === "number") {
     const names = ["basic", "standard", "professional", "enterprise"];
     return names[planType] ?? String(planType);
