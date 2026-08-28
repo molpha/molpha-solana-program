@@ -74,6 +74,7 @@ fn settle_ixs(
 fn round_record(f: &Fixture, duty: &Duty) -> Pubkey {
     pda::subscription_round(
         &f.owner.pubkey(),
+        &pda::gateway(&f.gateway.pubkey()),
         &duty.source_id,
         duty.signatures_required,
         duty.canonical_timestamp,
@@ -525,12 +526,37 @@ fn settlement_requires_the_named_gateway_to_sign() {
         None,
         &signed,
     );
+    let other_gateway_pda = pda::gateway(&other_gateway.pubkey());
+    let fixture_gateway_pda = pda::gateway(&f.gateway.pubkey());
     let gateway_meta = ix
         .accounts
         .iter_mut()
-        .find(|m| m.pubkey == pda::gateway(&other_gateway.pubkey()))
+        .find(|m| m.pubkey == other_gateway_pda)
         .expect("gateway account is present");
-    gateway_meta.pubkey = pda::gateway(&f.gateway.pubkey());
+    gateway_meta.pubkey = fixture_gateway_pda;
+    // Keep round_record seeds aligned with the substituted gateway PDA so
+    // `has_one = authority` is what fails, not `ConstraintSeeds`.
+    let round_record_meta = ix
+        .accounts
+        .iter_mut()
+        .find(|m| {
+            m.pubkey
+                == pda::subscription_round(
+                    &owner.pubkey(),
+                    &other_gateway_pda,
+                    &signed.duty.source_id,
+                    signed.duty.signatures_required,
+                    signed.duty.canonical_timestamp,
+                )
+        })
+        .expect("round_record account is present");
+    round_record_meta.pubkey = pda::subscription_round(
+        &owner.pubkey(),
+        &fixture_gateway_pda,
+        &signed.duty.source_id,
+        signed.duty.signatures_required,
+        signed.duty.canonical_timestamp,
+    );
 
     let ixs = vec![f.p.consumer_authorization_ix(&owner, &signed.duty), ix];
     let failed = f.p.env.send_err(&ixs, &[&owner, &other_gateway]);

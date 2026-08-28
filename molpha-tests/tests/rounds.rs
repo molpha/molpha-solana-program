@@ -89,6 +89,7 @@ impl Fixture {
         self.p.env.send_ok(&ixs, &[&owner_kp, &gateway]);
         pda::subscription_round(
             &owner.pubkey(),
+            &self.gateway_pda(),
             &signed.duty.source_id,
             signed.duty.signatures_required,
             signed.duty.canonical_timestamp,
@@ -413,7 +414,7 @@ fn an_x402_dispute_must_not_name_a_subscription() {
         &signers,
     );
     let failed = f.p.env.send_err(&[ix], &[&challenger]);
-    assert_molpha_error(&failed, MolphaError::DisputeRefundAccountsMissing);
+    assert_molpha_error(&failed, MolphaError::WrongSubscriptionAccount);
 }
 
 #[test]
@@ -428,7 +429,7 @@ fn a_subscription_dispute_must_name_the_subscription() {
     let ix =
         f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
     let failed = f.p.env.send_err(&[ix], &[&challenger]);
-    assert_molpha_error(&failed, MolphaError::DisputeRefundAccountsMissing);
+    assert_molpha_error(&failed, MolphaError::WrongSubscriptionAccount);
 }
 
 #[test]

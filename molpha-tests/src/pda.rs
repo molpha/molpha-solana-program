@@ -73,6 +73,7 @@ pub fn feed(source_id: &[u8; 32], signatures_required: u8, submitter: &Pubkey) -
 
 pub fn subscription_round(
     subscription_owner: &Pubkey,
+    gateway: &Pubkey,
     source_id: &[u8; 32],
     signatures_required: u8,
     timestamp: u64,
@@ -80,6 +81,7 @@ pub fn subscription_round(
     pda(&[
         RoundReceiptRecord::SEED_PREFIX,
         subscription_owner.as_ref(),
+        gateway.as_ref(),
         source_id.as_ref(),
         &signatures_required.to_le_bytes(),
         &timestamp.to_le_bytes(),

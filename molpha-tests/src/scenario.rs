@@ -754,6 +754,7 @@ impl Protocol {
             value: duty.value,
             consumer_authority: *consumer_authority,
         };
+        let gateway = pda::gateway(gateway_authority);
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::SettleSubscriptionRound {
@@ -763,9 +764,10 @@ impl Protocol {
                 registry: pda::registry(duty.registry_version),
                 subscription: pda::subscription(subscription_owner),
                 consumer_delegate,
-                gateway: pda::gateway(gateway_authority),
+                gateway,
                 round_record: pda::subscription_round(
                     subscription_owner,
+                    &gateway,
                     &duty.source_id,
                     duty.signatures_required,
                     duty.canonical_timestamp,

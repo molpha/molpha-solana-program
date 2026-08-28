@@ -101,6 +101,7 @@ pub fn settle_x402_round<'info>(
     let protocol_fee = config.protocol_fee;
 
     ctx.accounts.round_record.init(RoundReceiptInitArgs {
+        consumer_id: args.payer_id,
         agg_sig: args.agg_sig,
         attestation_message_hash: validated.attestation_message_hash,
         gateway: gateway.key(),

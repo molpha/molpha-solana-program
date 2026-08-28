@@ -28,10 +28,9 @@ pub fn settle_subscription_round<'info>(
 ) -> Result<()> {
     let clock = Clock::get()?;
     let now_slot = clock.slot;
-    let subscription = &ctx.accounts.subscription;
+    let subscription = &mut ctx.accounts.subscription;
     let config = &ctx.accounts.protocol_config;
     let gateway = &mut ctx.accounts.gateway;
-
     let registry = ctx.accounts.registry.load()?;
 
     require!(
@@ -76,9 +75,10 @@ pub fn settle_subscription_round<'info>(
 
     let reward_per_signature = config.reward_per_signature;
 
-    ctx.accounts.subscription.consume_round()?;
+    subscription.consume_round()?;
 
     ctx.accounts.round_record.init(RoundReceiptInitArgs {
+        consumer_id: subscription.owner.to_bytes(),
         agg_sig: args.agg_sig,
         attestation_message_hash: validated.attestation_message_hash,
         gateway: gateway.key(),
@@ -187,6 +187,7 @@ pub struct SettleSubscriptionRound<'info> {
         seeds = [
             RoundReceiptRecord::SEED_PREFIX,
             subscription.owner.as_ref(),
+            gateway.key().as_ref(),
             args.source_id.as_ref(),
             args.signatures_required.to_le_bytes().as_ref(),
             args.timestamp.to_le_bytes().as_ref(),

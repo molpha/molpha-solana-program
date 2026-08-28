@@ -15,6 +15,7 @@ use crate::{
 };
 
 pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
     let record = &ctx.accounts.round_record;
 
     let signature = SchnorrSignature {
@@ -39,12 +40,12 @@ pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()>
         RoundRecordKind::X402 => {
             require!(
                 ctx.accounts.subscription.is_none(),
-                MolphaError::DisputeRefundAccountsMissing
+                MolphaError::WrongSubscriptionAccount
             );
             false
         }
         RoundRecordKind::Subscription => {
-            restore_subscription_round(&mut ctx)?;
+            restore_subscription_round(&mut ctx, now)?;
             true
         }
     };
@@ -110,25 +111,23 @@ fn transfer_from_gateway_bond<'info>(
     Ok(())
 }
 
-fn restore_subscription_round<'info>(ctx: &mut Context<DisputeRound<'info>>) -> Result<()> {
+fn restore_subscription_round<'info>(
+    ctx: &mut Context<DisputeRound<'info>>,
+    now: i64,
+) -> Result<()> {
     let subscription = ctx
         .accounts
         .subscription
         .as_mut()
-        .ok_or_else(|| error!(MolphaError::DisputeRefundAccountsMissing))?;
-    let expected_sub = Pubkey::create_program_address(
-        &[
-            Subscription::SEED_PREFIX,
-            subscription.owner.as_ref(),
-            &[subscription.bump],
-        ],
-        ctx.program_id,
-    )
-    .map_err(|_| error!(MolphaError::DisputeRefundAccountsMissing))?;
-    require_keys_eq!(
-        subscription.key(),
-        expected_sub,
-        MolphaError::DisputeRefundAccountsMissing
+        .ok_or_else(|| error!(MolphaError::WrongSubscriptionAccount))?;
+
+    require!(
+        subscription.owner.to_bytes() == ctx.accounts.round_record.consumer_id,
+        MolphaError::WrongSubscriptionAccount
+    );
+    require!(
+        subscription.is_active_at(now),
+        MolphaError::WrongSubscriptionAccount
     );
 
     subscription.restore_round()

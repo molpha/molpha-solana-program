@@ -129,8 +129,8 @@ pub enum MolphaError {
     CreditedExceedsSelection,
     #[msg("value exceeds Feed::MAX_VALUE_LEN")]
     InvalidValueLength,
-    #[msg("dispute refund/restore accounts missing or do not match the round")]
-    DisputeRefundAccountsMissing,
+    #[msg("dispute refund/restore subscription does not match the round")]
+    WrongSubscriptionAccount,
 
     #[msg("equivocation requires two statements with different values")]
     EquivocationSameStatement,
