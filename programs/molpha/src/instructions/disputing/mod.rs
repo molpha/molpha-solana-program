@@ -1,41 +1,52 @@
 pub mod dispute_round;
 pub mod punish_equivocation;
+pub mod punish_nonce_reuse;
 pub mod punish_unsolicited_signing;
 
 pub use dispute_round::*;
 pub use punish_equivocation::*;
+pub use punish_nonce_reuse::*;
 pub use punish_unsolicited_signing::*;
 
 use anchor_lang::prelude::*;
 
-use crate::{error::map_data_update_err, error::MolphaError, state::SignedStatement};
+use crate::{error::map_attestation_err, error::MolphaError, state::SignedStatement};
 
-/// Verify one signed statement's aggregate Schnorr signature against its resolved signers.
-///
-/// Shared by both node-punishment offences: `punish_equivocation` calls this once per statement
-/// (over each statement's own signer subset), `punish_unsolicited_signing` calls it once (over the
-/// full submitted signer set, since the signature itself is what proves the unselected node
-/// actually contributed).
+/// Message hash a statement aggregate must verify over.
+pub(crate) fn statement_message_hash(
+    source_id: &[u8; 32],
+    registry_version: u32,
+    signatures_required: u8,
+    canonical_timestamp: u64,
+    statement: &SignedStatement,
+) -> [u8; 32] {
+    molpha_verifier::compute_message_hash(
+        &molpha_verifier::AttestationPayload {
+            source_id: *source_id,
+            registry_version,
+            value: statement.value,
+            canonical_timestamp,
+            signatures_required,
+        },
+        statement.signers_bitmap,
+    )
+}
+
+/// Verify one signed statement against its resolved signers.
 pub(crate) fn verify_statement(
     source_id: &[u8; 32],
     registry_version: u32,
     signatures_required: u8,
-    canonical_timestamp: i64,
+    canonical_timestamp: u64,
     statement: &SignedStatement,
     ordered_signers: &[molpha_verifier::SignerXy],
 ) -> Result<()> {
-    let message_hash = molpha_verifier::compute_message_hash(
-        &molpha_verifier::DataUpdate {
-            source_id: *source_id,
-            registry_version,
-            value: statement.value.clone(),
-            canonical_timestamp,
-            signatures_required,
-            agg_sig_s: statement.agg_sig_s,
-            commitment_addr: statement.commitment_addr,
-            signers_bitmap: statement.signers_bitmap,
-        },
+    let message_hash = statement_message_hash(
+        source_id,
+        registry_version,
         signatures_required,
+        canonical_timestamp,
+        statement,
     );
     let is_valid = molpha_verifier::verify_aggregate_over_hash(
         ordered_signers,
@@ -43,7 +54,7 @@ pub(crate) fn verify_statement(
         &statement.commitment_addr,
         &message_hash,
     )
-    .map_err(map_data_update_err)?;
+    .map_err(map_attestation_err)?;
     require!(is_valid, MolphaError::InvalidAggregateSignature);
     Ok(())
 }

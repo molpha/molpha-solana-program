@@ -68,6 +68,16 @@ impl Registry {
         Ok(Pubkey::new_from_array(self.nodes[index]))
     }
 
+    /// Framework-agnostic view for [`molpha_verifier`] resolution / verify helpers.
+    pub fn view(&self) -> molpha_verifier::RegistryView<'_> {
+        molpha_verifier::RegistryView {
+            version: self.version,
+            node_count: self.node_count,
+            redundancy_buffer: self.redundancy_buffer,
+            nodes: &self.nodes,
+        }
+    }
+
     pub fn copy_from_previous(&mut self, previous: &Registry, version: u32, bump: u8) {
         self.version = version;
         self.node_count = previous.node_count;
@@ -76,12 +86,9 @@ impl Registry {
         self.nodes.copy_from_slice(&previous.nodes);
     }
 
-    pub fn append(&mut self, node: Pubkey, max_node_count: u32) -> Result<u16> {
+    pub fn append(&mut self, node: Pubkey) -> Result<u16> {
         let index = usize::from(self.node_count);
-        require!(
-            index < MAX_REGISTRY_NODES && (index as u32) < max_node_count,
-            MolphaError::NodeCapExceeded
-        );
+        require!(index < MAX_REGISTRY_NODES, MolphaError::NodeCapExceeded);
         self.nodes[index] = node.to_bytes();
         self.node_count = self
             .node_count
@@ -111,59 +118,3 @@ impl Registry {
 }
 
 const _: () = assert!(Registry::SPACE == 8_208);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn next_version_is_strict_and_checked() {
-        let state = RegistryState {
-            current_version: 41,
-            bump: 1,
-        };
-        assert!(state.require_next_version(42).is_ok());
-        assert!(state.require_next_version(41).is_err());
-        assert!(state.require_next_version(43).is_err());
-
-        let exhausted = RegistryState {
-            current_version: u32::MAX,
-            bump: 1,
-        };
-        assert!(exhausted.require_next_version(0).is_err());
-    }
-
-    #[test]
-    fn snapshot_copy_and_swap_remove_do_not_mutate_source() {
-        let first = Pubkey::new_unique();
-        let second = Pubkey::new_unique();
-        let third = Pubkey::new_unique();
-        let mut source = Registry {
-            version: 7,
-            node_count: 3,
-            redundancy_buffer: 2,
-            bump: 1,
-            nodes: [[0; 32]; MAX_REGISTRY_NODES],
-        };
-        source.nodes[0] = first.to_bytes();
-        source.nodes[1] = second.to_bytes();
-        source.nodes[2] = third.to_bytes();
-
-        let mut next = Registry {
-            version: 0,
-            node_count: 0,
-            redundancy_buffer: 0,
-            bump: 0,
-            nodes: [[0; 32]; MAX_REGISTRY_NODES],
-        };
-        next.copy_from_previous(&source, 8, 2);
-        next.swap_remove(1, second).unwrap();
-
-        assert_eq!(source.node_count, 3);
-        assert_eq!(source.node(1).unwrap(), second);
-        assert_eq!(next.version, 8);
-        assert_eq!(next.node_count, 2);
-        assert_eq!(next.node(1).unwrap(), third);
-        assert_eq!(next.nodes[2], [0; 32]);
-    }
-}

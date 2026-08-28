@@ -1,7 +1,9 @@
 import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import { SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
@@ -64,7 +66,6 @@ export function registerRewardsCommands(program: Command): void {
   rewards
     .command("claim-node")
     .description("Claim finalized rewards from the signer's permanent node")
-    .option("--destination <pubkey>", "USDC destination ATA")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
@@ -76,21 +77,22 @@ export function registerRewardsCommands(program: Command): void {
       if (!protocolConfig)
         throw new Error("Protocol config is not initialized");
       const [node] = findNodePda(ctx.programId, ctx.wallet.publicKey);
-      const destination = options.destination
-        ? parsePublicKey(options.destination, "destination")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            ctx.wallet.publicKey
-          );
+      const destination = getAssociatedTokenAddressSync(
+        protocolConfig.usdcMint,
+        ctx.wallet.publicKey
+      );
       const signature = await (ctx.program.methods as any)
         .claimNodeRewards()
         .accountsPartial({
           owner: ctx.wallet.publicKey,
           protocolConfig: protocolConfigPda,
           node,
+          usdcMint: protocolConfig.usdcMint,
           treasury: protocolConfig.treasury,
           destination,
           tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
       writeJson({

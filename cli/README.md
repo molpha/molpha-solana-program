@@ -41,11 +41,11 @@ yarn molpha:dev --help
 | `subscription` | `subscribe` \| `extend` |
 | `delegate` | `add` \| `remove` \| `pause` |
 | `gateway` | `register` \| `claim` |
-| `round` | `settle-subscription` \| `settle-agent` \| `finalize` \| `dispute` |
+| `round` | `settle-subscription` \| `settle-x402` \| `finalize` \| `dispute` |
 | `rewards` | `claim-node` |
-| `data` | `sign` \| `submit` \| `verify` (historical, read-only) |
+| `attestation` | `sign` \| `submit` \| `verify` (historical, read-only) |
 | `admin` | `update-config` |
-| `account` | `protocol-config` \| `registry` \| `registry-version` \| `node` \| `plan` \| `subscription` \| `feed` \| `delegate` \| `gateway` \| `agent-escrow` \| `round` \| `secp-key` |
+| `account` | `protocol-config` \| `registry` \| `registry-version` \| `node` \| `plan` \| `subscription` \| `feed` \| `delegate` \| `gateway` \| `round` \| `secp-key` |
 
 ## Example Flow
 
@@ -66,9 +66,8 @@ yarn molpha init \
   --dispute-window-slots 256 \
   --gateway-bond-min 500000000 \
   --challenger-bounty-bps 500 \
-  --agent-round-base 1000 \
-  --agent-round-per-sig 15 \
-  --agent-epoch-len-secs 86400 \
+  --x402-round-base 1000 \
+  --x402-round-per-sig 15 \
   --usdc-mint <MINT>
 ```
 
@@ -85,20 +84,19 @@ yarn molpha plan add \
 
 yarn molpha plan add --plan-type basic --subscription-price 20000000 --max-signers 3 --max-delegates 10 --private-api-enabled --cluster devnet
 
-yarn molpha subscription subscribe --plan-id 1 --owner-usdc <OWNER_USDC_ATA>
+yarn molpha subscription subscribe --plan-id 1
 ```
 
-Register a node and submit data. The first submit lazy-inits the feed:
+Register a node and submit an attestation. The first submit lazy-inits the feed:
 
 ```bash
 yarn molpha registry register \
   --secp-pubkey <COMPRESSED_SECP256K1_PUBKEY> \
   --registration-salt <32_BYTE_HEX> \
   --pop-sig-r <32_BYTE_EVEN_NONCE_X_HEX> \
-  --pop-sig-s <32_BYTE_RESPONSE_SCALAR_HEX> \
-  --owner-usdc <OWNER_USDC_ATA>
+  --pop-sig-s <32_BYTE_RESPONSE_SCALAR_HEX>
 
-yarn molpha data submit \
+yarn molpha attestation submit \
   --source-id <SOURCE_ID_HEX> \
   --registry-version 1 \
   --value <32_BYTE_HEX> \
@@ -148,17 +146,36 @@ yarn molpha rewards claim-node
 yarn molpha gateway claim
 ```
 
+A gateway-funded x402 round (any payment rail; the gateway pays from its canonical USDC ATA and
+records how it was paid as attested metadata — see the program docs for `settle_x402_round`):
+
+```bash
+yarn molpha round settle-x402 \
+  --source-id <SOURCE_ID_HEX> \
+  --canonical-timestamp 1700000123 \
+  --signatures-required 1 \
+  --registry-version 1 \
+  --amount <PRICE> \
+  --payer-id <32_BYTE_HEX> \
+  --payment-rail 1 \
+  --gateway-wallet <GATEWAY_KEYPAIR> \
+  --credited-bits 0
+```
+
 ## Notes
 
 - Seeds match the current program: `molpha_config`, `molpha_registry`, `molpha_feed`,
-  `molpha_gateway`, `molpha_round`, `molpha_agent`, `molpha_agent_round`, etc.
+  `molpha_gateway`, `molpha_round`, `molpha_x402_round`, etc.
 - Feed PDA is `[molpha_feed, source_id, signatures_required, submitter]`. Round PDAs
   also include `source_id` and `signatures_required` (not a derived `feed_id` or
   `api_config_hash`). `--submitter` defaults to the wallet.
 - There is no `Job` account or `create_job` instruction. Feeds are created via
-  `init_if_needed` inside `submit_data_update`. `source_id` is a caller-provided
+  `init_if_needed` inside `submit_attestation`. `source_id` is a caller-provided
   32-byte identifier.
-- `data verify` only rebuilds/prints submit args off chain; verification happens on submit.
+- USDC accounts are always canonical ATAs derived by the CLI. Reward, challenger, and reporter
+  ATAs are created by the program when missing; funded source ATAs must already exist.
+- `attestation verify` only rebuilds/prints submit args off chain; verification happens on submit.
 - Subscription payment uses monthly `subscribe` / `extend` (not per-round top-ups).
-- Settlement requires an Ed25519 RequestAuth / AgentRequestAuth pre-instruction; provide
-  `--consumer-wallet` / `--payer-wallet` so the CLI can sign the auth message.
+- `round settle-subscription` requires an Ed25519 RequestAuth pre-instruction; provide
+  `--consumer-wallet` so the CLI can sign the auth message. `round settle-x402` has no
+  on-chain payer authentication — the gateway self-attests and pays from its own float.

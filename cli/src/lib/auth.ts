@@ -1,9 +1,7 @@
 import { createHash } from "crypto";
-import { PublicKey } from "@solana/web3.js";
 import { u64Le } from "./utils";
 
 const DOMAIN_REQAUTH = Buffer.from("MOLPHA_REQAUTH_V1", "utf8");
-const DOMAIN_AGENT_REQAUTH = Buffer.from("MOLPHA_AGENT_REQAUTH_V1", "utf8");
 
 function sha256(parts: Buffer[]): Buffer {
   const hash = createHash("sha256");
@@ -27,27 +25,4 @@ export function hashRequestAuthFields(
       u64Le(timestamp),
     ]),
   ]);
-}
-
-/**
- * `H(AgentRequestAuth)` — domain-separated SHA-256 over borsh
- * `(agent, gateway, source_id, signatures_required, canonical_timestamp, amount)`.
- */
-export function hashAgentRequestAuthFields(
-  agent: PublicKey,
-  gateway: PublicKey,
-  sourceId: Uint8Array,
-  signaturesRequired: number,
-  canonicalTimestamp: number | bigint,
-  amount: number | bigint
-): Buffer {
-  const body = Buffer.concat([
-    agent.toBuffer(),
-    gateway.toBuffer(),
-    Buffer.from(sourceId),
-    Buffer.from([signaturesRequired & 0xff]),
-    u64Le(canonicalTimestamp),
-    u64Le(amount),
-  ]);
-  return sha256([DOMAIN_AGENT_REQAUTH, body]);
 }

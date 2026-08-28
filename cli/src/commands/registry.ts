@@ -53,7 +53,6 @@ export function registerRegistryCommands(program: Command): void {
     .option("--ip <dotted>", "IPv4 endpoint", "127.0.0.1")
     .option("--port <number>", "TCP port", "8080")
     .option("--node-owner-wallet <path>", "separate node owner keypair")
-    .option("--owner-usdc <pubkey>", "owner token account")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfig] = findProtocolConfigPda(ctx.programId);
@@ -101,9 +100,10 @@ export function registerRegistryCommands(program: Command): void {
         ctx.programId,
         secpPubkey
       );
-      const ownerUsdc = options.ownerUsdc
-        ? parsePublicKey(options.ownerUsdc, "owner USDC account")
-        : getAssociatedTokenAddressSync(config.usdcMint, nodeOwner.publicKey);
+      const ownerUsdc = getAssociatedTokenAddressSync(
+        config.usdcMint,
+        nodeOwner.publicKey
+      );
 
       const args = {
         newRegistryVersion,

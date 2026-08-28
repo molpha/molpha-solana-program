@@ -47,7 +47,6 @@ pub fn register_gateway(ctx: Context<RegisterGateway>, args: RegisterGatewayArgs
     gateway.ip = args.ip;
     gateway.port = args.port;
     gateway.bond = args.bond_amount;
-    gateway.claimable_rewards = 0;
     gateway.slashed = false;
     gateway.registered_at = now;
     gateway.bump = ctx.bumps.gateway;
@@ -91,8 +90,9 @@ pub struct RegisterGateway<'info> {
 
     #[account(
         mut,
-        constraint = authority_usdc.mint == usdc_mint.key() @ MolphaError::InvalidOwnerUsdc,
-        constraint = authority_usdc.owner == gateway_authority.key() @ MolphaError::InvalidOwnerUsdc,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = gateway_authority,
+        associated_token::token_program = token_program,
     )]
     pub authority_usdc: Account<'info, TokenAccount>,
 
@@ -101,6 +101,7 @@ pub struct RegisterGateway<'info> {
         payer = gateway_authority,
         associated_token::mint = usdc_mint,
         associated_token::authority = gateway,
+        associated_token::token_program = token_program,
     )]
     pub gateway_bond: Account<'info, TokenAccount>,
 

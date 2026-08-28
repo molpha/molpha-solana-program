@@ -1,9 +1,8 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    error::MolphaError,
     events::PlanUpdated,
-    state::{Plan, PlanType, ProtocolConfig},
+    state::{Plan, PlanType, ProtocolConfig, UpdatePlanParams},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -12,25 +11,20 @@ pub struct UpdatePlanArgs {
     pub subscription_price: u64,
     pub max_signers: u8,
     pub max_delegates: u32,
+    pub max_rounds: u64,
     pub private_api_enabled: bool,
     pub is_active: bool,
 }
 
 pub fn update_plan(ctx: Context<UpdatePlan>, args: UpdatePlanArgs) -> Result<()> {
-    require_keys_eq!(
-        ctx.accounts.authority.key(),
-        ctx.accounts.protocol_config.authority,
-        MolphaError::UnauthorisedAuthority
-    );
-
-    ctx.accounts.plan.update(
-        args.plan_type,
-        args.subscription_price,
-        args.max_signers,
-        args.max_delegates,
-        args.private_api_enabled,
-        args.is_active,
-    );
+    ctx.accounts.plan.update(&UpdatePlanParams {
+        subscription_price: args.subscription_price,
+        max_signers: args.max_signers,
+        max_delegates: args.max_delegates,
+        max_rounds: args.max_rounds,
+        private_api_enabled: args.private_api_enabled,
+        is_active: args.is_active,
+    });
 
     emit!(PlanUpdated {
         plan_type: args.plan_type as u8,
@@ -46,9 +40,13 @@ pub fn update_plan(ctx: Context<UpdatePlan>, args: UpdatePlanArgs) -> Result<()>
 
 #[derive(Accounts)]
 pub struct UpdatePlan<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
     #[account(
+        has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
-        bump = protocol_config.bump,
+        bump
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
@@ -58,6 +56,4 @@ pub struct UpdatePlan<'info> {
         bump = plan.bump,
     )]
     pub plan: Account<'info, Plan>,
-
-    pub authority: Signer<'info>,
 }

@@ -17,7 +17,6 @@ import {
   loadKeypair,
   parseInteger,
   parseIpv4,
-  parsePublicKey,
   writeJson,
 } from "../lib/utils";
 
@@ -37,7 +36,6 @@ export function registerGatewayCommands(program: Command): void {
       "--gateway-wallet <path>",
       "gateway authority keypair; defaults to provider wallet"
     )
-    .option("--authority-usdc <pubkey>", "gateway authority USDC ATA")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
@@ -57,12 +55,10 @@ export function registerGatewayCommands(program: Command): void {
         ctx.programId,
         gatewayAuthority.publicKey
       );
-      const authorityUsdc = options.authorityUsdc
-        ? parsePublicKey(options.authorityUsdc, "authority USDC")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            gatewayAuthority.publicKey
-          );
+      const authorityUsdc = getAssociatedTokenAddressSync(
+        protocolConfig.usdcMint,
+        gatewayAuthority.publicKey
+      );
       const gatewayBond = findGatewayBondAta(
         protocolConfig.usdcMint,
         gatewayPda
@@ -100,63 +96,6 @@ export function registerGatewayCommands(program: Command): void {
         gateway: gatewayPda.toBase58(),
         gatewayBond: gatewayBond.toBase58(),
         bondAmount: bondAmount.toString(),
-      });
-    });
-
-  gateway
-    .command("claim")
-    .description("Claim finalized gateway rewards credited by finalize_round")
-    .option(
-      "--gateway-wallet <path>",
-      "gateway authority keypair; defaults to provider wallet"
-    )
-    .option("--destination <pubkey>", "USDC destination ATA")
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
-      const protocolConfig = await fetchAccountOrNull<any>(
-        ctx.program,
-        "protocolConfig",
-        protocolConfigPda
-      );
-      if (!protocolConfig) {
-        throw new Error("Protocol config is not initialized");
-      }
-
-      const gatewayAuthority = options.gatewayWallet
-        ? loadKeypair(options.gatewayWallet)
-        : ctx.payer;
-      const [gatewayPda] = findGatewayPda(
-        ctx.programId,
-        gatewayAuthority.publicKey
-      );
-      const destination = options.destination
-        ? parsePublicKey(options.destination, "destination")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            gatewayAuthority.publicKey
-          );
-
-      const builder = (ctx.program.methods as any)
-        .claimGatewayRewards()
-        .accountsPartial({
-          authority: gatewayAuthority.publicKey,
-          protocolConfig: protocolConfigPda,
-          gateway: gatewayPda,
-          treasury: protocolConfig.treasury,
-          destination,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        });
-
-      if (!gatewayAuthority.publicKey.equals(ctx.wallet.publicKey)) {
-        builder.signers([gatewayAuthority]);
-      }
-
-      const signature = await builder.rpc();
-      writeJson({
-        signature,
-        gateway: gatewayPda.toBase58(),
-        destination: destination.toBase58(),
       });
     });
 }

@@ -1,0 +1,624 @@
+//! `finalize_round`, `dispute_round` and `claim_node_rewards` — the tail of the round lifecycle.
+
+use anchor_lang::prelude::Pubkey;
+use molpha::error::MolphaError;
+use molpha::events::{RewardsClaimed, RoundDisputed, RoundFinalized};
+use molpha::instructions::AddPlanArgs;
+use molpha::state::{
+    Gateway, Node, NodeStatus, PlanType, RoundReceiptRecord, RoundRecordStatus, Subscription,
+};
+use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
+use molpha_tests::pda;
+use molpha_tests::scenario::{Duty, Protocol, SignedAttestation};
+use solana_keypair::Keypair;
+use solana_signer::Signer;
+
+const NODE_COUNT: usize = 8;
+const SIGS: u8 = 4;
+const FLOAT: u64 = 500_000_000;
+
+struct Fixture {
+    p: Protocol,
+    gateway: Keypair,
+}
+
+fn fixture() -> Fixture {
+    let mut p = Protocol::start();
+    p.register_nodes("rounds", NODE_COUNT);
+    let gateway = p.register_gateway(FLOAT);
+    Fixture { p, gateway }
+}
+
+fn duty() -> Duty {
+    Duty::new(NODE_COUNT as u32, SIGS)
+}
+
+impl Fixture {
+    fn gateway_pda(&self) -> Pubkey {
+        pda::gateway(&self.gateway.pubkey())
+    }
+
+    fn bond_ata(&self) -> Pubkey {
+        pda::ata(&self.gateway_pda(), &self.p.usdc_mint)
+    }
+
+    /// Settle an x402 round. `signed` may carry a signature that does not verify — settlement is
+    /// optimistic and only checks the round's *shape*.
+    fn settle_x402(&mut self, signed: &SignedAttestation, payer_id: [u8; 32]) -> Pubkey {
+        let args = self.p.x402_args(signed, payer_id);
+        let record = pda::x402_round(
+            &args.payer_id,
+            &self.gateway_pda(),
+            &args.source_id,
+            args.signatures_required,
+            args.canonical_timestamp,
+        );
+        let ix = self.p.settle_x402_round_ix(&self.gateway.pubkey(), args);
+        let gateway = self.gateway.insecure_clone();
+        self.p.env.send_ok(&[ix], &[&gateway]);
+        record
+    }
+
+    /// A subscriber with a plan generous enough for the tests below.
+    fn subscribe(&mut self) -> Keypair {
+        self.p.add_plan(AddPlanArgs {
+            plan_type: PlanType::Professional,
+            subscription_price: 10_000_000,
+            max_signers: 8,
+            max_delegates: 2,
+            max_rounds: 10,
+            private_api_enabled: true,
+            is_active: true,
+        });
+        self.p.subscribe(PlanType::Professional)
+    }
+
+    fn settle_subscription(&mut self, owner: &Keypair, signed: &SignedAttestation) -> Pubkey {
+        let ixs = vec![
+            self.p.consumer_authorization_ix(owner, &signed.duty),
+            self.p.settle_subscription_round_ix(
+                &self.gateway.pubkey(),
+                &owner.pubkey(),
+                &owner.pubkey(),
+                None,
+                signed,
+            ),
+        ];
+        let gateway = self.gateway.insecure_clone();
+        let owner_kp = owner.insecure_clone();
+        self.p.env.send_ok(&ixs, &[&owner_kp, &gateway]);
+        pda::subscription_round(
+            &owner.pubkey(),
+            &self.gateway_pda(),
+            &signed.duty.source_id,
+            signed.duty.signatures_required,
+            signed.duty.canonical_timestamp,
+        )
+    }
+
+    fn credited_nodes(&self, record: &Pubkey) -> Vec<Pubkey> {
+        let record: RoundReceiptRecord = self.p.env.get(record);
+        self.p
+            .node_pdas_for_bitmap(record.registry_version, &record.signers_bitmap)
+    }
+
+    fn past_the_dispute_window(&mut self) {
+        let window = self.p.args.dispute_window_slots;
+        self.p.env.advance_slots(window + 1);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// finalize_round
+// ---------------------------------------------------------------------------
+
+#[test]
+fn finalize_credits_every_signer_and_closes_the_round() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xaa; 32]);
+    let credited = f.credited_nodes(&record);
+    assert_eq!(
+        credited.len(),
+        SIGS as usize + f.p.args.redundancy_buffer as usize
+    );
+
+    let before: Vec<u64> = credited
+        .iter()
+        .map(|n| f.p.env.get::<Node>(n).claimable_rewards)
+        .collect();
+
+    f.past_the_dispute_window();
+    let caller = f.p.env.keypair();
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    let meta = f.p.env.send_ok(&[ix], &[&caller]);
+
+    let reward = f.p.args.reward_per_signature;
+    for (node, previous) in credited.iter().zip(before) {
+        assert_eq!(
+            f.p.env.get::<Node>(node).claimable_rewards,
+            previous + reward
+        );
+    }
+    // Nodes outside the signer set get nothing.
+    for node in f.p.node_pdas() {
+        if !credited.contains(&node) {
+            assert_eq!(f.p.env.get::<Node>(&node).claimable_rewards, 0);
+        }
+    }
+
+    let updated: RoundReceiptRecord = f.p.env.get(&record);
+    assert_eq!(updated.status, RoundRecordStatus::Finalized);
+
+    let event: RoundFinalized = only_event(&meta);
+    assert_eq!(event.round_record, record);
+    assert_eq!(event.credited_count, credited.len() as u32);
+}
+
+#[test]
+fn finalize_is_permissionless() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xaa; 32]);
+    let credited = f.credited_nodes(&record);
+    f.past_the_dispute_window();
+
+    // A stranger with no relationship to the round may finalize it.
+    let stranger = f.p.env.keypair();
+    let ix =
+        f.p.finalize_round_ix(&stranger.pubkey(), &record, &credited);
+    f.p.env.send_ok(&[ix], &[&stranger]);
+    assert_eq!(
+        f.p.env.get::<RoundReceiptRecord>(&record).status,
+        RoundRecordStatus::Finalized
+    );
+}
+
+#[test]
+fn finalize_waits_for_the_dispute_window_to_close() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xaa; 32]);
+    let credited = f.credited_nodes(&record);
+    let caller = f.p.env.keypair();
+
+    // Immediately: too early.
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    let failed = f.p.env.send_err(&[ix], &[&caller]);
+    assert_molpha_error(&failed, MolphaError::RoundNotFinalizable);
+
+    // Exactly `dispute_window_slots` later: still too early, the guard is strict.
+    let window = f.p.args.dispute_window_slots;
+    f.p.env.advance_slots(window);
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    let failed = f.p.env.send_err(&[ix], &[&caller]);
+    assert_molpha_error(&failed, MolphaError::RoundNotFinalizable);
+
+    // One slot past the window: allowed.
+    f.p.env.advance_slots(1);
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    f.p.env.send_ok(&[ix], &[&caller]);
+}
+
+#[test]
+fn a_round_can_only_be_finalized_once() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xaa; 32]);
+    let credited = f.credited_nodes(&record);
+    f.past_the_dispute_window();
+    let caller = f.p.env.keypair();
+
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    f.p.env.send_ok(&[ix], &[&caller]);
+
+    let rewards_after_first: Vec<u64> = credited
+        .iter()
+        .map(|n| f.p.env.get::<Node>(n).claimable_rewards)
+        .collect();
+
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    let failed = f.p.env.send_err(&[ix], &[&caller]);
+    assert_molpha_error(&failed, MolphaError::RoundNotPending);
+
+    for (node, expected) in credited.iter().zip(rewards_after_first) {
+        assert_eq!(f.p.env.get::<Node>(node).claimable_rewards, expected);
+    }
+}
+
+#[test]
+fn finalize_rejects_a_credited_account_list_that_does_not_match_the_bitmap() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xaa; 32]);
+    let credited = f.credited_nodes(&record);
+    f.past_the_dispute_window();
+    let caller = f.p.env.keypair();
+
+    // Too few accounts.
+    let ix =
+        f.p.finalize_round_ix(&caller.pubkey(), &record, &credited[..credited.len() - 1]);
+    let failed = f.p.env.send_err(&[ix], &[&caller]);
+    assert_molpha_error(&failed, MolphaError::InvalidCreditNodeAccount);
+
+    // Right count, wrong order.
+    let mut shuffled = credited.clone();
+    shuffled.swap(0, 1);
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &shuffled);
+    let failed = f.p.env.send_err(&[ix], &[&caller]);
+    assert_molpha_error(&failed, MolphaError::InvalidCreditNodeAccount);
+
+    // Right count, an uncredited node substituted in.
+    let uncredited =
+        f.p.node_pdas()
+            .into_iter()
+            .find(|n| !credited.contains(n))
+            .expect("some node did not sign");
+    let mut substituted = credited.clone();
+    substituted[0] = uncredited;
+    let ix =
+        f.p.finalize_round_ix(&caller.pubkey(), &record, &substituted);
+    let failed = f.p.env.send_err(&[ix], &[&caller]);
+    assert_molpha_error(&failed, MolphaError::InvalidCreditNodeAccount);
+}
+
+#[test]
+fn finalize_credits_a_node_that_has_since_been_deactivated() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xaa; 32]);
+    let credited = f.credited_nodes(&record);
+
+    // A signer leaves the registry after settling but before finalization.
+    let leaving = credited[0];
+    let index =
+        f.p.nodes
+            .iter()
+            .position(|n| n.pda == leaving)
+            .expect("credited node is one of ours");
+    let owner = f.p.nodes[index].owner.insecure_clone();
+    let ix = f.p.deactivate_node_ix(index, &owner.pubkey());
+    f.p.env.send_ok(&[ix], &[&owner]);
+    assert_eq!(
+        f.p.env.get::<Node>(&leaving).status,
+        NodeStatus::Deactivated
+    );
+
+    f.past_the_dispute_window();
+    let caller = f.p.env.keypair();
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    f.p.env.send_ok(&[ix], &[&caller]);
+
+    // The round is pinned to its own registry snapshot, so work already done still pays.
+    assert_eq!(
+        f.p.env.get::<Node>(&leaving).claimable_rewards,
+        f.p.args.reward_per_signature
+    );
+}
+
+// ---------------------------------------------------------------------------
+// dispute_round
+// ---------------------------------------------------------------------------
+
+#[test]
+fn disputing_a_fabricated_x402_round_voids_it_and_slashes_the_bond() {
+    let mut f = fixture();
+    let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
+    let record = f.settle_x402(&fabricated, [0xaa; 32]);
+    let signers = f.credited_nodes(&record);
+
+    let challenger = f.p.env.keypair();
+    let bond = f.p.env.token_balance(&f.bond_ata());
+    let treasury_before = f.p.treasury_balance();
+    let expected_bounty = (bond as u128 * f.p.args.challenger_bounty_bps as u128 / 10_000) as u64;
+    assert!(expected_bounty > 0);
+
+    let ix =
+        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+    let meta = f.p.env.send_ok(&[ix], &[&challenger]);
+
+    let updated: RoundReceiptRecord = f.p.env.get(&record);
+    assert_eq!(updated.status, RoundRecordStatus::Voided);
+
+    let gateway: Gateway = f.p.env.get(&f.gateway_pda());
+    assert_eq!(gateway.bond, 0);
+    assert!(gateway.slashed);
+    assert_eq!(f.p.env.token_balance(&f.bond_ata()), 0);
+
+    let challenger_usdc = pda::ata(&challenger.pubkey(), &f.p.usdc_mint);
+    assert_eq!(f.p.env.token_balance(&challenger_usdc), expected_bounty);
+    assert_eq!(
+        f.p.treasury_balance(),
+        treasury_before + bond - expected_bounty
+    );
+
+    let event: RoundDisputed = only_event(&meta);
+    assert_eq!(event.round_record, record);
+    assert_eq!(event.slashed_bond, bond);
+    assert_eq!(event.challenger_bounty, expected_bounty);
+    assert!(
+        !event.round_restored,
+        "x402 rounds are paid up front and are not refunded"
+    );
+}
+
+#[test]
+fn disputing_a_fabricated_subscription_round_gives_the_round_back() {
+    let mut f = fixture();
+    let owner = f.subscribe();
+    let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
+    let record = f.settle_subscription(&owner, &fabricated);
+    assert_eq!(
+        f.p.env
+            .get::<Subscription>(&pda::subscription(&owner.pubkey()))
+            .used_rounds,
+        1
+    );
+
+    let signers = f.credited_nodes(&record);
+    let challenger = f.p.env.keypair();
+    let ix = f.p.dispute_round_ix(
+        &challenger.pubkey(),
+        &record,
+        Some(pda::subscription(&owner.pubkey())),
+        &signers,
+    );
+    let meta = f.p.env.send_ok(&[ix], &[&challenger]);
+
+    assert_eq!(
+        f.p.env
+            .get::<Subscription>(&pda::subscription(&owner.pubkey()))
+            .used_rounds,
+        0,
+        "a voided round is refunded to the subscription"
+    );
+    assert_eq!(
+        f.p.env.get::<RoundReceiptRecord>(&record).status,
+        RoundRecordStatus::Voided
+    );
+    let event: RoundDisputed = only_event(&meta);
+    assert!(event.round_restored);
+}
+
+#[test]
+fn a_genuinely_valid_round_cannot_be_disputed() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xaa; 32]);
+    let signers = f.credited_nodes(&record);
+
+    let challenger = f.p.env.keypair();
+    let ix =
+        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+    let failed = f.p.env.send_err(&[ix], &[&challenger]);
+    assert_molpha_error(&failed, MolphaError::DisputeSignatureValid);
+
+    let gateway: Gateway = f.p.env.get(&f.gateway_pda());
+    assert!(!gateway.slashed);
+    assert_eq!(gateway.bond, f.p.args.gateway_bond_min);
+}
+
+#[test]
+fn an_x402_dispute_must_not_name_a_subscription() {
+    let mut f = fixture();
+    let owner = f.subscribe();
+    let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
+    let record = f.settle_x402(&fabricated, [0xaa; 32]);
+    let signers = f.credited_nodes(&record);
+
+    let challenger = f.p.env.keypair();
+    let ix = f.p.dispute_round_ix(
+        &challenger.pubkey(),
+        &record,
+        Some(pda::subscription(&owner.pubkey())),
+        &signers,
+    );
+    let failed = f.p.env.send_err(&[ix], &[&challenger]);
+    assert_molpha_error(&failed, MolphaError::WrongSubscriptionAccount);
+}
+
+#[test]
+fn a_subscription_dispute_must_name_the_subscription() {
+    let mut f = fixture();
+    let owner = f.subscribe();
+    let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
+    let record = f.settle_subscription(&owner, &fabricated);
+    let signers = f.credited_nodes(&record);
+
+    let challenger = f.p.env.keypair();
+    let ix =
+        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+    let failed = f.p.env.send_err(&[ix], &[&challenger]);
+    assert_molpha_error(&failed, MolphaError::WrongSubscriptionAccount);
+}
+
+#[test]
+fn a_round_can_only_be_disputed_once() {
+    let mut f = fixture();
+    let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
+    let record = f.settle_x402(&fabricated, [0xaa; 32]);
+    let signers = f.credited_nodes(&record);
+    let challenger = f.p.env.keypair();
+
+    let ix =
+        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+    f.p.env.send_ok(&[ix], &[&challenger]);
+
+    let ix =
+        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+    let failed = f.p.env.send_err(&[ix], &[&challenger]);
+    assert_molpha_error(&failed, MolphaError::RoundNotPending);
+}
+
+#[test]
+fn a_voided_round_can_never_be_finalized() {
+    let mut f = fixture();
+    let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
+    let record = f.settle_x402(&fabricated, [0xaa; 32]);
+    let signers = f.credited_nodes(&record);
+    let challenger = f.p.env.keypair();
+    let ix =
+        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+    f.p.env.send_ok(&[ix], &[&challenger]);
+
+    f.past_the_dispute_window();
+    let ix =
+        f.p.finalize_round_ix(&challenger.pubkey(), &record, &signers);
+    let failed = f.p.env.send_err(&[ix], &[&challenger]);
+    assert_molpha_error(&failed, MolphaError::RoundNotPending);
+
+    for node in signers {
+        assert_eq!(f.p.env.get::<Node>(&node).claimable_rewards, 0);
+    }
+}
+
+#[test]
+fn a_dispute_must_name_the_gateway_that_settled_the_round() {
+    let mut f = fixture();
+    let other_gateway = f.p.register_gateway(FLOAT);
+    let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
+    let record = f.settle_x402(&fabricated, [0xaa; 32]);
+    let signers = f.credited_nodes(&record);
+
+    let challenger = f.p.env.keypair();
+    let mut ix =
+        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+    let settled_by = f.gateway_pda();
+    let innocent = pda::gateway(&other_gateway.pubkey());
+    for meta in ix.accounts.iter_mut() {
+        if meta.pubkey == settled_by {
+            meta.pubkey = innocent;
+        } else if meta.pubkey == pda::ata(&settled_by, &f.p.usdc_mint) {
+            meta.pubkey = pda::ata(&innocent, &f.p.usdc_mint);
+        }
+    }
+    let failed = f.p.env.send_err(&[ix], &[&challenger]);
+    assert_molpha_error(&failed, MolphaError::GatewayIndexMismatch);
+}
+
+#[test]
+fn a_slashed_gateway_can_no_longer_settle() {
+    let mut f = fixture();
+    let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
+    let record = f.settle_x402(&fabricated, [0xaa; 32]);
+    let signers = f.credited_nodes(&record);
+    let challenger = f.p.env.keypair();
+    let ix =
+        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+    f.p.env.send_ok(&[ix], &[&challenger]);
+
+    let signed = f.p.sign_duty(duty().at(1_700_000_999));
+    let args = f.p.x402_args(&signed, [0xbb; 32]);
+    let ix = f.p.settle_x402_round_ix(&f.gateway.pubkey(), args);
+    let gateway = f.gateway.insecure_clone();
+    let failed = f.p.env.send_err(&[ix], &[&gateway]);
+    assert_molpha_error(&failed, MolphaError::GatewayNotBonded);
+}
+
+// ---------------------------------------------------------------------------
+// claim_node_rewards
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_node_owner_withdraws_finalized_rewards_from_the_treasury() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xaa; 32]);
+    let credited = f.credited_nodes(&record);
+    f.past_the_dispute_window();
+    let caller = f.p.env.keypair();
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    f.p.env.send_ok(&[ix], &[&caller]);
+
+    let index =
+        f.p.nodes
+            .iter()
+            .position(|n| n.pda == credited[0])
+            .expect("credited node is ours");
+    let owner = f.p.nodes[index].owner.insecure_clone();
+    let destination = pda::ata(&owner.pubkey(), &f.p.usdc_mint);
+    let owner_before = f.p.env.token_balance_or_zero(&destination);
+    let treasury_before = f.p.treasury_balance();
+    let reward = f.p.args.reward_per_signature;
+
+    let ix = f.p.claim_node_rewards_ix(&owner.pubkey());
+    let meta = f.p.env.send_ok(&[ix], &[&owner]);
+
+    assert_eq!(f.p.env.token_balance(&destination), owner_before + reward);
+    assert_eq!(f.p.treasury_balance(), treasury_before - reward);
+    assert_eq!(f.p.env.get::<Node>(&credited[0]).claimable_rewards, 0);
+
+    let event: RewardsClaimed = only_event(&meta);
+    assert_eq!(event.beneficiary, owner.pubkey());
+    assert_eq!(event.destination, destination);
+    assert_eq!(event.amount, reward);
+}
+
+#[test]
+fn claiming_twice_is_refused_because_nothing_is_left() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xaa; 32]);
+    let credited = f.credited_nodes(&record);
+    f.past_the_dispute_window();
+    let caller = f.p.env.keypair();
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    f.p.env.send_ok(&[ix], &[&caller]);
+
+    let index = f.p.nodes.iter().position(|n| n.pda == credited[0]).unwrap();
+    let owner = f.p.nodes[index].owner.insecure_clone();
+    let ix = f.p.claim_node_rewards_ix(&owner.pubkey());
+    f.p.env.send_ok(&[ix], &[&owner]);
+
+    let ix = f.p.claim_node_rewards_ix(&owner.pubkey());
+    let failed = f.p.env.send_err(&[ix], &[&owner]);
+    assert_molpha_error(&failed, MolphaError::NothingToClaim);
+}
+
+#[test]
+fn a_node_with_no_finalized_work_has_nothing_to_claim() {
+    let mut f = fixture();
+    let owner = f.p.nodes[0].owner.insecure_clone();
+    let ix = f.p.claim_node_rewards_ix(&owner.pubkey());
+    let failed = f.p.env.send_err(&[ix], &[&owner]);
+    assert_molpha_error(&failed, MolphaError::NothingToClaim);
+}
+
+#[test]
+fn only_the_node_owner_can_claim_its_rewards() {
+    let mut f = fixture();
+    let stranger = f.p.env.keypair();
+    // The node PDA is owner-seeded, so a stranger's claim names an account that does not exist.
+    let ix = f.p.claim_node_rewards_ix(&stranger.pubkey());
+    let failed = f.p.env.send_err(&[ix], &[&stranger]);
+    assert_anchor_error(
+        &failed,
+        anchor_lang::error::ErrorCode::AccountNotInitialized,
+    );
+}
+
+#[test]
+fn a_deactivated_node_can_still_claim_rewards_it_already_earned() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xaa; 32]);
+    let credited = f.credited_nodes(&record);
+    f.past_the_dispute_window();
+    let caller = f.p.env.keypair();
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    f.p.env.send_ok(&[ix], &[&caller]);
+
+    let index = f.p.nodes.iter().position(|n| n.pda == credited[0]).unwrap();
+    let owner = f.p.nodes[index].owner.insecure_clone();
+    let ix = f.p.deactivate_node_ix(index, &owner.pubkey());
+    f.p.env.send_ok(&[ix], &[&owner]);
+
+    let destination = pda::ata(&owner.pubkey(), &f.p.usdc_mint);
+    let before = f.p.env.token_balance_or_zero(&destination);
+    let ix = f.p.claim_node_rewards_ix(&owner.pubkey());
+    f.p.env.send_ok(&[ix], &[&owner]);
+    assert_eq!(
+        f.p.env.token_balance(&destination),
+        before + f.p.args.reward_per_signature
+    );
+}

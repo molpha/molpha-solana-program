@@ -9,7 +9,7 @@ pub mod state;
 pub mod utils;
 
 use instructions::*;
-use state::{AggregatedSig, PlanType};
+use state::PlanType;
 
 declare_id!("MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh");
 
@@ -31,47 +31,6 @@ pub mod molpha {
 
     pub fn deactivate_node(ctx: Context<DeactivateNode>, args: DeactivateNodeArgs) -> Result<()> {
         instructions::deactivate_node(ctx, args)
-    }
-
-    #[cfg(feature = "cu-bench")]
-    pub fn bench_resolve_synthetic(ctx: Context<BenchRegistry>, node_count: u16) -> Result<()> {
-        instructions::bench_resolve_synthetic(ctx, node_count)
-    }
-
-    #[cfg(feature = "cu-bench")]
-    pub fn bench_resolve_accounts(
-        ctx: Context<BenchRegistry>,
-        signers_bitmap: [u8; 32],
-    ) -> Result<()> {
-        instructions::bench_resolve_accounts(ctx, signers_bitmap)
-    }
-
-    #[cfg(feature = "cu-bench")]
-    pub fn bench_full_registry_transition(
-        ctx: Context<BenchFullRegistryTransition>,
-        old_version: u32,
-        next_version: u32,
-        mutation: u8,
-        node: Pubkey,
-        remove_index: u16,
-    ) -> Result<()> {
-        instructions::bench_full_registry_transition(
-            ctx,
-            old_version,
-            next_version,
-            mutation,
-            node,
-            remove_index,
-        )
-    }
-
-    #[cfg(feature = "cu-bench")]
-    pub fn bench_resolve_full_registry(
-        ctx: Context<BenchResolveFullRegistry>,
-        version: u32,
-        signers_bitmap: [u8; 32],
-    ) -> Result<()> {
-        instructions::bench_resolve_full_registry(ctx, version, signers_bitmap)
     }
 
     pub fn update_node_endpoint(
@@ -117,18 +76,18 @@ pub mod molpha {
         instructions::set_delegate_paused(ctx, paused)
     }
 
-    pub fn submit_data_update(
-        ctx: Context<SubmitDataUpdate>,
-        args: SubmitDataUpdateArgs,
+    pub fn submit_attestation(
+        ctx: Context<SubmitAttestation>,
+        args: SubmitAttestationArgs,
     ) -> Result<()> {
-        instructions::submit_data_update(ctx, args)
+        instructions::submit_attestation(ctx, args)
     }
 
-    pub fn verify_data_update(
-        ctx: Context<VerifyDataUpdate>,
-        args: SubmitDataUpdateArgs,
+    pub fn verify_attestation(
+        ctx: Context<VerifyAttestation>,
+        args: SubmitAttestationArgs,
     ) -> Result<()> {
-        instructions::verify_data_update(ctx, args)
+        instructions::verify_attestation(ctx, args)
     }
 
     pub fn register_gateway(
@@ -138,55 +97,51 @@ pub mod molpha {
         instructions::register_gateway(ctx, args)
     }
 
-    pub fn settle_round_receipt<'info>(
-        ctx: Context<SettleRoundReceipt<'info>>,
+    pub fn settle_subscription_round<'info>(
+        ctx: Context<SettleSubscriptionRound<'info>>,
         args: SettleRoundArgs,
     ) -> Result<()> {
-        instructions::settle_round_receipt(ctx, args)
+        instructions::settle_subscription_round(ctx, args)
     }
 
     pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
         instructions::finalize_round(ctx)
     }
 
-    pub fn dispute_round<'info>(
-        ctx: Context<DisputeRound<'info>>,
-        agg_sig: AggregatedSig,
-    ) -> Result<()> {
-        instructions::dispute_round(ctx, agg_sig)
+    pub fn dispute_round<'info>(ctx: Context<DisputeRound<'info>>) -> Result<()> {
+        instructions::dispute_round(ctx)
     }
 
     pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
         instructions::claim_node_rewards(ctx)
     }
 
-    pub fn claim_gateway_rewards(ctx: Context<ClaimGatewayRewards>) -> Result<()> {
-        instructions::claim_gateway_rewards(ctx)
-    }
-
-    // ---- Self-funded / x402 agent pay-per-request access. ----
-
-    pub fn settle_agent_round<'info>(
-        ctx: Context<SettleAgentRound<'info>>,
-        args: SettleAgentRoundArgs,
+    pub fn settle_x402_round<'info>(
+        ctx: Context<SettleX402Round<'info>>,
+        args: SettleX402RoundArgs,
     ) -> Result<()> {
-        instructions::settle_agent_round(ctx, args)
+        instructions::settle_x402_round(ctx, args)
     }
-
-    // ---- Node punishment. ----
 
     pub fn punish_equivocation<'info>(
-        ctx: Context<PunishEquivocation<'info>>,
+        ctx: Context<'info, PunishEquivocation<'info>>,
         args: PunishEquivocationArgs,
     ) -> Result<()> {
         instructions::punish_equivocation(ctx, args)
     }
 
     pub fn punish_unsolicited_signing<'info>(
-        ctx: Context<PunishUnsolicitedSigning<'info>>,
+        ctx: Context<'info, PunishUnsolicitedSigning<'info>>,
         args: PunishUnsolicitedSigningArgs,
     ) -> Result<()> {
         instructions::punish_unsolicited_signing(ctx, args)
+    }
+
+    pub fn punish_nonce_reuse<'info>(
+        ctx: Context<'info, PunishNonceReuse<'info>>,
+        args: PunishNonceReuseArgs,
+    ) -> Result<()> {
+        instructions::punish_nonce_reuse(ctx, args)
     }
 
     pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> Result<()> {

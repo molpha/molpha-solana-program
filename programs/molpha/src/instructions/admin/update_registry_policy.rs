@@ -11,11 +11,6 @@ pub fn update_registry_policy(
     new_registry_version: u32,
     redundancy_buffer: u8,
 ) -> Result<()> {
-    require_keys_eq!(
-        ctx.accounts.authority.key(),
-        ctx.accounts.protocol_config.authority,
-        MolphaError::UnauthorisedAuthority
-    );
     ctx.accounts
         .registry_state
         .require_next_version(new_registry_version)?;
@@ -57,8 +52,9 @@ pub struct UpdateRegistryPolicy<'info> {
     pub authority: Signer<'info>,
 
     #[account(
+        has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
-        bump = protocol_config.bump,
+        bump
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 

@@ -12,38 +12,30 @@ import {
 
 type UpdateConfigFile = {
   withdrawalCooldownSecs?: string;
-  maxNodeCount?: number;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
-  gatewayFee?: string;
-  receiptSubmitterBonus?: string;
-  protocolFeeBps?: number;
   maxReceiptDelaySlots?: string;
   protocolFee?: string;
   disputeWindowSlots?: string;
   gatewayBondMin?: string;
   challengerBountyBps?: number;
-  agentRoundBase?: string;
-  agentRoundPerSig?: string;
-  agentEpochLenSecs?: string;
+  x402RoundBase?: string;
+  x402RoundPerSig?: string;
+  minSigners?: number;
 };
 
 type ProtocolConfigAccount = {
   withdrawalCooldownSecs: { toString(): string };
-  maxNodeCount: number;
   minimumNodeDeposit: { toString(): string };
   rewardPerSignature: { toString(): string };
-  gatewayFee: { toString(): string };
-  receiptSubmitterBonus: { toString(): string };
-  protocolFeeBps: number;
   maxReceiptDelaySlots: { toString(): string };
   protocolFee: { toString(): string };
   disputeWindowSlots: { toString(): string };
   gatewayBondMin: { toString(): string };
   challengerBountyBps: number;
-  agentRoundBase: { toString(): string };
-  agentRoundPerSig: { toString(): string };
-  agentEpochLenSecs: { toString(): string };
+  x402RoundBase: { toString(): string };
+  x402RoundPerSig: { toString(): string };
+  minSigners: number;
 };
 
 export function registerUpdateConfigCommand(admin: Command): void {
@@ -52,23 +44,23 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .description("Update protocol config (authority only)")
     .option("--config <path>", "json config file with fields to override")
     .option("--withdrawal-cooldown-secs <seconds>", "node withdrawal cooldown")
-    .option("--max-node-count <count>", "max registry size")
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
-    .option("--gateway-fee <amount>", "gateway fee")
     .option("--receipt-submitter-bonus <amount>", "receipt submitter bonus")
-    .option("--protocol-fee-bps <bps>", "protocol fee in basis points")
     .option("--max-receipt-delay-slots <slots>", "max receipt delay")
     .option("--protocol-fee <amount>", "fixed protocol fee per round")
     .option("--dispute-window-slots <slots>", "settled round dispute window")
     .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
-    .option("--agent-round-base <amount>", "base agent fresh-round price")
+    .option("--x402-round-base <amount>", "base x402 round settlement price")
     .option(
-      "--agent-round-per-sig <amount>",
-      "per-required-signature agent fresh-round price"
+      "--x402-round-per-sig <amount>",
+      "per-required-signature x402 round settlement price"
     )
-    .option("--agent-epoch-len-secs <seconds>", "agent spend accounting epoch")
+    .option(
+      "--min-signers <count>",
+      "minimum signatures_required accepted by settlement"
+    )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const config = options.config
@@ -118,11 +110,6 @@ function buildUpdateConfigArgs(
       ),
       "withdrawal cooldown"
     ),
-    maxNodeCount:
-      optionOrConfig(
-        options.maxNodeCount as number | undefined,
-        config.maxNodeCount
-      ) ?? current.maxNodeCount,
     minimumNodeDeposit: bn(
       requireValue(
         optionOrConfig(
@@ -143,31 +130,6 @@ function buildUpdateConfigArgs(
       ),
       "reward per signature"
     ),
-    gatewayFee: bn(
-      requireValue(
-        optionOrConfig(
-          options.gatewayFee as string | undefined,
-          config.gatewayFee
-        ) ?? current.gatewayFee.toString(),
-        "gateway fee"
-      ),
-      "gateway fee"
-    ),
-    receiptSubmitterBonus: bn(
-      requireValue(
-        optionOrConfig(
-          options.receiptSubmitterBonus as string | undefined,
-          config.receiptSubmitterBonus
-        ) ?? current.receiptSubmitterBonus.toString(),
-        "receipt submitter bonus"
-      ),
-      "receipt submitter bonus"
-    ),
-    protocolFeeBps:
-      optionOrConfig(
-        options.protocolFeeBps as number | undefined,
-        config.protocolFeeBps
-      ) ?? current.protocolFeeBps,
     maxReceiptDelaySlots: bn(
       requireValue(
         optionOrConfig(
@@ -213,35 +175,30 @@ function buildUpdateConfigArgs(
         options.challengerBountyBps as number | undefined,
         config.challengerBountyBps
       ) ?? current.challengerBountyBps,
-    agentRoundBase: bn(
+    x402RoundBase: bn(
       requireValue(
         optionOrConfig(
-          options.agentRoundBase as string | undefined,
-          config.agentRoundBase
-        ) ?? current.agentRoundBase.toString(),
-        "agent round base"
+          options.x402RoundBase as string | undefined,
+          config.x402RoundBase
+        ) ?? current.x402RoundBase.toString(),
+        "x402 round base"
       ),
-      "agent round base"
+      "x402 round base"
     ),
-    agentRoundPerSig: bn(
+    x402RoundPerSig: bn(
       requireValue(
         optionOrConfig(
-          options.agentRoundPerSig as string | undefined,
-          config.agentRoundPerSig
-        ) ?? current.agentRoundPerSig.toString(),
-        "agent round per signature"
+          options.x402RoundPerSig as string | undefined,
+          config.x402RoundPerSig
+        ) ?? current.x402RoundPerSig.toString(),
+        "x402 round per signature"
       ),
-      "agent round per signature"
+      "x402 round per signature"
     ),
-    agentEpochLenSecs: bn(
-      requireValue(
-        optionOrConfig(
-          options.agentEpochLenSecs as string | undefined,
-          config.agentEpochLenSecs
-        ) ?? current.agentEpochLenSecs.toString(),
-        "agent epoch length"
-      ),
-      "agent epoch length"
-    ),
+    min_signers:
+      optionOrConfig(
+        options.minSigners as number | undefined,
+        config.minSigners
+      ) ?? current.minSigners,
   };
 }

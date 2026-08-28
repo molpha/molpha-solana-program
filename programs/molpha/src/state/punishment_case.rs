@@ -52,3 +52,8 @@ impl PunishmentCase {
         self.bump = bump;
     }
 }
+
+// `OffenceKind` is a fieldless enum, so appending a variant (e.g. `NonceReuse`) never changes its
+// `InitSpace` — this pins that invariant so a future offence with data fails loudly here instead
+// of silently resizing every `PunishmentCase` account.
+const _: () = assert!(PunishmentCase::SPACE == 136);

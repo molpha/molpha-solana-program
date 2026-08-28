@@ -2,13 +2,11 @@ import { hexToBytes, parseInteger, readJsonFile } from "./utils";
 import {
   evmBitmapBitSet,
   evmUint256BitmapForFirstN,
-} from "./signing/data-update";
+} from "./signing/attestation";
 
 export type AggregatedSigArgs = {
-  s: number[];
-  rx: number[];
-  ryParity: number;
-  commitmentAddr: number[];
+  aggSigS: number[];
+  commitment: number[];
   signersBitmap: number[];
 };
 
@@ -32,16 +30,14 @@ function bytesFromField(
 /** Build an AggregatedSig (happy-path settlement does not verify Schnorr). */
 export function buildAggregatedSig(params: {
   signersBitmap: Uint8Array;
+  aggSigS?: Uint8Array;
+  /** @deprecated Prefer `aggSigS`. */
   s?: Uint8Array;
-  rx?: Uint8Array;
-  ryParity?: number;
-  commitmentAddr?: Uint8Array;
+  commitment?: Uint8Array;
 }): AggregatedSigArgs {
   return {
-    s: Array.from(params.s ?? new Uint8Array(32)),
-    rx: Array.from(params.rx ?? new Uint8Array(32)),
-    ryParity: params.ryParity ?? 0,
-    commitmentAddr: Array.from(params.commitmentAddr ?? new Uint8Array(20)),
+    aggSigS: Array.from(params.aggSigS ?? params.s ?? new Uint8Array(32)),
+    commitment: Array.from(params.commitment ?? new Uint8Array(20)),
     signersBitmap: Array.from(params.signersBitmap),
   };
 }
@@ -66,25 +62,21 @@ export function creditedBitsFromBitmap(signersBitmap: Uint8Array): number[] {
 
 export function parseAggregatedSigJson(filePath: string): AggregatedSigArgs {
   const raw = readJsonFile<{
+    aggSigS?: string | number[];
     s?: string | number[];
-    rx?: string | number[];
-    ryParity?: number | string;
-    commitmentAddr?: string | number[];
+    commitment?: string | number[];
     signersBitmap: string | number[];
   }>(filePath);
 
   return buildAggregatedSig({
     signersBitmap: bytesFromField(raw.signersBitmap, 32, "signers bitmap"),
-    s: raw.s ? bytesFromField(raw.s, 32, "agg sig s") : undefined,
-    rx: raw.rx ? bytesFromField(raw.rx, 32, "agg sig rx") : undefined,
-    ryParity:
-      raw.ryParity !== undefined
-        ? typeof raw.ryParity === "number"
-          ? raw.ryParity
-          : parseInteger(raw.ryParity, "ry parity")
-        : undefined,
-    commitmentAddr: raw.commitmentAddr
-      ? bytesFromField(raw.commitmentAddr, 20, "commitment")
+    aggSigS: raw.aggSigS
+      ? bytesFromField(raw.aggSigS, 32, "agg sig s")
+      : raw.s
+      ? bytesFromField(raw.s, 32, "agg sig s")
+      : undefined,
+    commitment: raw.commitment
+      ? bytesFromField(raw.commitment, 20, "commitment")
       : undefined,
   });
 }
@@ -113,4 +105,8 @@ export function signersBitmapFromOptions(options: {
   throw new Error(
     "Provide --signers-bitmap, --credited-bits, or --signer-count"
   );
+}
+
+export function firstNSignersBitmap(n: number): Uint8Array {
+  return evmUint256BitmapForFirstN(n);
 }

@@ -1,13 +1,13 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use molpha_verifier::{validate_key_and_verify_pop, NodePopError};
+use solana_keccak_hasher::hashv;
 
 use crate::{
     error::MolphaError,
     events::{NodeRegistered, RegistryVersionCreated, RegistryVersionReason},
-    state::{Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim},
-    utils::registry::{
-        derive_node_id, secp256k1_key_fingerprint, validate_secp256k1_pubkey, verify_node_pop,
-    },
+    state::{Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim, MAX_REGISTRY_NODES},
+    utils::registry::derive_node_id,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -17,7 +17,6 @@ pub struct RegisterNodeArgs {
     pub ip: [u8; 4],
     pub port: u16,
     pub secp256k1_pubkey_compressed: [u8; 33],
-    pub secp256k1_key_fingerprint: [u8; 32],
     pub pop_sig_r: [u8; 32],
     pub pop_sig_s: [u8; 32],
 }
@@ -39,7 +38,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
     let node_index = {
         let registry = ctx.accounts.current_registry.load()?;
         require!(
-            u32::from(registry.node_count) < ctx.accounts.protocol_config.max_node_count,
+            u32::from(registry.node_count) < MAX_REGISTRY_NODES as u32,
             MolphaError::NodeCapExceeded
         );
         registry.node_count
@@ -49,30 +48,23 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         args.registration_salt != [0u8; 32],
         MolphaError::InvalidRegistrationSalt
     );
-    let (pub_key_x, pub_key_y) = validate_secp256k1_pubkey(&args.secp256k1_pubkey_compressed)?;
     let owner = ctx.accounts.node_owner.key();
     let node_id = derive_node_id(
         owner,
         &args.secp256k1_pubkey_compressed,
         &args.registration_salt,
     );
-    verify_node_pop(
-        ctx.program_id,
+    let (pub_key_x, pub_key_y) = validate_key_and_verify_pop(
+        &ctx.program_id.to_bytes(),
         &node_id,
         &args.secp256k1_pubkey_compressed,
         &args.pop_sig_r,
         &args.pop_sig_s,
-    )?;
-
-    let key_fingerprint = secp256k1_key_fingerprint(&args.secp256k1_pubkey_compressed);
-    require!(
-        args.secp256k1_key_fingerprint == key_fingerprint,
-        MolphaError::InvalidSecp256k1KeyFingerprint
-    );
-    require!(
-        !ctx.accounts.secp256k1_key_claim.claimed,
-        MolphaError::NodeAlreadyRegistered
-    );
+    )
+    .map_err(|error| match error {
+        NodePopError::InvalidPublicKey => error!(MolphaError::PubkeyNotOnCurve),
+        NodePopError::InvalidProof => error!(MolphaError::InvalidPoP),
+    })?;
 
     token::transfer(
         CpiContext::new(
@@ -97,22 +89,15 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         now,
         ctx.bumps.node,
     );
-    ctx.accounts.secp256k1_key_claim.init(
-        key_fingerprint,
-        args.secp256k1_pubkey_compressed,
-        owner,
-        node_id,
-        ctx.bumps.secp256k1_key_claim,
-    );
+    ctx.accounts
+        .secp256k1_key_claim
+        .init(ctx.accounts.node.key(), ctx.bumps.secp256k1_key_claim);
 
     let (node_count, redundancy_buffer) = {
         let current = ctx.accounts.current_registry.load()?;
         let mut next = ctx.accounts.new_registry.load_init()?;
         next.copy_from_previous(&current, args.new_registry_version, ctx.bumps.new_registry);
-        let appended_index = next.append(
-            ctx.accounts.node.key(),
-            ctx.accounts.protocol_config.max_node_count,
-        )?;
+        let appended_index = next.append(ctx.accounts.node.key())?;
         require!(appended_index == node_index, MolphaError::InvalidNodeIndex);
         (next.node_count, next.redundancy_buffer)
     };
@@ -138,6 +123,11 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         created_at: now,
     });
     Ok(())
+}
+
+pub fn hash_seed(input: &[u8]) -> [u8; 32] {
+    let hash_result = hashv(&[input]);
+    hash_result.to_bytes()
 }
 
 #[derive(Accounts)]
@@ -180,18 +170,21 @@ pub struct RegisterNode<'info> {
         init,
         payer = node_owner,
         space = Node::SPACE,
-        seeds = [Node::SEED_PREFIX, node_owner.key().as_ref()],
+        seeds = [
+            Node::SEED_PREFIX,
+            node_owner.key().as_ref()
+        ],
         bump,
     )]
     pub node: Box<Account<'info, Node>>,
 
     #[account(
-        init_if_needed,
+        init,
         payer = node_owner,
         space = Secp256k1KeyClaim::SPACE,
         seeds = [
             Secp256k1KeyClaim::SEED_PREFIX,
-            args.secp256k1_key_fingerprint.as_ref(),
+            &hash_seed(&args.secp256k1_pubkey_compressed),
         ],
         bump,
     )]
@@ -204,15 +197,17 @@ pub struct RegisterNode<'info> {
 
     #[account(
         mut,
-        constraint = owner_usdc.mint == usdc_mint.key() @ MolphaError::InvalidOwnerUsdc,
-        constraint = owner_usdc.owner == node_owner.key() @ MolphaError::InvalidOwnerUsdc,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = node_owner,
+        associated_token::token_program = token_program,
     )]
     pub owner_usdc: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
-        constraint = treasury.key() == protocol_config.treasury @ MolphaError::InvalidTreasury,
-        constraint = treasury.mint == usdc_mint.key() @ MolphaError::InvalidTreasury,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = protocol_config,
+        associated_token::token_program = token_program,
     )]
     pub treasury: Box<Account<'info, TokenAccount>>,
 

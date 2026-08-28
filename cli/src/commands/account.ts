@@ -2,7 +2,6 @@ import { Command } from "commander";
 import { accountJson, fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import {
-  findAgentEscrowPda,
   findDelegatePda,
   findFeedPda,
   findGatewayPda,
@@ -209,33 +208,6 @@ export function registerAccountCommands(program: Command): void {
           )
         )[0].toBase58();
       await printNamedAccount(command, "gateway", address);
-    });
-
-  account
-    .command("agent-escrow")
-    .description("Fetch agent escrow account")
-    .option("--address <pubkey>", "escrow address")
-    .option("--authority <pubkey>", "escrow authority / x402 payer")
-    .option("--gateway <pubkey>", "gateway authority the escrow is scoped to")
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const address =
-        options.address ??
-        findAgentEscrowPda(
-          ctx.programId,
-          parsePublicKey(
-            requireValue(options.authority, "Missing --authority"),
-            "authority"
-          ),
-          findGatewayPda(
-            ctx.programId,
-            parsePublicKey(
-              requireValue(options.gateway, "Missing --gateway"),
-              "gateway"
-            )
-          )[0]
-        )[0].toBase58();
-      await printNamedAccount(command, "agentEscrow", address);
     });
 
   account

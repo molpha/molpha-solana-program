@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 
+use crate::error::MolphaError;
 use crate::state::PlanType;
 
 #[account]
@@ -24,6 +25,7 @@ pub struct SubscriptionInitArgs {
     pub monthly_price: u64,
     pub max_delegates: u32,
     pub max_signers: u8,
+    pub max_rounds: u64,
     pub now: i64,
     pub bump: u8,
 }
@@ -41,17 +43,22 @@ impl Subscription {
         self.valid_until = args
             .now
             .checked_add(Self::SECONDS_PER_MONTH)
-            .unwrap_or(i64::MAX);
+            .ok_or(MolphaError::InvalidTimestamp)
+            .unwrap();
         self.used_rounds = 0;
-        self.max_rounds = u64::MAX;
+        self.max_rounds = args.max_rounds;
         self.delegate_count = 0;
         self.max_delegates = args.max_delegates;
         self.max_signers = args.max_signers;
         self.bump = args.bump;
     }
 
+    pub fn is_active_at(&self, now: i64) -> bool {
+        self.valid_until > now
+    }
+
     pub fn is_active(&self) -> bool {
-        self.valid_until > Clock::get().map(|c| c.unix_timestamp).unwrap_or(0)
+        self.is_active_at(Clock::get().map(|c| c.unix_timestamp).unwrap_or(0))
     }
 
     pub fn has_round_quota(&self) -> bool {

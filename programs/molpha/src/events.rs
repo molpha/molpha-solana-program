@@ -5,20 +5,16 @@ use crate::state::{FeedValueKind, NodeStatus, OffenceKind};
 #[event]
 pub struct ProtocolConfigUpdated {
     pub reward_per_signature: u64,
-    pub gateway_fee: u64,
-    pub receipt_submitter_bonus: u64,
-    pub protocol_fee_bps: u16,
     pub max_receipt_delay_slots: u64,
     pub protocol_fee: u64,
     pub dispute_window_slots: u64,
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
-    pub max_node_count: u32,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_secs: i64,
-    pub agent_round_base: u64,
-    pub agent_round_per_sig: u64,
-    pub agent_epoch_len_secs: i64,
+    pub x402_round_base: u64,
+    pub x402_round_per_sig: u64,
+    pub min_signers: u8,
 }
 
 #[event]
@@ -118,13 +114,6 @@ pub struct SubscriptionExtended {
 }
 
 #[event]
-pub struct SubscriptionVaultWithdrawn {
-    pub authority: Pubkey,
-    pub destination: Pubkey,
-    pub amount: u64,
-}
-
-#[event]
 pub struct GatewayRegistered {
     pub authority: Pubkey,
     pub ip: [u8; 4],
@@ -139,7 +128,6 @@ pub struct DelegateAdded {
     pub delegate: Pubkey,
     pub max_data_requests: u64,
     pub max_signers: u8,
-    /// Subscription delegate count after this addition.
     pub delegate_count: u32,
 }
 
@@ -148,7 +136,6 @@ pub struct DelegateRemoved {
     pub owner: Pubkey,
     pub delegate: Pubkey,
     pub data_requests_used: u64,
-    /// Subscription delegate count after this removal.
     pub delegate_count: u32,
 }
 
@@ -166,9 +153,8 @@ pub struct DelegateStatusChanged {
 pub struct FeedUpdated {
     pub source_id: [u8; 32],
     pub registry_version: u32,
-    pub canonical_timestamp: i64,
-    /// Compacted payload stored on the feed (raw ≤32 bytes, or keccak digest).
-    pub value: Vec<u8>,
+    pub canonical_timestamp: u64,
+    pub value: [u8; 32],
     pub value_kind: FeedValueKind,
     pub signers_bitmap: [u8; 32],
     pub last_updated_slot: u64,
@@ -182,26 +168,23 @@ pub struct RoundSettled {
     pub signers_bitmap: [u8; 32],
     pub credited_count: u32,
     pub reward_per_signature: u64,
-    pub gateway_fee: u64,
+    pub protocol_fee: u64,
     pub recorded_slot: u64,
 }
 
 #[event]
 pub struct RoundFinalized {
-    pub source_id: [u8; 32],
-    pub timestamp: u64,
+    pub round_record: Pubkey,
     pub credited_count: u32,
     pub finalized_slot: u64,
 }
 
 #[event]
 pub struct RoundDisputed {
-    pub source_id: [u8; 32],
-    pub timestamp: u64,
+    pub round_record: Pubkey,
     pub gateway: Pubkey,
     pub slashed_bond: u64,
     pub challenger_bounty: u64,
-    pub refund_amount: u64,
     pub round_restored: bool,
 }
 
@@ -213,21 +196,9 @@ pub struct RewardsClaimed {
 }
 
 #[event]
-pub struct AgentEscrowCreated {
-    pub agent: Pubkey,
-    pub authority: Pubkey,
-    pub gateway: Pubkey,
-}
-
-#[event]
-pub struct AgentEscrowClosed {
-    pub agent: Pubkey,
-    pub owner: Pubkey,
-}
-
-#[event]
-pub struct AgentRoundSettled {
-    pub agent: Pubkey,
+pub struct X402RoundSettled {
+    pub payer_id: [u8; 32],
+    pub payment_rail: u16,
     pub price: u64,
     pub source_id: [u8; 32],
     pub timestamp: u64,
@@ -242,7 +213,7 @@ pub struct EquivocationProven {
     pub source_id: [u8; 32],
     pub registry_version: u32,
     pub signatures_required: u8,
-    pub canonical_timestamp: i64,
+    pub canonical_timestamp: u64,
     pub guilty_bitmap: [u8; 32],
     pub guilty_count: u16,
     pub evidence_hash: [u8; 32],
@@ -256,10 +227,28 @@ pub struct UnsolicitedSigningProven {
     pub source_id: [u8; 32],
     pub registry_version: u32,
     pub signatures_required: u8,
-    pub canonical_timestamp: i64,
-    /// The offending coalition's full signer bitmap, as submitted.
+    pub canonical_timestamp: u64,
     pub signers_bitmap: [u8; 32],
-    /// `signers_bitmap` minus the derived selection — the punished bits.
+    pub guilty_bitmap: [u8; 32],
+    pub guilty_count: u16,
+    pub evidence_hash: [u8; 32],
+    pub reporter: Pubkey,
+    pub slashed_total: u64,
+    pub bounty_paid: u64,
+}
+
+#[event]
+pub struct NonceReuseProven {
+    pub registry_version: u32,
+    pub commitment_addr: [u8; 20],
+    pub source_id_a: [u8; 32],
+    pub signatures_required_a: u8,
+    pub canonical_timestamp_a: u64,
+    pub signers_bitmap_a: [u8; 32],
+    pub source_id_b: [u8; 32],
+    pub signatures_required_b: u8,
+    pub canonical_timestamp_b: u64,
+    pub signers_bitmap_b: [u8; 32],
     pub guilty_bitmap: [u8; 32],
     pub guilty_count: u16,
     pub evidence_hash: [u8; 32],

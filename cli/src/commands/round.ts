@@ -1,5 +1,6 @@
 import { BN } from "@coral-xyz/anchor";
 import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
@@ -16,12 +17,11 @@ import {
   parseAggregatedSigJson,
   signersBitmapFromOptions,
 } from "../lib/agg-sig";
-import { hashAgentRequestAuthFields, hashRequestAuthFields } from "../lib/auth";
+import { hashRequestAuthFields } from "../lib/auth";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import {
-  findAgentEscrowPda,
-  findAgentRoundPda,
+  derivePayerId,
   findDelegatePda,
   findGatewayBondAta,
   findGatewayPda,
@@ -30,6 +30,7 @@ import {
   findRegistryStatePda,
   findSubscriptionPda,
   findSubscriptionRoundPda,
+  findX402RoundPda,
 } from "../lib/pdas";
 import {
   bn,
@@ -131,7 +132,7 @@ export function registerRoundCommands(program: Command): void {
       );
       const [roundRecordPda] = findSubscriptionRoundPda(
         ctx.programId,
-        consumer.publicKey,
+        subscriptionOwner,
         sourceId,
         signaturesRequired,
         timestamp
@@ -151,7 +152,7 @@ export function registerRoundCommands(program: Command): void {
         timestamp
       );
       const signature = await (ctx.program.methods as any)
-        .settleRoundReceipt({
+        .settleSubscriptionRound({
           timestamp: new BN(timestamp),
           sourceId: Array.from(sourceId),
           signaturesRequired,
@@ -199,20 +200,29 @@ export function registerRoundCommands(program: Command): void {
     });
 
   round
-    .command("settle-agent")
-    .description("Settle a self-funded / x402 agent round")
+    .command("settle-x402")
+    .description("Settle a gateway-funded x402 round (any payment rail)")
     .requiredOption("--source-id <hex>", "32-byte source identifier")
     .requiredOption("--canonical-timestamp <number>", "canonical timestamp")
     .requiredOption("--signatures-required <number>", "quorum threshold")
     .requiredOption("--registry-version <number>", "registry version")
-    .requiredOption("--amount <amount>", "exact agent round price")
-    .option(
-      "--payer-wallet <path>",
-      "x402 payer keypair (escrow authority); defaults to provider wallet"
+    .requiredOption("--amount <amount>", "exact x402 round price")
+    .requiredOption(
+      "--payer-id <hex>",
+      "32-byte rail-scoped payer identity (keccak256(rail_id_be || payer_address))"
     )
     .option(
       "--gateway-wallet <path>",
       "gateway authority keypair; defaults to provider wallet"
+    )
+    .option(
+      "--payment-rail <number>",
+      "payment rail registry id (0 = none, 1 = solana, 2 = base)",
+      "1"
+    )
+    .option(
+      "--payment-ref <hex>",
+      "opaque payment reference (tx hash / facilitator receipt), <= 64 bytes"
     )
     .option("--value <hex>", "oracle value bytes (hex)", "0x" + "00".repeat(32))
     .option("--agg-sig <path>", "JSON AggregatedSig file")
@@ -232,9 +242,6 @@ export function registerRoundCommands(program: Command): void {
         throw new Error("Protocol config is not initialized");
       }
 
-      const payer = options.payerWallet
-        ? loadKeypair(options.payerWallet)
-        : ctx.payer;
       const gatewayAuthority = options.gatewayWallet
         ? loadKeypair(options.gatewayWallet)
         : ctx.payer;
@@ -242,17 +249,12 @@ export function registerRoundCommands(program: Command): void {
         ctx.programId,
         gatewayAuthority.publicKey
       );
-      const [escrowPda] = findAgentEscrowPda(
-        ctx.programId,
-        payer.publicKey,
-        gatewayPda
-      );
-      const escrowAta = getAssociatedTokenAddressSync(
+      const gatewayUsdc = getAssociatedTokenAddressSync(
         protocolConfig.usdcMint,
-        escrowPda,
-        true
+        gatewayAuthority.publicKey
       );
 
+      const payerId = hexToBytes(options.payerId, 32, "payer id");
       const sourceId = hexToBytes(options.sourceId, 32, "source id");
       const canonicalTimestamp = parseInteger(
         options.canonicalTimestamp,
@@ -266,6 +268,15 @@ export function registerRoundCommands(program: Command): void {
         options.registryVersion,
         "registry version"
       );
+      const paymentRail = parseInteger(options.paymentRail, "payment rail");
+      const paymentRef = options.paymentRef
+        ? hexToBytes(options.paymentRef, undefined, "payment ref")
+        : new Uint8Array(0);
+      if (paymentRef.length > 64) {
+        throw new Error(
+          `payment ref must be <= 64 bytes, got ${paymentRef.length}`
+        );
+      }
       const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
       const registry = await fetchAccountOrNull<any>(
         ctx.program,
@@ -274,7 +285,7 @@ export function registerRoundCommands(program: Command): void {
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const amount = bn(options.amount, "amount");
-      const value = hexToBytes(options.value, undefined, "value");
+      const value = hexToBytes(options.value, 32, "value");
       const aggSig = options.aggSig
         ? parseAggregatedSigJson(options.aggSig)
         : buildAggregatedSig({
@@ -283,59 +294,44 @@ export function registerRoundCommands(program: Command): void {
       const creditedBits = creditedBitsFromBitmap(
         Uint8Array.from(aggSig.signersBitmap)
       );
-      const [roundRecordPda] = findAgentRoundPda(
+      const [roundRecordPda] = findX402RoundPda(
         ctx.programId,
-        payer.publicKey,
+        payerId,
         gatewayPda,
         sourceId,
         signaturesRequired,
         canonicalTimestamp
       );
 
-      const authHash = hashAgentRequestAuthFields(
-        escrowPda,
-        gatewayPda,
-        sourceId,
-        signaturesRequired,
-        canonicalTimestamp,
-        BigInt(amount.toString())
-      );
-
       const signers = [];
       if (!gatewayAuthority.publicKey.equals(ctx.wallet.publicKey)) {
         signers.push(gatewayAuthority);
       }
-      if (
-        !payer.publicKey.equals(ctx.wallet.publicKey) &&
-        !payer.publicKey.equals(gatewayAuthority.publicKey)
-      ) {
-        // Payer signs via Ed25519 pre-ix only; no Solana signature required unless fee payer.
-      }
 
       const signature = await (ctx.program.methods as any)
-        .settleAgentRound({
-          authority: payer.publicKey,
+        .settleX402Round({
+          payerId: Array.from(payerId),
           amount,
           sourceId: Array.from(sourceId),
           canonicalTimestamp: new BN(canonicalTimestamp),
           signaturesRequired,
           registryVersion,
           aggSig,
-          value: Buffer.from(value),
+          value: Array.from(value),
+          paymentRail,
+          paymentRef: Buffer.from(paymentRef),
         })
         .accountsPartial({
-          gatewayAuthority: gatewayAuthority.publicKey,
+          authority: gatewayAuthority.publicKey,
           protocolConfig: protocolConfigPda,
           registryState: registryStatePda,
           registry: registryPda,
           gateway: gatewayPda,
-          agentEscrow: escrowPda,
           usdcMint: protocolConfig.usdcMint,
-          escrowAta,
+          gatewayUsdc,
           treasury: protocolConfig.treasury,
           tokenProgram: TOKEN_PROGRAM_ID,
           roundRecord: roundRecordPda,
-          instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
           systemProgram: SystemProgram.programId,
         })
         .remainingAccounts(
@@ -345,20 +341,14 @@ export function registerRoundCommands(program: Command): void {
             isSigner: false,
           }))
         )
-        .preInstructions([
-          Ed25519Program.createInstructionWithPrivateKey({
-            privateKey: payer.secretKey,
-            message: authHash,
-          }),
-        ])
         .signers(signers)
         .rpc();
 
       writeJson({
         signature,
         roundRecord: roundRecordPda.toBase58(),
-        agentEscrow: escrowPda.toBase58(),
-        escrowAta: escrowAta.toBase58(),
+        payerId: `0x${Buffer.from(payerId).toString("hex")}`,
+        paymentRail,
         sourceId: `0x${Buffer.from(sourceId).toString("hex")}`,
         creditedBits,
       });
@@ -441,19 +431,9 @@ export function registerRoundCommands(program: Command): void {
       "--gateway-authority <pubkey>",
       "gateway authority pubkey (for PDA)"
     )
-    .requiredOption("--agg-sig <path>", "JSON AggregatedSig used as challenge")
-    .option("--challenger-usdc <pubkey>", "challenger USDC ATA")
-    .option(
-      "--agent-authority <pubkey>",
-      "agent escrow authority (required for agent rounds, price > 0)"
-    )
     .option(
       "--subscription <pubkey>",
-      "subscription account (required for subscription rounds, price == 0)"
-    )
-    .option(
-      "--consumer-authority <pubkey>",
-      "consumer authority used at settle (required for subscription rounds)"
+      "subscription account (required for subscription rounds; omit for x402 rounds — they are never refunded)"
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -492,69 +472,41 @@ export function registerRoundCommands(program: Command): void {
         protocolConfig.usdcMint,
         gatewayPda
       );
-      const aggSig = parseAggregatedSigJson(
-        requireValue(options.aggSig, "Missing --agg-sig")
+      const challengerUsdc = getAssociatedTokenAddressSync(
+        protocolConfig.usdcMint,
+        ctx.wallet.publicKey
       );
-      const challengerUsdc = options.challengerUsdc
-        ? parsePublicKey(options.challengerUsdc, "challenger USDC")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            ctx.wallet.publicKey
-          );
 
-      const price = Number(record.price?.toString?.() ?? record.price);
-      let agentEscrow: PublicKey | null = null;
-      let escrowAta: PublicKey | null = null;
-      let subscription: PublicKey | null = null;
-      let consumerAuthority: PublicKey | null = null;
-      if (price > 0) {
-        const agentAuthority = parsePublicKey(
-          requireValue(options.agentAuthority, "Missing --agent-authority"),
-          "agent authority"
-        );
-        [agentEscrow] = findAgentEscrowPda(
-          ctx.programId,
-          agentAuthority,
-          gatewayPda
-        );
-        escrowAta = getAssociatedTokenAddressSync(
-          protocolConfig.usdcMint,
-          agentEscrow,
-          true
-        );
-      } else {
-        consumerAuthority = parsePublicKey(
-          requireValue(
-            options.consumerAuthority,
-            "Missing --consumer-authority"
-          ),
-          "consumer authority"
-        );
-        subscription = parsePublicKey(
-          requireValue(options.subscription, "Missing --subscription"),
-          "subscription"
-        );
-      }
+      // `record.kind` discriminates the funding path: subscription rounds are restored on a
+      // successful dispute; x402 rounds are never refunded (the price came from the gateway's
+      // own float, and the gateway is the party being slashed).
+      const isSubscription = record.kind?.subscription !== undefined;
+      const subscription = isSubscription
+        ? parsePublicKey(
+            requireValue(options.subscription, "Missing --subscription"),
+            "subscription"
+          )
+        : null;
 
       const signature = await (ctx.program.methods as any)
-        .disputeRound(aggSig)
+        .disputeRound()
         .accountsPartial({
           challenger: ctx.wallet.publicKey,
           protocolConfig: protocolConfigPda,
           registry: registryPda,
           roundRecord,
           gateway: gatewayPda,
+          usdcMint: protocolConfig.usdcMint,
           gatewayBond,
           treasury: protocolConfig.treasury,
           challengerUsdc,
           tokenProgram: TOKEN_PROGRAM_ID,
-          agentEscrow,
-          escrowAta,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
           subscription,
-          consumerAuthority,
         })
         .remainingAccounts(
-          creditedBitsFromBitmap(Uint8Array.from(aggSig.signersBitmap)).map(
+          creditedBitsFromBitmap(Uint8Array.from(record.signersBitmap)).map(
             (bit) => ({
               pubkey: registryNode(registry, bit),
               isWritable: false,
