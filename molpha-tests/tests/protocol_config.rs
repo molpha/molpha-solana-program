@@ -18,7 +18,6 @@ fn tuned_update_args() -> UpdateConfigArgs {
         minimum_node_deposit: 250_000_000,
         reward_per_signature: 11,
         max_receipt_delay_slots: 512,
-        protocol_fee: 77,
         dispute_window_slots: 4_096,
         gateway_bond_min: 900_000_000,
         challenger_bounty_bps: 1_250,
@@ -40,7 +39,6 @@ fn initialize_writes_config_registry_state_and_genesis_snapshot() {
     assert_eq!(config.usdc_mint, b.usdc_mint);
     assert_eq!(config.reward_per_signature, args.reward_per_signature);
     assert_eq!(config.max_receipt_delay_slots, args.max_receipt_delay_slots);
-    assert_eq!(config.protocol_fee, args.protocol_fee);
     assert_eq!(config.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(config.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(config.challenger_bounty_bps, args.challenger_bounty_bps);
@@ -178,7 +176,6 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
     assert_eq!(after.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(after.reward_per_signature, args.reward_per_signature);
     assert_eq!(after.max_receipt_delay_slots, args.max_receipt_delay_slots);
-    assert_eq!(after.protocol_fee, args.protocol_fee);
     assert_eq!(after.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(after.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(after.challenger_bounty_bps, args.challenger_bounty_bps);
@@ -224,7 +221,6 @@ fn update_config_rejects_min_signers_below_the_floor() {
     // The rejected write must not have partially landed.
     let config: ProtocolConfig = p.env.get(&pda::protocol_config());
     assert_eq!(config.min_signers, 3);
-    assert_eq!(config.protocol_fee, p.args.protocol_fee);
 }
 
 #[test]

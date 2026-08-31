@@ -31,7 +31,6 @@ fn initialize_args() -> InitializeArgs {
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
         max_receipt_delay_slots: 256,
-        protocol_fee: 30,
         dispute_window_slots: 1024,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
@@ -60,7 +59,6 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
         decoded.max_receipt_delay_slots,
         args.max_receipt_delay_slots
     );
-    assert_eq!(decoded.protocol_fee, args.protocol_fee);
     assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
@@ -76,7 +74,6 @@ fn update_config_args() -> UpdateConfigArgs {
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
         max_receipt_delay_slots: 256,
-        protocol_fee: 30,
         dispute_window_slots: 1024,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
@@ -103,7 +100,6 @@ fn update_config_instruction_data_is_stable_and_round_trips() {
         decoded.max_receipt_delay_slots,
         args.max_receipt_delay_slots
     );
-    assert_eq!(decoded.protocol_fee, args.protocol_fee);
     assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);

@@ -94,7 +94,8 @@ pub fn slash_guilty_nodes<'info>(
         }
         let outcome = apply_penalty(&mut node, penalty, clock.unix_timestamp)?;
         if node.status == NodeStatus::Tombstoned {
-            node.withdrawable_slot = clock.slot
+            node.withdrawable_slot = clock
+                .slot
                 .checked_add(withdrawal_cooldown_slots)
                 .ok_or(MolphaError::WithdrawalArithmeticOverflow)?;
         }

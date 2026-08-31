@@ -107,10 +107,6 @@ fn owner_direct_settlement_records_the_round_and_consumes_quota() {
     assert_eq!(record.commitment, signed.signature.commitment);
     assert_eq!(record.attestation_message_hash, signed.message_hash);
     assert_eq!(record.reward_per_signature, f.p.args.reward_per_signature);
-    assert_eq!(
-        record.protocol_fee, 0,
-        "subscription rounds are prepaid; no per-round protocol fee"
-    );
     assert_eq!(record.recorded_slot, f.p.env.slot());
 
     let subscription: Subscription = f.p.env.get(&pda::subscription(&owner.pubkey()));
@@ -131,7 +127,6 @@ fn owner_direct_settlement_records_the_round_and_consumes_quota() {
             .map(|b| b.count_ones())
             .sum::<u32>()
     );
-    assert_eq!(event.protocol_fee, 0);
 }
 
 #[test]

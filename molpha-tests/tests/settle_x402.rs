@@ -100,7 +100,6 @@ fn settlement_debits_the_gateway_float_and_credits_the_treasury() {
     assert_eq!(record.signers_bitmap, signed.signers_bitmap);
     assert_eq!(record.attestation_message_hash, signed.message_hash);
     assert_eq!(record.reward_per_signature, f.p.args.reward_per_signature);
-    assert_eq!(record.protocol_fee, f.p.args.protocol_fee);
 
     let event: X402RoundSettled = only_event(&meta);
     assert_eq!(event.payer_id, args.payer_id);

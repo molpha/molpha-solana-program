@@ -11,7 +11,8 @@ use crate::{
 pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
     let config = &ctx.accounts.protocol_config;
     let now = Clock::get()?.unix_timestamp;
-    let is_authority = ctx.accounts.caller.key() == config.authority || ctx.accounts.caller.key() == ctx.accounts.node.owner;
+    let is_authority = ctx.accounts.caller.key() == config.authority
+        || ctx.accounts.caller.key() == ctx.accounts.node.owner;
 
     require!(
         is_authority || now >= ctx.accounts.node.frozen_until,

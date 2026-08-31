@@ -11,8 +11,8 @@ use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
     AddDelegateArgs, AddPlanArgs, DeactivateNodeArgs, InitializeArgs, PunishEquivocationArgs,
     PunishNonceReuseArgs, PunishUnsolicitedSigningArgs, RegisterGatewayArgs, RegisterNodeArgs,
-    RemoveDelegateArgs, SettleRoundArgs, SettleX402RoundArgs,
-    SubmitAttestationArgs, UpdateConfigArgs, UpdateNodeEndpointArgs, UpdatePlanArgs,
+    RemoveDelegateArgs, SettleRoundArgs, SettleX402RoundArgs, SubmitAttestationArgs,
+    UpdateConfigArgs, UpdateNodeEndpointArgs, UpdatePlanArgs,
 };
 use molpha::state::{AggregatedSig, PlanType, RegistryState};
 use solana_keypair::Keypair;
@@ -170,7 +170,6 @@ pub fn default_initialize_args(usdc_mint: Pubkey) -> InitializeArgs {
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10_000,
         max_receipt_delay_slots: 256,
-        protocol_fee: 30_000,
         dispute_window_slots: 100,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
@@ -254,11 +253,6 @@ impl ProtocolBuilder {
 
     pub fn reward_per_signature(mut self, value: u64) -> Self {
         self.args.reward_per_signature = value;
-        self
-    }
-
-    pub fn protocol_fee(mut self, value: u64) -> Self {
-        self.args.protocol_fee = value;
         self
     }
 
@@ -368,12 +362,7 @@ impl Protocol {
         args: &RegisterNodeArgs,
         authority: &Pubkey,
     ) -> Instruction {
-        self.register_node_ix_with_registry(
-            owner,
-            args,
-            authority,
-            self.current_version() + 1,
-        )
+        self.register_node_ix_with_registry(owner, args, authority, self.current_version() + 1)
     }
 
     pub fn register_node_ix_with_registry(
@@ -1112,10 +1101,7 @@ impl Protocol {
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
-            data: molpha::instruction::UpdateRegistryPolicy {
-                redundancy_buffer,
-            }
-            .data(),
+            data: molpha::instruction::UpdateRegistryPolicy { redundancy_buffer }.data(),
         }
     }
 
@@ -1161,11 +1147,7 @@ impl Protocol {
         reporter: &Pubkey,
         args: PunishEquivocationArgs,
     ) -> Instruction {
-        self.punish_equivocation_ix_with_registry(
-            reporter,
-            args,
-            self.current_version() + 1,
-        )
+        self.punish_equivocation_ix_with_registry(reporter, args, self.current_version() + 1)
     }
 
     pub fn punish_equivocation_ix_with_registry(
@@ -1208,11 +1190,7 @@ impl Protocol {
         reporter: &Pubkey,
         args: PunishUnsolicitedSigningArgs,
     ) -> Instruction {
-        self.punish_unsolicited_signing_ix_with_registry(
-            reporter,
-            args,
-            self.current_version() + 1,
-        )
+        self.punish_unsolicited_signing_ix_with_registry(reporter, args, self.current_version() + 1)
     }
 
     pub fn punish_unsolicited_signing_ix_with_registry(
