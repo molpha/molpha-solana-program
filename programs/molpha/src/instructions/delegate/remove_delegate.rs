@@ -11,16 +11,14 @@ pub struct RemoveDelegateArgs {
 }
 
 pub fn remove_delegate(ctx: Context<RemoveDelegate>, args: RemoveDelegateArgs) -> Result<()> {
-    let delegate_account = &ctx.accounts.delegate_account;
-
     let subscription = &mut ctx.accounts.subscription;
     subscription.release_delegate();
 
     emit!(DelegateRemoved {
         owner: ctx.accounts.owner.key(),
         delegate: args.delegate,
-        data_requests_used: delegate_account.data_requests_used,
         delegate_count: subscription.delegate_count,
+        removed_at: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

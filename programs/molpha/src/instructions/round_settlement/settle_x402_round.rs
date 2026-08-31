@@ -97,7 +97,6 @@ pub fn settle_x402_round<'info>(
     )?;
 
     let reward_per_signature = config.reward_per_signature;
-    let protocol_fee = config.protocol_fee;
 
     ctx.accounts.round_record.init(RoundReceiptInitArgs {
         consumer_id: args.payer_id,
@@ -106,7 +105,6 @@ pub fn settle_x402_round<'info>(
         gateway: gateway.key(),
         registry_version: args.registry_version,
         reward_per_signature,
-        protocol_fee,
         recorded_slot: now_slot,
         kind: RoundRecordKind::X402,
         bump: ctx.bumps.round_record,
@@ -117,11 +115,12 @@ pub fn settle_x402_round<'info>(
         payment_rail: args.payment_rail,
         price,
         source_id: args.source_id,
-        timestamp: args.canonical_timestamp,
+        canonical_timestamp: args.canonical_timestamp,
         gateway: gateway.key(),
         signers_bitmap: ctx.accounts.round_record.signers_bitmap,
         credited_count: validated.credited_count,
         recorded_slot: now_slot,
+        recorded_at: clock.unix_timestamp,
     });
 
     Ok(())

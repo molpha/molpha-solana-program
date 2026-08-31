@@ -47,7 +47,6 @@ pub fn validate_round<'info>(mut ctx: Context<'info, ValidateRound<'info>>) -> R
             &registry,
             ctx.remaining_accounts,
             ctx.program_id,
-            clock.slot,
         );
     }
 
@@ -102,6 +101,7 @@ pub fn validate_round<'info>(mut ctx: Context<'info, ValidateRound<'info>>) -> R
         slashed_bond,
         challenger_bounty: bounty,
         round_restored,
+        disputed_at: clock.unix_timestamp,
     });
 
     Ok(())

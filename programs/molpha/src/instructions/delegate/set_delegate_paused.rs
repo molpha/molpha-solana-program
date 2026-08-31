@@ -16,12 +16,11 @@ pub fn set_delegate_paused(ctx: Context<SetDelegatePaused>, paused: bool) -> Res
     };
 
     emit!(DelegateStatusChanged {
-        delegate_account: delegate_account.key(),
         owner: ctx.accounts.owner.key(),
         delegate: delegate_account.delegate,
         old_status: old_status as u8,
         new_status: delegate_account.status as u8,
-        by: ctx.accounts.owner.key(),
+        updated_at: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

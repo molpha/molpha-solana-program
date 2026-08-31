@@ -1,5 +1,5 @@
 //! Permissionless finalization after the dispute window: credits `reward_per_signature` (and
-//! gateway `protocol_fee`) to node/gateway `claimable_rewards` using the round's pinned registry.
+//! to node/gateway `claimable_rewards` using the round's pinned registry.
 
 use anchor_lang::prelude::*;
 use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
@@ -21,8 +21,7 @@ pub fn finalize_round<'info>(ctx: Context<'info, FinalizeRound<'info>>) -> Resul
         MolphaError::GatewaySlashed
     );
 
-    let clock = Clock::get()?;
-    let now_slot = clock.slot;
+    let now_slot = Clock::get()?.slot;
 
     require!(
         now_slot.saturating_sub(record.recorded_slot) > config.dispute_window_slots,
@@ -35,7 +34,6 @@ pub fn finalize_round<'info>(ctx: Context<'info, FinalizeRound<'info>>) -> Resul
         &registry,
         ctx.remaining_accounts,
         ctx.program_id,
-        now_slot,
     )
 }
 
@@ -45,7 +43,6 @@ pub(crate) fn credit_round_rewards<'info>(
     registry: &Registry,
     remaining_accounts: &'info [AccountInfo<'info>],
     program_id: &Pubkey,
-    finalized_slot: u64,
 ) -> Result<()> {
     let credited = bitmap_load(&record.signers_bitmap);
     let credited_count = credited.count_ones();
@@ -81,10 +78,11 @@ pub(crate) fn credit_round_rewards<'info>(
 
     record.status = RoundRecordStatus::Finalized;
 
+    let clock = Clock::get()?;
     emit!(RoundFinalized {
         round_record: record.key(),
-        credited_count,
-        finalized_slot,
+        finalized_slot: clock.slot,
+        finalized_at: clock.unix_timestamp,
     });
 
     Ok(())

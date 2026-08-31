@@ -57,11 +57,9 @@ pub fn withdraw_gateway_bond(ctx: Context<WithdrawGatewayBond>) -> Result<()> {
 
     emit!(GatewayBondWithdrawn {
         gateway: gateway.key(),
-        authority,
-        destination: ctx.accounts.destination.key(),
         amount,
-        withdrawn_at: clock.unix_timestamp,
         withdrawn_slot: clock.slot,
+        withdrawn_at: clock.unix_timestamp,
     });
     Ok(())
 }

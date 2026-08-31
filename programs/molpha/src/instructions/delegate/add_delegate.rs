@@ -44,9 +44,9 @@ pub fn add_delegate(ctx: Context<AddDelegate>, args: AddDelegateArgs) -> Result<
     emit!(DelegateAdded {
         owner: ctx.accounts.owner.key(),
         delegate: args.delegate,
-        max_data_requests: args.max_data_requests,
         max_signers: args.max_signers,
         delegate_count: subscription.delegate_count,
+        added_at: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

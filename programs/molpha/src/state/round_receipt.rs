@@ -13,7 +13,6 @@ pub struct RoundReceiptRecord {
     pub gateway: Pubkey,
     pub registry_version: u32,
     pub reward_per_signature: u64,
-    pub protocol_fee: u64,
     pub recorded_slot: u64,
     pub status: RoundRecordStatus,
     pub kind: RoundRecordKind,
@@ -42,7 +41,6 @@ pub struct RoundReceiptInitArgs {
     pub gateway: Pubkey,
     pub registry_version: u32,
     pub reward_per_signature: u64,
-    pub protocol_fee: u64,
     pub recorded_slot: u64,
     pub kind: RoundRecordKind,
     pub bump: u8,
@@ -62,7 +60,6 @@ impl RoundReceiptRecord {
         self.gateway = args.gateway;
         self.registry_version = args.registry_version;
         self.reward_per_signature = args.reward_per_signature;
-        self.protocol_fee = args.protocol_fee;
         self.recorded_slot = args.recorded_slot;
         self.status = RoundRecordStatus::Pending;
         self.kind = args.kind;

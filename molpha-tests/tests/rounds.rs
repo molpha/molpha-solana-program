@@ -154,7 +154,6 @@ fn finalize_credits_every_signer_and_closes_the_round() {
 
     let event: RoundFinalized = only_event(&meta);
     assert_eq!(event.round_record, record);
-    assert_eq!(event.credited_count, credited.len() as u32);
 }
 
 #[test]
@@ -410,7 +409,6 @@ fn validating_a_genuine_round_finalizes_it_and_credits_its_signers() {
 
     let event: RoundFinalized = only_event(&meta);
     assert_eq!(event.round_record, record);
-    assert_eq!(event.credited_count, signers.len() as u32);
 
     let rewards_after: Vec<u64> = signers
         .iter()
@@ -685,7 +683,6 @@ fn a_node_owner_withdraws_finalized_rewards_from_the_treasury() {
 
     let event: RewardsClaimed = only_event(&meta);
     assert_eq!(event.beneficiary, owner.pubkey());
-    assert_eq!(event.destination, destination);
     assert_eq!(event.amount, reward);
 }
 

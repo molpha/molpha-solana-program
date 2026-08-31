@@ -797,7 +797,7 @@ impl Protocol {
     ) -> Instruction {
         let duty = attestation.duty;
         let args = SettleRoundArgs {
-            timestamp: duty.canonical_timestamp,
+            canonical_timestamp: duty.canonical_timestamp,
             source_id: duty.source_id,
             signatures_required: duty.signatures_required,
             registry_version: duty.registry_version,

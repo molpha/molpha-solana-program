@@ -23,8 +23,8 @@ pub fn deactivate_gateway(ctx: Context<DeactivateGateway>) -> Result<()> {
     emit!(GatewayDeactivated {
         gateway: gateway.key(),
         authority: gateway.authority,
-        deactivated_at: clock.unix_timestamp,
         withdrawable_slot,
+        deactivated_at: clock.unix_timestamp,
     });
     Ok(())
 }

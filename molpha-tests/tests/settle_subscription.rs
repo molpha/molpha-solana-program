@@ -122,7 +122,7 @@ fn owner_direct_settlement_records_the_round_and_consumes_quota() {
     let event: RoundSettled = only_event(&meta);
     assert_eq!(event.gateway, pda::gateway(&gateway.pubkey()));
     assert_eq!(event.source_id, duty.source_id);
-    assert_eq!(event.timestamp, duty.canonical_timestamp);
+    assert_eq!(event.canonical_timestamp, duty.canonical_timestamp);
     assert_eq!(
         event.credited_count,
         signed
