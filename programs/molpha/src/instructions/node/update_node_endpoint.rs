@@ -29,6 +29,7 @@ pub fn update_node_endpoint(
         owner: node.owner,
         ip: args.ip,
         port: args.port,
+        updated_at: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

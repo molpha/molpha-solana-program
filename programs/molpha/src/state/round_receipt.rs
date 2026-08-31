@@ -20,14 +20,12 @@ pub struct RoundReceiptRecord {
     pub bump: u8,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
+#[derive(InitSpace, AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum RoundRecordStatus {
     Pending,
     Finalized,
     Voided,
-    // Keep new variants appended so existing serialized status values remain stable.
-    Validated,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]

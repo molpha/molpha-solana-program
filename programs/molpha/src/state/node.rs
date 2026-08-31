@@ -17,8 +17,7 @@ pub struct Node {
     pub locked_amount: u64,
     pub claimable_rewards: u64,
     pub registered_at: i64,
-    pub deactivated_at: i64,
-    pub withdrawable_at: i64,
+    pub withdrawable_slot: u64,
     pub frozen_until: i64,
     pub bump: u8,
 }
@@ -48,8 +47,7 @@ impl Node {
         self.locked_amount = locked_amount;
         self.claimable_rewards = 0;
         self.registered_at = registered_at;
-        self.deactivated_at = 0;
-        self.withdrawable_at = 0;
+        self.withdrawable_slot = 0;
         self.frozen_until = 0;
         self.bump = bump;
     }

@@ -7,7 +7,7 @@
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::{AnchorDeserialize, AnchorSerialize, Discriminator, InstructionData, Space};
 use molpha::instructions::{InitializeArgs, SubmitAttestationArgs, UpdateConfigArgs};
-use molpha::state::{Feed, FeedValueKind, Node, NodeStatus, OffenceKind, RoundRecordStatus};
+use molpha::state::{Feed, FeedValueKind, Node, NodeStatus, OffenceKind};
 use solana_keccak_hasher::hashv;
 
 /// Borsh encoding of `InitializeArgs`, plus the 8-byte Anchor discriminator.
@@ -26,7 +26,7 @@ const SUBMIT_ATTESTATION_ARGS_LEN: usize = 161;
 
 fn initialize_args() -> InitializeArgs {
     InitializeArgs {
-        withdrawal_cooldown_secs: 3,
+        withdrawal_cooldown_slots: 3,
         redundancy_buffer: 2,
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
@@ -50,8 +50,8 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
 
     let decoded = borsh::from_slice::<InitializeArgs>(&data[8..]).expect("deserialize args");
     assert_eq!(
-        decoded.withdrawal_cooldown_secs,
-        args.withdrawal_cooldown_secs
+        decoded.withdrawal_cooldown_slots,
+        args.withdrawal_cooldown_slots
     );
     assert_eq!(decoded.redundancy_buffer, args.redundancy_buffer);
     assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
@@ -72,7 +72,7 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
 
 fn update_config_args() -> UpdateConfigArgs {
     UpdateConfigArgs {
-        withdrawal_cooldown_secs: 3,
+        withdrawal_cooldown_slots: 3,
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
         max_receipt_delay_slots: 256,
@@ -94,8 +94,8 @@ fn update_config_instruction_data_is_stable_and_round_trips() {
 
     let decoded = borsh::from_slice::<UpdateConfigArgs>(&data[8..]).expect("deserialize args");
     assert_eq!(
-        decoded.withdrawal_cooldown_secs,
-        args.withdrawal_cooldown_secs
+        decoded.withdrawal_cooldown_slots,
+        args.withdrawal_cooldown_slots
     );
     assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
@@ -154,8 +154,7 @@ fn permanent_node_roundtrips() {
         locked_amount: 100,
         claimable_rewards: 9,
         registered_at: 1,
-        deactivated_at: 0,
-        withdrawable_at: 0,
+        withdrawable_slot: 0,
         frozen_until: 0,
         bump: 7,
     };
@@ -206,18 +205,4 @@ fn offence_kind_discriminants_are_stable() {
         vec![1]
     );
     assert_eq!(borsh::to_vec(&OffenceKind::NonceReuse).unwrap(), vec![2]);
-}
-
-#[test]
-fn round_record_status_discriminants_are_stable() {
-    assert_eq!(borsh::to_vec(&RoundRecordStatus::Pending).unwrap(), vec![0]);
-    assert_eq!(
-        borsh::to_vec(&RoundRecordStatus::Finalized).unwrap(),
-        vec![1]
-    );
-    assert_eq!(borsh::to_vec(&RoundRecordStatus::Voided).unwrap(), vec![2]);
-    assert_eq!(
-        borsh::to_vec(&RoundRecordStatus::Validated).unwrap(),
-        vec![3]
-    );
 }

@@ -22,20 +22,15 @@ fn registry_with(nodes: &[Pubkey]) -> Registry {
 }
 
 #[test]
-fn next_version_is_strict_and_checked() {
-    let state = RegistryState {
+fn advance_version_moves_current_to_next_and_increments_next() {
+    let mut state = RegistryState {
         current_version: 41,
+        next_version: 42,
         bump: 1,
     };
-    assert!(state.require_next_version(42).is_ok());
-    assert!(state.require_next_version(41).is_err());
-    assert!(state.require_next_version(43).is_err());
-
-    let exhausted = RegistryState {
-        current_version: u32::MAX,
-        bump: 1,
-    };
-    assert!(exhausted.require_next_version(0).is_err());
+    state.advance_version();
+    assert_eq!(state.current_version, 42);
+    assert_eq!(state.next_version, 43);
 }
 
 #[test]
@@ -61,7 +56,7 @@ fn snapshot_copy_and_swap_remove_do_not_mutate_source() {
         bump: 0,
         nodes: [[0; 32]; MAX_REGISTRY_NODES],
     };
-    next.copy_from_previous(&source, 8, 2);
+    next.copy_from_previous(&source, 8);
     next.swap_remove(1, second).unwrap();
 
     assert_eq!(source.node_count, 3);
@@ -81,7 +76,7 @@ fn evict_nodes_handles_swap_index_hazard() {
     let current = registry_with(&[n0, n1, n2, n3]);
     let mut next = registry_with(&[]);
 
-    evict_nodes(&current, &mut next, 1, 0, &[n0, n3]).unwrap();
+    evict_nodes(&current, &mut next, 1, &[n0, n3]).unwrap();
     assert_eq!(next.node_count, 2);
     let remaining: Vec<Pubkey> = (0..usize::from(next.node_count))
         .map(|i| Pubkey::new_from_array(next.nodes[i]))
@@ -98,6 +93,6 @@ fn evict_nodes_skips_absent_victim() {
     let current = registry_with(&[n0]);
     let mut next = registry_with(&[]);
 
-    evict_nodes(&current, &mut next, 1, 0, &[ghost]).unwrap();
+    evict_nodes(&current, &mut next, 1, &[ghost]).unwrap();
     assert_eq!(next.node_count, 1);
 }

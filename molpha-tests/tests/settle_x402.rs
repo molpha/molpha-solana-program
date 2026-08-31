@@ -5,7 +5,9 @@ use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::X402RoundSettled;
 use molpha::instructions::SettleX402RoundArgs;
-use molpha::state::{Gateway, RoundReceiptRecord, RoundRecordKind, RoundRecordStatus};
+use molpha::state::{
+    Gateway, GatewayStatus, RoundReceiptRecord, RoundRecordKind, RoundRecordStatus,
+};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{Duty, Protocol};
@@ -340,7 +342,6 @@ fn a_settlement_leaves_the_gateway_bond_and_status_untouched() {
 
     let after: Gateway = f.p.env.get(&f.gateway_pda());
     assert_eq!(f.p.env.token_balance(&f.bond_ata()), bond_before);
-    assert!(!after.slashed);
-    assert_eq!(after.deactivated_at, 0);
+    assert_eq!(after.status, GatewayStatus::Active);
     assert_eq!(after.withdrawable_slot, 0);
 }

@@ -2,8 +2,8 @@ use crate::{
     error::MolphaError,
     events::RoundSettled,
     state::{
-        hash_request_auth_fields, Delegate, Gateway, ProtocolConfig, Registry, RegistryState,
-        RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
+        hash_request_auth_fields, Delegate, Gateway, GatewayStatus, ProtocolConfig, Registry,
+        RegistryState, RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
     },
     utils::{
         ed25519::verify_ed25519_signature,
@@ -181,8 +181,7 @@ pub struct SettleSubscriptionRound<'info> {
     #[account(
         mut,
         has_one = authority,
-        constraint = !gateway.slashed @ MolphaError::GatewaySlashed,
-        constraint = gateway.deactivated_at == 0 @ MolphaError::GatewayDeactivated,
+        constraint = gateway.status == GatewayStatus::Active @ MolphaError::GatewayNotActive,
     )]
     pub gateway: Account<'info, Gateway>,
 

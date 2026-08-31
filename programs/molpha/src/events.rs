@@ -11,7 +11,7 @@ pub struct ProtocolConfigUpdated {
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
     pub minimum_node_deposit: u64,
-    pub withdrawal_cooldown_secs: i64,
+    pub withdrawal_cooldown_slots: u64,
     pub x402_round_base: u64,
     pub x402_round_per_sig: u64,
     pub min_signers: u8,
@@ -30,12 +30,12 @@ pub struct ProtocolInitialized {
 
 #[event]
 pub struct NodeRegistered {
-    pub node_id: [u8; 32],
-    pub new_index: u32,
+    pub node: Pubkey,
     pub owner: Pubkey,
+    pub index: u32,
+    pub registry_version: u32,
     pub ip: [u8; 4],
     pub port: u16,
-    pub current_version: u32,
     pub security_deposit: u64,
     pub registered_at: i64,
 }
@@ -46,14 +46,15 @@ pub struct NodeEndpointUpdated {
     pub owner: Pubkey,
     pub ip: [u8; 4],
     pub port: u16,
+    pub updated_at: i64,
 }
 
 #[event]
 pub struct NodeDeactivated {
     pub node: Pubkey,
     pub owner: Pubkey,
-    pub removed_index: u32,
-    pub current_version: u32,
+    pub index: u32,
+    pub new_registry_version: u32,
     pub deactivated_at: i64,
 }
 
@@ -67,13 +68,12 @@ pub struct NodeDepositWithdrawn {
 }
 
 #[event]
-pub struct RegistryVersionCreated {
-    pub previous_version: u32,
+pub struct RegistryUpdated {
     pub new_version: u32,
     pub node_count: u16,
     pub redundancy_buffer: u8,
     pub reason: RegistryVersionReason,
-    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug)]

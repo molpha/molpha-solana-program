@@ -8,7 +8,7 @@ use crate::{
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct UpdateConfigArgs {
-    pub withdrawal_cooldown_secs: i64,
+    pub withdrawal_cooldown_slots: u64,
     pub minimum_node_deposit: u64,
     pub reward_per_signature: u64,
     pub max_receipt_delay_slots: u64,
@@ -23,7 +23,7 @@ pub struct UpdateConfigArgs {
 
 pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Result<()> {
     require!(
-        args.withdrawal_cooldown_secs >= 0,
+        args.withdrawal_cooldown_slots > 0,
         MolphaError::InvalidWithdrawalCooldown
     );
     require!(
@@ -39,7 +39,7 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
     protocol_config.gateway_bond_min = args.gateway_bond_min;
     protocol_config.challenger_bounty_bps = args.challenger_bounty_bps;
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
-    protocol_config.withdrawal_cooldown_secs = args.withdrawal_cooldown_secs;
+    protocol_config.withdrawal_cooldown_slots = args.withdrawal_cooldown_slots;
     protocol_config.x402_round_base = args.x402_round_base;
     protocol_config.x402_round_per_sig = args.x402_round_per_sig;
     protocol_config.min_signers = args.min_signers;
@@ -52,7 +52,7 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
         gateway_bond_min: args.gateway_bond_min,
         challenger_bounty_bps: args.challenger_bounty_bps,
         minimum_node_deposit: args.minimum_node_deposit,
-        withdrawal_cooldown_secs: args.withdrawal_cooldown_secs,
+        withdrawal_cooldown_slots: args.withdrawal_cooldown_slots,
         x402_round_base: args.x402_round_base,
         x402_round_per_sig: args.x402_round_per_sig,
         min_signers: args.min_signers,

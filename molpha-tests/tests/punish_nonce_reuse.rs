@@ -7,7 +7,7 @@ use molpha::state::{
     nonce_reuse_evidence_hash, MembershipAction, Node, NodeStatus, OffenceKind, PunishmentCase,
 };
 use molpha_tests::crypto;
-use molpha_tests::env::{assert_molpha_error, events, only_event};
+use molpha_tests::env::{assert_anchor_error, assert_molpha_error, events, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{intersect_bitmap, Duty, Protocol, SignedAttestation};
 use solana_keypair::Keypair;
@@ -86,7 +86,6 @@ fn args_for(case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> Punish
         context_b: b.signing_context(),
         statement_b: b.statement(),
         evidence_hash,
-        new_registry_version: case.p.current_version() + 1,
     }
 }
 
@@ -111,6 +110,7 @@ fn a_proven_nonce_reuse_halves_the_stake_tombstones_and_evicts_the_intersection(
     let treasury_before = case.p.treasury_balance();
 
     let reporter = case.reporter.insecure_clone();
+    let new_version = case.p.current_version() + 1;
     let ix = case
         .p
         .punish_nonce_reuse_ix(&reporter.pubkey(), args.clone());
@@ -124,14 +124,12 @@ fn a_proven_nonce_reuse_halves_the_stake_tombstones_and_evicts_the_intersection(
             locked_each - locked_each / 2,
             "half the deposit survives the slash"
         );
-        assert_eq!(account.deactivated_at, case.p.env.unix_timestamp());
         assert_eq!(
-            account.withdrawable_at,
+            account.withdrawable_slot,
             case.p
                 .env
-                .unix_timestamp()
-                .checked_add(case.p.args.withdrawal_cooldown_secs)
-                .unwrap()
+                .slot()
+                .saturating_add(case.p.args.withdrawal_cooldown_slots)
         );
     }
     for node in case.p.node_pdas() {
@@ -142,7 +140,7 @@ fn a_proven_nonce_reuse_halves_the_stake_tombstones_and_evicts_the_intersection(
         }
     }
 
-    let after = case.p.env.registry(args.new_registry_version);
+    let after = case.p.env.registry(new_version);
     assert_eq!(after.node_count as usize, NODE_COUNT - guilty.len());
     for node in &guilty {
         assert!(!after.nodes.contains(node));
@@ -168,7 +166,7 @@ fn a_proven_nonce_reuse_halves_the_stake_tombstones_and_evicts_the_intersection(
 
     case.p
         .env
-        .advance_seconds(case.p.args.withdrawal_cooldown_secs);
+        .advance_slots(case.p.args.withdrawal_cooldown_slots);
     for node in &guilty {
         let owner = case
             .p
@@ -446,9 +444,12 @@ fn a_second_filing_does_not_compound_the_slash_on_an_already_tombstoned_node() {
 fn filing_requires_the_next_registry_version() {
     let mut case = case();
     let reporter = case.reporter.insecure_clone();
-    let mut args = args_for(&case, &case.a, &case.b);
-    args.new_registry_version += 2;
-    let ix = case.p.punish_nonce_reuse_ix(&reporter.pubkey(), args);
+    let skipped = case.p.current_version() + 3;
+    let ix = case.p.punish_nonce_reuse_ix_with_registry(
+        &reporter.pubkey(),
+        args_for(&case, &case.a, &case.b),
+        skipped,
+    );
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::InvalidRegistryVersion);
+    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }

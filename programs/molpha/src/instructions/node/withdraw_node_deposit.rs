@@ -21,13 +21,13 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
         MolphaError::InvalidWithdrawalState
     );
     require!(
-        node.withdrawable_at > 0,
+        node.withdrawable_slot > 0,
         MolphaError::InvalidWithdrawalState
     );
 
-    let now = Clock::get()?.unix_timestamp;
+    let clock = Clock::get()?;
     require!(
-        now >= node.withdrawable_at,
+        clock.slot >= node.withdrawable_slot,
         MolphaError::WithdrawalCooldownActive
     );
 
@@ -55,7 +55,7 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
         owner: node.owner,
         destination: ctx.accounts.destination.key(),
         amount,
-        withdrawn_at: now,
+        withdrawn_at: clock.unix_timestamp,
     });
     Ok(())
 }

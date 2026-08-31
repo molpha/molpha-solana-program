@@ -15,7 +15,7 @@ pub struct ProtocolConfig {
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
     pub minimum_node_deposit: u64,
-    pub withdrawal_cooldown_secs: i64,
+    pub withdrawal_cooldown_slots: u64,
     pub x402_round_base: u64,
     /// Ops should keep pricing solvent vs `reward_per_signature` and `protocol_fee`.
     pub x402_round_per_sig: u64,

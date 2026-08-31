@@ -18,8 +18,7 @@ fn node_fixture(locked: u64, rewards: u64, status: NodeStatus) -> Node {
         locked_amount: locked,
         claimable_rewards: rewards,
         registered_at: 0,
-        deactivated_at: 0,
-        withdrawable_at: 0,
+        withdrawable_slot: 0,
         frozen_until: 0,
         bump: 0,
     }

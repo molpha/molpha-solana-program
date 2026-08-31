@@ -8,13 +8,14 @@ use molpha_verifier::SchnorrSignature;
 use crate::{
     error::{map_attestation_accounts_err, MolphaError},
     events::RoundDisputed,
+    instructions::round_settlement::finalize_round::credit_round_rewards,
     state::{
-        Gateway, ProtocolConfig, Registry, RoundReceiptRecord, RoundRecordKind, RoundRecordStatus,
-        Subscription,
+        Gateway, GatewayStatus, ProtocolConfig, Registry, RoundReceiptRecord, RoundRecordKind,
+        RoundRecordStatus, Subscription,
     },
 };
 
-pub fn validate_round<'info>(mut ctx: Context<ValidateRound<'info>>) -> Result<()> {
+pub fn validate_round<'info>(mut ctx: Context<'info, ValidateRound<'info>>) -> Result<()> {
     let clock = Clock::get()?;
     let now = clock.unix_timestamp;
     let record = &ctx.accounts.round_record;
@@ -40,8 +41,14 @@ pub fn validate_round<'info>(mut ctx: Context<ValidateRound<'info>>) -> Result<(
     .map_err(map_attestation_accounts_err)?;
 
     if is_valid_sig {
-        ctx.accounts.round_record.status = RoundRecordStatus::Validated;
-        return Ok(());
+        let registry = ctx.accounts.registry.load()?;
+        return credit_round_rewards(
+            &mut ctx.accounts.round_record,
+            &registry,
+            ctx.remaining_accounts,
+            ctx.program_id,
+            clock.slot,
+        );
     }
 
     // x402 rounds are not refunded on dispute.
@@ -60,22 +67,31 @@ pub fn validate_round<'info>(mut ctx: Context<ValidateRound<'info>>) -> Result<(
     };
 
     let config = &ctx.accounts.protocol_config;
-    let slashed_bond = ctx.accounts.gateway_bond.amount;
-    let bounty = (slashed_bond as u128)
-        .saturating_mul(config.challenger_bounty_bps as u128)
-        .checked_div(10_000)
-        .unwrap_or(0) as u64;
+    let mut slashed_bond: u64 = 0;
+    let mut bounty: u64 = 0;
 
-    if bounty > 0 {
-        transfer_from_gateway_bond(&ctx, ctx.accounts.challenger_usdc.to_account_info(), bounty)?;
-    }
-    let remainder = slashed_bond.saturating_sub(bounty);
-    if remainder > 0 {
-        transfer_from_gateway_bond(&ctx, ctx.accounts.treasury.to_account_info(), remainder)?;
-    }
+    // If the gateway is active, transfer the bounty and remainder to the challenger and treasury.
+    if ctx.accounts.gateway.status != GatewayStatus::Slashed {
+        slashed_bond = ctx.accounts.gateway_bond.amount;
+        bounty = (slashed_bond as u128)
+            .saturating_mul(config.challenger_bounty_bps as u128)
+            .checked_div(10_000)
+            .unwrap_or(0) as u64;
+        if bounty > 0 {
+            transfer_from_gateway_bond(
+                &ctx,
+                ctx.accounts.challenger_usdc.to_account_info(),
+                bounty,
+            )?;
+        }
+        let remainder = slashed_bond.saturating_sub(bounty);
+        if remainder > 0 {
+            transfer_from_gateway_bond(&ctx, ctx.accounts.treasury.to_account_info(), remainder)?;
+        }
 
-    let gateway = &mut ctx.accounts.gateway;
-    gateway.slashed = true;
+        let gateway = &mut ctx.accounts.gateway;
+        gateway.status = GatewayStatus::Slashed;
+    }
 
     let record = &mut ctx.accounts.round_record;
     record.status = RoundRecordStatus::Voided;

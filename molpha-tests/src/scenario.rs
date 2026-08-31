@@ -11,7 +11,7 @@ use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
     AddDelegateArgs, AddPlanArgs, DeactivateNodeArgs, InitializeArgs, PunishEquivocationArgs,
     PunishNonceReuseArgs, PunishUnsolicitedSigningArgs, RegisterGatewayArgs, RegisterNodeArgs,
-    ReinstateNodeArgs, RemoveDelegateArgs, SettleRoundArgs, SettleX402RoundArgs,
+    RemoveDelegateArgs, SettleRoundArgs, SettleX402RoundArgs,
     SubmitAttestationArgs, UpdateConfigArgs, UpdateNodeEndpointArgs, UpdatePlanArgs,
 };
 use molpha::state::{AggregatedSig, PlanType, RegistryState};
@@ -165,7 +165,7 @@ pub fn bare() -> Bare {
 /// The `InitializeArgs` every scenario starts from.
 pub fn default_initialize_args(usdc_mint: Pubkey) -> InitializeArgs {
     InitializeArgs {
-        withdrawal_cooldown_secs: 3_600,
+        withdrawal_cooldown_slots: 432_000,
         redundancy_buffer: 2,
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10_000,
@@ -277,8 +277,8 @@ impl ProtocolBuilder {
         self
     }
 
-    pub fn withdrawal_cooldown_secs(mut self, value: i64) -> Self {
-        self.args.withdrawal_cooldown_secs = value;
+    pub fn withdrawal_cooldown_slots(mut self, value: u64) -> Self {
+        self.args.withdrawal_cooldown_slots = value;
         self
     }
 
@@ -368,6 +368,21 @@ impl Protocol {
         args: &RegisterNodeArgs,
         authority: &Pubkey,
     ) -> Instruction {
+        self.register_node_ix_with_registry(
+            owner,
+            args,
+            authority,
+            self.current_version() + 1,
+        )
+    }
+
+    pub fn register_node_ix_with_registry(
+        &self,
+        owner: &Pubkey,
+        args: &RegisterNodeArgs,
+        authority: &Pubkey,
+        new_registry_version: u32,
+    ) -> Instruction {
         let current_version = self.current_version();
         Instruction {
             program_id: molpha::ID,
@@ -377,7 +392,7 @@ impl Protocol {
                 protocol_config: pda::protocol_config(),
                 registry_state: pda::registry_state(),
                 current_registry: pda::registry(current_version),
-                new_registry: pda::registry(args.new_registry_version),
+                new_registry: pda::registry(new_registry_version),
                 node: pda::node(owner),
                 secp256k1_key_claim: pda::secp256k1_key_claim(&args.secp256k1_pubkey_compressed),
                 usdc_mint: self.usdc_mint,
@@ -403,7 +418,6 @@ impl Protocol {
         let nonce = solana_keccak_hasher::hashv(&[b"molpha-test-pop-nonce", &node_id]).to_bytes();
         let (pop_sig_r, pop_sig_s) = crypto::sign_pop(&molpha::ID, &node_id, key, &nonce);
         RegisterNodeArgs {
-            new_registry_version: self.current_version() + 1,
             registration_salt: salt,
             ip: [127, 0, 0, 1],
             port,
@@ -468,7 +482,6 @@ impl Protocol {
             DeactivateNodeArgs {
                 node_owner: node.owner.pubkey(),
                 remove_index,
-                new_registry_version: current_version + 1,
             },
         )
     }
@@ -483,7 +496,7 @@ impl Protocol {
                 protocol_config: pda::protocol_config(),
                 registry_state: pda::registry_state(),
                 current_registry: pda::registry(current_version),
-                new_registry: pda::registry(args.new_registry_version),
+                new_registry: pda::registry(current_version + 1),
                 node: pda::node(&args.node_owner),
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
@@ -943,7 +956,7 @@ impl Protocol {
             subscription,
         }
         .to_account_metas(None);
-        accounts.extend(crate::env::readonly_metas(signer_nodes.iter().copied()));
+        accounts.extend(crate::env::writable_metas(signer_nodes.iter().copied()));
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -1100,7 +1113,6 @@ impl Protocol {
             }
             .to_account_metas(None),
             data: molpha::instruction::UpdateRegistryPolicy {
-                new_registry_version,
                 redundancy_buffer,
             }
             .data(),
@@ -1108,17 +1120,16 @@ impl Protocol {
     }
 
     pub fn reinstate_node_ix(&self, caller: &Pubkey, node_owner: &Pubkey) -> Instruction {
-        self.reinstate_node_raw_ix(
-            caller,
-            ReinstateNodeArgs {
-                node_owner: *node_owner,
-                new_registry_version: self.current_version() + 1,
-            },
-        )
+        self.reinstate_node_raw_ix(caller, node_owner, self.current_version() + 1)
     }
 
     /// `reinstate_node` with a caller-chosen target version — for version failure cases.
-    pub fn reinstate_node_raw_ix(&self, caller: &Pubkey, args: ReinstateNodeArgs) -> Instruction {
+    pub fn reinstate_node_raw_ix(
+        &self,
+        caller: &Pubkey,
+        node_owner: &Pubkey,
+        new_registry_version: u32,
+    ) -> Instruction {
         let current_version = self.current_version();
         Instruction {
             program_id: molpha::ID,
@@ -1127,12 +1138,12 @@ impl Protocol {
                 protocol_config: pda::protocol_config(),
                 registry_state: pda::registry_state(),
                 current_registry: pda::registry(current_version),
-                new_registry: pda::registry(args.new_registry_version),
-                node: pda::node(&args.node_owner),
+                new_registry: pda::registry(new_registry_version),
+                node: pda::node(node_owner),
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
-            data: molpha::instruction::ReinstateNode { args }.data(),
+            data: molpha::instruction::ReinstateNode.data(),
         }
     }
 
@@ -1150,6 +1161,19 @@ impl Protocol {
         reporter: &Pubkey,
         args: PunishEquivocationArgs,
     ) -> Instruction {
+        self.punish_equivocation_ix_with_registry(
+            reporter,
+            args,
+            self.current_version() + 1,
+        )
+    }
+
+    pub fn punish_equivocation_ix_with_registry(
+        &self,
+        reporter: &Pubkey,
+        args: PunishEquivocationArgs,
+        new_registry_version: u32,
+    ) -> Instruction {
         let union = union_bitmap(
             &args.statement_a.signers_bitmap,
             &args.statement_b.signers_bitmap,
@@ -1161,7 +1185,7 @@ impl Protocol {
             registry_state: pda::registry_state(),
             evidence_registry: pda::registry(args.registry_version),
             current_registry: pda::registry(self.current_version()),
-            new_registry: pda::registry(args.new_registry_version),
+            new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
             usdc_mint: self.usdc_mint,
             treasury: self.treasury(),
@@ -1184,6 +1208,19 @@ impl Protocol {
         reporter: &Pubkey,
         args: PunishUnsolicitedSigningArgs,
     ) -> Instruction {
+        self.punish_unsolicited_signing_ix_with_registry(
+            reporter,
+            args,
+            self.current_version() + 1,
+        )
+    }
+
+    pub fn punish_unsolicited_signing_ix_with_registry(
+        &self,
+        reporter: &Pubkey,
+        args: PunishUnsolicitedSigningArgs,
+        new_registry_version: u32,
+    ) -> Instruction {
         let accused =
             self.node_pdas_for_bitmap(args.registry_version, &args.statement.signers_bitmap);
         let mut accounts = molpha::accounts::PunishUnsolicitedSigning {
@@ -1192,7 +1229,7 @@ impl Protocol {
             registry_state: pda::registry_state(),
             evidence_registry: pda::registry(args.registry_version),
             current_registry: pda::registry(self.current_version()),
-            new_registry: pda::registry(args.new_registry_version),
+            new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
             usdc_mint: self.usdc_mint,
             treasury: self.treasury(),
@@ -1215,6 +1252,15 @@ impl Protocol {
         reporter: &Pubkey,
         args: PunishNonceReuseArgs,
     ) -> Instruction {
+        self.punish_nonce_reuse_ix_with_registry(reporter, args, self.current_version() + 1)
+    }
+
+    pub fn punish_nonce_reuse_ix_with_registry(
+        &self,
+        reporter: &Pubkey,
+        args: PunishNonceReuseArgs,
+        new_registry_version: u32,
+    ) -> Instruction {
         let union = union_bitmap(
             &args.statement_a.signers_bitmap,
             &args.statement_b.signers_bitmap,
@@ -1226,7 +1272,7 @@ impl Protocol {
             registry_state: pda::registry_state(),
             evidence_registry: pda::registry(args.registry_version),
             current_registry: pda::registry(self.current_version()),
-            new_registry: pda::registry(args.new_registry_version),
+            new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
             usdc_mint: self.usdc_mint,
             treasury: self.treasury(),

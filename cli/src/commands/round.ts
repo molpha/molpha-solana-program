@@ -428,7 +428,7 @@ export function registerRoundCommands(program: Command): void {
 
   round
     .command("validate")
-    .description("Validate a pending round's aggregate signature")
+    .description("Validate and immediately finalize a genuine pending round")
     .requiredOption("--round-record <pubkey>", "round receipt record address")
     .requiredOption(
       "--gateway-authority <pubkey>",
@@ -512,7 +512,7 @@ export function registerRoundCommands(program: Command): void {
           creditedBitsFromBitmap(Uint8Array.from(record.signersBitmap)).map(
             (bit) => ({
               pubkey: registryNode(registry, bit),
-              isWritable: false,
+              isWritable: true,
               isSigner: false,
             })
           )

@@ -21,7 +21,7 @@ import {
 } from "../lib/utils";
 
 type InitConfig = {
-  withdrawalCooldownSecs?: string;
+  withdrawalCooldownSlots?: string;
   redundancyBuffer?: number;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
@@ -41,7 +41,7 @@ export function registerInitCommand(program: Command): void {
     .command("init")
     .description("Initialize the Molpha protocol")
     .option("--config <path>", "json config file")
-    .option("--withdrawal-cooldown-secs <seconds>", "node withdrawal cooldown")
+    .option("--withdrawal-cooldown-slots <slots>", "node withdrawal cooldown in slots")
     .option(
       "--redundancy-buffer <count>",
       "extra selection slots beyond signatures_required"
@@ -73,13 +73,13 @@ export function registerInitCommand(program: Command): void {
       const [registry] = findRegistryPda(ctx.programId, 0);
 
       const args = {
-        withdrawalCooldownSecs: bn(
+        withdrawalCooldownSlots: bn(
           requireValue(
             optionOrConfig(
-              options.withdrawalCooldownSecs,
-              config.withdrawalCooldownSecs
+              options.withdrawalCooldownSlots,
+              config.withdrawalCooldownSlots
             ),
-            "Missing --withdrawal-cooldown-secs"
+            "Missing --withdrawal-cooldown-slots"
           ),
           "withdrawal cooldown"
         ),

@@ -14,7 +14,7 @@ use solana_signer::Signer;
 
 fn tuned_update_args() -> UpdateConfigArgs {
     UpdateConfigArgs {
-        withdrawal_cooldown_secs: 7_200,
+        withdrawal_cooldown_slots: 7_200,
         minimum_node_deposit: 250_000_000,
         reward_per_signature: 11,
         max_receipt_delay_slots: 512,
@@ -46,8 +46,8 @@ fn initialize_writes_config_registry_state_and_genesis_snapshot() {
     assert_eq!(config.challenger_bounty_bps, args.challenger_bounty_bps);
     assert_eq!(config.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(
-        config.withdrawal_cooldown_secs,
-        args.withdrawal_cooldown_secs
+        config.withdrawal_cooldown_slots,
+        args.withdrawal_cooldown_slots
     );
     assert_eq!(config.x402_round_base, args.x402_round_base);
     assert_eq!(config.x402_round_per_sig, args.x402_round_per_sig);
@@ -91,10 +91,10 @@ fn initialize_rejects_min_signers_below_the_floor() {
 }
 
 #[test]
-fn initialize_rejects_a_negative_withdrawal_cooldown() {
+fn initialize_rejects_a_zero_withdrawal_cooldown() {
     let mut b = bare();
     let args = molpha::instructions::InitializeArgs {
-        withdrawal_cooldown_secs: -1,
+        withdrawal_cooldown_slots: 0,
         ..default_initialize_args(b.usdc_mint)
     };
     let ix = initialize_ix(&b.authority.pubkey(), &b.usdc_mint, &args);
@@ -172,8 +172,8 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
 
     let after: ProtocolConfig = p.env.get(&pda::protocol_config());
     assert_eq!(
-        after.withdrawal_cooldown_secs,
-        args.withdrawal_cooldown_secs
+        after.withdrawal_cooldown_slots,
+        args.withdrawal_cooldown_slots
     );
     assert_eq!(after.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(after.reward_per_signature, args.reward_per_signature);
@@ -228,10 +228,10 @@ fn update_config_rejects_min_signers_below_the_floor() {
 }
 
 #[test]
-fn update_config_rejects_a_negative_withdrawal_cooldown() {
+fn update_config_rejects_a_zero_withdrawal_cooldown() {
     let mut p = Protocol::start();
     let args = UpdateConfigArgs {
-        withdrawal_cooldown_secs: -1,
+        withdrawal_cooldown_slots: 0,
         ..tuned_update_args()
     };
     let authority = p.authority.insecure_clone();

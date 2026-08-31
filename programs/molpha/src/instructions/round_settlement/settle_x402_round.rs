@@ -5,8 +5,8 @@ use crate::{
     error::MolphaError,
     events::X402RoundSettled,
     state::{
-        Gateway, ProtocolConfig, Registry, RegistryState, RoundReceiptInitArgs, RoundReceiptRecord,
-        RoundRecordKind,
+        Gateway, GatewayStatus, ProtocolConfig, Registry, RegistryState, RoundReceiptInitArgs,
+        RoundReceiptRecord, RoundRecordKind,
     },
     utils::settlement::{validate_settlement_attestation, SettlementAttestationInput},
 };
@@ -154,8 +154,7 @@ pub struct SettleX402Round<'info> {
     #[account(
         mut,
         has_one = authority,
-        constraint = !gateway.slashed @ MolphaError::GatewaySlashed,
-        constraint = gateway.deactivated_at == 0 @ MolphaError::GatewayDeactivated,
+        constraint = gateway.status == GatewayStatus::Active @ MolphaError::GatewayNotActive,
     )]
     pub gateway: Box<Account<'info, Gateway>>,
 

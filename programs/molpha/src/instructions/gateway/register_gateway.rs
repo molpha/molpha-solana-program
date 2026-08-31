@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     error::MolphaError,
     events::GatewayRegistered,
-    state::{Gateway, ProtocolConfig},
+    state::{Gateway, GatewayStatus, ProtocolConfig},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -46,7 +46,7 @@ pub fn register_gateway(ctx: Context<RegisterGateway>, args: RegisterGatewayArgs
     gateway.authority = ctx.accounts.gateway_authority.key();
     gateway.ip = args.ip;
     gateway.port = args.port;
-    gateway.slashed = false;
+    gateway.status = GatewayStatus::Active;
     gateway.registered_at = now;
     gateway.bump = ctx.bumps.gateway;
 

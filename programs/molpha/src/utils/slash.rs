@@ -6,7 +6,7 @@ use molpha_verifier::bitmap::bitmap_bit_set;
 
 use crate::{
     error::{map_attestation_err, MolphaError},
-    events::{NodePunished, RegistryVersionCreated, RegistryVersionReason},
+    events::NodePunished,
     state::{
         MembershipAction, Node, NodeStatus, OffenceKind, Penalty, ProtocolConfig, PunishmentCase,
         Registry, RegistryState, SignedStatement,
@@ -73,12 +73,12 @@ pub fn slash_guilty_nodes<'info>(
     resolved: &[(usize, molpha_verifier::SignerXy)],
     guilty_bitmap: &[u8; 32],
     offence: OffenceKind,
-    now: i64,
-    withdrawal_cooldown_secs: i64,
+    withdrawal_cooldown_slots: u64,
     program_id: &Pubkey,
 ) -> Result<PunishmentBatch> {
     let penalty = offence.penalty();
     let mut batch = PunishmentBatch::default();
+    let clock = Clock::get()?;
 
     for ((bit_pos, _), account_info) in resolved.iter().zip(remaining_accounts.iter()) {
         if !bitmap_bit_set(guilty_bitmap, *bit_pos) {
@@ -92,15 +92,14 @@ pub fn slash_guilty_nodes<'info>(
         if node.status == NodeStatus::Tombstoned {
             continue;
         }
-        let outcome = apply_penalty(&mut node, penalty, now)?;
+        let outcome = apply_penalty(&mut node, penalty, clock.unix_timestamp)?;
         if node.status == NodeStatus::Tombstoned {
             require!(
-                withdrawal_cooldown_secs >= 0,
+                withdrawal_cooldown_slots >= 0,
                 MolphaError::InvalidWithdrawalCooldown
             );
-            node.deactivated_at = now;
-            node.withdrawable_at = now
-                .checked_add(withdrawal_cooldown_secs)
+            node.withdrawable_slot = clock.slot
+                .checked_add(withdrawal_cooldown_slots)
                 .ok_or(MolphaError::WithdrawalArithmeticOverflow)?;
         }
         batch.slashed_total = batch.slashed_total.saturating_add(outcome.total());
@@ -112,7 +111,7 @@ pub fn slash_guilty_nodes<'info>(
             slashed_locked: outcome.slashed_locked,
             slashed_rewards: outcome.slashed_rewards,
             new_status: node.status,
-            punished_at: now,
+            punished_at: clock.unix_timestamp,
         });
         batch.victims.push(account_info.key());
         node.exit(program_id)?;
@@ -125,11 +124,10 @@ pub fn slash_guilty_nodes<'info>(
 pub fn evict_nodes(
     current: &Registry,
     next: &mut Registry,
-    version: u32,
     bump: u8,
     victims: &[Pubkey],
 ) -> Result<()> {
-    next.copy_from_previous(current, version, bump);
+    next.copy_from_previous(current, bump);
     for victim in victims {
         let found = (0..usize::from(next.node_count))
             .find(|&i| Pubkey::new_from_array(next.nodes[i]) == *victim);
@@ -195,8 +193,7 @@ pub fn slash_nodes<'a, 'b, 'info>(
         input.resolved,
         &input.guilty_bitmap,
         input.offence,
-        now,
-        accounts.protocol_config.withdrawal_cooldown_secs,
+        accounts.protocol_config.withdrawal_cooldown_slots,
         input.program_id,
     )?;
     require!(!batch.victims.is_empty(), MolphaError::NothingToPunish);
@@ -209,13 +206,12 @@ pub fn slash_nodes<'a, 'b, 'info>(
         evict_nodes(
             &current,
             &mut next,
-            input.new_registry_version,
             accounts.new_registry_bump,
             &batch.victims,
         )?;
         (next.node_count, next.redundancy_buffer)
     };
-    accounts.registry_state.current_version = input.new_registry_version;
+    accounts.registry_state.advance_version();
 
     let bounty = bps_of(
         slashed_total,
@@ -250,15 +246,6 @@ pub fn slash_nodes<'a, 'b, 'info>(
         now_slot,
         accounts.punishment_case_bump,
     );
-
-    emit!(RegistryVersionCreated {
-        previous_version,
-        new_version: input.new_registry_version,
-        node_count: node_count_after,
-        redundancy_buffer: redundancy_buffer_after,
-        reason: RegistryVersionReason::NodePunished,
-        created_at: now,
-    });
 
     Ok(SlashOutcome {
         slashed_total,

@@ -11,7 +11,7 @@ import {
 } from "../lib/utils";
 
 type UpdateConfigFile = {
-  withdrawalCooldownSecs?: string;
+  withdrawalCooldownSlots?: string;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
   maxReceiptDelaySlots?: string;
@@ -25,7 +25,7 @@ type UpdateConfigFile = {
 };
 
 type ProtocolConfigAccount = {
-  withdrawalCooldownSecs: { toString(): string };
+  withdrawalCooldownSlots: { toString(): string };
   minimumNodeDeposit: { toString(): string };
   rewardPerSignature: { toString(): string };
   maxReceiptDelaySlots: { toString(): string };
@@ -43,7 +43,7 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .command("update-config")
     .description("Update protocol config (authority only)")
     .option("--config <path>", "json config file with fields to override")
-    .option("--withdrawal-cooldown-secs <seconds>", "node withdrawal cooldown")
+    .option("--withdrawal-cooldown-slots <slots>", "node withdrawal cooldown in slots")
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
     .option("--receipt-submitter-bonus <amount>", "receipt submitter bonus")
@@ -100,12 +100,12 @@ function buildUpdateConfigArgs(
   current: ProtocolConfigAccount
 ) {
   return {
-    withdrawalCooldownSecs: bn(
+    withdrawalCooldownSlots: bn(
       requireValue(
         optionOrConfig(
-          options.withdrawalCooldownSecs as string | undefined,
-          config.withdrawalCooldownSecs
-        ) ?? current.withdrawalCooldownSecs.toString(),
+          options.withdrawalCooldownSlots as string | undefined,
+          config.withdrawalCooldownSlots
+        ) ?? current.withdrawalCooldownSlots.toString(),
         "withdrawal cooldown"
       ),
       "withdrawal cooldown"

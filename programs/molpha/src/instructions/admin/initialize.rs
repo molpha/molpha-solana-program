@@ -12,7 +12,7 @@ use crate::{
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct InitializeArgs {
-    pub withdrawal_cooldown_secs: i64,
+    pub withdrawal_cooldown_slots: u64,
     pub redundancy_buffer: u8,
     pub minimum_node_deposit: u64,
     pub reward_per_signature: u64,
@@ -31,7 +31,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     let clock = Clock::get()?;
 
     require!(
-        args.withdrawal_cooldown_secs >= 0,
+        args.withdrawal_cooldown_slots > 0,
         MolphaError::InvalidWithdrawalCooldown
     );
     require!(
@@ -49,7 +49,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.gateway_bond_min = args.gateway_bond_min;
     protocol_config.challenger_bounty_bps = args.challenger_bounty_bps;
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
-    protocol_config.withdrawal_cooldown_secs = args.withdrawal_cooldown_secs;
+    protocol_config.withdrawal_cooldown_slots = args.withdrawal_cooldown_slots;
     protocol_config.x402_round_base = args.x402_round_base;
     protocol_config.x402_round_per_sig = args.x402_round_per_sig;
     protocol_config.min_signers = args.min_signers;

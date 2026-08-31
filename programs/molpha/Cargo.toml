@@ -26,7 +26,7 @@ custom-panic = []
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
 
 [dependencies]
-molpha-verifier = { version = "0.3.0-dev.7", features = ["solana"] }
+molpha-verifier = { path = "../../../molpha-verifier", features = ["solana"] }
 anchor-lang = { version = "1.1.2", features = ["init-if-needed"] }
 anchor-spl = { version = "1.1.2", default-features = false, features = [
     "associated_token",

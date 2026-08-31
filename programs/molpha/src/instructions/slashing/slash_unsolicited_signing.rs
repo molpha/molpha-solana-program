@@ -29,7 +29,6 @@ pub struct PunishUnsolicitedSigningArgs {
     pub statement: SignedStatement,
     /// Must match `unsolicited_signing_evidence_hash(..)`; used as the `PunishmentCase` PDA seed.
     pub evidence_hash: [u8; 32],
-    pub new_registry_version: u32,
 }
 
 pub fn punish_unsolicited_signing<'info>(
@@ -46,10 +45,6 @@ pub fn punish_unsolicited_signing<'info>(
         ) == args.evidence_hash,
         MolphaError::EvidenceHashMismatch
     );
-
-    ctx.accounts
-        .registry_state
-        .require_next_version(args.new_registry_version)?;
 
     // Resolve the full submitted bitmap; the aggregate is only verifiable over all contributors.
     let (resolved, guilty_bitmap, guilty_count) = {
@@ -93,6 +88,7 @@ pub fn punish_unsolicited_signing<'info>(
     )?;
 
     let reporter = ctx.accounts.reporter.key();
+    let new_registry_version = ctx.accounts.registry_state.next_version;
     let outcome = slash_nodes(
         SlashAccounts {
             registry_state: &mut ctx.accounts.registry_state,
@@ -116,7 +112,7 @@ pub fn punish_unsolicited_signing<'info>(
             offence: OffenceKind::UnsolicitedSigning,
             registry_version: args.registry_version,
             evidence_hash: args.evidence_hash,
-            new_registry_version: args.new_registry_version,
+            new_registry_version,
         },
     )?;
 
@@ -172,7 +168,7 @@ pub struct PunishUnsolicitedSigning<'info> {
         init,
         payer = reporter,
         space = Registry::SPACE,
-        seeds = [Registry::SEED_PREFIX, args.new_registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, registry_state.next_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub new_registry: AccountLoader<'info, Registry>,
