@@ -172,6 +172,8 @@ pub enum MolphaError {
     NonceReuseSameMessage,
     #[msg("same duty with different values is equivocation - file it as one")]
     PreferEquivocation,
+    #[msg("a slashed gateway's round must be validated before finalization")]
+    RoundNotValidated,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {

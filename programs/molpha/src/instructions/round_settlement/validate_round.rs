@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()> {
+pub fn validate_round<'info>(mut ctx: Context<ValidateRound<'info>>) -> Result<()> {
     let clock = Clock::get()?;
     let now = clock.unix_timestamp;
     let record = &ctx.accounts.round_record;
@@ -39,7 +39,10 @@ pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()>
     )
     .map_err(map_attestation_accounts_err)?;
 
-    require!(!is_valid_sig, MolphaError::DisputeSignatureValid);
+    if is_valid_sig {
+        ctx.accounts.round_record.status = RoundRecordStatus::Validated;
+        return Ok(());
+    }
 
     // x402 rounds are not refunded on dispute.
     let round_restored = match ctx.accounts.round_record.kind {
@@ -89,7 +92,7 @@ pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()>
 }
 
 fn transfer_from_gateway_bond<'info>(
-    ctx: &Context<DisputeRound<'info>>,
+    ctx: &Context<ValidateRound<'info>>,
     destination: AccountInfo<'info>,
     amount: u64,
 ) -> Result<()> {
@@ -112,7 +115,7 @@ fn transfer_from_gateway_bond<'info>(
 }
 
 fn restore_subscription_round<'info>(
-    ctx: &mut Context<DisputeRound<'info>>,
+    ctx: &mut Context<ValidateRound<'info>>,
     now: i64,
 ) -> Result<()> {
     let subscription = ctx
@@ -134,7 +137,7 @@ fn restore_subscription_round<'info>(
 }
 
 #[derive(Accounts)]
-pub struct DisputeRound<'info> {
+pub struct ValidateRound<'info> {
     #[account(mut)]
     pub challenger: Signer<'info>,
 

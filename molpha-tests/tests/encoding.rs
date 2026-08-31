@@ -7,7 +7,7 @@
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::{AnchorDeserialize, AnchorSerialize, Discriminator, InstructionData, Space};
 use molpha::instructions::{InitializeArgs, SubmitAttestationArgs, UpdateConfigArgs};
-use molpha::state::{Feed, FeedValueKind, Node, NodeStatus, OffenceKind};
+use molpha::state::{Feed, FeedValueKind, Node, NodeStatus, OffenceKind, RoundRecordStatus};
 use solana_keccak_hasher::hashv;
 
 /// Borsh encoding of `InitializeArgs`, plus the 8-byte Anchor discriminator.
@@ -206,4 +206,18 @@ fn offence_kind_discriminants_are_stable() {
         vec![1]
     );
     assert_eq!(borsh::to_vec(&OffenceKind::NonceReuse).unwrap(), vec![2]);
+}
+
+#[test]
+fn round_record_status_discriminants_are_stable() {
+    assert_eq!(borsh::to_vec(&RoundRecordStatus::Pending).unwrap(), vec![0]);
+    assert_eq!(
+        borsh::to_vec(&RoundRecordStatus::Finalized).unwrap(),
+        vec![1]
+    );
+    assert_eq!(borsh::to_vec(&RoundRecordStatus::Voided).unwrap(), vec![2]);
+    assert_eq!(
+        borsh::to_vec(&RoundRecordStatus::Validated).unwrap(),
+        vec![3]
+    );
 }

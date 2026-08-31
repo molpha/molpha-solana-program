@@ -7,13 +7,20 @@ use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
 use crate::{
     error::MolphaError,
     events::RoundFinalized,
-    state::{Node, ProtocolConfig, Registry, RoundReceiptRecord, RoundRecordStatus},
+    state::{Gateway, Node, ProtocolConfig, Registry, RoundReceiptRecord, RoundRecordStatus},
 };
 
 pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
     let config = &ctx.accounts.protocol_config;
     let record = &ctx.accounts.round_record;
     let registry = ctx.accounts.registry.load()?;
+
+    if ctx.accounts.gateway.slashed {
+        require!(
+            record.status == RoundRecordStatus::Validated,
+            MolphaError::RoundNotValidated
+        );
+    }
 
     let clock = Clock::get()?;
     let now_slot = clock.slot;
@@ -88,7 +95,15 @@ pub struct FinalizeRound<'info> {
     /// Settlement record created by `settle_*_round`; seeds omitted because only those instructions init it.
     #[account(
         mut,
-        constraint = round_record.status == RoundRecordStatus::Pending @ MolphaError::RoundNotPending,
+        constraint = matches!(
+            round_record.status,
+            RoundRecordStatus::Pending | RoundRecordStatus::Validated
+        ) @ MolphaError::RoundNotPending,
     )]
     pub round_record: Account<'info, RoundReceiptRecord>,
+
+    #[account(
+        constraint = gateway.key() == round_record.gateway @ MolphaError::GatewayIndexMismatch,
+    )]
+    pub gateway: Account<'info, Gateway>,
 }

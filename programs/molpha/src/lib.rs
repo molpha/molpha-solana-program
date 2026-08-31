@@ -108,8 +108,8 @@ pub mod molpha {
         instructions::finalize_round(ctx)
     }
 
-    pub fn dispute_round<'info>(ctx: Context<DisputeRound<'info>>) -> Result<()> {
-        instructions::dispute_round(ctx)
+    pub fn validate_round<'info>(ctx: Context<ValidateRound<'info>>) -> Result<()> {
+        instructions::validate_round(ctx)
     }
 
     pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {

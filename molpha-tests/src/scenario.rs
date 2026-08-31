@@ -906,6 +906,7 @@ impl Protocol {
             protocol_config: pda::protocol_config(),
             registry: pda::registry(record.registry_version),
             round_record: *round_record,
+            gateway: record.gateway,
         }
         .to_account_metas(None);
         accounts.extend(crate::env::writable_metas(credited_nodes.iter().copied()));
@@ -916,7 +917,7 @@ impl Protocol {
         }
     }
 
-    pub fn dispute_round_ix(
+    pub fn validate_round_ix(
         &self,
         challenger: &Pubkey,
         round_record: &Pubkey,
@@ -926,7 +927,7 @@ impl Protocol {
         let record = self
             .env
             .get::<molpha::state::RoundReceiptRecord>(round_record);
-        let mut accounts = molpha::accounts::DisputeRound {
+        let mut accounts = molpha::accounts::ValidateRound {
             challenger: *challenger,
             protocol_config: pda::protocol_config(),
             registry: pda::registry(record.registry_version),
@@ -946,7 +947,7 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts,
-            data: molpha::instruction::DisputeRound {}.data(),
+            data: molpha::instruction::ValidateRound {}.data(),
         }
     }
 
