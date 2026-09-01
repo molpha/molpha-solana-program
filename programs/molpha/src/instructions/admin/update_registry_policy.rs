@@ -28,7 +28,7 @@ pub fn update_registry_policy(
     ctx.accounts.registry_state.advance_version();
 
     emit!(RegistryUpdated {
-        new_version: ctx.accounts.registry_state.next_version,
+        new_version: ctx.accounts.registry_state.current_version,
         node_count: new_registry.node_count,
         redundancy_buffer,
         reason: RegistryVersionReason::PolicyChanged,

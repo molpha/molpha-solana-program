@@ -19,11 +19,6 @@ pub fn validate_round<'info>(mut ctx: Context<'info, ValidateRound<'info>>) -> R
     let clock = Clock::get()?;
     let now = clock.unix_timestamp;
     let record = &ctx.accounts.round_record;
-    require!(
-        clock.slot.saturating_sub(record.recorded_slot)
-            <= ctx.accounts.protocol_config.dispute_window_slots,
-        MolphaError::DisputeWindowElapsed
-    );
 
     let signature = SchnorrSignature {
         agg_sig_s: record.agg_sig_s,

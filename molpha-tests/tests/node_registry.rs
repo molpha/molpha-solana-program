@@ -527,8 +527,10 @@ fn update_registry_policy_carries_membership_into_a_new_snapshot() {
         4
     );
 
+    let state: RegistryState = p.env.get(&pda::registry_state());
     let event: RegistryUpdated = only_event(&meta);
-    assert_eq!(event.new_version, 5);
+    assert_eq!(event.new_version, state.current_version);
+    assert_ne!(event.new_version, state.next_version);
     assert_eq!(event.node_count, before.node_count);
     assert_eq!(event.redundancy_buffer, 5);
     assert!(matches!(event.reason, RegistryVersionReason::PolicyChanged));

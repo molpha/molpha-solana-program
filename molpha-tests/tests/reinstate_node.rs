@@ -67,6 +67,20 @@ fn a_still_frozen_node_cannot_be_reinstated_by_a_stranger() {
 }
 
 #[test]
+fn a_still_frozen_node_cannot_be_reinstated_early_by_its_owner() {
+    let (mut p, index) = frozen_protocol(600);
+    let owner = p.nodes[index].owner.insecure_clone();
+
+    let ix = p.reinstate_node_ix(&owner.pubkey(), &owner.pubkey());
+    let failed = p.env.send_err(&[ix], &[&owner]);
+    assert_molpha_error(&failed, MolphaError::NodeStillFrozen);
+    assert_eq!(
+        p.env.get::<Node>(&p.nodes[index].pda).status,
+        NodeStatus::Frozen
+    );
+}
+
+#[test]
 fn the_protocol_authority_may_thaw_a_node_early() {
     let (mut p, index) = frozen_protocol(10_000);
     let owner = p.nodes[index].owner.pubkey();

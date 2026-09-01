@@ -467,7 +467,7 @@ fn a_deactivated_gateway_remains_slashable_through_the_dispute_boundary() {
 }
 
 #[test]
-fn a_round_cannot_be_validated_after_its_window() {
+fn a_fabricated_round_can_still_be_disputed_after_its_window() {
     let mut f = fixture();
     let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
     let record = f.settle_x402(&fabricated, [0xc2; 32]);
@@ -477,8 +477,45 @@ fn a_round_cannot_be_validated_after_its_window() {
     let challenger = f.p.env.keypair();
     let validation =
         f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
-    let failed = f.p.env.send_err(&[validation], &[&challenger]);
-    assert_molpha_error(&failed, MolphaError::DisputeWindowElapsed);
+    f.p.env.send_ok(&[validation], &[&challenger]);
+
+    assert_eq!(
+        f.p.env.get::<RoundReceiptRecord>(&record).status,
+        RoundRecordStatus::Voided
+    );
+    assert_eq!(
+        f.p.env.get::<Gateway>(&f.gateway_pda()).status,
+        GatewayStatus::Slashed
+    );
+}
+
+#[test]
+fn a_genuine_round_can_still_be_validated_after_its_window() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xc3; 32]);
+    let signers = f.credited_nodes(&record);
+    let rewards_before: Vec<u64> = signers
+        .iter()
+        .map(|node| f.p.env.get::<Node>(node).claimable_rewards)
+        .collect();
+    f.past_the_dispute_window();
+
+    let challenger = f.p.env.keypair();
+    let validation =
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
+    f.p.env.send_ok(&[validation], &[&challenger]);
+
+    assert_eq!(
+        f.p.env.get::<RoundReceiptRecord>(&record).status,
+        RoundRecordStatus::Finalized
+    );
+    for (node, before) in signers.iter().zip(rewards_before) {
+        assert_eq!(
+            f.p.env.get::<Node>(node).claimable_rewards,
+            before + f.p.args.reward_per_signature
+        );
+    }
 }
 
 #[test]
