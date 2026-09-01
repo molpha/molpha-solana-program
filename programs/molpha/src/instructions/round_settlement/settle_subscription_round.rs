@@ -2,8 +2,8 @@ use crate::{
     error::MolphaError,
     events::RoundSettled,
     state::{
-        hash_request_auth_fields, Delegate, Gateway, ProtocolConfig, Registry, RegistryState,
-        RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
+        hash_request_auth_fields, Delegate, Gateway, GatewayStatus, ProtocolConfig, Registry,
+        RegistryState, RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
     },
     utils::{
         ed25519::verify_ed25519_signature,
@@ -14,7 +14,7 @@ use anchor_lang::prelude::*;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleRoundArgs {
-    pub timestamp: u64,
+    pub canonical_timestamp: u64,
     pub source_id: [u8; 32],
     pub signatures_required: u8,
     pub registry_version: u32,
@@ -54,7 +54,7 @@ pub fn settle_subscription_round<'info>(
         &gateway.key(),
         &args.source_id,
         args.signatures_required,
-        args.timestamp,
+        args.canonical_timestamp,
     );
     require!(
         verify_ed25519_signature(
@@ -70,12 +70,14 @@ pub fn settle_subscription_round<'info>(
         &registry,
         SettlementAttestationInput {
             source_id: &args.source_id,
-            canonical_timestamp: args.timestamp,
+            canonical_timestamp: args.canonical_timestamp,
             signatures_required: args.signatures_required,
             registry_version: args.registry_version,
             value: &args.value,
             agg_sig: &args.agg_sig,
         },
+        clock.unix_timestamp,
+        config.max_receipt_delay_seconds,
     )?;
 
     let reward_per_signature = config.reward_per_signature;
@@ -89,7 +91,6 @@ pub fn settle_subscription_round<'info>(
         gateway: gateway.key(),
         registry_version: args.registry_version,
         reward_per_signature,
-        protocol_fee: 0,
         recorded_slot: now_slot,
         kind: RoundRecordKind::Subscription,
         bump: ctx.bumps.round_record,
@@ -98,12 +99,11 @@ pub fn settle_subscription_round<'info>(
     emit!(RoundSettled {
         gateway: gateway.key(),
         source_id: args.source_id,
-        timestamp: args.timestamp,
-        signers_bitmap: ctx.accounts.round_record.signers_bitmap,
+        canonical_timestamp: args.canonical_timestamp,
         credited_count: validated.credited_count,
         reward_per_signature,
-        protocol_fee: 0,
         recorded_slot: now_slot,
+        recorded_at: clock.unix_timestamp,
     });
 
     Ok(())
@@ -181,8 +181,7 @@ pub struct SettleSubscriptionRound<'info> {
     #[account(
         mut,
         has_one = authority,
-        constraint = !gateway.slashed @ MolphaError::GatewaySlashed,
-        constraint = gateway.deactivated_at == 0 @ MolphaError::GatewayDeactivated,
+        constraint = gateway.status == GatewayStatus::Active @ MolphaError::GatewayNotActive,
     )]
     pub gateway: Account<'info, Gateway>,
 
@@ -196,7 +195,7 @@ pub struct SettleSubscriptionRound<'info> {
             gateway.key().as_ref(),
             args.source_id.as_ref(),
             args.signatures_required.to_le_bytes().as_ref(),
-            args.timestamp.to_le_bytes().as_ref(),
+            args.canonical_timestamp.to_le_bytes().as_ref(),
         ],
         bump
     )]

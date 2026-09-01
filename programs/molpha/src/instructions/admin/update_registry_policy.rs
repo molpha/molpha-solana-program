@@ -2,47 +2,42 @@ use anchor_lang::prelude::*;
 
 use crate::{
     error::MolphaError,
-    events::{RegistryVersionCreated, RegistryVersionReason},
+    events::{RegistryUpdated, RegistryVersionReason},
     state::{ProtocolConfig, Registry, RegistryState},
 };
 
 pub fn update_registry_policy(
     ctx: Context<UpdateRegistryPolicy>,
-    new_registry_version: u32,
     redundancy_buffer: u8,
 ) -> Result<()> {
-    ctx.accounts
-        .registry_state
-        .require_next_version(new_registry_version)?;
-
-    let previous_version = ctx.accounts.registry_state.current_version;
-    let (node_count, previous_buffer) = {
-        let current = ctx.accounts.current_registry.load()?;
-        let mut next = ctx.accounts.new_registry.load_init()?;
-        next.copy_from_previous(&current, new_registry_version, ctx.bumps.new_registry);
-        let previous_buffer = next.redundancy_buffer;
-        next.redundancy_buffer = redundancy_buffer;
-        (next.node_count, previous_buffer)
-    };
     require!(
-        redundancy_buffer != previous_buffer,
+        redundancy_buffer > 0 && redundancy_buffer <= 8,
+        MolphaError::InvalidRedundancyBuffer
+    );
+
+    let current = ctx.accounts.current_registry.load()?;
+    require!(
+        redundancy_buffer != current.redundancy_buffer,
         MolphaError::RegistryPolicyUnchanged
     );
 
-    ctx.accounts.registry_state.current_version = new_registry_version;
-    emit!(RegistryVersionCreated {
-        previous_version,
-        new_version: new_registry_version,
-        node_count,
+    let mut new_registry = ctx.accounts.new_registry.load_init()?;
+    new_registry.copy_from_previous(&current, ctx.bumps.new_registry);
+    new_registry.redundancy_buffer = redundancy_buffer;
+
+    ctx.accounts.registry_state.advance_version();
+
+    emit!(RegistryUpdated {
+        new_version: ctx.accounts.registry_state.current_version,
+        node_count: new_registry.node_count,
         redundancy_buffer,
         reason: RegistryVersionReason::PolicyChanged,
-        created_at: Clock::get()?.unix_timestamp,
+        updated_at: Clock::get()?.unix_timestamp,
     });
     Ok(())
 }
 
 #[derive(Accounts)]
-#[instruction(new_registry_version: u32)]
 pub struct UpdateRegistryPolicy<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -71,7 +66,7 @@ pub struct UpdateRegistryPolicy<'info> {
         init,
         payer = authority,
         space = Registry::SPACE,
-        seeds = [Registry::SEED_PREFIX, new_registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, registry_state.next_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub new_registry: AccountLoader<'info, Registry>,

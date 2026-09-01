@@ -5,14 +5,13 @@ use solana_keccak_hasher::hashv;
 
 use crate::{
     error::MolphaError,
-    events::{NodeRegistered, RegistryVersionCreated, RegistryVersionReason},
+    events::NodeRegistered,
     state::{Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim, MAX_REGISTRY_NODES},
     utils::registry::derive_node_id,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct RegisterNodeArgs {
-    pub new_registry_version: u32,
     pub registration_salt: [u8; 32],
     pub ip: [u8; 4],
     pub port: u16,
@@ -26,9 +25,6 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         args.ip != [0, 0, 0, 0] && args.port != 0,
         MolphaError::InvalidNodeEndpoint
     );
-    ctx.accounts
-        .registry_state
-        .require_next_version(args.new_registry_version)?;
 
     let node_index = {
         let registry = ctx.accounts.current_registry.load()?;
@@ -74,6 +70,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
     )?;
 
     let now = Clock::get()?.unix_timestamp;
+
     ctx.accounts.node.init(
         owner,
         pub_key_x,
@@ -88,35 +85,24 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         .secp256k1_key_claim
         .init(ctx.accounts.node.key(), ctx.bumps.secp256k1_key_claim);
 
-    let (node_count, redundancy_buffer) = {
-        let current = ctx.accounts.current_registry.load()?;
-        let mut next = ctx.accounts.new_registry.load_init()?;
-        next.copy_from_previous(&current, args.new_registry_version, ctx.bumps.new_registry);
-        let appended_index = next.append(ctx.accounts.node.key())?;
-        require!(appended_index == node_index, MolphaError::InvalidNodeIndex);
-        (next.node_count, next.redundancy_buffer)
-    };
-    let current_version = ctx.accounts.registry_state.current_version;
-    ctx.accounts.registry_state.current_version = args.new_registry_version;
+    let current = ctx.accounts.current_registry.load()?;
+    let mut next = ctx.accounts.new_registry.load_init()?;
+    next.copy_from_previous(&current, ctx.bumps.new_registry);
+    let appended_index = next.append(ctx.accounts.node.key())?;
+    require!(appended_index == node_index, MolphaError::InvalidNodeIndex);
+    ctx.accounts.registry_state.advance_version();
 
     emit!(NodeRegistered {
-        node_id,
-        new_index: u32::from(node_index),
+        node: ctx.accounts.node.key(),
+        index: u32::from(node_index),
+        registry_version: ctx.accounts.registry_state.next_version,
         owner,
         ip: args.ip,
         port: args.port,
-        current_version: args.new_registry_version,
         security_deposit: ctx.accounts.protocol_config.minimum_node_deposit,
         registered_at: now,
     });
-    emit!(RegistryVersionCreated {
-        previous_version: current_version,
-        new_version: args.new_registry_version,
-        node_count,
-        redundancy_buffer,
-        reason: RegistryVersionReason::NodeAdded,
-        created_at: now,
-    });
+
     Ok(())
 }
 
@@ -157,7 +143,7 @@ pub struct RegisterNode<'info> {
         init,
         payer = node_owner,
         space = Registry::SPACE,
-        seeds = [Registry::SEED_PREFIX, args.new_registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, registry_state.next_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub new_registry: AccountLoader<'info, Registry>,

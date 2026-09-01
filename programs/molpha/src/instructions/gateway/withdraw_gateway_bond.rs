@@ -9,13 +9,15 @@ use anchor_spl::{
 use crate::{
     error::MolphaError,
     events::GatewayBondWithdrawn,
-    state::{Gateway, ProtocolConfig},
+    state::{Gateway, GatewayStatus, ProtocolConfig},
 };
 
 pub fn withdraw_gateway_bond(ctx: Context<WithdrawGatewayBond>) -> Result<()> {
     let gateway = &ctx.accounts.gateway;
-    require!(!gateway.slashed, MolphaError::GatewaySlashed);
-    require!(gateway.withdrawable_slot > 0, MolphaError::GatewayActive);
+    require!(
+        gateway.status == GatewayStatus::Deactivated && gateway.withdrawable_slot > 0,
+        MolphaError::GatewayNotDeactivated
+    );
 
     let clock = Clock::get()?;
     require!(
@@ -55,11 +57,9 @@ pub fn withdraw_gateway_bond(ctx: Context<WithdrawGatewayBond>) -> Result<()> {
 
     emit!(GatewayBondWithdrawn {
         gateway: gateway.key(),
-        authority,
-        destination: ctx.accounts.destination.key(),
         amount,
-        withdrawn_at: clock.unix_timestamp,
         withdrawn_slot: clock.slot,
+        withdrawn_at: clock.unix_timestamp,
     });
     Ok(())
 }

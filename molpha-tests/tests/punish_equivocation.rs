@@ -2,13 +2,13 @@
 
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
-use molpha::events::{EquivocationProven, NodePunished, RegistryVersionCreated};
+use molpha::events::{EquivocationProven, NodePunished};
 use molpha::instructions::PunishEquivocationArgs;
 use molpha::state::{
     equivocation_evidence_hash, MembershipAction, Node, NodeStatus, OffenceKind, PunishmentCase,
 };
 use molpha_tests::crypto;
-use molpha_tests::env::{assert_molpha_error, events, only_event};
+use molpha_tests::env::{assert_anchor_error, assert_molpha_error, events, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{intersect_bitmap, Duty, Protocol, SignedAttestation};
 use solana_keypair::Keypair;
@@ -43,7 +43,7 @@ fn case() -> Case {
     Case { p, reporter, a, b }
 }
 
-fn args_for(case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> PunishEquivocationArgs {
+fn args_for(_case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> PunishEquivocationArgs {
     let duty = a.duty;
     let evidence_hash = equivocation_evidence_hash(
         &duty.source_id,
@@ -61,7 +61,6 @@ fn args_for(case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> Punish
         statement_a: a.statement(),
         statement_b: b.statement(),
         evidence_hash,
-        new_registry_version: case.p.current_version() + 1,
     }
 }
 
@@ -92,6 +91,7 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
     let treasury_before = case.p.treasury_balance();
 
     let reporter = case.reporter.insecure_clone();
+    let new_version = case.p.current_version() + 1;
     let ix = case
         .p
         .punish_equivocation_ix(&reporter.pubkey(), args.clone());
@@ -109,12 +109,11 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
         assert_eq!(account.locked_amount, 0);
         assert_eq!(account.claimable_rewards, 0);
         assert_eq!(
-            account.withdrawable_at,
+            account.withdrawable_slot,
             case.p
                 .env
-                .unix_timestamp()
-                .checked_add(case.p.args.withdrawal_cooldown_secs)
-                .unwrap()
+                .slot()
+                .saturating_add(case.p.args.withdrawal_cooldown_slots)
         );
     }
     // Everyone else is untouched, including the non-overlapping signers.
@@ -125,7 +124,7 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
     }
 
     // The guilty are evicted into a fresh snapshot; the evidence snapshot is untouched.
-    let after = case.p.env.registry(args.new_registry_version);
+    let after = case.p.env.registry(new_version);
     assert_eq!(after.node_count as usize, NODE_COUNT - guilty.len());
     for node in &guilty {
         assert!(!after.nodes.contains(node));
@@ -137,7 +136,7 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
         case.p.env.registry(evidence_version).node_count as usize,
         NODE_COUNT
     );
-    assert_eq!(case.p.current_version(), args.new_registry_version);
+    assert_eq!(case.p.current_version(), new_version);
 
     // The reporter is paid a bounty out of the treasury.
     let reporter_usdc = pda::ata(&reporter.pubkey(), &case.p.usdc_mint);
@@ -173,10 +172,6 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
         assert_eq!(event.slashed_locked, locked_each);
     }
 
-    let version_event: RegistryVersionCreated = only_event(&meta);
-    assert_eq!(version_event.previous_version, evidence_version);
-    assert_eq!(version_event.new_version, args.new_registry_version);
-
     let fully_slashed = guilty[0];
     let owner = case
         .p
@@ -188,7 +183,7 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
         .insecure_clone();
     case.p
         .env
-        .advance_seconds(case.p.args.withdrawal_cooldown_secs);
+        .advance_slots(case.p.args.withdrawal_cooldown_slots);
     let withdraw = case.p.withdraw_node_deposit_ix(&owner.pubkey());
     let failed = case.p.env.send_err(&[withdraw], &[&owner]);
     assert_molpha_error(&failed, MolphaError::NothingToWithdraw);
@@ -345,12 +340,14 @@ fn a_coalition_outside_the_derived_selection_is_refused() {
 fn filing_requires_the_next_registry_version() {
     let mut case = case();
     let reporter = case.reporter.insecure_clone();
-    let mut args = args_for(&case, &case.a, &case.b);
-    args.new_registry_version += 1;
-
-    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let skipped = case.p.current_version() + 2;
+    let ix = case.p.punish_equivocation_ix_with_registry(
+        &reporter.pubkey(),
+        args_for(&case, &case.a, &case.b),
+        skipped,
+    );
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::InvalidRegistryVersion);
+    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -359,7 +356,7 @@ fn a_punished_node_stops_being_selected_for_later_rounds() {
     let reporter = case.reporter.insecure_clone();
     let guilty = guilty_pdas(&case);
     let args = args_for(&case, &case.a, &case.b);
-    let new_version = args.new_registry_version;
+    let new_version = case.p.current_version() + 1;
     let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
     case.p.env.send_ok(&[ix], &[&reporter]);
 

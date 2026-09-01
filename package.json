@@ -8,8 +8,7 @@
     "lint": "prettier --no-config */*.js \"*/**/*{.js,.ts}\" --check",
     "build:molpha": "anchor build -p molpha",
     "build:cli": "tsc -p cli/tsconfig.json",
-    "test": "cargo test --workspace",
-    "test:program": "anchor build -p molpha && cargo test --workspace",
+    "test": "anchor build -p molpha && cargo test --workspace",
     "molpha": "node cli/dist/index.js",
     "molpha:dev": "ts-node -r tsconfig-paths/register cli/src/index.ts",
     "register-nodes": "node scripts/generate-and-register-nodes.js"

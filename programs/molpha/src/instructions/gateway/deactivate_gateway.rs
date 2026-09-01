@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     error::MolphaError,
     events::GatewayDeactivated,
-    state::{Gateway, ProtocolConfig},
+    state::{Gateway, GatewayStatus, ProtocolConfig},
 };
 
 pub fn deactivate_gateway(ctx: Context<DeactivateGateway>) -> Result<()> {
@@ -17,14 +17,14 @@ pub fn deactivate_gateway(ctx: Context<DeactivateGateway>) -> Result<()> {
         .and_then(|slot| slot.checked_add(1))
         .ok_or(MolphaError::WithdrawalArithmeticOverflow)?;
 
-    gateway.deactivated_at = clock.unix_timestamp;
+    gateway.status = GatewayStatus::Deactivated;
     gateway.withdrawable_slot = withdrawable_slot;
 
     emit!(GatewayDeactivated {
         gateway: gateway.key(),
         authority: gateway.authority,
-        deactivated_at: clock.unix_timestamp,
         withdrawable_slot,
+        deactivated_at: clock.unix_timestamp,
     });
     Ok(())
 }

@@ -10,6 +10,7 @@ pub const MAX_REGISTRY_NODES: usize = 256;
 #[derive(InitSpace)]
 pub struct RegistryState {
     pub current_version: u32,
+    pub next_version: u32,
     pub bump: u8,
 }
 
@@ -21,17 +22,23 @@ impl RegistryState {
 
     pub fn init(&mut self, bump: u8) {
         self.current_version = 0;
+        self.next_version = 1;
         self.bump = bump;
     }
 
-    pub fn require_next_version(&self, new_version: u32) -> Result<()> {
-        let expected = self
-            .current_version
-            .checked_add(1)
-            .ok_or(error!(MolphaError::RegistryVersionOverflow))?;
-        require!(new_version == expected, MolphaError::InvalidRegistryVersion);
-        Ok(())
+    pub fn advance_version(&mut self) {
+        self.current_version = self.next_version;
+        self.next_version = self.next_version.checked_add(1).unwrap();
     }
+
+    // pub fn require_next_version(&self, new_version: u32) -> Result<()> {
+    //     let expected = self
+    //         .current_version
+    //         .checked_add(1)
+    //         .ok_or(error!(MolphaError::RegistryVersionOverflow))?;
+    //     require!(new_version == expected, MolphaError::InvalidRegistryVersion);
+    //     Ok(())
+    // }
 }
 
 /// Immutable, version-addressed snapshot of the ordered node set and selection policy.
@@ -78,8 +85,8 @@ impl Registry {
         }
     }
 
-    pub fn copy_from_previous(&mut self, previous: &Registry, version: u32, bump: u8) {
-        self.version = version;
+    pub fn copy_from_previous(&mut self, previous: &Registry, bump: u8) {
+        self.version = previous.version + 1;
         self.node_count = previous.node_count;
         self.redundancy_buffer = previous.redundancy_buffer;
         self.bump = bump;

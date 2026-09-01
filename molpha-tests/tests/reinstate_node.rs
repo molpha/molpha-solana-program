@@ -6,9 +6,9 @@
 //! that uses `MembershipAction::Freeze`.
 
 use molpha::error::MolphaError;
-use molpha::events::{NodeReinstated, RegistryVersionCreated};
+use molpha::events::NodeReinstated;
 use molpha::state::{Node, NodeStatus};
-use molpha_tests::env::{assert_molpha_error, only_event};
+use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::scenario::Protocol;
 use solana_signer::Signer;
 
@@ -48,11 +48,7 @@ fn a_thawed_node_is_reinstated_by_anyone_and_rejoins_the_registry() {
     let event: NodeReinstated = only_event(&meta);
     assert_eq!(event.node, node_pda);
     assert_eq!(event.owner, owner);
-    assert_eq!(event.registry_version, expected_version);
-
-    let version_event: RegistryVersionCreated = only_event(&meta);
-    assert_eq!(version_event.new_version, expected_version);
-    assert_eq!(version_event.node_count as usize, NODE_COUNT);
+    assert_eq!(event.registry_version, p.current_version() + 1);
 }
 
 #[test]
@@ -63,6 +59,20 @@ fn a_still_frozen_node_cannot_be_reinstated_by_a_stranger() {
 
     let ix = p.reinstate_node_ix(&stranger.pubkey(), &owner);
     let failed = p.env.send_err(&[ix], &[&stranger]);
+    assert_molpha_error(&failed, MolphaError::NodeStillFrozen);
+    assert_eq!(
+        p.env.get::<Node>(&p.nodes[index].pda).status,
+        NodeStatus::Frozen
+    );
+}
+
+#[test]
+fn a_still_frozen_node_cannot_be_reinstated_early_by_its_owner() {
+    let (mut p, index) = frozen_protocol(600);
+    let owner = p.nodes[index].owner.insecure_clone();
+
+    let ix = p.reinstate_node_ix(&owner.pubkey(), &owner.pubkey());
+    let failed = p.env.send_err(&[ix], &[&owner]);
     assert_molpha_error(&failed, MolphaError::NodeStillFrozen);
     assert_eq!(
         p.env.get::<Node>(&p.nodes[index].pda).status,
@@ -153,14 +163,8 @@ fn reinstatement_requires_the_next_registry_version() {
     let caller = p.env.keypair();
 
     let skipped = p.current_version() + 2;
-    let ix = p.reinstate_node_raw_ix(
-        &caller.pubkey(),
-        molpha::instructions::ReinstateNodeArgs {
-            node_owner: owner,
-            new_registry_version: skipped,
-        },
-    );
+    let ix = p.reinstate_node_raw_ix(&caller.pubkey(), &owner, skipped);
 
     let failed = p.env.send_err(&[ix], &[&caller]);
-    assert_molpha_error(&failed, MolphaError::InvalidRegistryVersion);
+    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }

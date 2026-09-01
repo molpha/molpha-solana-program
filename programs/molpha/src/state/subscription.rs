@@ -73,7 +73,7 @@ impl Subscription {
         Ok(())
     }
 
-    /// Undo `consume_round` when a pending round is voided by `dispute_round`.
+    /// Undo `consume_round` when a pending round is voided by `validate_round`.
     pub fn restore_round(&mut self) -> Result<()> {
         require!(
             self.used_rounds > 0,

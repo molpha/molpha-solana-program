@@ -107,7 +107,6 @@ export function registerRegistryCommands(program: Command): void {
       );
 
       const args = {
-        newRegistryVersion,
         ...buildRegisterNodeArgs({
           registrationSalt,
           secp256k1PubkeyCompressed: secpPubkey,
@@ -223,7 +222,6 @@ export function registerRegistryCommands(program: Command): void {
         .deactivateNode({
           nodeOwner,
           removeIndex,
-          newRegistryVersion,
         })
         .accountsPartial({
           authority: ctx.wallet.publicKey,
@@ -319,7 +317,7 @@ export function registerRegistryCommands(program: Command): void {
       const [currentRegistry] = findRegistryPda(ctx.programId, currentVersion);
       const [newRegistry] = findRegistryPda(ctx.programId, newRegistryVersion);
       const signature = await (ctx.program.methods as any)
-        .updateRegistryPolicy(newRegistryVersion, value)
+        .updateRegistryPolicy(value)
         .accountsPartial({
           authority: ctx.wallet.publicKey,
           protocolConfig,

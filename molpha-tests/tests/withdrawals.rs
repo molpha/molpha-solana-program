@@ -3,7 +3,7 @@
 use molpha::error::MolphaError;
 use molpha::events::{GatewayBondWithdrawn, GatewayDeactivated, NodeDepositWithdrawn};
 use molpha::instructions::RegisterGatewayArgs;
-use molpha::state::{Gateway, Node, NodeStatus, PlanType};
+use molpha::state::{Gateway, GatewayStatus, Node, NodeStatus, PlanType};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{Duty, Protocol};
@@ -25,7 +25,7 @@ fn a_deactivated_node_withdraws_its_deposit_at_the_exact_cooldown_boundary() {
     let early = p.env.send_err(std::slice::from_ref(&withdraw), &[&owner]);
     assert_molpha_error(&early, MolphaError::WithdrawalCooldownActive);
 
-    p.env.advance_seconds(p.args.withdrawal_cooldown_secs);
+    p.env.advance_slots(p.args.withdrawal_cooldown_slots);
     let destination = pda::ata(&owner.pubkey(), &p.usdc_mint);
     let balance_before = p.env.token_balance(&destination);
     let meta = p.env.send_ok(&[withdraw], &[&owner]);
@@ -84,7 +84,7 @@ fn node_withdrawal_requires_the_owner_and_its_canonical_usdc_account() {
 
     let deactivate = p.deactivate_node_ix(0, &owner.pubkey());
     p.env.send_ok(&[deactivate], &[&owner]);
-    p.env.advance_seconds(p.args.withdrawal_cooldown_secs);
+    p.env.advance_slots(p.args.withdrawal_cooldown_slots);
 
     let mut wrong_authority = p.withdraw_node_deposit_ix(&owner.pubkey());
     wrong_authority.accounts[0].pubkey = stranger.pubkey();
@@ -105,21 +105,20 @@ fn node_withdrawal_requires_the_owner_and_its_canonical_usdc_account() {
 }
 
 #[test]
-fn a_legacy_tombstone_without_a_snapshot_uses_punished_at_plus_current_cooldown() {
+fn a_tombstoned_node_withdraws_after_its_cooldown_slot() {
     let mut p = Protocol::start();
     p.register_nodes("withdraw-legacy-tombstone", 1);
     let owner = p.nodes[0].owner.insecure_clone();
     let node_pda = p.nodes[0].pda;
     let survivor = p.args.minimum_node_deposit / 2;
-    let timestamp = p
+    let withdrawable_slot = p
         .env
-        .unix_timestamp()
-        .checked_add(p.args.withdrawal_cooldown_secs)
-        .unwrap();
+        .slot()
+        .saturating_add(p.args.withdrawal_cooldown_slots);
     p.overwrite_node(&node_pda, |node| {
         node.status = NodeStatus::Tombstoned;
         node.locked_amount = survivor;
-        node.withdrawable_at = timestamp;
+        node.withdrawable_slot = withdrawable_slot;
     });
 
     let early = p
@@ -127,7 +126,7 @@ fn a_legacy_tombstone_without_a_snapshot_uses_punished_at_plus_current_cooldown(
         .send_err(&[p.withdraw_node_deposit_ix(&owner.pubkey())], &[&owner]);
     assert_molpha_error(&early, MolphaError::WithdrawalCooldownActive);
 
-    p.env.advance_seconds(p.args.withdrawal_cooldown_secs);
+    p.env.advance_slots(p.args.withdrawal_cooldown_slots);
     let destination = pda::ata(&owner.pubkey(), &p.usdc_mint);
     let before = p.env.token_balance(&destination);
     let withdraw = p.withdraw_node_deposit_ix(&owner.pubkey());
@@ -148,7 +147,7 @@ fn a_gateway_exit_waits_for_the_dispute_window_and_keeps_its_identity_account() 
         &[p.withdraw_gateway_bond_ix(&authority.pubkey())],
         &[&authority],
     );
-    assert_molpha_error(&active, MolphaError::GatewayActive);
+    assert_molpha_error(&active, MolphaError::GatewayNotDeactivated);
 
     let stranger = p.env.keypair();
     let unauthorized = p.deactivate_gateway_ix(&stranger.pubkey(), &authority.pubkey());
@@ -160,7 +159,7 @@ fn a_gateway_exit_waits_for_the_dispute_window_and_keeps_its_identity_account() 
     let deactivate = p.deactivate_gateway_ix(&protocol_authority.pubkey(), &authority.pubkey());
     let meta = p.env.send_ok(&[deactivate], &[&protocol_authority]);
     let gateway_state: Gateway = p.env.get(&gateway);
-    assert_eq!(gateway_state.deactivated_at, p.env.unix_timestamp());
+    assert_eq!(gateway_state.status, GatewayStatus::Deactivated);
     assert_eq!(
         gateway_state.withdrawable_slot,
         p.env.slot() + p.args.dispute_window_slots + 1
@@ -170,7 +169,6 @@ fn a_gateway_exit_waits_for_the_dispute_window_and_keeps_its_identity_account() 
     let event: GatewayDeactivated = only_event(&meta);
     assert_eq!(event.gateway, gateway);
     assert_eq!(event.authority, authority.pubkey());
-    assert_eq!(event.deactivated_at, gateway_state.deactivated_at);
     assert_eq!(event.withdrawable_slot, gateway_state.withdrawable_slot);
 
     let mut unauthorized_withdraw = p.withdraw_gateway_bond_ix(&authority.pubkey());
@@ -239,7 +237,7 @@ fn deactivating_a_gateway_disables_both_settlement_paths() {
 
     let x402 = p.settle_x402_round_ix(&gateway.pubkey(), p.x402_args(&signed, [0x71; 32]));
     let failed = p.env.send_err(&[x402], &[&gateway_key]);
-    assert_molpha_error(&failed, MolphaError::GatewayDeactivated);
+    assert_molpha_error(&failed, MolphaError::GatewayNotActive);
 
     p.add_default_plan(PlanType::Professional);
     let subscriber = p.subscribe(PlanType::Professional);
@@ -255,5 +253,5 @@ fn deactivating_a_gateway_disables_both_settlement_paths() {
     let failed = p
         .env
         .send_err(&[authorize, settle], &[&subscriber_key, &gateway_key]);
-    assert_molpha_error(&failed, MolphaError::GatewayDeactivated);
+    assert_molpha_error(&failed, MolphaError::GatewayNotActive);
 }

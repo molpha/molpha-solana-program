@@ -4,17 +4,11 @@ use anchor_lang::prelude::*;
 
 use crate::{
     error::MolphaError,
-    events::{NodeReinstated, RegistryVersionCreated, RegistryVersionReason},
+    events::NodeReinstated,
     state::{Node, NodeStatus, ProtocolConfig, Registry, RegistryState},
 };
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct ReinstateNodeArgs {
-    pub node_owner: Pubkey,
-    pub new_registry_version: u32,
-}
-
-pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> Result<()> {
+pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
     let config = &ctx.accounts.protocol_config;
     let now = Clock::get()?.unix_timestamp;
     let is_authority = ctx.accounts.caller.key() == config.authority;
@@ -24,25 +18,17 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> R
         MolphaError::NodeStillFrozen
     );
 
-    ctx.accounts
-        .registry_state
-        .require_next_version(args.new_registry_version)?;
-
-    let previous_version = ctx.accounts.registry_state.current_version;
     let node_key = ctx.accounts.node.key();
-    let (node_count, redundancy_buffer) = {
-        let current = ctx.accounts.current_registry.load()?;
-        require!(
-            !(0..usize::from(current.node_count))
-                .any(|i| Pubkey::new_from_array(current.nodes[i]) == node_key),
-            MolphaError::NodeAlreadyInRegistry
-        );
-        let mut next = ctx.accounts.new_registry.load_init()?;
-        next.copy_from_previous(&current, args.new_registry_version, ctx.bumps.new_registry);
-        next.append(node_key)?;
-        (next.node_count, next.redundancy_buffer)
-    };
-    ctx.accounts.registry_state.current_version = args.new_registry_version;
+    let current = ctx.accounts.current_registry.load()?;
+    require!(
+        !(0..usize::from(current.node_count))
+            .any(|i| Pubkey::new_from_array(current.nodes[i]) == node_key),
+        MolphaError::NodeAlreadyInRegistry
+    );
+    let mut next = ctx.accounts.new_registry.load_init()?;
+    next.copy_from_previous(&current, ctx.bumps.new_registry);
+    next.append(node_key)?;
+    ctx.accounts.registry_state.advance_version();
 
     let node = &mut ctx.accounts.node;
     node.status = NodeStatus::Active;
@@ -50,23 +36,14 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> R
     emit!(NodeReinstated {
         node: node_key,
         owner: node.owner,
-        registry_version: args.new_registry_version,
+        registry_version: ctx.accounts.registry_state.next_version,
         reinstated_at: now,
-    });
-    emit!(RegistryVersionCreated {
-        previous_version,
-        new_version: args.new_registry_version,
-        node_count,
-        redundancy_buffer,
-        reason: RegistryVersionReason::NodeReinstated,
-        created_at: now,
     });
 
     Ok(())
 }
 
 #[derive(Accounts)]
-#[instruction(args: ReinstateNodeArgs)]
 pub struct ReinstateNode<'info> {
     /// Permissionless after `frozen_until`; authority may reinstate earlier.
     #[account(mut)]
@@ -95,7 +72,7 @@ pub struct ReinstateNode<'info> {
         init,
         payer = caller,
         space = Registry::SPACE,
-        seeds = [Registry::SEED_PREFIX, args.new_registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, registry_state.next_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub new_registry: AccountLoader<'info, Registry>,
@@ -103,7 +80,7 @@ pub struct ReinstateNode<'info> {
     #[account(
         mut,
         constraint = node.status == NodeStatus::Frozen @ MolphaError::NodeNotFrozen,
-        seeds = [Node::SEED_PREFIX, args.node_owner.as_ref()],
+        seeds = [Node::SEED_PREFIX, node.owner.as_ref()],
         bump = node.bump,
     )]
     pub node: Box<Account<'info, Node>>,

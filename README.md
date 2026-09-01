@@ -71,8 +71,8 @@ programs/
 │       │   ├── delegate/            # add_delegate.rs, remove_delegate.rs, set_delegate_paused.rs
 │       │   ├── gateway/             # register_gateway.rs, claim_gateway_rewards.rs
 │       │   ├── subscriptions/       # subscribe.rs, extend_subscription.rs
-│       │   ├── round_settlement/    # settle_subscription_round.rs, settle_x402_round.rs, finalize_round.rs
-│       │   ├── disputing/           # dispute_round.rs, punish_*.rs
+│       │   ├── round_settlement/    # settle_*_round.rs, validate_round.rs, finalize_round.rs
+│       │   ├── slashing/            # slash_*.rs
 │       │   ├── submit_attestation.rs / verify_attestation.rs
 │       ├── state/
 │       │   ├── protocol_config.rs

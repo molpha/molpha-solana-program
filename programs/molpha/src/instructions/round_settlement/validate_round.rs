@@ -8,21 +8,17 @@ use molpha_verifier::SchnorrSignature;
 use crate::{
     error::{map_attestation_accounts_err, MolphaError},
     events::RoundDisputed,
+    instructions::round_settlement::finalize_round::credit_round_rewards,
     state::{
-        Gateway, ProtocolConfig, Registry, RoundReceiptRecord, RoundRecordKind, RoundRecordStatus,
-        Subscription,
+        Gateway, GatewayStatus, ProtocolConfig, Registry, RoundReceiptRecord, RoundRecordKind,
+        RoundRecordStatus, Subscription,
     },
 };
 
-pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()> {
+pub fn validate_round<'info>(mut ctx: Context<'info, ValidateRound<'info>>) -> Result<()> {
     let clock = Clock::get()?;
     let now = clock.unix_timestamp;
     let record = &ctx.accounts.round_record;
-    require!(
-        clock.slot.saturating_sub(record.recorded_slot)
-            <= ctx.accounts.protocol_config.dispute_window_slots,
-        MolphaError::DisputeWindowElapsed
-    );
 
     let signature = SchnorrSignature {
         agg_sig_s: record.agg_sig_s,
@@ -39,7 +35,15 @@ pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()>
     )
     .map_err(map_attestation_accounts_err)?;
 
-    require!(!is_valid_sig, MolphaError::DisputeSignatureValid);
+    if is_valid_sig {
+        let registry = ctx.accounts.registry.load()?;
+        return credit_round_rewards(
+            &mut ctx.accounts.round_record,
+            &registry,
+            ctx.remaining_accounts,
+            ctx.program_id,
+        );
+    }
 
     // x402 rounds are not refunded on dispute.
     let round_restored = match ctx.accounts.round_record.kind {
@@ -57,22 +61,31 @@ pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()>
     };
 
     let config = &ctx.accounts.protocol_config;
-    let slashed_bond = ctx.accounts.gateway_bond.amount;
-    let bounty = (slashed_bond as u128)
-        .saturating_mul(config.challenger_bounty_bps as u128)
-        .checked_div(10_000)
-        .unwrap_or(0) as u64;
+    let mut slashed_bond: u64 = 0;
+    let mut bounty: u64 = 0;
 
-    if bounty > 0 {
-        transfer_from_gateway_bond(&ctx, ctx.accounts.challenger_usdc.to_account_info(), bounty)?;
-    }
-    let remainder = slashed_bond.saturating_sub(bounty);
-    if remainder > 0 {
-        transfer_from_gateway_bond(&ctx, ctx.accounts.treasury.to_account_info(), remainder)?;
-    }
+    // If the gateway is active, transfer the bounty and remainder to the challenger and treasury.
+    if ctx.accounts.gateway.status != GatewayStatus::Slashed {
+        slashed_bond = ctx.accounts.gateway_bond.amount;
+        bounty = (slashed_bond as u128)
+            .saturating_mul(config.challenger_bounty_bps as u128)
+            .checked_div(10_000)
+            .unwrap_or(0) as u64;
+        if bounty > 0 {
+            transfer_from_gateway_bond(
+                &ctx,
+                ctx.accounts.challenger_usdc.to_account_info(),
+                bounty,
+            )?;
+        }
+        let remainder = slashed_bond.saturating_sub(bounty);
+        if remainder > 0 {
+            transfer_from_gateway_bond(&ctx, ctx.accounts.treasury.to_account_info(), remainder)?;
+        }
 
-    let gateway = &mut ctx.accounts.gateway;
-    gateway.slashed = true;
+        let gateway = &mut ctx.accounts.gateway;
+        gateway.status = GatewayStatus::Slashed;
+    }
 
     let record = &mut ctx.accounts.round_record;
     record.status = RoundRecordStatus::Voided;
@@ -83,13 +96,14 @@ pub fn dispute_round<'info>(mut ctx: Context<DisputeRound<'info>>) -> Result<()>
         slashed_bond,
         challenger_bounty: bounty,
         round_restored,
+        disputed_at: clock.unix_timestamp,
     });
 
     Ok(())
 }
 
 fn transfer_from_gateway_bond<'info>(
-    ctx: &Context<DisputeRound<'info>>,
+    ctx: &Context<ValidateRound<'info>>,
     destination: AccountInfo<'info>,
     amount: u64,
 ) -> Result<()> {
@@ -112,7 +126,7 @@ fn transfer_from_gateway_bond<'info>(
 }
 
 fn restore_subscription_round<'info>(
-    ctx: &mut Context<DisputeRound<'info>>,
+    ctx: &mut Context<ValidateRound<'info>>,
     now: i64,
 ) -> Result<()> {
     let subscription = ctx
@@ -134,7 +148,7 @@ fn restore_subscription_round<'info>(
 }
 
 #[derive(Accounts)]
-pub struct DisputeRound<'info> {
+pub struct ValidateRound<'info> {
     #[account(mut)]
     pub challenger: Signer<'info>,
 

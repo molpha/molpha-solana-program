@@ -14,11 +14,11 @@ use solana_keccak_hasher::hashv;
 ///
 /// Pinned because the CLI, gateway and SDK all build this instruction off-chain: any field
 /// added, removed or retyped here is a breaking wire change and should be a deliberate one.
-const INITIALIZE_IX_DATA_LEN: usize = 116;
+const INITIALIZE_IX_DATA_LEN: usize = 108;
 
 /// Borsh encoding of `UpdateConfigArgs`, plus the 8-byte Anchor discriminator.
 /// Pinned for the same reason as `INITIALIZE_IX_DATA_LEN`: off-chain clients encode this.
-const UPDATE_CONFIG_IX_DATA_LEN: usize = 83;
+const UPDATE_CONFIG_IX_DATA_LEN: usize = 75;
 
 /// Borsh encoding of `SubmitAttestationArgs`. Every field is fixed-width, so this is a
 /// constant — and a change to it is a breaking change for every off-chain submitter.
@@ -26,12 +26,11 @@ const SUBMIT_ATTESTATION_ARGS_LEN: usize = 161;
 
 fn initialize_args() -> InitializeArgs {
     InitializeArgs {
-        withdrawal_cooldown_secs: 3,
+        withdrawal_cooldown_slots: 3,
         redundancy_buffer: 2,
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
-        max_receipt_delay_slots: 256,
-        protocol_fee: 30,
+        max_receipt_delay_seconds: 256,
         dispute_window_slots: 1024,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
@@ -50,17 +49,16 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
 
     let decoded = borsh::from_slice::<InitializeArgs>(&data[8..]).expect("deserialize args");
     assert_eq!(
-        decoded.withdrawal_cooldown_secs,
-        args.withdrawal_cooldown_secs
+        decoded.withdrawal_cooldown_slots,
+        args.withdrawal_cooldown_slots
     );
     assert_eq!(decoded.redundancy_buffer, args.redundancy_buffer);
     assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
     assert_eq!(
-        decoded.max_receipt_delay_slots,
-        args.max_receipt_delay_slots
+        decoded.max_receipt_delay_seconds,
+        args.max_receipt_delay_seconds
     );
-    assert_eq!(decoded.protocol_fee, args.protocol_fee);
     assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
@@ -72,11 +70,10 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
 
 fn update_config_args() -> UpdateConfigArgs {
     UpdateConfigArgs {
-        withdrawal_cooldown_secs: 3,
+        withdrawal_cooldown_slots: 3,
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
-        max_receipt_delay_slots: 256,
-        protocol_fee: 30,
+        max_receipt_delay_seconds: 256,
         dispute_window_slots: 1024,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
@@ -94,16 +91,15 @@ fn update_config_instruction_data_is_stable_and_round_trips() {
 
     let decoded = borsh::from_slice::<UpdateConfigArgs>(&data[8..]).expect("deserialize args");
     assert_eq!(
-        decoded.withdrawal_cooldown_secs,
-        args.withdrawal_cooldown_secs
+        decoded.withdrawal_cooldown_slots,
+        args.withdrawal_cooldown_slots
     );
     assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
     assert_eq!(
-        decoded.max_receipt_delay_slots,
-        args.max_receipt_delay_slots
+        decoded.max_receipt_delay_seconds,
+        args.max_receipt_delay_seconds
     );
-    assert_eq!(decoded.protocol_fee, args.protocol_fee);
     assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
@@ -154,8 +150,7 @@ fn permanent_node_roundtrips() {
         locked_amount: 100,
         claimable_rewards: 9,
         registered_at: 1,
-        deactivated_at: 0,
-        withdrawable_at: 0,
+        withdrawable_slot: 0,
         frozen_until: 0,
         bump: 7,
     };

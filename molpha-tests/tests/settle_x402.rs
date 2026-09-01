@@ -5,7 +5,10 @@ use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::X402RoundSettled;
 use molpha::instructions::SettleX402RoundArgs;
-use molpha::state::{Gateway, RoundReceiptRecord, RoundRecordKind, RoundRecordStatus};
+use molpha::state::{
+    Gateway, GatewayStatus, RoundReceiptRecord, RoundRecordKind, RoundRecordStatus,
+};
+use molpha::utils::MAX_FUTURE_DRIFT_SECONDS;
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{Duty, Protocol};
@@ -98,7 +101,6 @@ fn settlement_debits_the_gateway_float_and_credits_the_treasury() {
     assert_eq!(record.signers_bitmap, signed.signers_bitmap);
     assert_eq!(record.attestation_message_hash, signed.message_hash);
     assert_eq!(record.reward_per_signature, f.p.args.reward_per_signature);
-    assert_eq!(record.protocol_fee, f.p.args.protocol_fee);
 
     let event: X402RoundSettled = only_event(&meta);
     assert_eq!(event.payer_id, args.payer_id);
@@ -340,7 +342,39 @@ fn a_settlement_leaves_the_gateway_bond_and_status_untouched() {
 
     let after: Gateway = f.p.env.get(&f.gateway_pda());
     assert_eq!(f.p.env.token_balance(&f.bond_ata()), bond_before);
-    assert!(!after.slashed);
-    assert_eq!(after.deactivated_at, 0);
+    assert_eq!(after.status, GatewayStatus::Active);
     assert_eq!(after.withdrawable_slot, 0);
+}
+
+#[test]
+fn settlement_rejects_a_stale_canonical_timestamp() {
+    let mut f = fixture();
+    let now = f.p.env.unix_timestamp() as u64;
+    let window = f.p.args.max_receipt_delay_seconds;
+
+    // No consumer signature exists on this path, so the timestamp is pure gateway input;
+    // the freshness window is what bounds the selection grind.
+    let stale = duty(4).at(now - window - 1);
+    let signed = f.p.sign_duty(stale);
+    let args = f.p.x402_args(&signed, [0xaa; 32]);
+    let failed = f.settle(args).unwrap_err();
+    assert_molpha_error(&failed, MolphaError::AttestationTooStale);
+
+    // The window is inclusive.
+    let boundary = duty(4).at(now - window);
+    let signed = f.p.sign_duty(boundary);
+    let args = f.p.x402_args(&signed, [0xab; 32]);
+    f.settle(args).expect("boundary settles");
+}
+
+#[test]
+fn settlement_rejects_a_future_canonical_timestamp() {
+    let mut f = fixture();
+    let now = f.p.env.unix_timestamp() as u64;
+
+    let future = duty(4).at(now + MAX_FUTURE_DRIFT_SECONDS + 1);
+    let signed = f.p.sign_duty(future);
+    let args = f.p.x402_args(&signed, [0xaa; 32]);
+    let failed = f.settle(args).unwrap_err();
+    assert_molpha_error(&failed, MolphaError::AttestationInFuture);
 }

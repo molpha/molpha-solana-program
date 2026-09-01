@@ -3,7 +3,8 @@ use anchor_lang::prelude::*;
 use crate::{
     error::{map_attestation_accounts_err, MolphaError},
     events::FeedUpdated,
-    state::{Feed, FeedInitParams, FeedUpdateParams, Registry},
+    state::{Feed, FeedInitParams, FeedUpdateParams, ProtocolConfig, Registry},
+    utils::require_fresh_canonical_timestamp,
 };
 use molpha_verifier::{
     solana::verify_attestation_accounts, Attestation, AttestationPayload, SchnorrSignature,
@@ -48,6 +49,11 @@ pub fn submit_attestation(
 ) -> Result<()> {
     let (stored_value, value_kind) = Feed::encode_stored_value(&args.value)?;
     let clock = Clock::get()?;
+    require_fresh_canonical_timestamp(
+        args.canonical_timestamp,
+        clock.unix_timestamp,
+        ctx.accounts.protocol_config.max_receipt_delay_seconds,
+    )?;
     let feed = &mut ctx.accounts.feed;
 
     if feed.source_id == [0u8; 32] {
@@ -124,6 +130,9 @@ pub struct SubmitAttestation<'info> {
         bump
     )]
     pub feed: Account<'info, Feed>,
+
+    #[account(seeds = [ProtocolConfig::SEED_PREFIX], bump = protocol_config.bump)]
+    pub protocol_config: Account<'info, ProtocolConfig>,
 
     pub system_program: Program<'info, System>,
 }

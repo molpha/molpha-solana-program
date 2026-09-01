@@ -427,8 +427,8 @@ export function registerRoundCommands(program: Command): void {
     });
 
   round
-    .command("dispute")
-    .description("Dispute a pending round with a corrected AggregatedSig")
+    .command("validate")
+    .description("Validate and immediately finalize a genuine pending round")
     .requiredOption("--round-record <pubkey>", "round receipt record address")
     .requiredOption(
       "--gateway-authority <pubkey>",
@@ -481,7 +481,7 @@ export function registerRoundCommands(program: Command): void {
       );
 
       // `record.kind` discriminates the funding path: subscription rounds are restored on a
-      // successful dispute; x402 rounds are never refunded (the price came from the gateway's
+      // failed validation; x402 rounds are never refunded (the price came from the gateway's
       // own float, and the gateway is the party being slashed).
       const isSubscription = record.kind?.subscription !== undefined;
       const subscription = isSubscription
@@ -492,7 +492,7 @@ export function registerRoundCommands(program: Command): void {
         : null;
 
       const signature = await (ctx.program.methods as any)
-        .disputeRound()
+        .validateRound()
         .accountsPartial({
           challenger: ctx.wallet.publicKey,
           protocolConfig: protocolConfigPda,
@@ -512,7 +512,7 @@ export function registerRoundCommands(program: Command): void {
           creditedBitsFromBitmap(Uint8Array.from(record.signersBitmap)).map(
             (bit) => ({
               pubkey: registryNode(registry, bit),
-              isWritable: false,
+              isWritable: true,
               isSigner: false,
             })
           )

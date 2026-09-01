@@ -8,7 +8,7 @@ use molpha::state::{
     unsolicited_signing_evidence_hash, Node, NodeStatus, OffenceKind, PunishmentCase,
 };
 use molpha_tests::crypto;
-use molpha_tests::env::{assert_molpha_error, events, only_event};
+use molpha_tests::env::{assert_anchor_error, assert_molpha_error, events, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{Duty, Protocol, SignedAttestation};
 use solana_keypair::Keypair;
@@ -54,7 +54,7 @@ fn case() -> Case {
     }
 }
 
-fn args_for(case: &Case, statement: &SignedAttestation) -> PunishUnsolicitedSigningArgs {
+fn args_for(_case: &Case, statement: &SignedAttestation) -> PunishUnsolicitedSigningArgs {
     let duty = statement.duty;
     let evidence_hash = unsolicited_signing_evidence_hash(
         &duty.source_id,
@@ -70,7 +70,6 @@ fn args_for(case: &Case, statement: &SignedAttestation) -> PunishUnsolicitedSign
         canonical_timestamp: duty.canonical_timestamp,
         statement: statement.statement(),
         evidence_hash,
-        new_registry_version: case.p.current_version() + 1,
     }
 }
 
@@ -104,6 +103,7 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
     let treasury_before = case.p.treasury_balance();
 
     let reporter = case.reporter.insecure_clone();
+    let new_version = case.p.current_version() + 1;
     let ix = case
         .p
         .punish_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
@@ -121,7 +121,7 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
         assert_eq!(account.locked_amount, locked_each);
     }
 
-    let after = case.p.env.registry(args.new_registry_version);
+    let after = case.p.env.registry(new_version);
     assert_eq!(after.node_count as usize, NODE_COUNT - guilty.len());
     for node in &guilty {
         assert!(!after.nodes.contains(node));
@@ -213,13 +213,9 @@ fn the_same_evidence_cannot_be_filed_twice() {
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     // Same evidence, next registry version: the case PDA is seeded by the evidence hash alone.
-    let replay = PunishUnsolicitedSigningArgs {
-        new_registry_version: case.p.current_version() + 1,
-        ..args
-    };
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), replay);
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert!(
         failed
@@ -235,15 +231,15 @@ fn the_same_evidence_cannot_be_filed_twice() {
 #[test]
 fn filing_requires_the_next_registry_version() {
     let mut case = case();
-    let mut args = args_for(&case, &case.statement);
-    args.new_registry_version += 3;
     let reporter = case.reporter.insecure_clone();
-
-    let ix = case
-        .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
+    let skipped = case.p.current_version() + 4;
+    let ix = case.p.punish_unsolicited_signing_ix_with_registry(
+        &reporter.pubkey(),
+        args_for(&case, &case.statement),
+        skipped,
+    );
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::InvalidRegistryVersion);
+    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -290,7 +286,6 @@ fn an_already_tombstoned_intruder_leaves_nothing_to_punish() {
             duty.canonical_timestamp,
             &statement.statement(),
         ),
-        new_registry_version: case.p.current_version() + 1,
     };
     let ix = case
         .p

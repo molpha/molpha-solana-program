@@ -31,6 +31,8 @@ pub enum MolphaError {
     InvalidSourceId,
     #[msg("new redundancy buffer must differ from the current registry policy")]
     RegistryPolicyUnchanged,
+    #[msg("redundancy buffer must be between 1 and 8")]
+    InvalidRedundancyBuffer,
     #[msg("Caller is not ProtocolConfig.authority")]
     UnauthorisedAuthority,
     #[msg("Gateway endpoint is invalid")]
@@ -94,12 +96,12 @@ pub enum MolphaError {
     ConsumerSigInvalid,
     #[msg("popcount(signers_bitmap) < signatures_required")]
     QuorumBelowThreshold,
-    #[msg("gateway is deactivated")]
-    GatewayDeactivated,
     #[msg("gateway is slashed")]
     GatewaySlashed,
-    #[msg("gateway is active")]
-    GatewayActive,
+    #[msg("gateway is not deactivated")]
+    GatewayNotDeactivated,
+    #[msg("gateway is not active")]
+    GatewayNotActive,
     #[msg("subscription inactive or round quota exhausted")]
     SubscriptionInactiveOrExhausted,
     #[msg("dispute failed: the committed signature verifies (no fraud)")]
@@ -172,6 +174,12 @@ pub enum MolphaError {
     NonceReuseSameMessage,
     #[msg("same duty with different values is equivocation - file it as one")]
     PreferEquivocation,
+    #[msg("canonical_timestamp is older than now - max_receipt_delay_seconds")]
+    AttestationTooStale,
+    #[msg("canonical_timestamp is further ahead of cluster time than the allowed drift")]
+    AttestationInFuture,
+    #[msg("max_receipt_delay_seconds must be greater than zero")]
+    InvalidMaxReceiptDelay,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {

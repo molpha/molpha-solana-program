@@ -1,9 +1,6 @@
 use anchor_lang::prelude::*;
 
 /// Permanent reservation for a secp256k1 node key.
-///
-/// The PDA is keyed by `keccak256(compressed_pubkey)`. Claims are intentionally never closed:
-/// once a key has represented a Molpha node it cannot later be replayed for another identity.
 #[account]
 #[derive(InitSpace)]
 pub struct Secp256k1KeyClaim {

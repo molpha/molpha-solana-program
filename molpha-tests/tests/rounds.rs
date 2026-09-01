@@ -1,11 +1,12 @@
-//! `finalize_round`, `dispute_round` and `claim_node_rewards` — the tail of the round lifecycle.
+//! `finalize_round`, `validate_round` and `claim_node_rewards` — the tail of the round lifecycle.
 
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::{RewardsClaimed, RoundDisputed, RoundFinalized};
 use molpha::instructions::AddPlanArgs;
 use molpha::state::{
-    Gateway, Node, NodeStatus, PlanType, RoundReceiptRecord, RoundRecordStatus, Subscription,
+    Gateway, GatewayStatus, Node, NodeStatus, PlanType, RoundReceiptRecord, RoundRecordStatus,
+    Subscription,
 };
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
@@ -153,7 +154,6 @@ fn finalize_credits_every_signer_and_closes_the_round() {
 
     let event: RoundFinalized = only_event(&meta);
     assert_eq!(event.round_record, record);
-    assert_eq!(event.credited_count, credited.len() as u32);
 }
 
 #[test]
@@ -298,11 +298,11 @@ fn finalize_credits_a_node_that_has_since_been_deactivated() {
 }
 
 // ---------------------------------------------------------------------------
-// dispute_round
+// validate_round
 // ---------------------------------------------------------------------------
 
 #[test]
-fn disputing_a_fabricated_x402_round_voids_it_and_slashes_the_bond() {
+fn validating_a_fabricated_x402_round_voids_it_and_slashes_the_bond() {
     let mut f = fixture();
     let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
     let record = f.settle_x402(&fabricated, [0xaa; 32]);
@@ -315,14 +315,14 @@ fn disputing_a_fabricated_x402_round_voids_it_and_slashes_the_bond() {
     assert!(expected_bounty > 0);
 
     let ix =
-        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
     let meta = f.p.env.send_ok(&[ix], &[&challenger]);
 
     let updated: RoundReceiptRecord = f.p.env.get(&record);
     assert_eq!(updated.status, RoundRecordStatus::Voided);
 
     let gateway: Gateway = f.p.env.get(&f.gateway_pda());
-    assert!(gateway.slashed);
+    assert_eq!(gateway.status, GatewayStatus::Slashed);
     assert_eq!(f.p.env.token_balance(&f.bond_ata()), 0);
 
     let challenger_usdc = pda::ata(&challenger.pubkey(), &f.p.usdc_mint);
@@ -343,7 +343,7 @@ fn disputing_a_fabricated_x402_round_voids_it_and_slashes_the_bond() {
 }
 
 #[test]
-fn disputing_a_fabricated_subscription_round_gives_the_round_back() {
+fn validating_a_fabricated_subscription_round_gives_the_round_back() {
     let mut f = fixture();
     let owner = f.subscribe();
     let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
@@ -357,7 +357,7 @@ fn disputing_a_fabricated_subscription_round_gives_the_round_back() {
 
     let signers = f.credited_nodes(&record);
     let challenger = f.p.env.keypair();
-    let ix = f.p.dispute_round_ix(
+    let ix = f.p.validate_round_ix(
         &challenger.pubkey(),
         &record,
         Some(pda::subscription(&owner.pubkey())),
@@ -381,20 +381,49 @@ fn disputing_a_fabricated_subscription_round_gives_the_round_back() {
 }
 
 #[test]
-fn a_genuinely_valid_round_cannot_be_disputed() {
+fn validating_a_genuine_round_finalizes_it_and_credits_its_signers() {
     let mut f = fixture();
     let signed = f.p.sign_duty(duty());
     let record = f.settle_x402(&signed, [0xaa; 32]);
     let signers = f.credited_nodes(&record);
+    let rewards_before: Vec<u64> = signers
+        .iter()
+        .map(|node| f.p.env.get::<Node>(node).claimable_rewards)
+        .collect();
 
     let challenger = f.p.env.keypair();
     let ix =
-        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
+    let meta = f.p.env.send_ok(&[ix], &[&challenger]);
+
+    assert_eq!(
+        f.p.env.get::<RoundReceiptRecord>(&record).status,
+        RoundRecordStatus::Finalized
+    );
+    for (node, before) in signers.iter().zip(rewards_before) {
+        assert_eq!(
+            f.p.env.get::<Node>(node).claimable_rewards,
+            before + f.p.args.reward_per_signature
+        );
+    }
+
+    let event: RoundFinalized = only_event(&meta);
+    assert_eq!(event.round_record, record);
+
+    let rewards_after: Vec<u64> = signers
+        .iter()
+        .map(|node| f.p.env.get::<Node>(node).claimable_rewards)
+        .collect();
+    let ix =
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
     let failed = f.p.env.send_err(&[ix], &[&challenger]);
-    assert_molpha_error(&failed, MolphaError::DisputeSignatureValid);
+    assert_molpha_error(&failed, MolphaError::RoundNotPending);
+    for (node, after) in signers.iter().zip(rewards_after) {
+        assert_eq!(f.p.env.get::<Node>(node).claimable_rewards, after);
+    }
 
     let gateway: Gateway = f.p.env.get(&f.gateway_pda());
-    assert!(!gateway.slashed);
+    assert_eq!(gateway.status, GatewayStatus::Active);
     assert_eq!(
         f.p.env.token_balance(&f.bond_ata()),
         f.p.args.gateway_bond_min
@@ -415,27 +444,30 @@ fn a_deactivated_gateway_remains_slashable_through_the_dispute_boundary() {
     let deactivate =
         f.p.deactivate_gateway_ix(&protocol_authority.pubkey(), &gateway.pubkey());
     f.p.env.send_ok(&[deactivate], &[&protocol_authority]);
-    assert!(f.p.env.get::<Gateway>(&f.gateway_pda()).deactivated_at > 0);
+    assert_eq!(
+        f.p.env.get::<Gateway>(&f.gateway_pda()).status,
+        GatewayStatus::Deactivated
+    );
     assert_eq!(f.p.env.token_balance(&f.bond_ata()), bond);
 
     f.p.env.advance_slots(f.p.args.dispute_window_slots);
     let challenger = f.p.env.keypair();
-    let dispute =
-        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
-    f.p.env.send_ok(&[dispute], &[&challenger]);
+    let validation =
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
+    f.p.env.send_ok(&[validation], &[&challenger]);
 
     let gateway_state: Gateway = f.p.env.get(&f.gateway_pda());
-    assert!(gateway_state.slashed);
+    assert_eq!(gateway_state.status, GatewayStatus::Slashed);
     assert_eq!(f.p.env.token_balance(&f.bond_ata()), 0);
 
     f.p.env.advance_slots(1);
     let withdraw = f.p.withdraw_gateway_bond_ix(&gateway.pubkey());
     let failed = f.p.env.send_err(&[withdraw], &[&gateway]);
-    assert_molpha_error(&failed, MolphaError::GatewaySlashed);
+    assert_molpha_error(&failed, MolphaError::GatewayNotDeactivated);
 }
 
 #[test]
-fn a_round_cannot_be_disputed_after_its_window() {
+fn a_fabricated_round_can_still_be_disputed_after_its_window() {
     let mut f = fixture();
     let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
     let record = f.settle_x402(&fabricated, [0xc2; 32]);
@@ -443,14 +475,51 @@ fn a_round_cannot_be_disputed_after_its_window() {
     f.past_the_dispute_window();
 
     let challenger = f.p.env.keypair();
-    let dispute =
-        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
-    let failed = f.p.env.send_err(&[dispute], &[&challenger]);
-    assert_molpha_error(&failed, MolphaError::DisputeWindowElapsed);
+    let validation =
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
+    f.p.env.send_ok(&[validation], &[&challenger]);
+
+    assert_eq!(
+        f.p.env.get::<RoundReceiptRecord>(&record).status,
+        RoundRecordStatus::Voided
+    );
+    assert_eq!(
+        f.p.env.get::<Gateway>(&f.gateway_pda()).status,
+        GatewayStatus::Slashed
+    );
 }
 
 #[test]
-fn an_x402_dispute_must_not_name_a_subscription() {
+fn a_genuine_round_can_still_be_validated_after_its_window() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xc3; 32]);
+    let signers = f.credited_nodes(&record);
+    let rewards_before: Vec<u64> = signers
+        .iter()
+        .map(|node| f.p.env.get::<Node>(node).claimable_rewards)
+        .collect();
+    f.past_the_dispute_window();
+
+    let challenger = f.p.env.keypair();
+    let validation =
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
+    f.p.env.send_ok(&[validation], &[&challenger]);
+
+    assert_eq!(
+        f.p.env.get::<RoundReceiptRecord>(&record).status,
+        RoundRecordStatus::Finalized
+    );
+    for (node, before) in signers.iter().zip(rewards_before) {
+        assert_eq!(
+            f.p.env.get::<Node>(node).claimable_rewards,
+            before + f.p.args.reward_per_signature
+        );
+    }
+}
+
+#[test]
+fn an_x402_validation_must_not_name_a_subscription() {
     let mut f = fixture();
     let owner = f.subscribe();
     let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
@@ -458,7 +527,7 @@ fn an_x402_dispute_must_not_name_a_subscription() {
     let signers = f.credited_nodes(&record);
 
     let challenger = f.p.env.keypair();
-    let ix = f.p.dispute_round_ix(
+    let ix = f.p.validate_round_ix(
         &challenger.pubkey(),
         &record,
         Some(pda::subscription(&owner.pubkey())),
@@ -469,7 +538,7 @@ fn an_x402_dispute_must_not_name_a_subscription() {
 }
 
 #[test]
-fn a_subscription_dispute_must_name_the_subscription() {
+fn a_subscription_validation_must_name_the_subscription() {
     let mut f = fixture();
     let owner = f.subscribe();
     let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
@@ -478,13 +547,13 @@ fn a_subscription_dispute_must_name_the_subscription() {
 
     let challenger = f.p.env.keypair();
     let ix =
-        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
     let failed = f.p.env.send_err(&[ix], &[&challenger]);
     assert_molpha_error(&failed, MolphaError::WrongSubscriptionAccount);
 }
 
 #[test]
-fn a_round_can_only_be_disputed_once() {
+fn a_round_can_only_be_validated_once() {
     let mut f = fixture();
     let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
     let record = f.settle_x402(&fabricated, [0xaa; 32]);
@@ -492,11 +561,11 @@ fn a_round_can_only_be_disputed_once() {
     let challenger = f.p.env.keypair();
 
     let ix =
-        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
     f.p.env.send_ok(&[ix], &[&challenger]);
 
     let ix =
-        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
     let failed = f.p.env.send_err(&[ix], &[&challenger]);
     assert_molpha_error(&failed, MolphaError::RoundNotPending);
 }
@@ -509,7 +578,7 @@ fn a_voided_round_can_never_be_finalized() {
     let signers = f.credited_nodes(&record);
     let challenger = f.p.env.keypair();
     let ix =
-        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
     f.p.env.send_ok(&[ix], &[&challenger]);
 
     f.past_the_dispute_window();
@@ -524,7 +593,7 @@ fn a_voided_round_can_never_be_finalized() {
 }
 
 #[test]
-fn a_dispute_must_name_the_gateway_that_settled_the_round() {
+fn validation_must_name_the_gateway_that_settled_the_round() {
     let mut f = fixture();
     let other_gateway = f.p.register_gateway(FLOAT);
     let fabricated = f.p.sign_duty(duty()).with_tampered_signature();
@@ -533,7 +602,7 @@ fn a_dispute_must_name_the_gateway_that_settled_the_round() {
 
     let challenger = f.p.env.keypair();
     let mut ix =
-        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
     let settled_by = f.gateway_pda();
     let innocent = pda::gateway(&other_gateway.pubkey());
     for meta in ix.accounts.iter_mut() {
@@ -555,7 +624,7 @@ fn a_slashed_gateway_can_no_longer_settle() {
     let signers = f.credited_nodes(&record);
     let challenger = f.p.env.keypair();
     let ix =
-        f.p.dispute_round_ix(&challenger.pubkey(), &record, None, &signers);
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &signers);
     f.p.env.send_ok(&[ix], &[&challenger]);
 
     let signed = f.p.sign_duty(duty().at(1_700_000_999));
@@ -563,7 +632,57 @@ fn a_slashed_gateway_can_no_longer_settle() {
     let ix = f.p.settle_x402_round_ix(&f.gateway.pubkey(), args);
     let gateway = f.gateway.insecure_clone();
     let failed = f.p.env.send_err(&[ix], &[&gateway]);
+    assert_molpha_error(&failed, MolphaError::GatewayNotActive);
+}
+
+#[test]
+fn a_slashed_gateways_valid_rounds_must_finalize_through_validation() {
+    let mut f = fixture();
+    let challenger = f.p.env.keypair();
+
+    let valid_attestation = f.p.sign_duty(duty());
+    let valid_record = f.settle_x402(&valid_attestation, [0xa1; 32]);
+    let valid_signers = f.credited_nodes(&valid_record);
+
+    let pending_attestation = f.p.sign_duty(duty().at(1_700_000_001));
+    let pending_record = f.settle_x402(&pending_attestation, [0xa2; 32]);
+    let pending_signers = f.credited_nodes(&pending_record);
+
+    let fabricated =
+        f.p.sign_duty(duty().at(1_700_000_002))
+            .with_tampered_signature();
+    let fabricated_record = f.settle_x402(&fabricated, [0xa3; 32]);
+    let fabricated_signers = f.credited_nodes(&fabricated_record);
+    let ix = f.p.validate_round_ix(
+        &challenger.pubkey(),
+        &fabricated_record,
+        None,
+        &fabricated_signers,
+    );
+    f.p.env.send_ok(&[ix], &[&challenger]);
+    assert_eq!(
+        f.p.env.get::<Gateway>(&f.gateway_pda()).status,
+        GatewayStatus::Slashed
+    );
+
+    let ix =
+        f.p.validate_round_ix(&challenger.pubkey(), &valid_record, None, &valid_signers);
+    f.p.env.send_ok(&[ix], &[&challenger]);
+    assert_eq!(
+        f.p.env.get::<RoundReceiptRecord>(&valid_record).status,
+        RoundRecordStatus::Finalized
+    );
+
+    f.past_the_dispute_window();
+
+    let ix =
+        f.p.finalize_round_ix(&challenger.pubkey(), &pending_record, &pending_signers);
+    let failed = f.p.env.send_err(&[ix], &[&challenger]);
     assert_molpha_error(&failed, MolphaError::GatewaySlashed);
+    assert_eq!(
+        f.p.env.get::<RoundReceiptRecord>(&pending_record).status,
+        RoundRecordStatus::Pending
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -601,7 +720,6 @@ fn a_node_owner_withdraws_finalized_rewards_from_the_treasury() {
 
     let event: RewardsClaimed = only_event(&meta);
     assert_eq!(event.beneficiary, owner.pubkey());
-    assert_eq!(event.destination, destination);
     assert_eq!(event.amount, reward);
 }
 

@@ -35,8 +35,8 @@ pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
 
     emit!(RewardsClaimed {
         beneficiary: ctx.accounts.node.owner,
-        destination: ctx.accounts.destination.key(),
         amount,
+        claimed_at: Clock::get()?.unix_timestamp,
     });
     Ok(())
 }

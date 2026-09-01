@@ -16,7 +16,7 @@ use solana_signer::Signer;
 ///
 /// Asserted exactly: adding an account to the instruction, or growing its args, costs signer
 /// slots, and the gateway needs to know when that happens.
-const MAX_LEGACY_COALITION: usize = 19;
+const MAX_LEGACY_COALITION: usize = 18;
 
 const REDUNDANCY_BUFFER: u8 = 2;
 /// Wide enough that the scan below runs past the wire limit rather than out of nodes.

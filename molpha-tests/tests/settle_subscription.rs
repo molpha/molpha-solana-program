@@ -107,10 +107,6 @@ fn owner_direct_settlement_records_the_round_and_consumes_quota() {
     assert_eq!(record.commitment, signed.signature.commitment);
     assert_eq!(record.attestation_message_hash, signed.message_hash);
     assert_eq!(record.reward_per_signature, f.p.args.reward_per_signature);
-    assert_eq!(
-        record.protocol_fee, 0,
-        "subscription rounds are prepaid; no per-round protocol fee"
-    );
     assert_eq!(record.recorded_slot, f.p.env.slot());
 
     let subscription: Subscription = f.p.env.get(&pda::subscription(&owner.pubkey()));
@@ -122,7 +118,7 @@ fn owner_direct_settlement_records_the_round_and_consumes_quota() {
     let event: RoundSettled = only_event(&meta);
     assert_eq!(event.gateway, pda::gateway(&gateway.pubkey()));
     assert_eq!(event.source_id, duty.source_id);
-    assert_eq!(event.timestamp, duty.canonical_timestamp);
+    assert_eq!(event.canonical_timestamp, duty.canonical_timestamp);
     assert_eq!(
         event.credited_count,
         signed
@@ -131,7 +127,6 @@ fn owner_direct_settlement_records_the_round_and_consumes_quota() {
             .map(|b| b.count_ones())
             .sum::<u32>()
     );
-    assert_eq!(event.protocol_fee, 0);
 }
 
 #[test]
@@ -607,4 +602,27 @@ fn settlement_rejects_a_registry_version_that_is_no_longer_current() {
     let ixs = settle_ixs(&f, &owner, None, &signed);
     let failed = f.p.env.send_err(&ixs, &[&owner, &gateway]);
     assert_molpha_error(&failed, MolphaError::InvalidRegistryVersion);
+}
+
+#[test]
+fn settlement_rejects_a_stale_authorized_request() {
+    let mut f = fixture();
+    let owner = f.owner.insecure_clone();
+    let gateway = f.gateway.insecure_clone();
+    let now = f.p.env.unix_timestamp() as u64;
+    let window = f.p.args.max_receipt_delay_seconds;
+
+    // The consumer authorization matches the duty, so the failure is the freshness window,
+    // not the signature: a banked authorization cannot be redeemed after the window expires.
+    let stale = duty(4).at(now - window - 1);
+    let signed = f.p.sign_duty(stale);
+    let ixs = settle_ixs(&f, &owner, None, &signed);
+    let failed = f.p.env.send_err(&ixs, &[&owner, &gateway]);
+    assert_molpha_error(&failed, MolphaError::AttestationTooStale);
+
+    // At the boundary the same shape settles.
+    let boundary = duty(4).at(now - window);
+    let signed = f.p.sign_duty(boundary);
+    let ixs = settle_ixs(&f, &owner, None, &signed);
+    f.p.env.send_ok(&ixs, &[&owner, &gateway]);
 }

@@ -4,12 +4,12 @@
 
 use molpha::error::MolphaError;
 use molpha::events::{
-    NodeDeactivated, NodeEndpointUpdated, NodeRegistered, RegistryVersionCreated,
+    NodeDeactivated, NodeEndpointUpdated, NodeRegistered, RegistryUpdated, RegistryVersionReason,
 };
 use molpha::instructions::{DeactivateNodeArgs, RegisterNodeArgs};
 use molpha::state::{Node, NodeStatus, RegistryState, Secp256k1KeyClaim};
 use molpha_tests::crypto::{self, NodeKey};
-use molpha_tests::env::{assert_anchor_error, assert_molpha_error, events, only_event};
+use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{Duty, Protocol};
 use solana_keypair::Keypair;
@@ -34,6 +34,15 @@ fn register(
 ) -> litesvm::types::TransactionResult {
     let authority = p.authority.insecure_clone();
     let ix = p.register_node_ix(&owner.pubkey(), args, &authority.pubkey());
+    p.env.send(&[ix], &[&authority, owner])
+}
+
+fn register_ix(
+    p: &mut Protocol,
+    owner: &Keypair,
+    ix: anchor_lang::solana_program::instruction::Instruction,
+) -> litesvm::types::TransactionResult {
+    let authority = p.authority.insecure_clone();
     p.env.send(&[ix], &[&authority, owner])
 }
 
@@ -64,8 +73,7 @@ fn register_node_writes_identity_takes_the_deposit_and_appends_a_snapshot() {
     assert_eq!(node.locked_amount, p.args.minimum_node_deposit);
     assert_eq!(node.claimable_rewards, 0);
     assert_eq!(node.registered_at, p.env.unix_timestamp());
-    assert_eq!(node.deactivated_at, 0);
-    assert_eq!(node.withdrawable_at, 0);
+    assert_eq!(node.withdrawable_slot, 0);
     assert_eq!(node.frozen_until, 0);
 
     // The secp256k1 key is permanently reserved for this node.
@@ -91,18 +99,10 @@ fn register_node_writes_identity_takes_the_deposit_and_appends_a_snapshot() {
 
     let registered: NodeRegistered = only_event(&meta);
     assert_eq!(registered.owner, owner.pubkey());
-    assert_eq!(registered.new_index, 0);
-    assert_eq!(registered.current_version, 1);
+    assert_eq!(registered.index, 0);
+    assert_eq!(registered.registry_version, 2);
     assert_eq!(registered.security_deposit, p.args.minimum_node_deposit);
-    assert_eq!(
-        registered.node_id,
-        crypto::derive_node_id(&owner.pubkey(), &key.compressed, &salt(9))
-    );
-
-    let version_event: RegistryVersionCreated = only_event(&meta);
-    assert_eq!(version_event.previous_version, 0);
-    assert_eq!(version_event.new_version, 1);
-    assert_eq!(version_event.node_count, 1);
+    assert_eq!(registered.node, pda::node(&owner.pubkey()));
 }
 
 #[test]
@@ -256,10 +256,15 @@ fn register_node_rejects_a_registry_version_that_is_not_the_next_one() {
     let key = crypto::node_keys("register-version", 1).remove(0);
     let owner = funded_owner(&mut p);
 
-    let mut args = p.register_node_args(&owner.pubkey(), &key, salt(10), 8_001);
-    args.new_registry_version = 2; // current is 0, so 1 is the only legal successor
-    let failed = register(&mut p, &owner, &args).unwrap_err();
-    assert_molpha_error(&failed, MolphaError::InvalidRegistryVersion);
+    let args = p.register_node_args(&owner.pubkey(), &key, salt(10), 8_001);
+    let ix = p.register_node_ix_with_registry(
+        &owner.pubkey(),
+        &args,
+        &p.authority.pubkey(),
+        2, // current is 0, so 1 is the only legal successor
+    );
+    let failed = register_ix(&mut p, &owner, ix).unwrap_err();
+    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -313,10 +318,12 @@ fn deactivate_node_by_its_owner_removes_it_and_starts_the_withdrawal_cooldown() 
     let meta = p.env.send_ok(&[ix], &[&owner]);
 
     let node: Node = p.env.get(&target);
-    let now = p.env.unix_timestamp();
+    let slot = p.env.slot();
     assert_eq!(node.status, NodeStatus::Deactivated);
-    assert_eq!(node.deactivated_at, now);
-    assert_eq!(node.withdrawable_at, now + p.args.withdrawal_cooldown_secs);
+    assert_eq!(
+        node.withdrawable_slot,
+        slot.saturating_add(p.args.withdrawal_cooldown_slots)
+    );
     // Deactivation does not refund; the deposit stays locked until withdrawal.
     assert_eq!(node.locked_amount, p.args.minimum_node_deposit);
 
@@ -333,8 +340,8 @@ fn deactivate_node_by_its_owner_removes_it_and_starts_the_withdrawal_cooldown() 
 
     let event: NodeDeactivated = only_event(&meta);
     assert_eq!(event.node, target);
-    assert_eq!(event.removed_index, 1);
-    assert_eq!(event.current_version, 4);
+    assert_eq!(event.index, 1);
+    assert_eq!(event.new_registry_version, 5);
 }
 
 #[test]
@@ -377,13 +384,11 @@ fn deactivate_node_is_not_repeatable() {
     p.env.send_ok(&[ix], &[&owner]);
 
     // The node is gone from the registry, so build the second attempt by hand.
-    let current_version = p.current_version();
     let ix = p.deactivate_node_raw_ix(
         &owner.pubkey(),
         DeactivateNodeArgs {
             node_owner: owner.pubkey(),
             remove_index: 0,
-            new_registry_version: current_version + 1,
         },
     );
     let failed = p.env.send_err(&[ix], &[&owner]);
@@ -402,7 +407,6 @@ fn deactivate_node_rejects_a_remove_index_that_points_at_another_node() {
         DeactivateNodeArgs {
             node_owner: owner.pubkey(),
             remove_index: 2, // node 0 lives at index 0
-            new_registry_version: current_version + 1,
         },
     );
     let failed = p.env.send_err(&[ix], &[&owner]);
@@ -415,14 +419,12 @@ fn deactivate_node_rejects_a_remove_index_past_the_end_of_the_registry() {
     let mut p = Protocol::start();
     p.register_nodes("deactivate-oob", 2);
     let owner = p.nodes[0].owner.insecure_clone();
-    let current_version = p.current_version();
 
     let ix = p.deactivate_node_raw_ix(
         &owner.pubkey(),
         DeactivateNodeArgs {
             node_owner: owner.pubkey(),
             remove_index: 99,
-            new_registry_version: current_version + 1,
         },
     );
     let failed = p.env.send_err(&[ix], &[&owner]);
@@ -525,10 +527,13 @@ fn update_registry_policy_carries_membership_into_a_new_snapshot() {
         4
     );
 
-    let event: RegistryVersionCreated = only_event(&meta);
-    assert_eq!(event.previous_version, 3);
-    assert_eq!(event.new_version, 4);
+    let state: RegistryState = p.env.get(&pda::registry_state());
+    let event: RegistryUpdated = only_event(&meta);
+    assert_eq!(event.new_version, state.current_version);
+    assert_ne!(event.new_version, state.next_version);
+    assert_eq!(event.node_count, before.node_count);
     assert_eq!(event.redundancy_buffer, 5);
+    assert!(matches!(event.reason, RegistryVersionReason::PolicyChanged));
 }
 
 #[test]
@@ -552,7 +557,7 @@ fn update_registry_policy_rejects_a_version_that_is_not_the_next_one() {
 
     let ix = p.update_registry_policy_ix(&authority.pubkey(), 5, 9);
     let failed = p.env.send_err(&[ix], &[&authority]);
-    assert_molpha_error(&failed, MolphaError::InvalidRegistryVersion);
+    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -589,8 +594,9 @@ fn a_historical_snapshot_still_verifies_after_membership_and_policy_change() {
     assert_eq!(p.current_version(), 8);
 
     // The version-6 attestation still verifies against the version-6 snapshot.
-    let ix = p.verify_attestation_ix(&historical);
-    p.env.send_ok(&[ix], &[]);
+    let submitter = p.env.keypair();
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &historical);
+    p.env.send_ok(&[ix], &[&submitter]);
 
     // And the historical snapshot is byte-for-byte what it was.
     let v6 = p.env.registry(6);
@@ -612,18 +618,4 @@ fn registered_node_order_matches_the_key_material() {
         assert_eq!(node.secp256k1_pubkey_x, key.x);
         assert_eq!(node.secp256k1_pubkey_y, key.y);
     }
-}
-
-#[test]
-fn every_registration_emits_exactly_one_registry_version_event() {
-    let mut p = Protocol::start();
-    let key = crypto::node_keys("one-event", 1).remove(0);
-    let owner = funded_owner(&mut p);
-    let args = p.register_node_args(&owner.pubkey(), &key, salt(21), 8_001);
-    let authority = p.authority.insecure_clone();
-    let ix = p.register_node_ix(&owner.pubkey(), &args, &authority.pubkey());
-    let meta = p.env.send_ok(&[ix], &[&authority, &owner]);
-
-    assert_eq!(events::<RegistryVersionCreated>(&meta).len(), 1);
-    assert_eq!(events::<NodeRegistered>(&meta).len(), 1);
 }

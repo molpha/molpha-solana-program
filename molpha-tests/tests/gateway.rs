@@ -3,7 +3,7 @@
 use molpha::error::MolphaError;
 use molpha::events::GatewayRegistered;
 use molpha::instructions::RegisterGatewayArgs;
-use molpha::state::Gateway;
+use molpha::state::{Gateway, GatewayStatus};
 use molpha_tests::env::{assert_molpha_error, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::Protocol;
@@ -34,9 +34,8 @@ fn register_gateway_moves_the_bond_into_a_gateway_owned_escrow() {
     assert_eq!(gateway.authority, authority.pubkey());
     assert_eq!(gateway.ip, [198, 51, 100, 4]);
     assert_eq!(gateway.port, 8_443);
-    assert!(!gateway.slashed);
+    assert_eq!(gateway.status, GatewayStatus::Active);
     assert_eq!(gateway.registered_at, p.env.unix_timestamp());
-    assert_eq!(gateway.deactivated_at, 0);
     assert_eq!(gateway.withdrawable_slot, 0);
 
     // The bond lives in an ATA owned by the gateway PDA, not by the authority and not by the

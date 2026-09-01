@@ -5,13 +5,12 @@ use crate::state::{FeedValueKind, NodeStatus, OffenceKind};
 #[event]
 pub struct ProtocolConfigUpdated {
     pub reward_per_signature: u64,
-    pub max_receipt_delay_slots: u64,
-    pub protocol_fee: u64,
+    pub max_receipt_delay_seconds: u64,
     pub dispute_window_slots: u64,
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
     pub minimum_node_deposit: u64,
-    pub withdrawal_cooldown_secs: i64,
+    pub withdrawal_cooldown_slots: u64,
     pub x402_round_base: u64,
     pub x402_round_per_sig: u64,
     pub min_signers: u8,
@@ -30,12 +29,12 @@ pub struct ProtocolInitialized {
 
 #[event]
 pub struct NodeRegistered {
-    pub node_id: [u8; 32],
-    pub new_index: u32,
+    pub node: Pubkey,
     pub owner: Pubkey,
+    pub index: u32,
+    pub registry_version: u32,
     pub ip: [u8; 4],
     pub port: u16,
-    pub current_version: u32,
     pub security_deposit: u64,
     pub registered_at: i64,
 }
@@ -46,14 +45,15 @@ pub struct NodeEndpointUpdated {
     pub owner: Pubkey,
     pub ip: [u8; 4],
     pub port: u16,
+    pub updated_at: i64,
 }
 
 #[event]
 pub struct NodeDeactivated {
     pub node: Pubkey,
     pub owner: Pubkey,
-    pub removed_index: u32,
-    pub current_version: u32,
+    pub index: u32,
+    pub new_registry_version: u32,
     pub deactivated_at: i64,
 }
 
@@ -67,13 +67,12 @@ pub struct NodeDepositWithdrawn {
 }
 
 #[event]
-pub struct RegistryVersionCreated {
-    pub previous_version: u32,
+pub struct RegistryUpdated {
     pub new_version: u32,
     pub node_count: u16,
     pub redundancy_buffer: u8,
     pub reason: RegistryVersionReason,
-    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug)]
@@ -135,45 +134,42 @@ pub struct GatewayRegistered {
 pub struct GatewayDeactivated {
     pub gateway: Pubkey,
     pub authority: Pubkey,
-    pub deactivated_at: i64,
     pub withdrawable_slot: u64,
+    pub deactivated_at: i64,
 }
 
 #[event]
 pub struct GatewayBondWithdrawn {
     pub gateway: Pubkey,
-    pub authority: Pubkey,
-    pub destination: Pubkey,
     pub amount: u64,
-    pub withdrawn_at: i64,
     pub withdrawn_slot: u64,
+    pub withdrawn_at: i64,
 }
 
 #[event]
 pub struct DelegateAdded {
     pub owner: Pubkey,
     pub delegate: Pubkey,
-    pub max_data_requests: u64,
     pub max_signers: u8,
     pub delegate_count: u32,
+    pub added_at: i64,
 }
 
 #[event]
 pub struct DelegateRemoved {
     pub owner: Pubkey,
     pub delegate: Pubkey,
-    pub data_requests_used: u64,
     pub delegate_count: u32,
+    pub removed_at: i64,
 }
 
 #[event]
 pub struct DelegateStatusChanged {
-    pub delegate_account: Pubkey,
-    pub owner: Pubkey,
     pub delegate: Pubkey,
+    pub owner: Pubkey,
     pub old_status: u8,
     pub new_status: u8,
-    pub by: Pubkey,
+    pub updated_at: i64,
 }
 
 #[event]
@@ -191,19 +187,18 @@ pub struct FeedUpdated {
 pub struct RoundSettled {
     pub gateway: Pubkey,
     pub source_id: [u8; 32],
-    pub timestamp: u64,
-    pub signers_bitmap: [u8; 32],
+    pub canonical_timestamp: u64,
     pub credited_count: u32,
     pub reward_per_signature: u64,
-    pub protocol_fee: u64,
     pub recorded_slot: u64,
+    pub recorded_at: i64,
 }
 
 #[event]
 pub struct RoundFinalized {
     pub round_record: Pubkey,
-    pub credited_count: u32,
     pub finalized_slot: u64,
+    pub finalized_at: i64,
 }
 
 #[event]
@@ -213,13 +208,14 @@ pub struct RoundDisputed {
     pub slashed_bond: u64,
     pub challenger_bounty: u64,
     pub round_restored: bool,
+    pub disputed_at: i64,
 }
 
 #[event]
 pub struct RewardsClaimed {
     pub beneficiary: Pubkey,
-    pub destination: Pubkey,
     pub amount: u64,
+    pub claimed_at: i64,
 }
 
 #[event]
@@ -228,11 +224,12 @@ pub struct X402RoundSettled {
     pub payment_rail: u16,
     pub price: u64,
     pub source_id: [u8; 32],
-    pub timestamp: u64,
+    pub canonical_timestamp: u64,
     pub gateway: Pubkey,
     pub signers_bitmap: [u8; 32],
     pub credited_count: u32,
     pub recorded_slot: u64,
+    pub recorded_at: i64,
 }
 
 #[event]

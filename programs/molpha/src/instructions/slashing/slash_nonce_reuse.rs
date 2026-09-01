@@ -31,7 +31,6 @@ pub struct PunishNonceReuseArgs {
     pub statement_b: SignedStatement,
     /// Must match `nonce_reuse_evidence_hash(..)`; used as the `PunishmentCase` PDA seed.
     pub evidence_hash: [u8; 32],
-    pub new_registry_version: u32,
 }
 
 pub fn punish_nonce_reuse<'info>(
@@ -77,10 +76,6 @@ pub fn punish_nonce_reuse<'info>(
         ) == args.evidence_hash,
         MolphaError::EvidenceHashMismatch
     );
-
-    ctx.accounts
-        .registry_state
-        .require_next_version(args.new_registry_version)?;
 
     let bitmap_a = bitmap_load(&args.statement_a.signers_bitmap);
     let bitmap_b = bitmap_load(&args.statement_b.signers_bitmap);
@@ -150,6 +145,7 @@ pub fn punish_nonce_reuse<'info>(
     )?;
 
     let reporter = ctx.accounts.reporter.key();
+    let new_registry_version = ctx.accounts.registry_state.next_version;
     let outcome = slash_nodes(
         SlashAccounts {
             registry_state: &mut ctx.accounts.registry_state,
@@ -173,7 +169,7 @@ pub fn punish_nonce_reuse<'info>(
             offence: OffenceKind::NonceReuse,
             registry_version: args.registry_version,
             evidence_hash: args.evidence_hash,
-            new_registry_version: args.new_registry_version,
+            new_registry_version,
         },
     )?;
 
@@ -234,7 +230,7 @@ pub struct PunishNonceReuse<'info> {
         init,
         payer = reporter,
         space = Registry::SPACE,
-        seeds = [Registry::SEED_PREFIX, args.new_registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, registry_state.next_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub new_registry: AccountLoader<'info, Registry>,

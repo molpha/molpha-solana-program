@@ -11,11 +11,17 @@ pub struct Gateway {
     pub index: u32,
     pub ip: [u8; 4],
     pub port: u16,
-    pub slashed: bool,
+    pub status: GatewayStatus,
     pub registered_at: i64,
-    pub deactivated_at: i64,
     pub withdrawable_slot: u64,
     pub bump: u8,
+}
+
+#[derive(InitSpace, AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GatewayStatus {
+    Active,
+    Deactivated,
+    Slashed,
 }
 
 impl Gateway {

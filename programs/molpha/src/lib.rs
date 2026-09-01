@@ -42,10 +42,9 @@ pub mod molpha {
 
     pub fn update_registry_policy(
         ctx: Context<UpdateRegistryPolicy>,
-        new_registry_version: u32,
         redundancy_buffer: u8,
     ) -> Result<()> {
-        instructions::update_registry_policy(ctx, new_registry_version, redundancy_buffer)
+        instructions::update_registry_policy(ctx, redundancy_buffer)
     }
 
     pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
@@ -83,13 +82,6 @@ pub mod molpha {
         instructions::submit_attestation(ctx, args)
     }
 
-    pub fn verify_attestation(
-        ctx: Context<VerifyAttestation>,
-        args: SubmitAttestationArgs,
-    ) -> Result<()> {
-        instructions::verify_attestation(ctx, args)
-    }
-
     pub fn register_gateway(
         ctx: Context<RegisterGateway>,
         args: RegisterGatewayArgs,
@@ -104,12 +96,12 @@ pub mod molpha {
         instructions::settle_subscription_round(ctx, args)
     }
 
-    pub fn finalize_round<'info>(ctx: Context<FinalizeRound<'info>>) -> Result<()> {
+    pub fn finalize_round<'info>(ctx: Context<'info, FinalizeRound<'info>>) -> Result<()> {
         instructions::finalize_round(ctx)
     }
 
-    pub fn dispute_round<'info>(ctx: Context<DisputeRound<'info>>) -> Result<()> {
-        instructions::dispute_round(ctx)
+    pub fn validate_round<'info>(ctx: Context<'info, ValidateRound<'info>>) -> Result<()> {
+        instructions::validate_round(ctx)
     }
 
     pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
@@ -156,7 +148,7 @@ pub mod molpha {
         instructions::punish_nonce_reuse(ctx, args)
     }
 
-    pub fn reinstate_node(ctx: Context<ReinstateNode>, args: ReinstateNodeArgs) -> Result<()> {
-        instructions::reinstate_node(ctx, args)
+    pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
+        instructions::reinstate_node(ctx)
     }
 }

@@ -1,6 +1,7 @@
 use crate::{
     error::{map_attestation_err, MolphaError},
     state::{AggregatedSig, Registry, RegistryState},
+    utils::require_fresh_canonical_timestamp,
 };
 use anchor_lang::prelude::*;
 use molpha_verifier::{
@@ -27,12 +28,16 @@ pub fn validate_settlement_attestation(
     registry_state: &RegistryState,
     registry: &Registry,
     input: SettlementAttestationInput<'_>,
+    now: i64,
+    max_receipt_delay_seconds: u64,
 ) -> Result<ValidatedSettlementAttestation> {
     require!(
         input.registry_version == registry_state.current_version
             && registry.version == input.registry_version,
         MolphaError::InvalidRegistryVersion
     );
+
+    require_fresh_canonical_timestamp(input.canonical_timestamp, now, max_receipt_delay_seconds)?;
 
     let expected_selection = derive_selection_bitmap(
         input.source_id,
