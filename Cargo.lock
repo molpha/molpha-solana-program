@@ -1970,7 +1970,9 @@ dependencies = [
 
 [[package]]
 name = "molpha-verifier"
-version = "0.3.0"
+version = "0.3.0-dev.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18cc7d5e9f5c0c283eeef8ccc903e5d729e0921c73c11e4c5033e39fe1abadf2"
 dependencies = [
  "borsh",
  "ethnum",
