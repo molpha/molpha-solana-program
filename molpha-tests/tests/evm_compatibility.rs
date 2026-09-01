@@ -199,9 +199,6 @@ fn the_program_accepts_an_attestation_from_the_fixture_coalition() {
     assert_eq!(attestation.signers_bitmap, fixture.signers_bitmap);
     assert_eq!(attestation.message_hash, FIXTURE_MESSAGE_HASH);
 
-    let ix = p.verify_attestation_ix(&attestation);
-    p.env.send_ok(&[ix], &[]);
-
     let submitter = p.env.keypair();
     let ix = p.submit_attestation_ix(&submitter.pubkey(), &attestation);
     p.env.send_ok(&[ix], &[&submitter]);

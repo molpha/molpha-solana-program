@@ -9,7 +9,7 @@ use molpha::events::{
 use molpha::instructions::{DeactivateNodeArgs, RegisterNodeArgs};
 use molpha::state::{Node, NodeStatus, RegistryState, Secp256k1KeyClaim};
 use molpha_tests::crypto::{self, NodeKey};
-use molpha_tests::env::{assert_anchor_error, assert_molpha_error, events, only_event};
+use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{Duty, Protocol};
 use solana_keypair::Keypair;
@@ -384,7 +384,6 @@ fn deactivate_node_is_not_repeatable() {
     p.env.send_ok(&[ix], &[&owner]);
 
     // The node is gone from the registry, so build the second attempt by hand.
-    let current_version = p.current_version();
     let ix = p.deactivate_node_raw_ix(
         &owner.pubkey(),
         DeactivateNodeArgs {
@@ -420,7 +419,6 @@ fn deactivate_node_rejects_a_remove_index_past_the_end_of_the_registry() {
     let mut p = Protocol::start();
     p.register_nodes("deactivate-oob", 2);
     let owner = p.nodes[0].owner.insecure_clone();
-    let current_version = p.current_version();
 
     let ix = p.deactivate_node_raw_ix(
         &owner.pubkey(),
@@ -594,8 +592,9 @@ fn a_historical_snapshot_still_verifies_after_membership_and_policy_change() {
     assert_eq!(p.current_version(), 8);
 
     // The version-6 attestation still verifies against the version-6 snapshot.
-    let ix = p.verify_attestation_ix(&historical);
-    p.env.send_ok(&[ix], &[]);
+    let submitter = p.env.keypair();
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &historical);
+    p.env.send_ok(&[ix], &[&submitter]);
 
     // And the historical snapshot is byte-for-byte what it was.
     let v6 = p.env.registry(6);

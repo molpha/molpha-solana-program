@@ -43,7 +43,7 @@ fn case() -> Case {
     Case { p, reporter, a, b }
 }
 
-fn args_for(case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> PunishEquivocationArgs {
+fn args_for(_case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> PunishEquivocationArgs {
     let duty = a.duty;
     let evidence_hash = equivocation_evidence_hash(
         &duty.source_id,

@@ -8,7 +8,9 @@ pub struct ProtocolConfig {
     pub authority: Pubkey,
     pub usdc_mint: Pubkey,
     pub reward_per_signature: u64,
-    pub max_receipt_delay_slots: u64,
+    /// Max age in seconds of `canonical_timestamp` relative to cluster time at
+    /// attestation/settlement ingress. Bounds the offline selection-grind space.
+    pub max_receipt_delay_seconds: u64,
     pub dispute_window_slots: u64,
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,

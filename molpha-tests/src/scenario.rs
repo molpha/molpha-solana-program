@@ -169,7 +169,9 @@ pub fn default_initialize_args(usdc_mint: Pubkey) -> InitializeArgs {
         redundancy_buffer: 2,
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10_000,
-        max_receipt_delay_slots: 256,
+        // Wide enough that every hardcoded duty timestamp stays inside the window even after
+        // a cooldown-length clock advance; freshness tests tighten it via the builder.
+        max_receipt_delay_seconds: 604_800,
         dispute_window_slots: 100,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
@@ -273,6 +275,11 @@ impl ProtocolBuilder {
 
     pub fn withdrawal_cooldown_slots(mut self, value: u64) -> Self {
         self.args.withdrawal_cooldown_slots = value;
+        self
+    }
+
+    pub fn max_receipt_delay_seconds(mut self, value: u64) -> Self {
+        self.args.max_receipt_delay_seconds = value;
         self
     }
 
@@ -742,6 +749,7 @@ impl Protocol {
             submitter: *submitter,
             registry: pda::registry(args.registry_version),
             feed: pda::feed(&args.source_id, args.signatures_required, submitter),
+            protocol_config: pda::protocol_config(),
             system_program: anchor_lang::solana_program::system_program::ID,
         }
         .to_account_metas(None);
@@ -752,22 +760,6 @@ impl Protocol {
             program_id: molpha::ID,
             accounts,
             data: molpha::instruction::SubmitAttestation { args }.data(),
-        }
-    }
-
-    pub fn verify_attestation_ix(&self, attestation: &SignedAttestation) -> Instruction {
-        let args = attestation.submit_args();
-        let mut accounts = molpha::accounts::VerifyAttestation {
-            registry: pda::registry(args.registry_version),
-        }
-        .to_account_metas(None);
-        accounts.extend(crate::env::readonly_metas(
-            attestation.signer_pdas.iter().copied(),
-        ));
-        Instruction {
-            program_id: molpha::ID,
-            accounts,
-            data: molpha::instruction::VerifyAttestation { args }.data(),
         }
     }
 

@@ -43,7 +43,10 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .command("update-config")
     .description("Update protocol config (authority only)")
     .option("--config <path>", "json config file with fields to override")
-    .option("--withdrawal-cooldown-slots <slots>", "node withdrawal cooldown in slots")
+    .option(
+      "--withdrawal-cooldown-slots <slots>",
+      "node withdrawal cooldown in slots"
+    )
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
     .option("--receipt-submitter-bonus <amount>", "receipt submitter bonus")

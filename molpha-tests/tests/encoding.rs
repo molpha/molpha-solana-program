@@ -14,11 +14,11 @@ use solana_keccak_hasher::hashv;
 ///
 /// Pinned because the CLI, gateway and SDK all build this instruction off-chain: any field
 /// added, removed or retyped here is a breaking wire change and should be a deliberate one.
-const INITIALIZE_IX_DATA_LEN: usize = 116;
+const INITIALIZE_IX_DATA_LEN: usize = 108;
 
 /// Borsh encoding of `UpdateConfigArgs`, plus the 8-byte Anchor discriminator.
 /// Pinned for the same reason as `INITIALIZE_IX_DATA_LEN`: off-chain clients encode this.
-const UPDATE_CONFIG_IX_DATA_LEN: usize = 83;
+const UPDATE_CONFIG_IX_DATA_LEN: usize = 75;
 
 /// Borsh encoding of `SubmitAttestationArgs`. Every field is fixed-width, so this is a
 /// constant — and a change to it is a breaking change for every off-chain submitter.
@@ -30,7 +30,7 @@ fn initialize_args() -> InitializeArgs {
         redundancy_buffer: 2,
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
-        max_receipt_delay_slots: 256,
+        max_receipt_delay_seconds: 256,
         dispute_window_slots: 1024,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
@@ -56,8 +56,8 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
     assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
     assert_eq!(
-        decoded.max_receipt_delay_slots,
-        args.max_receipt_delay_slots
+        decoded.max_receipt_delay_seconds,
+        args.max_receipt_delay_seconds
     );
     assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
@@ -73,7 +73,7 @@ fn update_config_args() -> UpdateConfigArgs {
         withdrawal_cooldown_slots: 3,
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
-        max_receipt_delay_slots: 256,
+        max_receipt_delay_seconds: 256,
         dispute_window_slots: 1024,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
@@ -97,8 +97,8 @@ fn update_config_instruction_data_is_stable_and_round_trips() {
     assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
     assert_eq!(
-        decoded.max_receipt_delay_slots,
-        args.max_receipt_delay_slots
+        decoded.max_receipt_delay_seconds,
+        args.max_receipt_delay_seconds
     );
     assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);

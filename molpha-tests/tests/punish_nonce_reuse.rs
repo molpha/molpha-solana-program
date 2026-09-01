@@ -70,7 +70,7 @@ fn case() -> Case {
     Case { p, reporter, a, b }
 }
 
-fn args_for(case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> PunishNonceReuseArgs {
+fn args_for(_case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> PunishNonceReuseArgs {
     let registry_version = a.duty.registry_version;
     let evidence_hash = nonce_reuse_evidence_hash(
         registry_version,

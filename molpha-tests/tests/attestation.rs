@@ -1,9 +1,10 @@
-//! `submit_attestation` and `verify_attestation`.
+//! `submit_attestation`.
 
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::FeedUpdated;
 use molpha::state::{Feed, FeedValueKind};
+use molpha::utils::MAX_FUTURE_DRIFT_SECONDS;
 use molpha_tests::crypto;
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event, readonly_metas};
 use molpha_tests::pda;
@@ -270,64 +271,82 @@ fn submit_attestation_rejects_a_registry_account_that_is_not_the_named_version()
 }
 
 // ---------------------------------------------------------------------------
-// verify_attestation
+// freshness window
 // ---------------------------------------------------------------------------
 
 #[test]
-fn verify_attestation_accepts_a_valid_round_without_writing_state() {
-    let mut p = with_nodes("verify-readonly");
-    let signed = p.sign_duty(duty());
-    let caller = p.env.keypair();
+fn submit_attestation_rejects_a_stale_canonical_timestamp() {
+    let mut p = with_nodes("submit-too-stale");
+    let submitter = p.env.keypair();
+    let now = p.env.unix_timestamp() as u64;
+    let window = p.args.max_receipt_delay_seconds;
 
-    let ix = p.verify_attestation_ix(&signed);
-    p.env.send_ok(&[ix], &[&caller]);
-
-    // Nothing is created: `verify_attestation` is a pure predicate.
+    // A virgin feed (fresh submitter) has no `FeedNotNewer` ratchet, so the window is the
+    // only thing stopping a ground timestamp here.
+    let stale = duty().at(now - window - 1);
+    let signed = p.sign_duty(stale);
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    let failed = p.env.send_err(&[ix], &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::AttestationTooStale);
     assert!(!p.env.account_exists(&pda::feed(
-        &duty().source_id,
+        &stale.source_id,
         SIGS_REQUIRED,
-        &caller.pubkey()
+        &submitter.pubkey()
     )));
+
+    // The window is inclusive.
+    submit(&mut p, &submitter, duty().at(now - window));
 }
 
 #[test]
-fn verify_attestation_needs_no_signature_from_anyone() {
-    let mut p = with_nodes("verify-permissionless");
-    let signed = p.sign_duty(duty());
-    let ix = p.verify_attestation_ix(&signed);
-    // Only the fee payer signs; the instruction itself declares no signer accounts.
-    p.env.send_ok(&[ix], &[]);
-}
+fn submit_attestation_rejects_a_future_canonical_timestamp() {
+    let mut p = with_nodes("submit-future");
+    let submitter = p.env.keypair();
+    let now = p.env.unix_timestamp() as u64;
 
-#[test]
-fn verify_attestation_rejects_a_tampered_aggregate_signature() {
-    let mut p = with_nodes("verify-tampered");
-    let signed = p.sign_duty(duty()).with_tampered_signature();
-    let ix = p.verify_attestation_ix(&signed);
-    let failed = p.env.send_err(&[ix], &[]);
-    assert_molpha_error(&failed, MolphaError::InvalidAggregateSignature);
-}
+    let future = duty().at(now + MAX_FUTURE_DRIFT_SECONDS + 1);
+    let signed = p.sign_duty(future);
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    let failed = p.env.send_err(&[ix], &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::AttestationInFuture);
 
-#[test]
-fn verify_attestation_binds_a_round_to_the_registry_version_it_names() {
-    let mut p = with_nodes("verify-version-binding");
-    // Signed against version 8.
-    let signed = p.sign_duty(duty());
-
-    // Re-labelling the same signature as version 7 changes the message hash and the selection.
-    let mut relabelled = signed.clone();
-    relabelled.duty.registry_version = NODE_COUNT as u32 - 1;
-    relabelled.signer_pdas =
-        p.env.registry(NODE_COUNT as u32 - 1).nodes[..signed.signer_pdas.len()].to_vec();
-
-    let ix = p.verify_attestation_ix(&relabelled);
-    let failed = p.env.send_err(&[ix], &[]);
-    // Either the selection or the signature rejects it; both are correct refusals.
-    let code = molpha_tests::env::custom_error_code(&failed);
-    assert!(
-        code == u32::from(MolphaError::SignersNotSubsetOfSelection)
-            || code == u32::from(MolphaError::InvalidAggregateSignature)
-            || code == u32::from(MolphaError::MissingSignerAccount),
-        "unexpected error code {code}"
+    // Clock drift up to the allowance is accepted.
+    submit(
+        &mut p,
+        &submitter,
+        duty().at(now + MAX_FUTURE_DRIFT_SECONDS),
     );
+}
+
+#[test]
+fn submit_attestation_update_branch_enforces_freshness() {
+    let mut p = with_nodes("submit-stale-update");
+    let submitter = p.env.keypair();
+    let first = duty().at(p.env.unix_timestamp() as u64);
+    submit(&mut p, &submitter, first);
+
+    let window = p.args.max_receipt_delay_seconds;
+    p.env.advance_seconds(window as i64 + 100);
+    // Newer than the feed, so `FeedNotNewer` would pass — but stale against the clock.
+    let stale = first.at(first.canonical_timestamp + 1).value([0xee; 32]);
+    let signed = p.sign_duty(stale);
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    let failed = p.env.send_err(&[ix], &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::AttestationTooStale);
+}
+
+#[test]
+fn the_freshness_window_comes_from_config() {
+    let mut p = Protocol::builder().max_receipt_delay_seconds(1_000).start();
+    p.register_nodes("submit-window", NODE_COUNT);
+    let submitter = p.env.keypair();
+    let now = p.env.unix_timestamp() as u64;
+
+    let stale = duty().at(now - 1_001);
+    let signed = p.sign_duty(stale);
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    let failed = p.env.send_err(&[ix], &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::AttestationTooStale);
+
+    submit(&mut p, &submitter, duty().at(now - 1_000));
 }

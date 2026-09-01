@@ -174,6 +174,12 @@ pub enum MolphaError {
     NonceReuseSameMessage,
     #[msg("same duty with different values is equivocation - file it as one")]
     PreferEquivocation,
+    #[msg("canonical_timestamp is older than now - max_receipt_delay_seconds")]
+    AttestationTooStale,
+    #[msg("canonical_timestamp is further ahead of cluster time than the allowed drift")]
+    AttestationInFuture,
+    #[msg("max_receipt_delay_seconds must be greater than zero")]
+    InvalidMaxReceiptDelay,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {

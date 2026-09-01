@@ -603,3 +603,26 @@ fn settlement_rejects_a_registry_version_that_is_no_longer_current() {
     let failed = f.p.env.send_err(&ixs, &[&owner, &gateway]);
     assert_molpha_error(&failed, MolphaError::InvalidRegistryVersion);
 }
+
+#[test]
+fn settlement_rejects_a_stale_authorized_request() {
+    let mut f = fixture();
+    let owner = f.owner.insecure_clone();
+    let gateway = f.gateway.insecure_clone();
+    let now = f.p.env.unix_timestamp() as u64;
+    let window = f.p.args.max_receipt_delay_seconds;
+
+    // The consumer authorization matches the duty, so the failure is the freshness window,
+    // not the signature: a banked authorization cannot be redeemed after the window expires.
+    let stale = duty(4).at(now - window - 1);
+    let signed = f.p.sign_duty(stale);
+    let ixs = settle_ixs(&f, &owner, None, &signed);
+    let failed = f.p.env.send_err(&ixs, &[&owner, &gateway]);
+    assert_molpha_error(&failed, MolphaError::AttestationTooStale);
+
+    // At the boundary the same shape settles.
+    let boundary = duty(4).at(now - window);
+    let signed = f.p.sign_duty(boundary);
+    let ixs = settle_ixs(&f, &owner, None, &signed);
+    f.p.env.send_ok(&ixs, &[&owner, &gateway]);
+}

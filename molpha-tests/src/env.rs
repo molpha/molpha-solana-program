@@ -31,6 +31,11 @@ pub const SOL: u64 = 1_000_000_000;
 /// Maximum serialized transaction size the Solana network accepts.
 pub const PACKET_DATA_SIZE: usize = 1_232;
 
+/// Where every test's wall clock starts. LiteSVM defaults `unix_timestamp` to 0, which the
+/// freshness window would read as "every duty is ~1.7e9 seconds in the future". Sits above
+/// every hardcoded `canonical_timestamp` literal in the suite so they all read as recent past.
+pub const GENESIS_UNIX_TIMESTAMP: i64 = 1_700_200_000;
+
 fn program_bytes() -> &'static [u8] {
     static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
     BYTES.get_or_init(|| {
@@ -85,6 +90,9 @@ impl TestEnv {
         let mut svm = LiteSVM::new();
         svm.add_program(molpha::ID, program_bytes())
             .expect("load molpha program");
+        let mut clock = svm.get_sysvar::<Clock>();
+        clock.unix_timestamp = GENESIS_UNIX_TIMESTAMP;
+        svm.set_sysvar(&clock);
         let payer = Keypair::new();
         svm.airdrop(&payer.pubkey(), 10_000 * SOL)
             .expect("fund payer");

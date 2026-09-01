@@ -82,13 +82,6 @@ pub mod molpha {
         instructions::submit_attestation(ctx, args)
     }
 
-    pub fn verify_attestation(
-        ctx: Context<VerifyAttestation>,
-        args: SubmitAttestationArgs,
-    ) -> Result<()> {
-        instructions::verify_attestation(ctx, args)
-    }
-
     pub fn register_gateway(
         ctx: Context<RegisterGateway>,
         args: RegisterGatewayArgs,

@@ -76,6 +76,8 @@ pub fn settle_subscription_round<'info>(
             value: &args.value,
             agg_sig: &args.agg_sig,
         },
+        clock.unix_timestamp,
+        config.max_receipt_delay_seconds,
     )?;
 
     let reward_per_signature = config.reward_per_signature;

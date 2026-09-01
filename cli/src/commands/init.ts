@@ -41,7 +41,10 @@ export function registerInitCommand(program: Command): void {
     .command("init")
     .description("Initialize the Molpha protocol")
     .option("--config <path>", "json config file")
-    .option("--withdrawal-cooldown-slots <slots>", "node withdrawal cooldown in slots")
+    .option(
+      "--withdrawal-cooldown-slots <slots>",
+      "node withdrawal cooldown in slots"
+    )
     .option(
       "--redundancy-buffer <count>",
       "extra selection slots beyond signatures_required"

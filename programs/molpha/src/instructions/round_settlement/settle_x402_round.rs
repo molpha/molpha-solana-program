@@ -77,6 +77,8 @@ pub fn settle_x402_round<'info>(
             value: &args.value,
             agg_sig: &args.agg_sig,
         },
+        clock.unix_timestamp,
+        config.max_receipt_delay_seconds,
     )?;
 
     require!(
