@@ -37,7 +37,7 @@ pub fn compute_x402_price(config: &ProtocolConfig, signatures_required: u8) -> R
         .x402_round_base
         .checked_add(
             (signatures_required as u64)
-                .checked_mul(config.x402_round_per_sig)
+                .checked_mul(config.reward_per_signature)
                 .ok_or(MolphaError::AmountMismatch)?,
         )
         .ok_or_else(|| error!(MolphaError::AmountMismatch))

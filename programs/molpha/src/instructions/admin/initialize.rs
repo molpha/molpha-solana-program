@@ -22,7 +22,6 @@ pub struct InitializeArgs {
     pub challenger_bounty_bps: u16,
     pub usdc_mint: Pubkey,
     pub x402_round_base: u64,
-    pub x402_round_per_sig: u64,
     pub min_signers: u8,
 }
 
@@ -53,7 +52,6 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_slots = args.withdrawal_cooldown_slots;
     protocol_config.x402_round_base = args.x402_round_base;
-    protocol_config.x402_round_per_sig = args.x402_round_per_sig;
     protocol_config.min_signers = args.min_signers;
     protocol_config.bump = ctx.bumps.protocol_config;
 

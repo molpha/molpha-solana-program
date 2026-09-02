@@ -177,7 +177,6 @@ pub fn default_initialize_args(usdc_mint: Pubkey) -> InitializeArgs {
         challenger_bounty_bps: 500,
         usdc_mint,
         x402_round_base: 1_000_000,
-        x402_round_per_sig: 15_000,
         min_signers: 3,
     }
 }
@@ -280,12 +279,6 @@ impl ProtocolBuilder {
 
     pub fn max_receipt_delay_seconds(mut self, value: u64) -> Self {
         self.args.max_receipt_delay_seconds = value;
-        self
-    }
-
-    pub fn x402_pricing(mut self, base: u64, per_signature: u64) -> Self {
-        self.args.x402_round_base = base;
-        self.args.x402_round_per_sig = per_signature;
         self
     }
 
@@ -871,7 +864,7 @@ impl Protocol {
     ) -> SettleX402RoundArgs {
         let duty = attestation.duty;
         let price = self.args.x402_round_base
-            + u64::from(duty.signatures_required) * self.args.x402_round_per_sig;
+            + u64::from(duty.signatures_required) * self.args.reward_per_signature;
         SettleX402RoundArgs {
             payer_id,
             amount: price,

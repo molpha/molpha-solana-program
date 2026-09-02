@@ -12,7 +12,6 @@ pub struct ProtocolConfigUpdated {
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_slots: u64,
     pub x402_round_base: u64,
-    pub x402_round_per_sig: u64,
     pub min_signers: u8,
 }
 

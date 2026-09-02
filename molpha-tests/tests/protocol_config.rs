@@ -22,7 +22,6 @@ fn tuned_update_args() -> UpdateConfigArgs {
         gateway_bond_min: 900_000_000,
         challenger_bounty_bps: 1_250,
         x402_round_base: 2_000,
-        x402_round_per_sig: 21,
         min_signers: 5,
     }
 }
@@ -51,7 +50,6 @@ fn initialize_writes_config_registry_state_and_genesis_snapshot() {
         args.withdrawal_cooldown_slots
     );
     assert_eq!(config.x402_round_base, args.x402_round_base);
-    assert_eq!(config.x402_round_per_sig, args.x402_round_per_sig);
     assert_eq!(config.min_signers, args.min_signers);
 
     let registry_state: RegistryState = b.env.get(&pda::registry_state());
@@ -186,7 +184,6 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
     assert_eq!(after.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(after.challenger_bounty_bps, args.challenger_bounty_bps);
     assert_eq!(after.x402_round_base, args.x402_round_base);
-    assert_eq!(after.x402_round_per_sig, args.x402_round_per_sig);
     assert_eq!(after.min_signers, args.min_signers);
 
     // `update_config` must not be a back door to the authority or the settlement mint.
@@ -197,7 +194,6 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
     let event: ProtocolConfigUpdated = only_event(&meta);
     assert_eq!(event.min_signers, args.min_signers);
     assert_eq!(event.reward_per_signature, args.reward_per_signature);
-    assert_eq!(event.x402_round_per_sig, args.x402_round_per_sig);
 }
 
 #[test]

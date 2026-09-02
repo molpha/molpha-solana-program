@@ -65,7 +65,7 @@ fn duty(signatures_required: u8) -> Duty {
 }
 
 fn expected_price(p: &Protocol, signatures_required: u8) -> u64 {
-    p.args.x402_round_base + u64::from(signatures_required) * p.args.x402_round_per_sig
+    p.args.x402_round_base + u64::from(signatures_required) * p.args.reward_per_signature
 }
 
 #[test]
