@@ -11,6 +11,7 @@ import {
   findGatewayPda,
   findNodePda,
   findProtocolConfigPda,
+  findTreasuryAta,
 } from "../lib/pdas";
 import { parsePublicKey, writeJson } from "../lib/utils";
 
@@ -88,7 +89,7 @@ export function registerRewardsCommands(program: Command): void {
           protocolConfig: protocolConfigPda,
           node,
           usdcMint: protocolConfig.usdcMint,
-          treasury: protocolConfig.treasury,
+          treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
           destination,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,

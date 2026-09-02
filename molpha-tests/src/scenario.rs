@@ -335,6 +335,60 @@ impl Protocol {
         self.env.token_balance(&self.treasury())
     }
 
+    /// A node's own security-deposit vault: the ATA owned by its `Node` PDA.
+    pub fn node_deposit(&self, node: &Pubkey) -> Pubkey {
+        pda::ata(node, &self.usdc_mint)
+    }
+
+    pub fn node_deposit_balance(&self, node: &Pubkey) -> u64 {
+        self.env.token_balance_or_zero(&self.node_deposit(node))
+    }
+
+    /// `Σ Node.claimable_rewards` as the protocol tracks it.
+    pub fn reward_liability(&self) -> u64 {
+        self.env
+            .get::<molpha::state::ProtocolConfig>(&pda::protocol_config())
+            .reward_liability
+    }
+
+    /// Assert the three custody invariants the treasury separation exists to guarantee.
+    ///
+    /// Cheap enough to call at the end of any test that moves money, and the fastest way to
+    /// notice a payout path that forgot to update its accounting.
+    pub fn assert_solvent(&self) {
+        for node in self.node_pdas() {
+            let account: molpha::state::Node = self.env.get(&node);
+            assert_eq!(
+                self.node_deposit_balance(&node),
+                account.locked_amount,
+                "node {node} vault and locked_amount disagree"
+            );
+        }
+        let owed: u64 = self
+            .node_pdas()
+            .iter()
+            .map(|node| self.env.get::<molpha::state::Node>(node).claimable_rewards)
+            .sum();
+        assert_eq!(
+            self.reward_liability(),
+            owed,
+            "reward_liability is not the sum of every claimable_rewards"
+        );
+        assert!(
+            self.treasury_balance() >= self.reward_liability(),
+            "treasury {} cannot back the {} it owes",
+            self.treasury_balance(),
+            self.reward_liability()
+        );
+    }
+
+    /// Donate USDC straight into the treasury ATA — the plain SPL top-up that funds rewards
+    /// beyond collected revenue.
+    pub fn fund_treasury(&mut self, amount: u64) -> Pubkey {
+        let config = pda::protocol_config();
+        self.fund_usdc(&config, amount)
+    }
+
     pub fn current_version(&self) -> u32 {
         self.env
             .get::<RegistryState>(&pda::registry_state())
@@ -343,6 +397,17 @@ impl Protocol {
 
     pub fn node_pdas(&self) -> Vec<Pubkey> {
         self.nodes.iter().map(|n| n.pda).collect()
+    }
+
+    /// A funded actor whose USDC ATA already exists.
+    ///
+    /// Punishments pay the bounty into an account they do not create, so a reporter without an
+    /// ATA cannot file — the transaction slot that creating one would cost belongs to the
+    /// guilty-vault tail of `remaining_accounts`.
+    pub fn reporter(&mut self) -> Keypair {
+        let reporter = self.env.keypair();
+        self.fund_usdc(&reporter.pubkey(), 0);
+        reporter
     }
 
     /// Fund `owner`'s USDC ATA.
@@ -386,9 +451,10 @@ impl Protocol {
                 secp256k1_key_claim: pda::secp256k1_key_claim(&args.secp256k1_pubkey_compressed),
                 usdc_mint: self.usdc_mint,
                 owner_usdc: pda::ata(owner, &self.usdc_mint),
-                treasury: self.treasury(),
+                node_deposit: pda::ata(&pda::node(owner), &self.usdc_mint),
                 system_program: anchor_lang::solana_program::system_program::ID,
                 token_program: pda::TOKEN_PROGRAM_ID,
+                associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
             }
             .to_account_metas(None),
             data: molpha::instruction::RegisterNode { args: args.clone() }.data(),
@@ -864,7 +930,8 @@ impl Protocol {
     ) -> SettleX402RoundArgs {
         let duty = attestation.duty;
         let price = self.args.x402_round_base
-            + u64::from(duty.signatures_required) * self.args.reward_per_signature;
+            + u64::from(duty.signatures_required + self.args.redundancy_buffer)
+                * self.args.reward_per_signature;
         SettleX402RoundArgs {
             payer_id,
             amount: price,
@@ -891,6 +958,8 @@ impl Protocol {
         let mut accounts = molpha::accounts::FinalizeRound {
             caller: *caller,
             protocol_config: pda::protocol_config(),
+            usdc_mint: self.usdc_mint,
+            treasury: self.treasury(),
             registry: pda::registry(record.registry_version),
             round_record: *round_record,
             gateway: record.gateway,
@@ -965,7 +1034,7 @@ impl Protocol {
                 protocol_config: pda::protocol_config(),
                 node: pda::node(owner),
                 usdc_mint: self.usdc_mint,
-                treasury: self.treasury(),
+                node_deposit: pda::ata(&pda::node(owner), &self.usdc_mint),
                 destination: pda::ata(owner, &self.usdc_mint),
                 token_program: pda::TOKEN_PROGRAM_ID,
                 associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -1127,6 +1196,15 @@ impl Protocol {
             .collect()
     }
 
+    /// Deposit vaults for the set bits of `bitmap` — the tail of a punishment's
+    /// `remaining_accounts`, one per guilty node in ascending bit order.
+    pub fn deposit_atas_for_bitmap(&self, version: u32, bitmap: &[u8; 32]) -> Vec<Pubkey> {
+        self.node_pdas_for_bitmap(version, bitmap)
+            .iter()
+            .map(|node| self.node_deposit(node))
+            .collect()
+    }
+
     pub fn punish_equivocation_ix(
         &self,
         reporter: &Pubkey,
@@ -1146,6 +1224,11 @@ impl Protocol {
             &args.statement_b.signers_bitmap,
         );
         let accused = self.node_pdas_for_bitmap(args.registry_version, &union);
+        let guilty = intersect_bitmap(
+            &args.statement_a.signers_bitmap,
+            &args.statement_b.signers_bitmap,
+        );
+        let vaults = self.deposit_atas_for_bitmap(args.registry_version, &guilty);
         let mut accounts = molpha::accounts::PunishEquivocation {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
@@ -1154,15 +1237,14 @@ impl Protocol {
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
-            usdc_mint: self.usdc_mint,
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
             token_program: pda::TOKEN_PROGRAM_ID,
-            associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
             system_program: anchor_lang::solana_program::system_program::ID,
         }
         .to_account_metas(None);
         accounts.extend(crate::env::writable_metas(accused));
+        accounts.extend(crate::env::writable_metas(vaults));
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -1186,6 +1268,10 @@ impl Protocol {
     ) -> Instruction {
         let accused =
             self.node_pdas_for_bitmap(args.registry_version, &args.statement.signers_bitmap);
+        let vaults = self.deposit_atas_for_bitmap(
+            args.registry_version,
+            &unsolicited_guilty_bitmap(self, &args),
+        );
         let mut accounts = molpha::accounts::PunishUnsolicitedSigning {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
@@ -1194,15 +1280,14 @@ impl Protocol {
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
-            usdc_mint: self.usdc_mint,
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
             token_program: pda::TOKEN_PROGRAM_ID,
-            associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
             system_program: anchor_lang::solana_program::system_program::ID,
         }
         .to_account_metas(None);
         accounts.extend(crate::env::writable_metas(accused));
+        accounts.extend(crate::env::writable_metas(vaults));
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -1229,6 +1314,11 @@ impl Protocol {
             &args.statement_b.signers_bitmap,
         );
         let accused = self.node_pdas_for_bitmap(args.registry_version, &union);
+        let guilty = intersect_bitmap(
+            &args.statement_a.signers_bitmap,
+            &args.statement_b.signers_bitmap,
+        );
+        let vaults = self.deposit_atas_for_bitmap(args.registry_version, &guilty);
         let mut accounts = molpha::accounts::PunishNonceReuse {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
@@ -1237,21 +1327,39 @@ impl Protocol {
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
-            usdc_mint: self.usdc_mint,
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
             token_program: pda::TOKEN_PROGRAM_ID,
-            associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
             system_program: anchor_lang::solana_program::system_program::ID,
         }
         .to_account_metas(None);
         accounts.extend(crate::env::writable_metas(accused));
+        accounts.extend(crate::env::writable_metas(vaults));
         Instruction {
             program_id: molpha::ID,
             accounts,
             data: molpha::instruction::PunishNonceReuse { args }.data(),
         }
     }
+}
+
+/// The guilty set of an unsolicited-signing filing: signers outside the derived selection.
+pub fn unsolicited_guilty_bitmap(p: &Protocol, args: &PunishUnsolicitedSigningArgs) -> [u8; 32] {
+    let registry = p.env.registry(args.registry_version);
+    let selection = molpha_verifier::derive_selection_bitmap(
+        &args.source_id,
+        args.registry_version,
+        args.canonical_timestamp,
+        u32::from(registry.node_count),
+        args.signatures_required,
+        registry.redundancy_buffer,
+    )
+    .expect("selection derives");
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        out[i] = args.statement.signers_bitmap[i] & !selection[i];
+    }
+    out
 }
 
 /// Bitwise union of two 256-bit signer bitmaps.
@@ -1278,6 +1386,11 @@ impl Protocol {
     /// The only supported use is producing `NodeStatus::Frozen`, which `reinstate_node` handles
     /// but no shipped penalty currently produces (every offence tombstones). Without this the
     /// freeze branch would be untestable, and untested, until the first penalty table change.
+    ///
+    /// Writing `locked_amount` or `claimable_rewards` here desynchronises the node from its
+    /// deposit vault and from `ProtocolConfig.reward_liability`, which the program maintains but
+    /// cannot repair. [`assert_solvent`](Self::assert_solvent) will then fail, and a later claim
+    /// or punishment can underflow the liability. Move money through the instructions instead.
     pub fn overwrite_node<F: FnOnce(&mut molpha::state::Node)>(
         &mut self,
         node_pda: &Pubkey,

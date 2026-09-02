@@ -33,7 +33,7 @@ fn duty() -> Duty {
 fn case() -> Case {
     let mut p = Protocol::start();
     p.register_nodes("unsolicited", NODE_COUNT);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
 
     let duty = duty();
     let selection = p.selection_bits(&duty);
@@ -129,7 +129,19 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
 
     let reporter_usdc = pda::ata(&reporter.pubkey(), &case.p.usdc_mint);
     assert_eq!(case.p.env.token_balance(&reporter_usdc), expected_bounty);
-    assert_eq!(case.p.treasury_balance(), treasury_before - expected_bounty);
+    assert_eq!(
+        case.p.treasury_balance(),
+        treasury_before + expected_slashed - expected_bounty
+    );
+
+    for node in &guilty {
+        assert_eq!(case.p.node_deposit_balance(node), 0);
+    }
+    for node in &honest_cosigners {
+        assert_eq!(case.p.node_deposit_balance(node), locked_each);
+    }
+
+    case.p.assert_solvent();
 
     let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));
     assert_eq!(record.offence, OffenceKind::UnsolicitedSigning);
@@ -151,7 +163,7 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
 fn a_fully_selected_coalition_is_not_an_offence() {
     let mut p = Protocol::start();
     p.register_nodes("unsolicited-clean", NODE_COUNT);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
     let duty = duty();
     let selection = p.selection_bits(&duty);
     let statement = p.sign_duty_with_bits(duty, &selection[0..4], None);
@@ -299,7 +311,7 @@ fn two_intruders_in_one_statement_are_both_punished() {
     let mut p = Protocol::start();
     // A wider registry so the duty leaves two nodes unselected.
     p.register_nodes("unsolicited-two", 10);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
     let duty = Duty::new(10, SIGS);
     let selection = p.selection_bits(&duty);
     let intruders: Vec<usize> = (0..10).filter(|b| !selection.contains(b)).take(2).collect();

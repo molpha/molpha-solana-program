@@ -2,6 +2,7 @@
 
 use anchor_lang::prelude::*;
 
+pub mod allocator;
 pub mod error;
 pub mod events;
 pub mod instructions;

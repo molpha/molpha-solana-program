@@ -721,6 +721,7 @@ fn a_node_owner_withdraws_finalized_rewards_from_the_treasury() {
     let event: RewardsClaimed = only_event(&meta);
     assert_eq!(event.beneficiary, owner.pubkey());
     assert_eq!(event.amount, reward);
+    f.p.assert_solvent();
 }
 
 #[test]
@@ -789,5 +790,158 @@ fn a_deactivated_node_can_still_claim_rewards_it_already_earned() {
     assert_eq!(
         f.p.env.token_balance(&destination),
         before + f.p.args.reward_per_signature
+    );
+}
+
+// ---------------------------------------------------------------------------
+// treasury solvency
+// ---------------------------------------------------------------------------
+
+/// Rewards a subscription plan does not pay for.
+///
+/// Subscription revenue is a flat monthly price, so a plan can promise more rounds than it funds.
+/// Crediting refuses rather than quietly paying node principal, which the treasury no longer
+/// holds anyway.
+const RICH_REWARD: u64 = 10_000_000;
+
+fn underfunded_fixture() -> (Fixture, Keypair) {
+    let mut p = Protocol::builder()
+        .reward_per_signature(RICH_REWARD)
+        .start();
+    p.register_nodes("insolvent", NODE_COUNT);
+    let gateway = p.register_gateway(FLOAT);
+    let mut f = Fixture { p, gateway };
+    f.p.add_plan(AddPlanArgs {
+        plan_type: PlanType::Professional,
+        subscription_price: RICH_REWARD,
+        max_signers: 8,
+        max_delegates: 2,
+        max_rounds: 10,
+        private_api_enabled: true,
+        is_active: true,
+    });
+    let owner = f.p.subscribe(PlanType::Professional);
+    (f, owner)
+}
+
+#[test]
+fn finalize_is_refused_while_the_treasury_cannot_cover_the_credit() {
+    let (mut f, owner) = underfunded_fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_subscription(&owner, &signed);
+    let credited = f.credited_nodes(&record);
+    let owed = RICH_REWARD * credited.len() as u64;
+    assert!(f.p.treasury_balance() < owed, "the month's price is short");
+
+    f.past_the_dispute_window();
+    let caller = f.p.env.keypair();
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    let failed = f.p.env.send_err(std::slice::from_ref(&ix), &[&caller]);
+    assert_molpha_error(&failed, MolphaError::TreasuryInsolvent);
+
+    // Nothing moved: the round is still finalizable later.
+    assert_eq!(
+        f.p.env.get::<RoundReceiptRecord>(&record).status,
+        RoundRecordStatus::Pending
+    );
+    assert_eq!(f.p.reward_liability(), 0);
+    for node in &credited {
+        assert_eq!(f.p.env.get::<Node>(node).claimable_rewards, 0);
+    }
+
+    // A plain SPL transfer into the treasury is all it takes to make the round finalizable.
+    let short = owed - f.p.treasury_balance();
+    f.p.fund_treasury(short);
+    f.p.env.send_ok(&[ix], &[&caller]);
+
+    assert_eq!(
+        f.p.env.get::<RoundReceiptRecord>(&record).status,
+        RoundRecordStatus::Finalized
+    );
+    assert_eq!(f.p.reward_liability(), owed);
+    assert_eq!(f.p.treasury_balance(), owed);
+    f.p.assert_solvent();
+}
+
+#[test]
+fn validating_a_sound_signature_is_bound_by_the_same_solvency_check() {
+    let (mut f, owner) = underfunded_fixture();
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_subscription(&owner, &signed);
+    let credited = f.credited_nodes(&record);
+
+    // The signature is genuine, so `validate_round` takes the crediting branch, not the slash one.
+    let challenger = f.p.env.keypair();
+    let ix =
+        f.p.validate_round_ix(&challenger.pubkey(), &record, None, &credited);
+    let failed = f.p.env.send_err(&[ix], &[&challenger]);
+    assert_molpha_error(&failed, MolphaError::TreasuryInsolvent);
+
+    assert_eq!(
+        f.p.env.get::<Gateway>(&f.gateway_pda()).status,
+        GatewayStatus::Active
+    );
+    assert_eq!(
+        f.p.env.get::<RoundReceiptRecord>(&record).status,
+        RoundRecordStatus::Pending
+    );
+}
+
+#[test]
+fn an_x402_round_always_funds_the_rewards_it_credits() {
+    let mut f = fixture();
+    assert_eq!(f.p.treasury_balance(), 0, "no other revenue is in play");
+
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xaa; 32]);
+    let credited = f.credited_nodes(&record);
+    f.past_the_dispute_window();
+
+    // The price charged the whole selection, so whatever subset signed is covered.
+    let caller = f.p.env.keypair();
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    f.p.env.send_ok(&[ix], &[&caller]);
+
+    let owed = f.p.args.reward_per_signature * credited.len() as u64;
+    assert_eq!(f.p.reward_liability(), owed);
+    assert!(
+        f.p.treasury_balance() >= owed,
+        "the round paid for its own rewards"
+    );
+}
+
+#[test]
+fn reward_liability_follows_every_credit_and_claim() {
+    let mut f = fixture();
+    assert_eq!(f.p.reward_liability(), 0);
+
+    let signed = f.p.sign_duty(duty());
+    let record = f.settle_x402(&signed, [0xaa; 32]);
+    let credited = f.credited_nodes(&record);
+    f.past_the_dispute_window();
+    let caller = f.p.env.keypair();
+    let ix = f.p.finalize_round_ix(&caller.pubkey(), &record, &credited);
+    f.p.env.send_ok(&[ix], &[&caller]);
+
+    let reward = f.p.args.reward_per_signature;
+    assert_eq!(f.p.reward_liability(), reward * credited.len() as u64);
+
+    // Each claim retires exactly its own share of the liability.
+    for (claimed, node) in credited.iter().enumerate() {
+        let index = f.p.nodes.iter().position(|n| n.pda == *node).unwrap();
+        let owner = f.p.nodes[index].owner.insecure_clone();
+        let ix = f.p.claim_node_rewards_ix(&owner.pubkey());
+        f.p.env.send_ok(&[ix], &[&owner]);
+        assert_eq!(
+            f.p.reward_liability(),
+            reward * (credited.len() - claimed - 1) as u64
+        );
+    }
+    assert_eq!(f.p.reward_liability(), 0);
+    assert_eq!(
+        f.p.env
+            .get::<molpha::state::ProtocolConfig>(&pda::protocol_config())
+            .reward_liability,
+        0
     );
 }

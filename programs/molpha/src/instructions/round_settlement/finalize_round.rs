@@ -1,7 +1,8 @@
-//! Permissionless finalization after the dispute window: credits `reward_per_signature` (and
-//! to node/gateway `claimable_rewards` using the round's pinned registry.
+//! Permissionless finalization after the dispute window: credits `reward_per_signature` to each
+//! signer's `claimable_rewards` using the round's pinned registry, against a solvent treasury.
 
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Mint, TokenAccount};
 use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
 
 use crate::{
@@ -32,15 +33,23 @@ pub fn finalize_round<'info>(ctx: Context<'info, FinalizeRound<'info>>) -> Resul
     credit_round_rewards(
         &mut ctx.accounts.round_record,
         &registry,
+        &mut ctx.accounts.protocol_config,
+        &ctx.accounts.treasury,
         ctx.remaining_accounts,
         ctx.program_id,
     )
 }
 
 /// Credit every signer and move a pending round into its terminal finalized state.
+///
+/// Crediting mints a claim on the treasury, so it is refused unless the treasury can back the
+/// protocol's whole reward liability afterwards. A refused round stays `Pending` and can be
+/// finalized once the treasury is topped up.
 pub(crate) fn credit_round_rewards<'info>(
     record: &mut Account<'info, RoundReceiptRecord>,
     registry: &Registry,
+    config: &mut Account<'info, ProtocolConfig>,
+    treasury: &Account<'info, TokenAccount>,
     remaining_accounts: &'info [AccountInfo<'info>],
     program_id: &Pubkey,
 ) -> Result<()> {
@@ -52,6 +61,17 @@ pub(crate) fn credit_round_rewards<'info>(
     );
 
     let reward = record.reward_per_signature;
+    let total = reward
+        .checked_mul(u64::from(credited_count))
+        .ok_or(MolphaError::TreasuryInsolvent)?;
+    let liability_after = config
+        .reward_liability
+        .checked_add(total)
+        .ok_or(MolphaError::TreasuryInsolvent)?;
+    require!(
+        treasury.amount >= liability_after,
+        MolphaError::TreasuryInsolvent
+    );
 
     let mut cursor = 0usize;
     for_each_set_bit_u256(credited, |bit_pos| {
@@ -76,6 +96,7 @@ pub(crate) fn credit_round_rewards<'info>(
         Ok(())
     })?;
 
+    config.reward_liability = liability_after;
     record.status = RoundRecordStatus::Finalized;
 
     let clock = Clock::get()?;
@@ -93,10 +114,23 @@ pub struct FinalizeRound<'info> {
     pub caller: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
+
+    #[account(
+        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidMint
+    )]
+    pub usdc_mint: Box<Account<'info, Mint>>,
+
+    /// Read only: crediting checks the treasury can back the liability it is about to add.
+    #[account(
+        associated_token::mint = usdc_mint,
+        associated_token::authority = protocol_config,
+    )]
+    pub treasury: Box<Account<'info, TokenAccount>>,
 
     #[account(
         seeds = [Registry::SEED_PREFIX, round_record.registry_version.to_le_bytes().as_ref()],

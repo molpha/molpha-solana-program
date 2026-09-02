@@ -180,6 +180,14 @@ pub enum MolphaError {
     AttestationInFuture,
     #[msg("max_receipt_delay_seconds must be greater than zero")]
     InvalidMaxReceiptDelay,
+    #[msg("treasury balance cannot back the protocol's reward liability")]
+    TreasuryInsolvent,
+    #[msg("challenger_bounty_bps must not exceed 10000")]
+    InvalidChallengerBounty,
+    #[msg("node deposit vault account mismatch")]
+    InvalidNodeDepositAccount,
+    #[msg("reward liability underflow")]
+    RewardLiabilityUnderflow,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {

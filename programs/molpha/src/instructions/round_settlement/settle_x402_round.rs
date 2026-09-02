@@ -32,11 +32,22 @@ pub struct SettleX402RoundArgs {
 }
 
 /// Price from request-time parameters only (not post-hoc signer count).
-pub fn compute_x402_price(config: &ProtocolConfig, signatures_required: u8) -> Result<u64> {
+///
+/// Charges for the whole selection, `signatures_required + redundancy_buffer`, because that is
+/// the largest coalition finalization may credit. Every settled x402 round therefore funds its
+/// own rewards, whatever subset of the selection ends up signing.
+pub fn compute_x402_price(
+    config: &ProtocolConfig,
+    signatures_required: u8,
+    redundancy_buffer: u8,
+) -> Result<u64> {
+    let credited_ceiling = u64::from(signatures_required)
+        .checked_add(u64::from(redundancy_buffer))
+        .ok_or(MolphaError::AmountMismatch)?;
     config
         .x402_round_base
         .checked_add(
-            (signatures_required as u64)
+            credited_ceiling
                 .checked_mul(config.reward_per_signature)
                 .ok_or(MolphaError::AmountMismatch)?,
         )
@@ -58,7 +69,7 @@ pub fn settle_x402_round<'info>(
         MolphaError::SignaturesBelowMinSigners
     );
 
-    let price = compute_x402_price(config, args.signatures_required)?;
+    let price = compute_x402_price(config, args.signatures_required, registry.redundancy_buffer)?;
     require!(price == args.amount, MolphaError::AmountMismatch);
 
     require!(

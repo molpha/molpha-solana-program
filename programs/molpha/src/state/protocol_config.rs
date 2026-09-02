@@ -17,6 +17,10 @@ pub struct ProtocolConfig {
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_slots: u64,
     pub x402_round_base: u64,
+    /// Sum of every `Node.claimable_rewards`. The treasury must always hold at least this much:
+    /// node principal lives in per-node deposit vaults, so anything above this line is protocol
+    /// revenue and anything below it means credited rewards are unbacked.
+    pub reward_liability: u64,
     pub min_signers: u8,
     pub bump: u8,
 }
@@ -24,4 +28,6 @@ pub struct ProtocolConfig {
 impl ProtocolConfig {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_config";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
+    /// Upper bound for every basis-point knob.
+    pub const MAX_BPS: u16 = 10_000;
 }

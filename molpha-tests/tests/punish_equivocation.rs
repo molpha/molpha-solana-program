@@ -32,7 +32,7 @@ fn duty() -> Duty {
 fn case() -> Case {
     let mut p = Protocol::start();
     p.register_nodes("equivocation", NODE_COUNT);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
 
     let duty = duty();
     let selection = p.selection_bits(&duty);
@@ -141,9 +141,23 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
     // The reporter is paid a bounty out of the treasury.
     let reporter_usdc = pda::ata(&reporter.pubkey(), &case.p.usdc_mint);
     assert_eq!(case.p.env.token_balance(&reporter_usdc), expected_bounty);
-    assert_eq!(case.p.treasury_balance(), treasury_before - expected_bounty);
+    assert_eq!(
+        case.p.treasury_balance(),
+        treasury_before + expected_slashed - expected_bounty
+    );
+
+    // Slashed principal is swept out of the guilty vaults into the treasury, and the bounty is
+    // paid from what the offence recovered rather than from anyone else's money.
+    for node in &guilty {
+        assert_eq!(case.p.node_deposit_balance(node), 0);
+    }
+    for node in &innocent {
+        assert_eq!(case.p.node_deposit_balance(node), locked_each);
+    }
 
     // The case is recorded permanently.
+    case.p.assert_solvent();
+
     let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));
     assert_eq!(record.offence, OffenceKind::Equivocation);
     assert_eq!(record.reporter, reporter.pubkey());
@@ -226,7 +240,7 @@ fn the_same_evidence_cannot_be_filed_twice_in_either_order() {
 fn two_statements_with_the_same_value_are_not_equivocation() {
     let mut p = Protocol::start();
     p.register_nodes("equivocation-same-value", NODE_COUNT);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
     let duty = duty();
     let selection = p.selection_bits(&duty);
 
@@ -252,7 +266,7 @@ fn two_statements_with_the_same_value_are_not_equivocation() {
 fn disjoint_coalitions_leave_nobody_to_punish() {
     let mut p = Protocol::start();
     p.register_nodes("equivocation-disjoint", NODE_COUNT);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
     let duty = duty();
     let selection = p.selection_bits(&duty);
     assert_eq!(selection.len(), 6);
@@ -308,7 +322,7 @@ fn a_statement_whose_signature_does_not_verify_proves_nothing() {
 fn a_coalition_outside_the_derived_selection_is_refused() {
     let mut p = Protocol::start();
     p.register_nodes("equivocation-unselected", NODE_COUNT);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
     let duty = duty();
     let selection = p.selection_bits(&duty);
     let unselected = (0..NODE_COUNT)
@@ -408,4 +422,123 @@ fn the_evidence_hash_is_order_independent_but_field_sensitive() {
         &case.b.signers_bitmap
     ))
     .is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// the guilty deposit vaults
+// ---------------------------------------------------------------------------
+
+/// The vault tail is positional: `[signer Node accounts .., guilty vaults ..]`. A filing that
+/// stops at the signers has nowhere to sweep the principal from.
+#[test]
+fn a_filing_without_the_guilty_vaults_is_refused() {
+    let mut case = case();
+    let args = args_for(&case, &case.a, &case.b);
+    let guilty = guilty_pdas(&case);
+    let reporter = case.reporter.insecure_clone();
+
+    let mut ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    ix.accounts.truncate(ix.accounts.len() - guilty.len());
+    let failed = case.p.env.send_err(&[ix], &[&reporter]);
+    assert_molpha_error(&failed, MolphaError::InvalidNodeDepositAccount);
+}
+
+#[test]
+fn a_filing_that_names_someone_elses_vault_is_refused() {
+    let mut case = case();
+    let args = args_for(&case, &case.a, &case.b);
+    let guilty = guilty_pdas(&case);
+    let innocent = case
+        .p
+        .node_pdas()
+        .into_iter()
+        .find(|n| !guilty.contains(n))
+        .expect("some node is innocent");
+    let reporter = case.reporter.insecure_clone();
+
+    // Swap the first guilty vault for an innocent node's, which holds the same balance.
+    let mut ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let first_vault = ix.accounts.len() - guilty.len();
+    ix.accounts[first_vault].pubkey = case.p.node_deposit(&innocent);
+
+    let failed = case.p.env.send_err(&[ix], &[&reporter]);
+    assert_molpha_error(&failed, MolphaError::InvalidNodeDepositAccount);
+    assert_eq!(
+        case.p.node_deposit_balance(&innocent),
+        case.p.args.minimum_node_deposit
+    );
+}
+
+#[test]
+fn a_filing_with_a_vault_too_many_is_refused() {
+    let mut case = case();
+    let args = args_for(&case, &case.a, &case.b);
+    let guilty = guilty_pdas(&case);
+    let reporter = case.reporter.insecure_clone();
+
+    let mut ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let extra = case.p.node_deposit(&guilty[0]);
+    ix.accounts
+        .push(anchor_lang::solana_program::instruction::AccountMeta::new(
+            extra, false,
+        ));
+    let failed = case.p.env.send_err(&[ix], &[&reporter]);
+    assert_molpha_error(&failed, MolphaError::InvalidNodeDepositAccount);
+}
+
+/// Slashing cancels reward credits, so the protocol stops owing them.
+#[test]
+fn punishment_releases_the_reward_liability_it_cancels() {
+    let mut case = case();
+    let gateway = case.p.register_gateway(500_000_000);
+
+    // A settled and finalized round leaves every selected node with a reward credit.
+    let round_duty = duty().source_id([0x77; 32]).at(1_700_000_500);
+    let signed = case.p.sign_duty(round_duty);
+    let x402 = case.p.x402_args(&signed, [0xaa; 32]);
+    let record = pda::x402_round(
+        &x402.payer_id,
+        &pda::gateway(&gateway.pubkey()),
+        &x402.source_id,
+        x402.signatures_required,
+        x402.canonical_timestamp,
+    );
+    let settle = case.p.settle_x402_round_ix(&gateway.pubkey(), x402);
+    let gateway_kp = gateway.insecure_clone();
+    case.p.env.send_ok(&[settle], &[&gateway_kp]);
+
+    let credited = case
+        .p
+        .node_pdas_for_bitmap(round_duty.registry_version, &signed.signers_bitmap);
+    case.p
+        .env
+        .advance_slots(case.p.args.dispute_window_slots + 1);
+    let caller = case.p.env.keypair();
+    let ix = case
+        .p
+        .finalize_round_ix(&caller.pubkey(), &record, &credited);
+    case.p.env.send_ok(&[ix], &[&caller]);
+
+    let reward = case.p.args.reward_per_signature;
+    let liability_before = case.p.reward_liability();
+    assert_eq!(liability_before, reward * credited.len() as u64);
+
+    // Equivocation is a full slash, so each guilty node loses its credit as well as its stake.
+    let args = args_for(&case, &case.a, &case.b);
+    let guilty = guilty_pdas(&case);
+    let credited_guilty = guilty.iter().filter(|n| credited.contains(n)).count() as u64;
+    assert!(credited_guilty > 0, "the guilty were paid for this round");
+
+    let reporter = case.reporter.insecure_clone();
+    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    case.p.env.send_ok(&[ix], &[&reporter]);
+
+    assert_eq!(
+        case.p.reward_liability(),
+        liability_before - reward * credited_guilty
+    );
+    for node in &guilty {
+        assert_eq!(case.p.env.get::<Node>(node).claimable_rewards, 0);
+    }
+    case.p.assert_solvent();
 }

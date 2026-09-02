@@ -51,6 +51,10 @@ fn initialize_writes_config_registry_state_and_genesis_snapshot() {
     );
     assert_eq!(config.x402_round_base, args.x402_round_base);
     assert_eq!(config.min_signers, args.min_signers);
+    assert_eq!(
+        config.reward_liability, 0,
+        "a fresh protocol owes nobody anything"
+    );
 
     let registry_state: RegistryState = b.env.get(&pda::registry_state());
     assert_eq!(registry_state.current_version, 0);
@@ -185,6 +189,10 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
     assert_eq!(after.challenger_bounty_bps, args.challenger_bounty_bps);
     assert_eq!(after.x402_round_base, args.x402_round_base);
     assert_eq!(after.min_signers, args.min_signers);
+    assert_eq!(
+        after.reward_liability, before.reward_liability,
+        "retuning knobs must not rewrite what the protocol owes"
+    );
 
     // `update_config` must not be a back door to the authority or the settlement mint.
     assert_eq!(after.authority, before.authority);
@@ -261,4 +269,46 @@ fn update_config_rejects_a_zero_max_receipt_delay() {
     let ix = update_config_ix(&authority.pubkey(), &args);
     let failed = p.env.send_err(&[ix], &[&authority]);
     assert_molpha_error(&failed, MolphaError::InvalidMaxReceiptDelay);
+}
+
+// ---------------------------------------------------------------------------
+// challenger_bounty_bps ceiling
+// ---------------------------------------------------------------------------
+
+/// A bounty above 100% would pay a reporter more than the punishment recovered, which the
+/// treasury could only cover out of other nodes' money.
+#[test]
+fn initialize_rejects_a_challenger_bounty_over_one_hundred_percent() {
+    let mut b = bare();
+    let mut args = default_initialize_args(b.usdc_mint);
+    args.challenger_bounty_bps = 10_001;
+    let ix = initialize_ix(&b.authority.pubkey(), &b.usdc_mint, &args);
+    let failed = b.env.send_err(&[ix], &[&b.authority]);
+    assert_molpha_error(&failed, MolphaError::InvalidChallengerBounty);
+}
+
+#[test]
+fn initialize_accepts_a_challenger_bounty_of_exactly_one_hundred_percent() {
+    let mut b = bare();
+    let mut args = default_initialize_args(b.usdc_mint);
+    args.challenger_bounty_bps = 10_000;
+    let ix = initialize_ix(&b.authority.pubkey(), &b.usdc_mint, &args);
+    b.env.send_ok(&[ix], &[&b.authority]);
+    let config: ProtocolConfig = b.env.get(&pda::protocol_config());
+    assert_eq!(config.challenger_bounty_bps, 10_000);
+}
+
+#[test]
+fn update_config_rejects_a_challenger_bounty_over_one_hundred_percent() {
+    let mut p = Protocol::start();
+    let mut args = tuned_update_args();
+    args.challenger_bounty_bps = 10_001;
+    let authority = p.authority.insecure_clone();
+    let ix = update_config_ix(&authority.pubkey(), &args);
+    let failed = p.env.send_err(&[ix], &[&authority]);
+    assert_molpha_error(&failed, MolphaError::InvalidChallengerBounty);
+
+    // The rejected value never lands.
+    let config: ProtocolConfig = p.env.get(&pda::protocol_config());
+    assert_eq!(config.challenger_bounty_bps, p.args.challenger_bounty_bps);
 }

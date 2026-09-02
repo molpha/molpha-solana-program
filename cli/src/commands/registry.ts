@@ -105,6 +105,12 @@ export function registerRegistryCommands(program: Command): void {
         config.usdcMint,
         nodeOwner.publicKey
       );
+      // Security deposits live in an ATA owned by the Node PDA, not in the treasury.
+      const nodeDeposit = getAssociatedTokenAddressSync(
+        config.usdcMint,
+        node,
+        true
+      );
 
       const args = {
         ...buildRegisterNodeArgs({
@@ -130,9 +136,10 @@ export function registerRegistryCommands(program: Command): void {
           secp256K1KeyClaim,
           usdcMint: config.usdcMint,
           ownerUsdc,
-          treasury: config.treasury,
+          nodeDeposit,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         })
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: 450_000 }),
@@ -274,7 +281,11 @@ export function registerRegistryCommands(program: Command): void {
           protocolConfig,
           node,
           usdcMint: config.usdcMint,
-          treasury: config.treasury,
+          nodeDeposit: getAssociatedTokenAddressSync(
+            config.usdcMint,
+            node,
+            true
+          ),
           destination,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,

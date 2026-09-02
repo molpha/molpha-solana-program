@@ -31,24 +31,27 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
         MolphaError::WithdrawalCooldownActive
     );
 
-    let config = &ctx.accounts.protocol_config;
-    let bump = [config.bump];
-    let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
+    // Zero the accounting before the CPI so `node_deposit.amount == node.locked_amount` never
+    // reads high, even if the transfer itself fails and reverts the whole instruction.
+    let owner_key = ctx.accounts.owner.key();
+    let node_bump = [ctx.accounts.node.bump];
+    ctx.accounts.node.locked_amount = 0;
+
+    let signer_seeds: &[&[u8]] = &[Node::SEED_PREFIX, owner_key.as_ref(), &node_bump];
     token::transfer(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.key(),
             Transfer {
-                from: ctx.accounts.treasury.to_account_info(),
+                from: ctx.accounts.node_deposit.to_account_info(),
                 to: ctx.accounts.destination.to_account_info(),
-                authority: ctx.accounts.protocol_config.to_account_info(),
+                authority: ctx.accounts.node.to_account_info(),
             },
             &[signer_seeds],
         ),
         amount,
     )?;
 
-    let node = &mut ctx.accounts.node;
-    node.locked_amount = 0;
+    let node = &ctx.accounts.node;
 
     emit!(NodeDepositWithdrawn {
         node: node.key(),
@@ -84,13 +87,14 @@ pub struct WithdrawNodeDeposit<'info> {
     )]
     pub usdc_mint: Account<'info, Mint>,
 
+    /// Node-owned security-deposit vault created by `register_node`; stays open when emptied.
     #[account(
         mut,
         associated_token::mint = usdc_mint,
-        associated_token::authority = protocol_config,
+        associated_token::authority = node,
         associated_token::token_program = token_program,
     )]
-    pub treasury: Account<'info, TokenAccount>,
+    pub node_deposit: Account<'info, TokenAccount>,
 
     #[account(
         init_if_needed,

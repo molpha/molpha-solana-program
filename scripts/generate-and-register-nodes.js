@@ -605,7 +605,8 @@ async function main() {
     }
 
     usdcMint = protocolConfig.usdcMint;
-    treasury = protocolConfig.treasury;
+    // The treasury is derived, not stored on the config; recorded here for operators.
+    treasury = getAssociatedTokenAddressSync(usdcMint, protocolConfigPda, true);
   } else {
     startIndex = 0;
     depositPerNode =
@@ -780,9 +781,11 @@ async function main() {
           secp256K1KeyClaim: keyClaimPda,
           usdcMint,
           ownerUsdc,
-          treasury,
+          // Deposits go to the node's own vault, not the treasury.
+          nodeDeposit: getAssociatedTokenAddressSync(usdcMint, nodePda, true),
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         })
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: 450_000 }),

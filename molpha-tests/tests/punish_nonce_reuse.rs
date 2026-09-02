@@ -55,7 +55,7 @@ fn shared_bits(p: &Protocol, a: &Duty, b: &Duty, count: usize) -> Vec<usize> {
 fn case() -> Case {
     let mut p = Protocol::start();
     p.register_nodes("nonce-reuse", NODE_COUNT);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
 
     let (a_duty, b_duty) = (duty_a(), duty_b());
     let bits = shared_bits(&p, &a_duty, &b_duty, SIGS as usize);
@@ -148,7 +148,20 @@ fn a_proven_nonce_reuse_halves_the_stake_tombstones_and_evicts_the_intersection(
 
     let reporter_usdc = pda::ata(&reporter.pubkey(), &case.p.usdc_mint);
     assert_eq!(case.p.env.token_balance(&reporter_usdc), expected_bounty);
-    assert_eq!(case.p.treasury_balance(), treasury_before - expected_bounty);
+    assert_eq!(
+        case.p.treasury_balance(),
+        treasury_before + expected_slashed - expected_bounty
+    );
+
+    for node in &guilty {
+        assert_eq!(
+            case.p.node_deposit_balance(node),
+            locked_each - locked_each / 2,
+            "the vault always mirrors the surviving locked_amount"
+        );
+    }
+
+    case.p.assert_solvent();
 
     let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));
     assert_eq!(record.offence, OffenceKind::NonceReuse);
@@ -190,7 +203,7 @@ fn a_proven_nonce_reuse_halves_the_stake_tombstones_and_evicts_the_intersection(
 fn statements_that_do_not_share_a_commitment_are_not_nonce_reuse() {
     let mut p = Protocol::start();
     p.register_nodes("nonce-independent", NODE_COUNT);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
     let (a_duty, b_duty) = (duty_a(), duty_b());
     let bits = shared_bits(&p, &a_duty, &b_duty, SIGS as usize);
 
@@ -227,7 +240,7 @@ fn one_statement_filed_against_itself_is_not_nonce_reuse() {
 fn same_duty_with_different_values_must_be_filed_as_equivocation() {
     let mut p = Protocol::start();
     p.register_nodes("nonce-prefer-equivocation", NODE_COUNT);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
     let duty = duty_a();
     let bits = p.selection_bits(&duty)[..SIGS as usize].to_vec();
 
@@ -253,7 +266,7 @@ fn same_duty_with_different_values_must_be_filed_as_equivocation() {
 fn the_same_duty_with_the_same_value_but_different_coalitions_is_nonce_reuse() {
     let mut p = Protocol::start();
     p.register_nodes("nonce-same-duty", NODE_COUNT);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
     let duty = duty_a();
     let selection = p.selection_bits(&duty);
 
@@ -288,7 +301,7 @@ fn the_same_duty_with_the_same_value_but_different_coalitions_is_nonce_reuse() {
 fn disjoint_coalitions_leave_nobody_to_punish() {
     let mut p = Protocol::start();
     p.register_nodes("nonce-disjoint", NODE_COUNT);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
     let (a_duty, b_duty) = (duty_a(), duty_b());
     let shared = shared_bits(&p, &a_duty, &b_duty, 4);
 
@@ -342,7 +355,7 @@ fn a_statement_whose_signature_does_not_verify_proves_nothing() {
 fn a_coalition_outside_its_own_duty_selection_is_refused() {
     let mut p = Protocol::start();
     p.register_nodes("nonce-unselected", NODE_COUNT);
-    let reporter = p.env.keypair();
+    let reporter = p.reporter();
     let (a_duty, b_duty) = (duty_a(), duty_b());
     let shared = shared_bits(&p, &a_duty, &b_duty, 3);
     let selection_b = p.selection_bits(&b_duty);

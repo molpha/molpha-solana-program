@@ -40,6 +40,10 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
         args.min_signers >= MIN_SIGNERS_FLOOR,
         MolphaError::InvalidMinSigners
     );
+    require!(
+        args.challenger_bounty_bps <= ProtocolConfig::MAX_BPS,
+        MolphaError::InvalidChallengerBounty
+    );
 
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.authority = ctx.accounts.authority.key();
@@ -52,6 +56,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_slots = args.withdrawal_cooldown_slots;
     protocol_config.x402_round_base = args.x402_round_base;
+    protocol_config.reward_liability = 0;
     protocol_config.min_signers = args.min_signers;
     protocol_config.bump = ctx.bumps.protocol_config;
 

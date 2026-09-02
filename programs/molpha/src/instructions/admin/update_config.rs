@@ -32,6 +32,10 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
         args.min_signers >= MIN_SIGNERS_FLOOR,
         MolphaError::InvalidMinSigners
     );
+    require!(
+        args.challenger_bounty_bps <= ProtocolConfig::MAX_BPS,
+        MolphaError::InvalidChallengerBounty
+    );
 
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.reward_per_signature = args.reward_per_signature;

@@ -1,10 +1,7 @@
 //! Valid attestation with a signer outside the duty's deterministic selection set.
 
 use anchor_lang::prelude::*;
-use anchor_spl::{
-    associated_token::AssociatedToken,
-    token::{Mint, Token, TokenAccount},
-};
+use anchor_spl::token::{Token, TokenAccount};
 use molpha_verifier::bitmap::{bitmap_is_subset, bitmap_load, bitmap_store};
 
 use crate::{
@@ -15,7 +12,7 @@ use crate::{
         ProtocolConfig, PunishmentCase, Registry, RegistryState, SignedStatement,
     },
     utils::{
-        slash::{slash_nodes, SlashAccounts, SlashInput},
+        slash::{slash_nodes, split_punishment_accounts, SlashAccounts, SlashInput},
         verify_statement,
     },
 };
@@ -46,6 +43,13 @@ pub fn punish_unsolicited_signing<'info>(
         MolphaError::EvidenceHashMismatch
     );
 
+    // `[signer Node accounts .., guilty deposit vaults ..]`, each half in ascending bit order.
+    let usdc_mint = ctx.accounts.protocol_config.usdc_mint;
+    let (signer_accounts, deposit_atas) = split_punishment_accounts(
+        ctx.remaining_accounts,
+        bitmap_load(&args.statement.signers_bitmap).count_ones() as usize,
+    )?;
+
     // Resolve the full submitted bitmap; the aggregate is only verifiable over all contributors.
     let (resolved, guilty_bitmap, guilty_count) = {
         let evidence_registry = ctx.accounts.evidence_registry.load()?;
@@ -69,7 +73,7 @@ pub fn punish_unsolicited_signing<'info>(
         let guilty_count = guilty.count_ones() as u16;
 
         let resolved = resolve_registry_signers_indexed(
-            ctx.remaining_accounts,
+            signer_accounts,
             ctx.program_id,
             &evidence_registry,
             &args.statement.signers_bitmap,
@@ -95,16 +99,18 @@ pub fn punish_unsolicited_signing<'info>(
             current_registry: &ctx.accounts.current_registry,
             new_registry: &ctx.accounts.new_registry,
             new_registry_bump: ctx.bumps.new_registry,
-            protocol_config: &ctx.accounts.protocol_config,
+            protocol_config: &mut ctx.accounts.protocol_config,
             punishment_case: &mut ctx.accounts.punishment_case,
             punishment_case_bump: ctx.bumps.punishment_case,
             reporter,
-            treasury: &ctx.accounts.treasury,
+            treasury: &mut ctx.accounts.treasury,
             reporter_usdc: &ctx.accounts.reporter_usdc,
+            usdc_mint,
             token_program: ctx.accounts.token_program.key(),
         },
         SlashInput {
-            remaining_accounts: ctx.remaining_accounts,
+            signer_accounts,
+            deposit_atas,
             program_id: ctx.program_id,
             resolved: &resolved,
             guilty_bitmap,
@@ -140,6 +146,7 @@ pub struct PunishUnsolicitedSigning<'info> {
     pub reporter: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]
@@ -183,28 +190,23 @@ pub struct PunishUnsolicitedSigning<'info> {
     pub punishment_case: Box<Account<'info, PunishmentCase>>,
 
     #[account(
-        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidMint
-    )]
-    pub usdc_mint: Box<Account<'info, Mint>>,
-
-    #[account(
         mut,
-        associated_token::mint = usdc_mint,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = protocol_config,
         associated_token::token_program = token_program,
     )]
     pub treasury: Box<Account<'info, TokenAccount>>,
 
+    /// Must already exist: creating it here would cost a transaction slot the guilty-vault tail
+    /// needs. Reporters hold USDC anyway.
     #[account(
-        init_if_needed,
-        payer = reporter,
-        associated_token::mint = usdc_mint,
+        mut,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = reporter,
         associated_token::token_program = token_program,
     )]
     pub reporter_usdc: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }

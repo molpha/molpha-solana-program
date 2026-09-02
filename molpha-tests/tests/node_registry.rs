@@ -80,12 +80,22 @@ fn register_node_writes_identity_takes_the_deposit_and_appends_a_snapshot() {
     let claim: Secp256k1KeyClaim = p.env.get(&pda::secp256k1_key_claim(&key.compressed));
     assert_eq!(claim.node_pubkey, pda::node(&owner.pubkey()));
 
-    // Deposit moved owner -> treasury.
+    // Deposit moved owner -> the node's own vault; the treasury never sees principal.
+    let node_pda = pda::node(&owner.pubkey());
     assert_eq!(
         p.env.token_balance(&owner_usdc),
         owner_before - p.args.minimum_node_deposit
     );
-    assert_eq!(p.treasury_balance(), p.args.minimum_node_deposit);
+    assert_eq!(
+        p.node_deposit_balance(&node_pda),
+        p.args.minimum_node_deposit
+    );
+    assert_eq!(p.treasury_balance(), 0);
+
+    // The vault is the canonical ATA of the Node PDA, so nothing else can sign for it.
+    let vault = p.env.token_account(&p.node_deposit(&node_pda));
+    assert_eq!(vault.owner, node_pda);
+    assert_eq!(vault.mint, p.usdc_mint);
 
     // A fresh snapshot holds the node; the genesis snapshot is untouched.
     assert_eq!(p.current_version(), 1);

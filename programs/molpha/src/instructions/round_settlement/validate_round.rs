@@ -40,6 +40,8 @@ pub fn validate_round<'info>(mut ctx: Context<'info, ValidateRound<'info>>) -> R
         return credit_round_rewards(
             &mut ctx.accounts.round_record,
             &registry,
+            &mut ctx.accounts.protocol_config,
+            &ctx.accounts.treasury,
             ctx.remaining_accounts,
             ctx.program_id,
         );
@@ -153,6 +155,7 @@ pub struct ValidateRound<'info> {
     pub challenger: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]

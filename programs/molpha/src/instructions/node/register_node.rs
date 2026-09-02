@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{self, Token, TokenAccount, Transfer},
+};
 use molpha_verifier::{validate_key_and_verify_pop, NodePopError};
 use solana_keccak_hasher::hashv;
 
@@ -57,12 +60,14 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         NodePopError::InvalidProof => error!(MolphaError::InvalidPoP),
     })?;
 
+    // Principal goes into the node's own vault, never the treasury: no reward or bounty payout
+    // can reach it, so `node_deposit.amount == node.locked_amount` holds for the node's lifetime.
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.owner_usdc.to_account_info(),
-                to: ctx.accounts.treasury.to_account_info(),
+                to: ctx.accounts.node_deposit.to_account_info(),
                 authority: ctx.accounts.node_owner.to_account_info(),
             },
         ),
@@ -185,14 +190,17 @@ pub struct RegisterNode<'info> {
     )]
     pub owner_usdc: Box<Account<'info, TokenAccount>>,
 
+    /// Node-owned security-deposit vault. Held apart from the treasury for the node's lifetime.
     #[account(
-        mut,
+        init,
+        payer = node_owner,
         associated_token::mint = usdc_mint,
-        associated_token::authority = protocol_config,
+        associated_token::authority = node,
         associated_token::token_program = token_program,
     )]
-    pub treasury: Box<Account<'info, TokenAccount>>,
+    pub node_deposit: Box<Account<'info, TokenAccount>>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
 }

@@ -9,7 +9,7 @@ crate-type = ["cdylib", "lib"]
 name = "molpha"
 
 [features]
-default = []
+default = ["custom-heap", "custom-panic"]
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []

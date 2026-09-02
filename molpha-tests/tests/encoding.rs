@@ -63,7 +63,7 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
     assert_eq!(decoded.usdc_mint, args.usdc_mint);
     assert_eq!(decoded.x402_round_base, args.x402_round_base);
-        assert_eq!(decoded.min_signers, args.min_signers);
+    assert_eq!(decoded.min_signers, args.min_signers);
 }
 
 fn update_config_args() -> UpdateConfigArgs {

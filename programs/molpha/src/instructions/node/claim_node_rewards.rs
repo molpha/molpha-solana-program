@@ -16,8 +16,21 @@ pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
     let amount = ctx.accounts.node.claimable_rewards;
     require!(amount > 0, MolphaError::NothingToClaim);
 
-    let config = &ctx.accounts.protocol_config;
-    let bump = [config.bump];
+    // Rewards are backed by treasury revenue only; the invariant is maintained at credit time,
+    // so a failure here means the treasury was drained outside the protocol's own payout paths.
+    require!(
+        ctx.accounts.treasury.amount >= amount,
+        MolphaError::TreasuryInsolvent
+    );
+
+    let config = &mut ctx.accounts.protocol_config;
+    config.reward_liability = config
+        .reward_liability
+        .checked_sub(amount)
+        .ok_or(MolphaError::RewardLiabilityUnderflow)?;
+    ctx.accounts.node.claimable_rewards = 0;
+
+    let bump = [ctx.accounts.protocol_config.bump];
     let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
     token::transfer(
         CpiContext::new_with_signer(
@@ -31,7 +44,6 @@ pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
         ),
         amount,
     )?;
-    ctx.accounts.node.claimable_rewards = 0;
 
     emit!(RewardsClaimed {
         beneficiary: ctx.accounts.node.owner,
@@ -47,6 +59,7 @@ pub struct ClaimNodeRewards<'info> {
     pub owner: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]

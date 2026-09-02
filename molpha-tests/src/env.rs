@@ -60,6 +60,24 @@ pub fn set_compute_unit_limit(units: u32) -> Instruction {
     }
 }
 
+/// `RequestHeapFrame` — raises the per-invocation heap above the 32 KiB default.
+///
+/// Large punishment filings deserialize many `Node` accounts in one instruction; production
+/// callers pair this with a v0 transaction when the signer list exceeds the legacy wire limit.
+pub fn request_heap_frame(bytes: u32) -> Instruction {
+    let mut data = Vec::with_capacity(5);
+    data.push(1u8);
+    data.extend_from_slice(&bytes.to_le_bytes());
+    Instruction {
+        program_id: COMPUTE_BUDGET_PROGRAM_ID,
+        accounts: vec![],
+        data,
+    }
+}
+
+/// Largest heap frame the compute-budget program accepts (256 KiB).
+pub const MAX_HEAP_FRAME_BYTES: u32 = 256 * 1024;
+
 /// `SetComputeUnitPrice` — a harmless second instruction, used by tests that need to wedge
 /// something between the Ed25519 authorization and the settlement it authorizes.
 pub fn set_compute_unit_price(micro_lamports: u64) -> Instruction {
@@ -122,6 +140,15 @@ impl TestEnv {
         self.send_with_cu(ixs, signers, DEFAULT_CU_LIMIT)
     }
 
+    /// Like [`send`](Self::send), but also requests the maximum heap frame.
+    pub fn send_with_max_heap(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> TransactionResult {
+        self.send_with_cu_and_heap(ixs, signers, DEFAULT_CU_LIMIT, MAX_HEAP_FRAME_BYTES)
+    }
+
     pub fn send_with_cu(
         &mut self,
         ixs: &[Instruction],
@@ -129,6 +156,25 @@ impl TestEnv {
         cu_limit: u32,
     ) -> TransactionResult {
         let tx = self.build_transaction(ixs, signers, cu_limit);
+        let result = self.svm.send_transaction(tx);
+        self.svm.expire_blockhash();
+        result
+    }
+
+    pub fn send_with_cu_and_heap(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+        cu_limit: u32,
+        heap_bytes: u32,
+    ) -> TransactionResult {
+        let mut all = Vec::with_capacity(ixs.len() + 2);
+        all.push(set_compute_unit_limit(cu_limit));
+        if heap_bytes > 0 {
+            all.push(request_heap_frame(heap_bytes));
+        }
+        all.extend_from_slice(ixs);
+        let tx = self.build_transaction_prepared(&all, signers);
         let result = self.svm.send_transaction(tx);
         // Two otherwise-identical transactions in one test would collide on signature;
         // rotating the blockhash keeps callers from having to think about it.
@@ -147,6 +193,21 @@ impl TestEnv {
             .len()
     }
 
+    /// Wire size of `ixs` as `payer` would actually broadcast them.
+    ///
+    /// [`transaction_size`](Self::transaction_size) measures the harness's own transaction, which
+    /// always adds the funding payer as an extra signer — 96 bytes a real caller does not pay.
+    /// Instructions whose account list is near the packet limit must be measured this way.
+    pub fn transaction_size_as(&self, payer: &Pubkey, ixs: &[Instruction]) -> usize {
+        let mut all = Vec::with_capacity(ixs.len() + 1);
+        all.push(set_compute_unit_limit(DEFAULT_CU_LIMIT));
+        all.extend_from_slice(ixs);
+        let message = Message::new(&all, Some(payer));
+        let signatures = usize::from(message.header.num_required_signatures);
+        // Legacy wire format: a short-vec of 64-byte signatures, then the serialized message.
+        1 + 64 * signatures + message.serialize().len()
+    }
+
     /// The compute-budget prefix, message and signatures every test transaction shares.
     ///
     /// Signs with exactly the keys the message requires: callers pass whoever is conceptually
@@ -161,9 +222,17 @@ impl TestEnv {
         let mut all = Vec::with_capacity(ixs.len() + 1);
         all.push(set_compute_unit_limit(cu_limit));
         all.extend_from_slice(ixs);
+        self.build_transaction_prepared(&all, signers)
+    }
 
+    /// Build a transaction from a fully prepared instruction list (compute budget already included).
+    fn build_transaction_prepared(
+        &self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> Transaction {
         let payer_pubkey = self.payer.pubkey();
-        let message = Message::new(&all, Some(&payer_pubkey));
+        let message = Message::new(ixs, Some(&payer_pubkey));
         let available: Vec<&Keypair> = std::iter::once(&self.payer)
             .chain(signers.iter().copied())
             .collect();
@@ -190,6 +259,22 @@ impl TestEnv {
     /// Send and require success, surfacing program logs on failure.
     pub fn send_ok(&mut self, ixs: &[Instruction], signers: &[&Keypair]) -> TransactionMetadata {
         match self.send(ixs, signers) {
+            Ok(meta) => meta,
+            Err(failed) => panic!(
+                "transaction failed: {:?}\n--- logs ---\n{}",
+                failed.err,
+                failed.meta.logs.join("\n")
+            ),
+        }
+    }
+
+    /// Like [`send_ok`](Self::send_ok), but requests the maximum heap frame first.
+    pub fn send_ok_with_max_heap(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> TransactionMetadata {
+        match self.send_with_max_heap(ixs, signers) {
             Ok(meta) => meta,
             Err(failed) => panic!(
                 "transaction failed: {:?}\n--- logs ---\n{}",
@@ -245,7 +330,12 @@ impl TestEnv {
     }
 
     pub fn token_balance(&self, token_account: &Pubkey) -> u64 {
-        token::unpack_token_account(&self.account_data(token_account)).amount
+        self.token_account(token_account).amount
+    }
+
+    /// Mint, owner and amount of an SPL token account.
+    pub fn token_account(&self, token_account: &Pubkey) -> token::TokenAccountState {
+        token::unpack_token_account(&self.account_data(token_account))
     }
 
     /// `0` when the account has not been created yet — lets tests read a balance before and

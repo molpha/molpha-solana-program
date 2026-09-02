@@ -23,6 +23,26 @@ export function findProtocolConfigPda(
   return PublicKey.findProgramAddressSync([PROTOCOL_CONFIG_SEED], programId);
 }
 
+/// The protocol treasury: the canonical USDC ATA of the `protocol_config` PDA.
+///
+/// `ProtocolConfig` does not store this address — it is derived, and the program enforces the
+/// derivation through its `associated_token` constraints.
+export function findTreasuryAta(
+  programId: PublicKey,
+  usdcMint: PublicKey
+): PublicKey {
+  const [protocolConfig] = findProtocolConfigPda(programId);
+  return getAssociatedTokenAddressSync(usdcMint, protocolConfig, true);
+}
+
+/// A node's security-deposit vault: the canonical USDC ATA of its `Node` PDA.
+export function findNodeDepositAta(
+  node: PublicKey,
+  usdcMint: PublicKey
+): PublicKey {
+  return getAssociatedTokenAddressSync(usdcMint, node, true);
+}
+
 export function findRegistryStatePda(
   programId: PublicKey
 ): [PublicKey, number] {

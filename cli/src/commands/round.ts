@@ -30,6 +30,7 @@ import {
   findRegistryStatePda,
   findSubscriptionPda,
   findSubscriptionRoundPda,
+  findTreasuryAta,
   findX402RoundPda,
 } from "../lib/pdas";
 import {
@@ -332,7 +333,7 @@ export function registerRoundCommands(program: Command): void {
           gateway: gatewayPda,
           usdcMint: protocolConfig.usdcMint,
           gatewayUsdc,
-          treasury: protocolConfig.treasury,
+          treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
           tokenProgram: TOKEN_PROGRAM_ID,
           roundRecord: roundRecordPda,
           systemProgram: SystemProgram.programId,
@@ -401,11 +402,21 @@ export function registerRoundCommands(program: Command): void {
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
 
+      // Crediting checks the treasury can back the rewards it is about to owe.
+      const protocolConfig = await fetchAccountOrNull<any>(
+        ctx.program,
+        "protocolConfig",
+        protocolConfigPda
+      );
+      if (!protocolConfig) throw new Error("Protocol is not initialized");
+
       const signature = await (ctx.program.methods as any)
         .finalizeRound()
         .accountsPartial({
           caller: ctx.wallet.publicKey,
           protocolConfig: protocolConfigPda,
+          usdcMint: protocolConfig.usdcMint,
+          treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
           registry: registryPda,
           roundRecord,
           gateway: gatewayPda,
@@ -501,7 +512,7 @@ export function registerRoundCommands(program: Command): void {
           gateway: gatewayPda,
           usdcMint: protocolConfig.usdcMint,
           gatewayBond,
-          treasury: protocolConfig.treasury,
+          treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
           challengerUsdc,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
