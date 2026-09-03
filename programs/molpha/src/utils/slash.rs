@@ -207,13 +207,12 @@ pub fn slash_nodes<'a, 'b, 'info>(
         .ok_or(MolphaError::RewardLiabilityUnderflow)?;
 
     // Sweep the forfeited principal out of the deposit vault in one transfer, whatever the size
-    // of the guilty set, and drop it out of the deposit accounting by the same amount.
+    // of the guilty set. The amount comes directly from the guilty nodes' locked balances.
     if batch.slashed_locked > 0 {
-        accounts.protocol_config.total_node_deposits = accounts
-            .protocol_config
-            .total_node_deposits
-            .checked_sub(batch.slashed_locked)
-            .ok_or(MolphaError::DepositVaultUnderfunded)?;
+        require!(
+            accounts.node_deposit_vault.amount >= batch.slashed_locked,
+            MolphaError::DepositVaultUnderfunded
+        );
 
         let vault_bump = [accounts.protocol_config.node_deposits_bump];
         let vault_seeds: &[&[u8]] = &[NODE_DEPOSITS_SEED, &vault_bump];
@@ -229,13 +228,6 @@ pub fn slash_nodes<'a, 'b, 'info>(
             ),
             batch.slashed_locked,
         )?;
-
-        // Every unpunished node's deposit is still fully backed.
-        accounts.node_deposit_vault.reload()?;
-        require!(
-            accounts.node_deposit_vault.amount >= accounts.protocol_config.total_node_deposits,
-            MolphaError::DepositVaultUnderfunded
-        );
     }
 
     // The bounty is funded by what this punishment just recovered: the principal swept in above,

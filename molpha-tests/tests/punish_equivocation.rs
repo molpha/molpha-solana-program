@@ -149,7 +149,7 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
     // The forfeited principal left the deposit vault; every innocent node's is still there.
     let innocent_total = innocent.len() as u64 * locked_each;
     assert_eq!(case.p.node_deposit_balance(), innocent_total);
-    assert_eq!(case.p.total_node_deposits(), innocent_total);
+    assert_eq!(case.p.total_locked_deposits(), innocent_total);
     for node in &innocent {
         assert_eq!(case.p.env.get::<Node>(node).locked_amount, locked_each);
     }
@@ -497,8 +497,6 @@ fn a_node_can_be_punished_again_after_surviving_an_earlier_punishment() {
         node.locked_amount = locked_each / 2;
     });
     case.p.fund_usdc(&pda::node_deposits(), locked_each / 2);
-    case.p
-        .overwrite_protocol_config(|config| config.total_node_deposits += locked_each / 2);
     case.p.assert_solvent();
 
     // A second, unrelated filing takes what is left, and no more.

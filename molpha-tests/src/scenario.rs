@@ -362,11 +362,12 @@ impl Protocol {
         self.env.token_balance_or_zero(&self.node_deposit_vault())
     }
 
-    /// `Σ Node.locked_amount` as the protocol tracks it.
-    pub fn total_node_deposits(&self) -> u64 {
-        self.env
-            .get::<molpha::state::ProtocolConfig>(&pda::protocol_config())
-            .total_node_deposits
+    /// Sum the principal owed to every node registered through this fixture.
+    pub fn total_locked_deposits(&self) -> u64 {
+        self.node_pdas()
+            .iter()
+            .map(|node| self.env.get::<molpha::state::Node>(node).locked_amount)
+            .sum()
     }
 
     /// `Σ Node.claimable_rewards` as the protocol tracks it.
@@ -379,23 +380,13 @@ impl Protocol {
     /// Assert the custody invariants the treasury separation exists to guarantee.
     ///
     /// Cheap enough to call at the end of any test that moves money, and the fastest way to
-    /// notice a payout path that forgot to update its accounting.
+    /// notice a payout path that broke principal custody or reward accounting.
     pub fn assert_solvent(&self) {
-        let owed_deposits: u64 = self
-            .node_pdas()
-            .iter()
-            .map(|node| self.env.get::<molpha::state::Node>(node).locked_amount)
-            .sum();
-        assert_eq!(
-            self.total_node_deposits(),
-            owed_deposits,
-            "total_node_deposits is not the sum of every locked_amount"
-        );
         assert!(
-            self.node_deposit_balance() >= self.total_node_deposits(),
+            self.node_deposit_balance() >= self.total_locked_deposits(),
             "deposit vault {} cannot cover the {} it holds for nodes",
             self.node_deposit_balance(),
-            self.total_node_deposits()
+            self.total_locked_deposits()
         );
 
         let owed_rewards: u64 = self

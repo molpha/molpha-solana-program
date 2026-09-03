@@ -155,7 +155,7 @@ fn a_proven_nonce_reuse_halves_the_stake_tombstones_and_evicts_the_intersection(
     );
     assert_eq!(
         case.p.node_deposit_balance(),
-        case.p.total_node_deposits(),
+        case.p.total_locked_deposits(),
         "the vault matches what is still owed to nodes"
     );
     case.p.assert_solvent();

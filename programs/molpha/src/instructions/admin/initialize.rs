@@ -57,7 +57,6 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.withdrawal_cooldown_slots = args.withdrawal_cooldown_slots;
     protocol_config.x402_round_base = args.x402_round_base;
     protocol_config.reward_liability = 0;
-    protocol_config.total_node_deposits = 0;
     protocol_config.node_deposits_bump = ctx.bumps.node_deposits;
     protocol_config.min_signers = args.min_signers;
     protocol_config.bump = ctx.bumps.protocol_config;

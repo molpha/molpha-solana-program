@@ -43,13 +43,7 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
     );
 
     ctx.accounts.node.locked_amount = 0;
-    let config = &mut ctx.accounts.protocol_config;
-    config.total_node_deposits = config
-        .total_node_deposits
-        .checked_sub(amount)
-        .ok_or(MolphaError::DepositVaultUnderfunded)?;
-
-    let vault_bump = [config.node_deposits_bump];
+    let vault_bump = [ctx.accounts.protocol_config.node_deposits_bump];
     let signer_seeds: &[&[u8]] = &[NODE_DEPOSITS_SEED, &vault_bump];
     token::transfer(
         CpiContext::new_with_signer(
@@ -63,13 +57,6 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
         ),
         amount,
     )?;
-
-    // The vault still covers every other node's deposit.
-    ctx.accounts.node_deposit_vault.reload()?;
-    require!(
-        ctx.accounts.node_deposit_vault.amount >= ctx.accounts.protocol_config.total_node_deposits,
-        MolphaError::DepositVaultUnderfunded
-    );
 
     let node = &ctx.accounts.node;
 
@@ -89,7 +76,6 @@ pub struct WithdrawNodeDeposit<'info> {
     pub owner: Signer<'info>,
 
     #[account(
-        mut,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]

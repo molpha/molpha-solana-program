@@ -94,7 +94,6 @@ fn register_node_writes_identity_takes_the_deposit_and_appends_a_snapshot() {
     assert_eq!(vault.owner, pda::node_deposits());
     assert_ne!(vault.owner, pda::protocol_config());
     assert_eq!(vault.mint, p.usdc_mint);
-    assert_eq!(p.total_node_deposits(), p.args.minimum_node_deposit);
 
     // A fresh snapshot holds the node; the genesis snapshot is untouched.
     assert_eq!(p.current_version(), 1);

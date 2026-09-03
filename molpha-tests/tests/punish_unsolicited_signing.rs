@@ -136,7 +136,7 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
     );
     assert_eq!(
         case.p.node_deposit_balance(),
-        case.p.total_node_deposits(),
+        case.p.total_locked_deposits(),
         "the vault matches what is still owed to nodes"
     );
     case.p.assert_solvent();

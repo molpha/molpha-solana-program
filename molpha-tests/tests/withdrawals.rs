@@ -37,7 +37,7 @@ fn a_deactivated_node_withdraws_its_deposit_at_the_exact_cooldown_boundary() {
     assert_eq!(p.treasury_balance(), treasury_before);
     // No `assert_solvent` here: the fixture plants `claimable_rewards` directly, which by design
     // desynchronises the node from `reward_liability`.
-    assert_eq!(p.total_node_deposits(), p.node_deposit_balance());
+    assert_eq!(p.total_locked_deposits(), p.node_deposit_balance());
 
     let node: Node = p.env.get(&node_pda);
     assert_eq!(node.status, NodeStatus::Deactivated);
@@ -287,7 +287,7 @@ fn node_principal_is_never_available_to_pay_rewards() {
     let deposit = p.args.minimum_node_deposit;
     assert_eq!(p.treasury_balance(), 1, "only the month's price is revenue");
     assert_eq!(p.node_deposit_balance(), 8 * deposit);
-    assert_eq!(p.total_node_deposits(), 8 * deposit);
+    assert_eq!(p.total_locked_deposits(), 8 * deposit);
 
     let signed = p.sign_duty(Duty::new(8, 4));
     let ixs = vec![
@@ -397,7 +397,7 @@ fn a_node_can_only_ever_draw_its_own_deposit_out_of_the_shared_vault() {
     }
 
     assert_eq!(p.node_deposit_balance(), 0);
-    assert_eq!(p.total_node_deposits(), 0);
+    assert_eq!(p.total_locked_deposits(), 0);
 
     // A second attempt takes nothing, even though the vault is shared with nobody left in it.
     let owner = p.nodes[0].owner.insecure_clone();
@@ -416,7 +416,7 @@ fn a_surplus_in_the_deposit_vault_is_not_withdrawable() {
     let deposit = p.args.minimum_node_deposit;
     p.fund_usdc(&pda::node_deposits(), 500_000_000);
     assert_eq!(p.node_deposit_balance(), 2 * deposit + 500_000_000);
-    assert_eq!(p.total_node_deposits(), 2 * deposit);
+    assert_eq!(p.total_locked_deposits(), 2 * deposit);
 
     let owner = p.nodes[0].owner.insecure_clone();
     p.env

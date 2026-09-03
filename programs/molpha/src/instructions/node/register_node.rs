@@ -74,11 +74,6 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         ),
         deposit,
     )?;
-    let config = &mut ctx.accounts.protocol_config;
-    config.total_node_deposits = config
-        .total_node_deposits
-        .checked_add(deposit)
-        .ok_or(MolphaError::AmountMismatch)?;
 
     let now = Clock::get()?.unix_timestamp;
 
@@ -129,7 +124,6 @@ pub struct RegisterNode<'info> {
     pub node_owner: Signer<'info>,
 
     #[account(
-        mut,
         has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,

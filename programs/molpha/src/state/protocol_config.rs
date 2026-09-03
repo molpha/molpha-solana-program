@@ -24,17 +24,8 @@ pub struct ProtocolConfig {
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_slots: u64,
     pub x402_round_base: u64,
-    /// Sum of every `Node.claimable_rewards`. The treasury must always hold at least this much:
-    /// node principal lives in per-node deposit vaults, so anything above this line is protocol
-    /// revenue and anything below it means credited rewards are unbacked.
+    /// Sum of every `Node.claimable_rewards`. The treasury must always hold at least this much
     pub reward_liability: u64,
-    /// `Σ Node.locked_amount`, and the balance the node-deposit vault must always hold.
-    ///
-    /// Node principal lives in one vault, separate from the treasury and under its own authority,
-    /// so no reward or bounty payout can reach it. This counter makes that backing auditable from
-    /// state alone. It reconciles the vault against the accounting; the per-node bound is enforced
-    /// separately, at each debit, against that node's own `locked_amount`.
-    pub total_node_deposits: u64,
     pub min_signers: u8,
     pub bump: u8,
     /// Bump for [`NODE_DEPOSITS_SEED`], the deposit vault's token authority.
