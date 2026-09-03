@@ -1,12 +1,16 @@
 //! How large a guilty set one punishment transaction can carry.
 //!
-//! Every punishment names its signer `Node` accounts and then one deposit vault per guilty node,
-//! so a filing costs 33 transaction bytes per account on both halves. The transaction-size limit
-//! binds long before anything else, and reporters need to know where it lands: past it, a filing
-//! is only broadcastable as a v0 transaction with an address lookup table.
+//! A punishment names one `Node` account per signer and nothing else that scales: the guilty
+//! nodes' principal all sits in one vault, so the sentence settles in a single transfer whatever
+//! the size of the guilty set. Each signer still costs 33 transaction bytes, so reporters need to
+//! know where the limit lands: past it, a filing is only broadcastable as a v0 transaction with
+//! an address lookup table.
 //!
 //! LiteSVM does not enforce the wire limit, so these tests measure rather than expecting a
 //! failed send, and they measure with the reporter as fee payer — the way a filing is really sent.
+//!
+//! The v0 tests at the end close the loop: they resolve the same filing through an address
+//! lookup table and send it, proving the escape hatch is real rather than assumed.
 //!
 //! The production round shape we must remain able to punish is 18 signatures required plus 2
 //! redundancy buffer — 20 signers in the derived selection. Legacy wire limits only allow filing
@@ -18,18 +22,18 @@ use molpha::instructions::{
     PunishEquivocationArgs, PunishNonceReuseArgs, PunishUnsolicitedSigningArgs,
 };
 use molpha::state::{
-    equivocation_evidence_hash, nonce_reuse_evidence_hash, unsolicited_signing_evidence_hash,
-    Node, NodeStatus,
+    equivocation_evidence_hash, nonce_reuse_evidence_hash, unsolicited_signing_evidence_hash, Node,
+    NodeStatus,
 };
 use molpha_tests::crypto;
-use molpha_tests::env::PACKET_DATA_SIZE;
+use molpha_tests::env::{TestEnv, PACKET_DATA_SIZE};
 use molpha_tests::scenario::{
     intersect_bitmap, unsolicited_guilty_bitmap, Duty, Protocol, SignedAttestation,
 };
 use solana_signer::Signer;
 
 /// Registry size for legacy wire-size sweeps — wide enough for coalition probes up to 12.
-const NODE_COUNT: usize = 24;
+const NODE_COUNT: usize = 30;
 const REDUNDANCY_BUFFER: u8 = 2;
 
 /// Round signer set: 18 threshold + 2 redundancy buffer.
@@ -45,12 +49,16 @@ const UNSOLICITED_REGISTRY_NODES: usize = ROUND_SIGNER_COUNT + MAX_UNSOLICITED_I
 
 /// Largest fully-overlapping coalition whose `punish_equivocation` filing fits a legacy packet.
 ///
-/// Asserted exactly: adding an account to the instruction, or growing its args, costs a node on
-/// both halves of `remaining_accounts` and therefore shrinks this number twice as fast.
-const MAX_LEGACY_EQUIVOCATION: usize = 6;
+/// Asserted exactly. A filing costs one account per signer plus a fixed set of token accounts,
+/// so every account added to the punishment context costs a signer directly, and going back to a
+/// vault per guilty node would halve this number.
+const MAX_LEGACY_EQUIVOCATION: usize = 10;
 
 /// Same, for `punish_nonce_reuse`, whose two signing contexts make its args the largest.
-const MAX_LEGACY_NONCE_REUSE: usize = 5;
+const MAX_LEGACY_NONCE_REUSE: usize = 9;
+
+/// Solana's per-transaction maximum, which the harness requests for every transaction.
+const MAX_COMPUTE_UNITS: u64 = 1_400_000;
 
 fn protocol() -> Protocol {
     let mut p = Protocol::builder()
@@ -193,7 +201,7 @@ fn a_fully_overlapping_equivocation_fits_a_legacy_packet_up_to_the_pinned_coalit
 
     let mut largest_fitting = 0usize;
     let mut sizes = Vec::new();
-    for coalition in 3..=12 {
+    for coalition in 3..=20 {
         let (a, b) = equivocation_pair(&p, coalition, 1_700_100_000 + coalition as u64);
         let args = equivocation_args(&a, &b);
         let ix = p.punish_equivocation_ix(&reporter, args);
@@ -213,6 +221,8 @@ fn a_fully_overlapping_equivocation_fits_a_legacy_packet_up_to_the_pinned_coalit
     );
 }
 
+/// Size is only the first ceiling. A filing verifies two aggregate signatures over the whole
+/// coalition and moves money twice, so the compute budget is what to watch next.
 #[test]
 fn the_largest_fitting_equivocation_filing_actually_lands() {
     let mut p = protocol();
@@ -226,7 +236,17 @@ fn the_largest_fitting_equivocation_filing_actually_lands() {
             .transaction_size_as(&reporter.pubkey(), std::slice::from_ref(&ix))
             <= PACKET_DATA_SIZE
     );
-    p.env.send_ok(&[ix], &[&reporter]);
+
+    let meta = p.env.send_ok(&[ix], &[&reporter]);
+    println!(
+        "punish_equivocation: {MAX_LEGACY_EQUIVOCATION} signers, all guilty -> {} CU",
+        meta.compute_units_consumed
+    );
+    assert!(
+        meta.compute_units_consumed < MAX_COMPUTE_UNITS,
+        "the largest transaction-sized filing does not fit the compute budget: {} CU",
+        meta.compute_units_consumed
+    );
 }
 
 #[test]
@@ -237,7 +257,7 @@ fn a_fully_overlapping_nonce_reuse_fits_a_legacy_packet_up_to_the_pinned_coaliti
 
     let mut largest_fitting = 0usize;
     let mut sizes = Vec::new();
-    for coalition in 3..=12 {
+    for coalition in 3..=20 {
         // Wire size only: what matters is the account list and the args, so the coalition is
         // chosen directly rather than from the two duties' overlapping selections, which for a
         // wide registry rarely intersect on enough nodes to reach the ceiling.
@@ -293,21 +313,26 @@ fn a_fully_overlapping_equivocation_with_20_round_signers_executes() {
     let guilty_pdas = p.node_pdas_for_bitmap(args.registry_version, &guilty);
 
     let ix = p.punish_equivocation_ix(&reporter.pubkey(), args);
-    let size = p.env.transaction_size_as(&reporter.pubkey(), &[ix.clone()]);
+    let size = p
+        .env
+        .transaction_size_as(&reporter.pubkey(), std::slice::from_ref(&ix));
     assert!(
         size > PACKET_DATA_SIZE,
         "20 guilty nodes exceed a legacy packet ({size} bytes); v0+ALT is required on mainnet"
     );
 
-    p.env.send_ok_with_max_heap(&[ix], &[&reporter]);
+    let meta = p.env.send_ok_with_max_heap(&[ix], &[&reporter]);
+    println!(
+        "{ROUND_SIGNER_COUNT} signers, all guilty -> {size} bytes, {} CU",
+        meta.compute_units_consumed
+    );
     for node in &guilty_pdas {
         let account: Node = p.env.get(node);
         assert_eq!(account.status, NodeStatus::Tombstoned);
     }
     let after = p.env.registry(p.current_version());
     assert_eq!(
-        after.node_count as usize,
-        0,
+        after.node_count as usize, 0,
         "every guilty node must be evicted from the live registry"
     );
 }
@@ -324,21 +349,26 @@ fn a_fully_overlapping_nonce_reuse_with_20_round_signers_executes() {
     let guilty_pdas = p.node_pdas_for_bitmap(args.registry_version, &guilty);
 
     let ix = p.punish_nonce_reuse_ix(&reporter.pubkey(), args);
-    let size = p.env.transaction_size_as(&reporter.pubkey(), &[ix.clone()]);
+    let size = p
+        .env
+        .transaction_size_as(&reporter.pubkey(), std::slice::from_ref(&ix));
     assert!(
         size > PACKET_DATA_SIZE,
         "20 guilty nodes exceed a legacy packet ({size} bytes); v0+ALT is required on mainnet"
     );
 
-    p.env.send_ok_with_max_heap(&[ix], &[&reporter]);
+    let meta = p.env.send_ok_with_max_heap(&[ix], &[&reporter]);
+    println!(
+        "{ROUND_SIGNER_COUNT} signers, all guilty -> {size} bytes, {} CU",
+        meta.compute_units_consumed
+    );
     for node in &guilty_pdas {
         let account: Node = p.env.get(node);
         assert_eq!(account.status, NodeStatus::Tombstoned);
     }
     let after = p.env.registry(p.current_version());
     assert_eq!(
-        after.node_count as usize,
-        0,
+        after.node_count as usize, 0,
         "every guilty node must be evicted from the live registry"
     );
 }
@@ -352,16 +382,25 @@ fn unsolicited_signing_with_20_round_signers_and_max_intruders_executes() {
     assert_eq!(intruders.len(), MAX_UNSOLICITED_INTRUDERS);
     let args = unsolicited_args(&statement);
     let guilty = unsolicited_guilty_bitmap(&p, &args);
-    assert_eq!(crypto::bitmap_bits(&guilty).len(), MAX_UNSOLICITED_INTRUDERS);
+    assert_eq!(
+        crypto::bitmap_bits(&guilty).len(),
+        MAX_UNSOLICITED_INTRUDERS
+    );
 
     let ix = p.punish_unsolicited_signing_ix(&reporter.pubkey(), args);
-    let size = p.env.transaction_size_as(&reporter.pubkey(), &[ix.clone()]);
+    let size = p
+        .env
+        .transaction_size_as(&reporter.pubkey(), std::slice::from_ref(&ix));
     assert!(
         size > PACKET_DATA_SIZE,
         "a full round plus intruders exceeds a legacy packet ({size} bytes); v0+ALT is required on mainnet"
     );
 
-    p.env.send_ok_with_max_heap(&[ix], &[&reporter]);
+    let meta = p.env.send_ok_with_max_heap(&[ix], &[&reporter]);
+    println!(
+        "{ROUND_SIGNER_COUNT} signers, all guilty -> {size} bytes, {} CU",
+        meta.compute_units_consumed
+    );
     for bit in &intruders {
         let node = p.env.registry(statement.duty.registry_version).nodes[*bit];
         let account: Node = p.env.get(&node);
@@ -372,5 +411,160 @@ fn unsolicited_signing_with_20_round_signers_and_max_intruders_executes() {
         after.node_count as usize,
         UNSOLICITED_REGISTRY_NODES - MAX_UNSOLICITED_INTRUDERS,
         "every intruder must be evicted from the live registry"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// the v0 + address lookup table escape hatch
+// ---------------------------------------------------------------------------
+
+/// Everything a filing names except its signer and the programs it calls.
+///
+/// Pinned as a count so that adding an account to a punishment shows up here too: a lookup table
+/// absorbs it, but it still costs a byte and still has to be in the table.
+const EQUIVOCATION_LOOKUP_ACCOUNTS: usize = 11;
+
+/// A full production round is 18 signatures required plus a 2-node buffer. Punishing all 20 does
+/// not fit a legacy packet, and this is the transaction a reporter would actually broadcast.
+#[test]
+fn a_twenty_signer_equivocation_fits_a_packet_as_a_v0_transaction_and_lands() {
+    let mut p = round_protocol(ROUND_SIGNER_COUNT);
+    let reporter = p.reporter();
+
+    let (a, b) = equivocation_pair(&p, ROUND_SIGNER_COUNT, 1_700_300_000);
+    assert_round_selection(&p, &a.duty);
+    let args = equivocation_args(&a, &b);
+    let guilty = intersect_bitmap(&a.signers_bitmap, &b.signers_bitmap);
+    let guilty_pdas = p.node_pdas_for_bitmap(args.registry_version, &guilty);
+    assert_eq!(guilty_pdas.len(), ROUND_SIGNER_COUNT);
+
+    let ix = p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let legacy = p
+        .env
+        .transaction_size_as(&reporter.pubkey(), std::slice::from_ref(&ix));
+    assert!(
+        legacy > PACKET_DATA_SIZE,
+        "this case is only interesting because it does not fit a legacy packet"
+    );
+
+    // Signers and program ids have to stay in the static keys; everything else can be looked up.
+    let lookup = TestEnv::lookup_candidates(std::slice::from_ref(&ix));
+    assert_eq!(
+        lookup.len(),
+        EQUIVOCATION_LOOKUP_ACCOUNTS + ROUND_SIGNER_COUNT,
+        "the fixed account list changed"
+    );
+    assert!(!lookup.contains(&reporter.pubkey()), "the signer is static");
+    assert!(!lookup.contains(&molpha::ID), "the program id is static");
+
+    let table = p.env.plant_lookup_table(&lookup);
+    let signers = [&reporter];
+    let size = p.env.transaction_size_v0(
+        &reporter.pubkey(),
+        std::slice::from_ref(&ix),
+        std::slice::from_ref(&table),
+        &signers,
+    );
+    println!(
+        "punish_equivocation v0+ALT: {ROUND_SIGNER_COUNT} signers, all guilty -> \
+         {size} bytes (legacy {legacy})"
+    );
+    assert!(
+        size <= PACKET_DATA_SIZE,
+        "a lookup table has to bring a 20-signer filing back inside a packet ({size} bytes)"
+    );
+
+    let meta = p
+        .env
+        .send_v0_ok(&reporter.pubkey(), &[ix], &[table], &signers);
+    println!(
+        "punish_equivocation v0+ALT: {} CU",
+        meta.compute_units_consumed
+    );
+    assert!(meta.compute_units_consumed < MAX_COMPUTE_UNITS);
+
+    // It is a real filing, not just a well-formed transaction.
+    for node in &guilty_pdas {
+        assert_eq!(p.env.get::<Node>(node).status, NodeStatus::Tombstoned);
+        assert_eq!(p.env.get::<Node>(node).locked_amount, 0);
+    }
+    assert_eq!(
+        p.env.registry(p.current_version()).node_count as usize,
+        0,
+        "every guilty node is evicted"
+    );
+    p.assert_solvent();
+}
+
+/// Nonce reuse carries the largest args of the three, so it is the tightest v0 case.
+#[test]
+fn a_twenty_signer_nonce_reuse_fits_a_packet_as_a_v0_transaction_and_lands() {
+    let mut p = round_protocol(ROUND_SIGNER_COUNT);
+    let reporter = p.reporter();
+
+    let (a, b) = nonce_reuse_round_pair(&p);
+    let args = nonce_reuse_args(&a, &b);
+    let guilty = intersect_bitmap(&a.signers_bitmap, &b.signers_bitmap);
+    let guilty_pdas = p.node_pdas_for_bitmap(args.registry_version, &guilty);
+    assert_eq!(guilty_pdas.len(), ROUND_SIGNER_COUNT);
+
+    let ix = p.punish_nonce_reuse_ix(&reporter.pubkey(), args);
+    let lookup = TestEnv::lookup_candidates(std::slice::from_ref(&ix));
+    let table = p.env.plant_lookup_table(&lookup);
+    let signers = [&reporter];
+
+    let size = p.env.transaction_size_v0(
+        &reporter.pubkey(),
+        std::slice::from_ref(&ix),
+        std::slice::from_ref(&table),
+        &signers,
+    );
+    println!("punish_nonce_reuse v0+ALT: {ROUND_SIGNER_COUNT} signers, all guilty -> {size} bytes");
+    assert!(size <= PACKET_DATA_SIZE, "{size} bytes");
+
+    let meta = p
+        .env
+        .send_v0_ok(&reporter.pubkey(), &[ix], &[table], &signers);
+    println!(
+        "punish_nonce_reuse v0+ALT: {} CU",
+        meta.compute_units_consumed
+    );
+
+    for node in &guilty_pdas {
+        assert_eq!(p.env.get::<Node>(node).status, NodeStatus::Tombstoned);
+    }
+    p.assert_solvent();
+}
+
+/// The coalition is the part that has to be in the table.
+///
+/// A table holding only the filing's fixed accounts still leaves it over the limit, so tooling
+/// that builds a table from the instruction's static context and forgets `remaining_accounts`
+/// would produce a transaction that cannot be broadcast.
+#[test]
+fn a_lookup_table_without_the_coalition_does_not_bring_the_filing_under_the_limit() {
+    let mut p = round_protocol(ROUND_SIGNER_COUNT);
+    let reporter = p.reporter();
+
+    let (a, b) = equivocation_pair(&p, ROUND_SIGNER_COUNT, 1_700_300_000);
+    let args = equivocation_args(&a, &b);
+    let ix = p.punish_equivocation_ix(&reporter.pubkey(), args);
+
+    // Everything except the 20 signer `Node` accounts, which sit at the tail.
+    let full = TestEnv::lookup_candidates(std::slice::from_ref(&ix));
+    let fixed_only = &full[..EQUIVOCATION_LOOKUP_ACCOUNTS];
+    let table = p.env.plant_lookup_table(fixed_only);
+    let signers = [&reporter];
+
+    let size = p.env.transaction_size_v0(
+        &reporter.pubkey(),
+        std::slice::from_ref(&ix),
+        &[table],
+        &signers,
+    );
+    println!("punish_equivocation v0, fixed accounts only -> {size} bytes");
+    assert!(
+        size > PACKET_DATA_SIZE,
+        "the coalition has to be in the table ({size} bytes)"
     );
 }

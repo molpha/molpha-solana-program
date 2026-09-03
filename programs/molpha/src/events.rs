@@ -21,6 +21,7 @@ pub struct ProtocolInitialized {
     pub registry_state: Pubkey,
     pub registry: Pubkey,
     pub treasury: Pubkey,
+    pub node_deposit_vault: Pubkey,
     pub authority: Pubkey,
     pub usdc_mint: Pubkey,
     pub initialized_at: i64,

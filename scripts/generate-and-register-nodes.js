@@ -605,7 +605,7 @@ async function main() {
     }
 
     usdcMint = protocolConfig.usdcMint;
-    // The treasury is derived, not stored on the config; recorded here for operators.
+    // Neither vault is stored on the config; both are derived. Recorded here for operators.
     treasury = getAssociatedTokenAddressSync(usdcMint, protocolConfigPda, true);
   } else {
     startIndex = 0;
@@ -759,6 +759,15 @@ async function main() {
         nodeId: item.nodeId,
         secp256k1PrivateKey: item.secpPrivateKey,
       });
+      const [nodeDepositsPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("molpha_node_deposits")],
+        programId
+      );
+      const nodeDepositVault = getAssociatedTokenAddressSync(
+        usdcMint,
+        nodeDepositsPda,
+        true
+      );
       const registerNodeArgs = buildRegisterNodeArgs({
         index: chainIndex,
         newRegistryVersion,
@@ -781,11 +790,11 @@ async function main() {
           secp256K1KeyClaim: keyClaimPda,
           usdcMint,
           ownerUsdc,
-          // Deposits go to the node's own vault, not the treasury.
-          nodeDeposit: getAssociatedTokenAddressSync(usdcMint, nodePda, true),
+          // Deposits go to the shared node-deposit vault, not the treasury.
+          nodeDeposits: nodeDepositsPda,
+          nodeDepositVault,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         })
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: 450_000 }),

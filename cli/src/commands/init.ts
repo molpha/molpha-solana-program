@@ -7,6 +7,8 @@ import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import { getCliContext } from "../lib/client";
 import {
+  findNodeDepositVault,
+  findNodeDepositsPda,
   findProtocolConfigPda,
   findRegistryPda,
   findRegistryStatePda,
@@ -25,14 +27,12 @@ type InitConfig = {
   redundancyBuffer?: number;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
-  maxReceiptDelaySlots?: string;
-  protocolFee?: string;
+  maxReceiptDelaySeconds?: string;
   disputeWindowSlots?: string;
   gatewayBondMin?: string;
   challengerBountyBps?: number;
   usdcMint?: string;
   x402RoundBase?: string;
-  x402RoundPerSig?: string;
   minSigners?: number;
 };
 
@@ -51,17 +51,15 @@ export function registerInitCommand(program: Command): void {
     )
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
-    .option("--max-receipt-delay-slots <slots>", "max receipt delay")
-    .option("--protocol-fee <amount>", "fixed protocol fee per round")
+    .option(
+      "--max-receipt-delay-seconds <seconds>",
+      "max age of canonical_timestamp at settlement ingress"
+    )
     .option("--dispute-window-slots <slots>", "settled round dispute window")
     .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
     .option("--usdc-mint <pubkey>", "USDC mint")
     .option("--x402-round-base <amount>", "base x402 round settlement price")
-    .option(
-      "--x402-round-per-sig <amount>",
-      "per-required-signature x402 round settlement price"
-    )
     .option(
       "--min-signers <count>",
       "minimum signatures_required accepted by settlement"
@@ -109,22 +107,15 @@ export function registerInitCommand(program: Command): void {
           ),
           "reward per signature"
         ),
-        maxReceiptDelaySlots: bn(
+        maxReceiptDelaySeconds: bn(
           requireValue(
             optionOrConfig(
-              options.maxReceiptDelaySlots,
-              config.maxReceiptDelaySlots
+              options.maxReceiptDelaySeconds,
+              config.maxReceiptDelaySeconds
             ),
-            "Missing --max-receipt-delay-slots"
+            "Missing --max-receipt-delay-seconds"
           ),
           "max receipt delay"
-        ),
-        protocolFee: bn(
-          requireValue(
-            optionOrConfig(options.protocolFee, config.protocolFee),
-            "Missing --protocol-fee"
-          ),
-          "protocol fee"
         ),
         disputeWindowSlots: bn(
           requireValue(
@@ -163,14 +154,7 @@ export function registerInitCommand(program: Command): void {
           ),
           "x402 round base"
         ),
-        x402RoundPerSig: bn(
-          requireValue(
-            optionOrConfig(options.x402RoundPerSig, config.x402RoundPerSig),
-            "Missing --x402-round-per-sig"
-          ),
-          "x402 round per signature"
-        ),
-        min_signers: Number(
+        minSigners: Number(
           optionOrConfig(options.minSigners, config.minSigners) ?? 3
         ),
       };
@@ -178,6 +162,11 @@ export function registerInitCommand(program: Command): void {
         args.usdcMint,
         protocolConfig,
         true
+      );
+      const [nodeDeposits] = findNodeDepositsPda(ctx.programId);
+      const nodeDepositVault = findNodeDepositVault(
+        ctx.programId,
+        args.usdcMint
       );
 
       const signature = await (ctx.program.methods as any)
@@ -188,6 +177,8 @@ export function registerInitCommand(program: Command): void {
           registry,
           usdcMint: args.usdcMint,
           treasury,
+          nodeDeposits,
+          nodeDepositVault,
           authority: ctx.wallet.publicKey,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -201,6 +192,7 @@ export function registerInitCommand(program: Command): void {
         registryState: registryState.toBase58(),
         registry: registry.toBase58(),
         treasury: treasury.toBase58(),
+        nodeDepositVault: nodeDepositVault.toBase58(),
       });
     });
 }

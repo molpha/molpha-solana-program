@@ -138,7 +138,7 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
     );
     assert_eq!(case.p.current_version(), new_version);
 
-    // The reporter is paid a bounty out of the treasury.
+    // The bounty is paid out of what the punishment just recovered, in the same instruction.
     let reporter_usdc = pda::ata(&reporter.pubkey(), &case.p.usdc_mint);
     assert_eq!(case.p.env.token_balance(&reporter_usdc), expected_bounty);
     assert_eq!(
@@ -146,17 +146,16 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
         treasury_before + expected_slashed - expected_bounty
     );
 
-    // Slashed principal is swept out of the guilty vaults into the treasury, and the bounty is
-    // paid from what the offence recovered rather than from anyone else's money.
-    for node in &guilty {
-        assert_eq!(case.p.node_deposit_balance(node), 0);
-    }
+    // The forfeited principal left the deposit vault; every innocent node's is still there.
+    let innocent_total = innocent.len() as u64 * locked_each;
+    assert_eq!(case.p.node_deposit_balance(), innocent_total);
+    assert_eq!(case.p.total_node_deposits(), innocent_total);
     for node in &innocent {
-        assert_eq!(case.p.node_deposit_balance(node), locked_each);
+        assert_eq!(case.p.env.get::<Node>(node).locked_amount, locked_each);
     }
+    case.p.assert_solvent();
 
     // The case is recorded permanently.
-    case.p.assert_solvent();
 
     let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));
     assert_eq!(record.offence, OffenceKind::Equivocation);
@@ -425,65 +424,108 @@ fn the_evidence_hash_is_order_independent_but_field_sensitive() {
 }
 
 // ---------------------------------------------------------------------------
-// the guilty deposit vaults
+// the shared deposit vault
 // ---------------------------------------------------------------------------
 
-/// The vault tail is positional: `[signer Node accounts .., guilty vaults ..]`. A filing that
-/// stops at the signers has nowhere to sweep the principal from.
+/// The vault is shared, so the guard against one node's punishment reaching another's principal
+/// is arithmetic rather than custody. This pins it: the innocent nodes' deposits are exactly
+/// what remains, and the accounting agrees with the balance.
 #[test]
-fn a_filing_without_the_guilty_vaults_is_refused() {
+fn a_punishment_takes_only_the_guilty_nodes_deposits() {
     let mut case = case();
     let args = args_for(&case, &case.a, &case.b);
     let guilty = guilty_pdas(&case);
+    let locked_each = case.p.args.minimum_node_deposit;
+    let before = case.p.node_deposit_balance();
+    assert_eq!(before, NODE_COUNT as u64 * locked_each);
+
     let reporter = case.reporter.insecure_clone();
+    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    case.p.env.send_ok(&[ix], &[&reporter]);
 
-    let mut ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
-    ix.accounts.truncate(ix.accounts.len() - guilty.len());
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::InvalidNodeDepositAccount);
-}
-
-#[test]
-fn a_filing_that_names_someone_elses_vault_is_refused() {
-    let mut case = case();
-    let args = args_for(&case, &case.a, &case.b);
-    let guilty = guilty_pdas(&case);
-    let innocent = case
-        .p
-        .node_pdas()
-        .into_iter()
-        .find(|n| !guilty.contains(n))
-        .expect("some node is innocent");
-    let reporter = case.reporter.insecure_clone();
-
-    // Swap the first guilty vault for an innocent node's, which holds the same balance.
-    let mut ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
-    let first_vault = ix.accounts.len() - guilty.len();
-    ix.accounts[first_vault].pubkey = case.p.node_deposit(&innocent);
-
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::InvalidNodeDepositAccount);
     assert_eq!(
-        case.p.node_deposit_balance(&innocent),
-        case.p.args.minimum_node_deposit
+        case.p.node_deposit_balance(),
+        before - guilty.len() as u64 * locked_each
     );
+    case.p.assert_solvent();
+
+    // And an untouched node can still withdraw its deposit in full out of the shared vault.
+    let survivor = case
+        .p
+        .nodes
+        .iter()
+        .position(|n| !guilty.contains(&n.pda))
+        .expect("someone is innocent");
+    let owner = case.p.nodes[survivor].owner.insecure_clone();
+    let ix = case.p.deactivate_node_ix(survivor, &owner.pubkey());
+    case.p.env.send_ok(&[ix], &[&owner]);
+    case.p
+        .env
+        .advance_slots(case.p.args.withdrawal_cooldown_slots);
+
+    let destination = pda::ata(&owner.pubkey(), &case.p.usdc_mint);
+    let paid_before = case.p.env.token_balance_or_zero(&destination);
+    let ix = case.p.withdraw_node_deposit_ix(&owner.pubkey());
+    case.p.env.send_ok(&[ix], &[&owner]);
+    assert_eq!(
+        case.p.env.token_balance(&destination),
+        paid_before + locked_each
+    );
+    case.p.assert_solvent();
 }
 
+/// A node punished twice is slashed twice, with nothing carried between filings to collide over.
+///
+/// Unreachable with the shipped penalty table, which tombstones every offence, so the second
+/// filing is set up by reviving the node the way a `Freeze` penalty would leave it.
 #[test]
-fn a_filing_with_a_vault_too_many_is_refused() {
+fn a_node_can_be_punished_again_after_surviving_an_earlier_punishment() {
     let mut case = case();
     let args = args_for(&case, &case.a, &case.b);
     let guilty = guilty_pdas(&case);
-    let reporter = case.reporter.insecure_clone();
+    let locked_each = case.p.args.minimum_node_deposit;
 
-    let mut ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
-    let extra = case.p.node_deposit(&guilty[0]);
-    ix.accounts
-        .push(anchor_lang::solana_program::instruction::AccountMeta::new(
-            extra, false,
-        ));
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::InvalidNodeDepositAccount);
+    let reporter = case.reporter.insecure_clone();
+    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    case.p.env.send_ok(&[ix], &[&reporter]);
+
+    // Half the deposit survives a partial slash. Stand in for one, since no shipped offence
+    // leaves a node alive.
+    let victim = guilty[0];
+    case.p.overwrite_node(&victim, |node| {
+        node.status = NodeStatus::Active;
+        node.locked_amount = locked_each / 2;
+    });
+    case.p.fund_usdc(&pda::node_deposits(), locked_each / 2);
+    case.p
+        .overwrite_protocol_config(|config| config.total_node_deposits += locked_each / 2);
+    case.p.assert_solvent();
+
+    // A second, unrelated filing takes what is left, and no more.
+    let second = case.p.sign_duty_with_bits(
+        duty().at(1_700_000_900).value([0x07; 32]),
+        &case.p.selection_bits(&duty().at(1_700_000_900))[0..4],
+        None,
+    );
+    let third = case.p.sign_duty_with_bits(
+        duty().at(1_700_000_900).value([0x08; 32]),
+        &case.p.selection_bits(&duty().at(1_700_000_900))[0..4],
+        None,
+    );
+    let vault_before = case.p.node_deposit_balance();
+    let args_2 = args_for(&case, &second, &third);
+    let guilty_2 = case.p.node_pdas_for_bitmap(
+        second.duty.registry_version,
+        &intersect_bitmap(&second.signers_bitmap, &third.signers_bitmap),
+    );
+
+    if guilty_2.contains(&victim) {
+        let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args_2);
+        case.p.env.send_ok(&[ix], &[&reporter]);
+        assert_eq!(case.p.env.get::<Node>(&victim).locked_amount, 0);
+        assert!(case.p.node_deposit_balance() < vault_before);
+    }
+    case.p.assert_solvent();
 }
 
 /// Slashing cancels reward credits, so the protocol stops owing them.

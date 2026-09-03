@@ -3,7 +3,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{self, CloseAccount, Mint, Token, TokenAccount, Transfer},
+    token::{self, CloseAccount, Token, TokenAccount, Transfer},
 };
 
 use crate::{
@@ -84,22 +84,16 @@ pub struct WithdrawGatewayBond<'info> {
     pub gateway: Account<'info, Gateway>,
 
     #[account(
-        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidMint
-    )]
-    pub usdc_mint: Account<'info, Mint>,
-
-    #[account(
         mut,
-        associated_token::mint = usdc_mint,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = gateway,
         associated_token::token_program = token_program,
     )]
     pub gateway_bond: Account<'info, TokenAccount>,
 
     #[account(
-        init_if_needed,
-        payer = authority,
-        associated_token::mint = usdc_mint,
+        mut,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = authority,
         associated_token::token_program = token_program,
     )]

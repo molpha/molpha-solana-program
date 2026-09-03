@@ -151,7 +151,12 @@ pub struct Bare {
 }
 
 pub fn bare() -> Bare {
-    let mut env = TestEnv::new();
+    bare_with(TestEnv::new())
+}
+
+/// [`bare`] against a caller-supplied VM.
+pub fn bare_with(env: TestEnv) -> Bare {
+    let mut env = env;
     let authority = env.keypair();
     let (usdc_mint, mint_authority) = env.create_mint(6);
     Bare {
@@ -196,6 +201,8 @@ pub fn initialize_ix(
             registry: pda::registry(0),
             usdc_mint: *usdc_mint_account,
             treasury: pda::ata(&pda::protocol_config(), usdc_mint_account),
+            node_deposits: pda::node_deposits(),
+            node_deposit_vault: pda::ata(&pda::node_deposits(), usdc_mint_account),
             authority: *authority,
             token_program: pda::TOKEN_PROGRAM_ID,
             associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -221,6 +228,7 @@ pub fn update_config_ix(authority: &Pubkey, args: &UpdateConfigArgs) -> Instruct
 /// Builder for [`Protocol`]: everything a test might want to vary about `InitializeArgs`.
 pub struct ProtocolBuilder {
     args: InitializeArgs,
+    env: Option<TestEnv>,
 }
 
 impl Default for ProtocolBuilder {
@@ -234,6 +242,7 @@ impl ProtocolBuilder {
         Self {
             // The mint is replaced with the real one in `start`.
             args: default_initialize_args(Pubkey::default()),
+            env: None,
         }
     }
 
@@ -283,13 +292,22 @@ impl ProtocolBuilder {
     }
 
     /// Build the environment and run `initialize`.
+    /// Run against a caller-supplied VM, for tests that need a non-default feature set.
+    pub fn with_env(mut self, env: TestEnv) -> Self {
+        self.env = Some(env);
+        self
+    }
+
     pub fn start(self) -> Protocol {
         let Bare {
             mut env,
             authority,
             usdc_mint,
             mint_authority,
-        } = bare();
+        } = match self.env {
+            Some(env) => bare_with(env),
+            None => bare(),
+        };
         let args = InitializeArgs {
             usdc_mint,
             ..self.args
@@ -335,13 +353,20 @@ impl Protocol {
         self.env.token_balance(&self.treasury())
     }
 
-    /// A node's own security-deposit vault: the ATA owned by its `Node` PDA.
-    pub fn node_deposit(&self, node: &Pubkey) -> Pubkey {
-        pda::ata(node, &self.usdc_mint)
+    /// The one vault holding every node's security deposit.
+    pub fn node_deposit_vault(&self) -> Pubkey {
+        pda::ata(&pda::node_deposits(), &self.usdc_mint)
     }
 
-    pub fn node_deposit_balance(&self, node: &Pubkey) -> u64 {
-        self.env.token_balance_or_zero(&self.node_deposit(node))
+    pub fn node_deposit_balance(&self) -> u64 {
+        self.env.token_balance_or_zero(&self.node_deposit_vault())
+    }
+
+    /// `Σ Node.locked_amount` as the protocol tracks it.
+    pub fn total_node_deposits(&self) -> u64 {
+        self.env
+            .get::<molpha::state::ProtocolConfig>(&pda::protocol_config())
+            .total_node_deposits
     }
 
     /// `Σ Node.claimable_rewards` as the protocol tracks it.
@@ -351,32 +376,41 @@ impl Protocol {
             .reward_liability
     }
 
-    /// Assert the three custody invariants the treasury separation exists to guarantee.
+    /// Assert the custody invariants the treasury separation exists to guarantee.
     ///
     /// Cheap enough to call at the end of any test that moves money, and the fastest way to
     /// notice a payout path that forgot to update its accounting.
     pub fn assert_solvent(&self) {
-        for node in self.node_pdas() {
-            let account: molpha::state::Node = self.env.get(&node);
-            assert_eq!(
-                self.node_deposit_balance(&node),
-                account.locked_amount,
-                "node {node} vault and locked_amount disagree"
-            );
-        }
-        let owed: u64 = self
+        let owed_deposits: u64 = self
+            .node_pdas()
+            .iter()
+            .map(|node| self.env.get::<molpha::state::Node>(node).locked_amount)
+            .sum();
+        assert_eq!(
+            self.total_node_deposits(),
+            owed_deposits,
+            "total_node_deposits is not the sum of every locked_amount"
+        );
+        assert!(
+            self.node_deposit_balance() >= self.total_node_deposits(),
+            "deposit vault {} cannot cover the {} it holds for nodes",
+            self.node_deposit_balance(),
+            self.total_node_deposits()
+        );
+
+        let owed_rewards: u64 = self
             .node_pdas()
             .iter()
             .map(|node| self.env.get::<molpha::state::Node>(node).claimable_rewards)
             .sum();
         assert_eq!(
             self.reward_liability(),
-            owed,
+            owed_rewards,
             "reward_liability is not the sum of every claimable_rewards"
         );
         assert!(
             self.treasury_balance() >= self.reward_liability(),
-            "treasury {} cannot back the {} it owes",
+            "treasury {} cannot back the {} it owes nodes",
             self.treasury_balance(),
             self.reward_liability()
         );
@@ -399,11 +433,20 @@ impl Protocol {
         self.nodes.iter().map(|n| n.pda).collect()
     }
 
-    /// A funded actor whose USDC ATA already exists.
+    /// A funded actor who can dispute a round.
     ///
-    /// Punishments pay the bounty into an account they do not create, so a reporter without an
-    /// ATA cannot file — the transaction slot that creating one would cost belongs to the
-    /// guilty-vault tail of `remaining_accounts`.
+    /// `validate_round` pays the challenger bounty into an account it does not create, so a
+    /// challenger needs a USDC account before it can dispute.
+    pub fn challenger(&mut self) -> Keypair {
+        let challenger = self.env.keypair();
+        self.fund_usdc(&challenger.pubkey(), 0);
+        challenger
+    }
+
+    /// A funded actor who can file a punishment.
+    ///
+    /// The bounty is paid by the filing itself into an account it does not create, so a reporter
+    /// needs a USDC account before they can file.
     pub fn reporter(&mut self) -> Keypair {
         let reporter = self.env.keypair();
         self.fund_usdc(&reporter.pubkey(), 0);
@@ -449,12 +492,11 @@ impl Protocol {
                 new_registry: pda::registry(new_registry_version),
                 node: pda::node(owner),
                 secp256k1_key_claim: pda::secp256k1_key_claim(&args.secp256k1_pubkey_compressed),
-                usdc_mint: self.usdc_mint,
                 owner_usdc: pda::ata(owner, &self.usdc_mint),
-                node_deposit: pda::ata(&pda::node(owner), &self.usdc_mint),
+                node_deposits: pda::node_deposits(),
+                node_deposit_vault: self.node_deposit_vault(),
                 system_program: anchor_lang::solana_program::system_program::ID,
                 token_program: pda::TOKEN_PROGRAM_ID,
-                associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
             }
             .to_account_metas(None),
             data: molpha::instruction::RegisterNode { args: args.clone() }.data(),
@@ -607,7 +649,6 @@ impl Protocol {
                 protocol_config: pda::protocol_config(),
                 plan: pda::plan(plan_type),
                 subscription: pda::subscription(owner),
-                usdc_mint: self.usdc_mint,
                 owner_usdc: pda::ata(owner, &self.usdc_mint),
                 treasury: self.treasury(),
                 system_program: anchor_lang::solana_program::system_program::ID,
@@ -726,7 +767,6 @@ impl Protocol {
                 authority: *authority,
                 protocol_config: pda::protocol_config(),
                 gateway,
-                usdc_mint: self.usdc_mint,
                 gateway_bond: pda::ata(&gateway, &self.usdc_mint),
                 destination: pda::ata(authority, &self.usdc_mint),
                 token_program: pda::TOKEN_PROGRAM_ID,
@@ -904,7 +944,6 @@ impl Protocol {
                 registry_state: pda::registry_state(),
                 registry: pda::registry(args.registry_version),
                 gateway,
-                usdc_mint: self.usdc_mint,
                 gateway_usdc: pda::ata(gateway_authority, &self.usdc_mint),
                 treasury: self.treasury(),
                 token_program: pda::TOKEN_PROGRAM_ID,
@@ -958,7 +997,6 @@ impl Protocol {
         let mut accounts = molpha::accounts::FinalizeRound {
             caller: *caller,
             protocol_config: pda::protocol_config(),
-            usdc_mint: self.usdc_mint,
             treasury: self.treasury(),
             registry: pda::registry(record.registry_version),
             round_record: *round_record,
@@ -1014,7 +1052,6 @@ impl Protocol {
                 owner: *owner,
                 protocol_config: pda::protocol_config(),
                 node: pda::node(owner),
-                usdc_mint: self.usdc_mint,
                 treasury: self.treasury(),
                 destination: pda::ata(owner, &self.usdc_mint),
                 token_program: pda::TOKEN_PROGRAM_ID,
@@ -1033,8 +1070,8 @@ impl Protocol {
                 owner: *owner,
                 protocol_config: pda::protocol_config(),
                 node: pda::node(owner),
-                usdc_mint: self.usdc_mint,
-                node_deposit: pda::ata(&pda::node(owner), &self.usdc_mint),
+                node_deposits: pda::node_deposits(),
+                node_deposit_vault: self.node_deposit_vault(),
                 destination: pda::ata(owner, &self.usdc_mint),
                 token_program: pda::TOKEN_PROGRAM_ID,
                 associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -1072,7 +1109,6 @@ impl Protocol {
                 protocol_config: pda::protocol_config(),
                 subscription: pda::subscription(owner),
                 plan: pda::plan(plan_type),
-                usdc_mint: self.usdc_mint,
                 owner_usdc: pda::ata(owner, &self.usdc_mint),
                 treasury: self.treasury(),
                 token_program: pda::TOKEN_PROGRAM_ID,
@@ -1196,15 +1232,6 @@ impl Protocol {
             .collect()
     }
 
-    /// Deposit vaults for the set bits of `bitmap` — the tail of a punishment's
-    /// `remaining_accounts`, one per guilty node in ascending bit order.
-    pub fn deposit_atas_for_bitmap(&self, version: u32, bitmap: &[u8; 32]) -> Vec<Pubkey> {
-        self.node_pdas_for_bitmap(version, bitmap)
-            .iter()
-            .map(|node| self.node_deposit(node))
-            .collect()
-    }
-
     pub fn punish_equivocation_ix(
         &self,
         reporter: &Pubkey,
@@ -1224,11 +1251,6 @@ impl Protocol {
             &args.statement_b.signers_bitmap,
         );
         let accused = self.node_pdas_for_bitmap(args.registry_version, &union);
-        let guilty = intersect_bitmap(
-            &args.statement_a.signers_bitmap,
-            &args.statement_b.signers_bitmap,
-        );
-        let vaults = self.deposit_atas_for_bitmap(args.registry_version, &guilty);
         let mut accounts = molpha::accounts::PunishEquivocation {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
@@ -1237,6 +1259,8 @@ impl Protocol {
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
+            node_deposits: pda::node_deposits(),
+            node_deposit_vault: self.node_deposit_vault(),
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
             token_program: pda::TOKEN_PROGRAM_ID,
@@ -1244,7 +1268,6 @@ impl Protocol {
         }
         .to_account_metas(None);
         accounts.extend(crate::env::writable_metas(accused));
-        accounts.extend(crate::env::writable_metas(vaults));
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -1268,10 +1291,6 @@ impl Protocol {
     ) -> Instruction {
         let accused =
             self.node_pdas_for_bitmap(args.registry_version, &args.statement.signers_bitmap);
-        let vaults = self.deposit_atas_for_bitmap(
-            args.registry_version,
-            &unsolicited_guilty_bitmap(self, &args),
-        );
         let mut accounts = molpha::accounts::PunishUnsolicitedSigning {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
@@ -1280,6 +1299,8 @@ impl Protocol {
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
+            node_deposits: pda::node_deposits(),
+            node_deposit_vault: self.node_deposit_vault(),
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
             token_program: pda::TOKEN_PROGRAM_ID,
@@ -1287,7 +1308,6 @@ impl Protocol {
         }
         .to_account_metas(None);
         accounts.extend(crate::env::writable_metas(accused));
-        accounts.extend(crate::env::writable_metas(vaults));
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -1314,11 +1334,6 @@ impl Protocol {
             &args.statement_b.signers_bitmap,
         );
         let accused = self.node_pdas_for_bitmap(args.registry_version, &union);
-        let guilty = intersect_bitmap(
-            &args.statement_a.signers_bitmap,
-            &args.statement_b.signers_bitmap,
-        );
-        let vaults = self.deposit_atas_for_bitmap(args.registry_version, &guilty);
         let mut accounts = molpha::accounts::PunishNonceReuse {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
@@ -1327,6 +1342,8 @@ impl Protocol {
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
+            node_deposits: pda::node_deposits(),
+            node_deposit_vault: self.node_deposit_vault(),
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
             token_program: pda::TOKEN_PROGRAM_ID,
@@ -1334,7 +1351,6 @@ impl Protocol {
         }
         .to_account_metas(None);
         accounts.extend(crate::env::writable_metas(accused));
-        accounts.extend(crate::env::writable_metas(vaults));
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -1387,9 +1403,9 @@ impl Protocol {
     /// but no shipped penalty currently produces (every offence tombstones). Without this the
     /// freeze branch would be untestable, and untested, until the first penalty table change.
     ///
-    /// Writing `locked_amount` or `claimable_rewards` here desynchronises the node from its
-    /// deposit vault and from `ProtocolConfig.reward_liability`, which the program maintains but
-    /// cannot repair. [`assert_solvent`](Self::assert_solvent) will then fail, and a later claim
+    /// Writing `locked_amount`, `claimable_rewards` or `pending_seizure` here desynchronises the
+    /// node from its deposit vault and from `ProtocolConfig.reward_liability`, which the program
+    /// maintains but cannot repair. Fund the vault to match if you move the deposit fields. [`assert_solvent`](Self::assert_solvent) will then fail, and a later claim
     /// or punishment can underflow the liability. Move money through the instructions instead.
     pub fn overwrite_node<F: FnOnce(&mut molpha::state::Node)>(
         &mut self,
@@ -1406,6 +1422,24 @@ impl Protocol {
         assert_eq!(&data[..8], molpha::state::Node::DISCRIMINATOR);
         data.resize(molpha::state::Node::SPACE, 0);
         self.env.overwrite_account(node_pda, data);
+    }
+
+    /// Rewrite `ProtocolConfig` in place, for setting up states no instruction produces.
+    pub fn overwrite_protocol_config<F: FnOnce(&mut molpha::state::ProtocolConfig)>(
+        &mut self,
+        edit: F,
+    ) {
+        use anchor_lang::{AccountSerialize, Discriminator};
+
+        let key = pda::protocol_config();
+        let mut config: molpha::state::ProtocolConfig = self.env.get(&key);
+        edit(&mut config);
+
+        let mut data = Vec::with_capacity(molpha::state::ProtocolConfig::SPACE);
+        config.try_serialize(&mut data).expect("serialize config");
+        assert_eq!(&data[..8], molpha::state::ProtocolConfig::DISCRIMINATOR);
+        data.resize(molpha::state::ProtocolConfig::SPACE, 0);
+        self.env.overwrite_account(&key, data);
     }
 
     /// Take a node out of the registry and freeze it until `frozen_until`.

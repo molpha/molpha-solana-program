@@ -1,15 +1,15 @@
 use anchor_lang::prelude::*;
-use anchor_spl::{
-    associated_token::AssociatedToken,
-    token::{self, Token, TokenAccount, Transfer},
-};
+use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use molpha_verifier::{validate_key_and_verify_pop, NodePopError};
 use solana_keccak_hasher::hashv;
 
 use crate::{
     error::MolphaError,
     events::NodeRegistered,
-    state::{Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim, MAX_REGISTRY_NODES},
+    state::{
+        Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim, MAX_REGISTRY_NODES,
+        NODE_DEPOSITS_SEED,
+    },
     utils::registry::derive_node_id,
 };
 
@@ -60,19 +60,25 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         NodePopError::InvalidProof => error!(MolphaError::InvalidPoP),
     })?;
 
-    // Principal goes into the node's own vault, never the treasury: no reward or bounty payout
-    // can reach it, so `node_deposit.amount == node.locked_amount` holds for the node's lifetime.
+    // Principal goes into the node-deposit vault, never the treasury, so no reward or bounty
+    // payout can reach it.
+    let deposit = ctx.accounts.protocol_config.minimum_node_deposit;
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.owner_usdc.to_account_info(),
-                to: ctx.accounts.node_deposit.to_account_info(),
+                to: ctx.accounts.node_deposit_vault.to_account_info(),
                 authority: ctx.accounts.node_owner.to_account_info(),
             },
         ),
-        ctx.accounts.protocol_config.minimum_node_deposit,
+        deposit,
     )?;
+    let config = &mut ctx.accounts.protocol_config;
+    config.total_node_deposits = config
+        .total_node_deposits
+        .checked_add(deposit)
+        .ok_or(MolphaError::AmountMismatch)?;
 
     let now = Clock::get()?.unix_timestamp;
 
@@ -125,6 +131,7 @@ pub struct RegisterNode<'info> {
     pub node_owner: Signer<'info>,
 
     #[account(
+        mut,
         has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
@@ -178,29 +185,28 @@ pub struct RegisterNode<'info> {
     pub secp256k1_key_claim: Box<Account<'info, Secp256k1KeyClaim>>,
 
     #[account(
-        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidOwnerUsdc
-    )]
-    pub usdc_mint: Box<Account<'info, token::Mint>>,
-
-    #[account(
         mut,
-        associated_token::mint = usdc_mint,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = node_owner,
         associated_token::token_program = token_program,
     )]
     pub owner_usdc: Box<Account<'info, TokenAccount>>,
 
-    /// Node-owned security-deposit vault. Held apart from the treasury for the node's lifetime.
+    /// CHECK: seeds-validated deposit-vault authority; holds no data.
     #[account(
-        init,
-        payer = node_owner,
-        associated_token::mint = usdc_mint,
-        associated_token::authority = node,
+        seeds = [NODE_DEPOSITS_SEED],
+        bump = protocol_config.node_deposits_bump,
+    )]
+    pub node_deposits: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        associated_token::mint = protocol_config.usdc_mint,
+        associated_token::authority = node_deposits,
         associated_token::token_program = token_program,
     )]
-    pub node_deposit: Box<Account<'info, TokenAccount>>,
+    pub node_deposit_vault: Box<Account<'info, TokenAccount>>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
 }

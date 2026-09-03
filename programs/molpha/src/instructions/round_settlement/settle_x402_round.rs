@@ -171,13 +171,8 @@ pub struct SettleX402Round<'info> {
     pub gateway: Box<Account<'info, Gateway>>,
 
     #[account(
-        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidTreasury
-    )]
-    pub usdc_mint: Box<Account<'info, token::Mint>>,
-
-    #[account(
         mut,
-        associated_token::mint = usdc_mint,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = authority,
         associated_token::token_program = token_program,
     )]
@@ -185,7 +180,7 @@ pub struct SettleX402Round<'info> {
 
     #[account(
         mut,
-        associated_token::mint = usdc_mint,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = protocol_config,
         associated_token::token_program = token_program,
     )]

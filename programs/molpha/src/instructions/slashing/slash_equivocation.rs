@@ -11,10 +11,10 @@ use crate::{
     events::EquivocationProven,
     state::{
         equivocation_evidence_hash, resolve_registry_signers_indexed, OffenceKind, ProtocolConfig,
-        PunishmentCase, Registry, RegistryState, SignedStatement,
+        PunishmentCase, Registry, RegistryState, SignedStatement, NODE_DEPOSITS_SEED,
     },
     utils::{
-        slash::{slash_nodes, split_punishment_accounts, SlashAccounts, SlashInput},
+        slash::{slash_nodes, SlashAccounts, SlashInput},
         verify_statement,
     },
 };
@@ -59,13 +59,6 @@ pub fn punish_equivocation<'info>(
     let guilty_count = guilty.count_ones() as u16;
     let union_bitmap = bitmap_store(bitmap_a | bitmap_b);
 
-    // `[signer Node accounts .., guilty deposit vaults ..]`, each half in ascending bit order.
-    let usdc_mint = ctx.accounts.protocol_config.usdc_mint;
-    let (signer_accounts, deposit_atas) = split_punishment_accounts(
-        ctx.remaining_accounts,
-        (bitmap_a | bitmap_b).count_ones() as usize,
-    )?;
-
     let resolved = {
         let evidence_registry = ctx.accounts.evidence_registry.load()?;
 
@@ -89,7 +82,7 @@ pub fn punish_equivocation<'info>(
         );
 
         resolve_registry_signers_indexed(
-            signer_accounts,
+            ctx.remaining_accounts,
             ctx.program_id,
             &evidence_registry,
             &union_bitmap,
@@ -136,14 +129,14 @@ pub fn punish_equivocation<'info>(
             punishment_case: &mut ctx.accounts.punishment_case,
             punishment_case_bump: ctx.bumps.punishment_case,
             reporter,
+            node_deposits: ctx.accounts.node_deposits.to_account_info(),
+            node_deposit_vault: &mut ctx.accounts.node_deposit_vault,
             treasury: &mut ctx.accounts.treasury,
             reporter_usdc: &ctx.accounts.reporter_usdc,
-            usdc_mint,
             token_program: ctx.accounts.token_program.key(),
         },
         SlashInput {
-            signer_accounts,
-            deposit_atas,
+            signer_accounts: ctx.remaining_accounts,
             program_id: ctx.program_id,
             resolved: &resolved,
             guilty_bitmap,
@@ -221,6 +214,21 @@ pub struct PunishEquivocation<'info> {
     )]
     pub punishment_case: Box<Account<'info, PunishmentCase>>,
 
+    /// CHECK: seeds-validated deposit-vault authority; holds no data.
+    #[account(
+        seeds = [NODE_DEPOSITS_SEED],
+        bump = protocol_config.node_deposits_bump,
+    )]
+    pub node_deposits: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        associated_token::mint = protocol_config.usdc_mint,
+        associated_token::authority = node_deposits,
+        associated_token::token_program = token_program,
+    )]
+    pub node_deposit_vault: Box<Account<'info, TokenAccount>>,
+
     #[account(
         mut,
         associated_token::mint = protocol_config.usdc_mint,
@@ -229,8 +237,8 @@ pub struct PunishEquivocation<'info> {
     )]
     pub treasury: Box<Account<'info, TokenAccount>>,
 
-    /// Must already exist: creating it here would cost a transaction slot the guilty-vault tail
-    /// needs. Reporters hold USDC anyway.
+    /// Must already exist. Creating it here would cost two more transaction slots, which the
+    /// signer list needs more than a reporter needs the convenience.
     #[account(
         mut,
         associated_token::mint = protocol_config.usdc_mint,

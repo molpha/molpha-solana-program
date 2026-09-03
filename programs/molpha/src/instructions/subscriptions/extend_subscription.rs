@@ -76,13 +76,8 @@ pub struct ExtendSubscription<'info> {
     pub plan: Account<'info, Plan>,
 
     #[account(
-        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidOwnerUsdc
-    )]
-    pub usdc_mint: Account<'info, token::Mint>,
-
-    #[account(
         mut,
-        associated_token::mint = usdc_mint,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = owner,
         associated_token::token_program = token_program,
     )]
@@ -90,7 +85,7 @@ pub struct ExtendSubscription<'info> {
 
     #[account(
         mut,
-        associated_token::mint = usdc_mint,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = protocol_config,
         associated_token::token_program = token_program,
     )]

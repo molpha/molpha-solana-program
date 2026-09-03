@@ -3,13 +3,13 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{self, Mint, Token, TokenAccount, Transfer},
+    token::{self, Token, TokenAccount, Transfer},
 };
 
 use crate::{
     error::MolphaError,
     events::NodeDepositWithdrawn,
-    state::{Node, NodeStatus, ProtocolConfig},
+    state::{Node, NodeStatus, ProtocolConfig, NODE_DEPOSITS_SEED},
 };
 
 pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
@@ -31,25 +31,45 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
         MolphaError::WithdrawalCooldownActive
     );
 
-    // Zero the accounting before the CPI so `node_deposit.amount == node.locked_amount` never
-    // reads high, even if the transfer itself fails and reverts the whole instruction.
-    let owner_key = ctx.accounts.owner.key();
-    let node_bump = [ctx.accounts.node.bump];
-    ctx.accounts.node.locked_amount = 0;
+    // The vault is shared, so the payout is bounded explicitly by this node's own entitlement
+    // rather than by the balance of an account only this node can draw on.
+    require!(
+        amount <= ctx.accounts.node.locked_amount,
+        MolphaError::NothingToWithdraw
+    );
+    require!(
+        ctx.accounts.node_deposit_vault.amount >= amount,
+        MolphaError::DepositVaultUnderfunded
+    );
 
-    let signer_seeds: &[&[u8]] = &[Node::SEED_PREFIX, owner_key.as_ref(), &node_bump];
+    ctx.accounts.node.locked_amount = 0;
+    let config = &mut ctx.accounts.protocol_config;
+    config.total_node_deposits = config
+        .total_node_deposits
+        .checked_sub(amount)
+        .ok_or(MolphaError::DepositVaultUnderfunded)?;
+
+    let vault_bump = [config.node_deposits_bump];
+    let signer_seeds: &[&[u8]] = &[NODE_DEPOSITS_SEED, &vault_bump];
     token::transfer(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.key(),
             Transfer {
-                from: ctx.accounts.node_deposit.to_account_info(),
+                from: ctx.accounts.node_deposit_vault.to_account_info(),
                 to: ctx.accounts.destination.to_account_info(),
-                authority: ctx.accounts.node.to_account_info(),
+                authority: ctx.accounts.node_deposits.to_account_info(),
             },
             &[signer_seeds],
         ),
         amount,
     )?;
+
+    // The vault still covers every other node's deposit.
+    ctx.accounts.node_deposit_vault.reload()?;
+    require!(
+        ctx.accounts.node_deposit_vault.amount >= ctx.accounts.protocol_config.total_node_deposits,
+        MolphaError::DepositVaultUnderfunded
+    );
 
     let node = &ctx.accounts.node;
 
@@ -69,6 +89,7 @@ pub struct WithdrawNodeDeposit<'info> {
     pub owner: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]
@@ -82,24 +103,24 @@ pub struct WithdrawNodeDeposit<'info> {
     )]
     pub node: Account<'info, Node>,
 
+    /// CHECK: seeds-validated deposit-vault authority; holds no data.
     #[account(
-        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidMint
+        seeds = [NODE_DEPOSITS_SEED],
+        bump = protocol_config.node_deposits_bump,
     )]
-    pub usdc_mint: Account<'info, Mint>,
+    pub node_deposits: UncheckedAccount<'info>,
 
-    /// Node-owned security-deposit vault created by `register_node`; stays open when emptied.
     #[account(
         mut,
-        associated_token::mint = usdc_mint,
-        associated_token::authority = node,
+        associated_token::mint = protocol_config.usdc_mint,
+        associated_token::authority = node_deposits,
         associated_token::token_program = token_program,
     )]
-    pub node_deposit: Account<'info, TokenAccount>,
+    pub node_deposit_vault: Account<'info, TokenAccount>,
 
     #[account(
-        init_if_needed,
-        payer = owner,
-        associated_token::mint = usdc_mint,
+        mut,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = owner,
         associated_token::token_program = token_program,
     )]

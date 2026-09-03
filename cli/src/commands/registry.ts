@@ -13,6 +13,8 @@ import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import { deriveNodeId } from "../lib/ids";
 import {
+  findNodeDepositVault,
+  findNodeDepositsPda,
   findNodePda,
   findProtocolConfigPda,
   findRegistryPda,
@@ -105,11 +107,11 @@ export function registerRegistryCommands(program: Command): void {
         config.usdcMint,
         nodeOwner.publicKey
       );
-      // Security deposits live in an ATA owned by the Node PDA, not in the treasury.
-      const nodeDeposit = getAssociatedTokenAddressSync(
-        config.usdcMint,
-        node,
-        true
+      // Security deposits live in one vault under its own authority, not in the treasury.
+      const [nodeDeposits] = findNodeDepositsPda(ctx.programId);
+      const nodeDepositVault = findNodeDepositVault(
+        ctx.programId,
+        config.usdcMint
       );
 
       const args = {
@@ -136,10 +138,10 @@ export function registerRegistryCommands(program: Command): void {
           secp256K1KeyClaim,
           usdcMint: config.usdcMint,
           ownerUsdc,
-          nodeDeposit,
+          nodeDeposits,
+          nodeDepositVault,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         })
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: 450_000 }),
@@ -281,10 +283,10 @@ export function registerRegistryCommands(program: Command): void {
           protocolConfig,
           node,
           usdcMint: config.usdcMint,
-          nodeDeposit: getAssociatedTokenAddressSync(
-            config.usdcMint,
-            node,
-            true
+          nodeDeposits: findNodeDepositsPda(ctx.programId)[0],
+          nodeDepositVault: findNodeDepositVault(
+            ctx.programId,
+            config.usdcMint
           ),
           destination,
           tokenProgram: TOKEN_PROGRAM_ID,

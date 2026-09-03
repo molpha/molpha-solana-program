@@ -127,20 +127,18 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
         assert!(!after.nodes.contains(node));
     }
 
+    // The bounty is paid out of what the punishment just recovered, in the same instruction.
     let reporter_usdc = pda::ata(&reporter.pubkey(), &case.p.usdc_mint);
     assert_eq!(case.p.env.token_balance(&reporter_usdc), expected_bounty);
     assert_eq!(
         case.p.treasury_balance(),
         treasury_before + expected_slashed - expected_bounty
     );
-
-    for node in &guilty {
-        assert_eq!(case.p.node_deposit_balance(node), 0);
-    }
-    for node in &honest_cosigners {
-        assert_eq!(case.p.node_deposit_balance(node), locked_each);
-    }
-
+    assert_eq!(
+        case.p.node_deposit_balance(),
+        case.p.total_node_deposits(),
+        "the vault matches what is still owed to nodes"
+    );
     case.p.assert_solvent();
 
     let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));

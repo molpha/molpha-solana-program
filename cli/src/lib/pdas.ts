@@ -8,6 +8,7 @@ export const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 export const REGISTRY_SEED = Buffer.from("molpha_registry");
 /** Permanent owner-keyed node identity and reward account. */
 export const NODE_SEED = Buffer.from("molpha_node");
+export const NODE_DEPOSITS_SEED = Buffer.from("molpha_node_deposits");
 export const SECP256K1_KEY_CLAIM_SEED = Buffer.from("molpha_secp_key");
 export const PLAN_SEED = Buffer.from("molpha_plan");
 export const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
@@ -35,12 +36,19 @@ export function findTreasuryAta(
   return getAssociatedTokenAddressSync(usdcMint, protocolConfig, true);
 }
 
-/// A node's security-deposit vault: the canonical USDC ATA of its `Node` PDA.
-export function findNodeDepositAta(
-  node: PublicKey,
+/// Authority of the shared node-deposit vault. A PDA distinct from `protocol_config`, so the
+/// signer used for treasury payouts cannot reach node principal.
+export function findNodeDepositsPda(programId: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([NODE_DEPOSITS_SEED], programId);
+}
+
+/// The one vault holding every node's security deposit.
+export function findNodeDepositVault(
+  programId: PublicKey,
   usdcMint: PublicKey
 ): PublicKey {
-  return getAssociatedTokenAddressSync(usdcMint, node, true);
+  const [authority] = findNodeDepositsPda(programId);
+  return getAssociatedTokenAddressSync(usdcMint, authority, true);
 }
 
 export function findRegistryStatePda(

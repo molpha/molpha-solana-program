@@ -3,7 +3,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{self, Mint, Token, TokenAccount, Transfer},
+    token::{self, Token, TokenAccount, Transfer},
 };
 
 use crate::{
@@ -74,22 +74,16 @@ pub struct ClaimNodeRewards<'info> {
     pub node: Account<'info, Node>,
 
     #[account(
-        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidMint
-    )]
-    pub usdc_mint: Box<Account<'info, Mint>>,
-
-    #[account(
         mut,
-        associated_token::mint = usdc_mint,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = protocol_config,
         associated_token::token_program = token_program,
     )]
     pub treasury: Account<'info, TokenAccount>,
 
     #[account(
-        init_if_needed,
-        payer = owner,
-        associated_token::mint = usdc_mint,
+        mut,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = owner,
         associated_token::token_program = token_program,
     )]

@@ -2,7 +2,7 @@
 //! signer's `claimable_rewards` using the round's pinned registry, against a solvent treasury.
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Mint, TokenAccount};
+use anchor_spl::token::TokenAccount;
 use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
 
 use crate::{
@@ -120,14 +120,9 @@ pub struct FinalizeRound<'info> {
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
-    #[account(
-        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidMint
-    )]
-    pub usdc_mint: Box<Account<'info, Mint>>,
-
     /// Read only: crediting checks the treasury can back the liability it is about to add.
     #[account(
-        associated_token::mint = usdc_mint,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = protocol_config,
     )]
     pub treasury: Box<Account<'info, TokenAccount>>,
