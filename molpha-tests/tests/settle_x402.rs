@@ -64,8 +64,11 @@ fn duty(signatures_required: u8) -> Duty {
     Duty::new(NODE_COUNT as u32, signatures_required)
 }
 
+/// The whole selection is charged for, not just the threshold: finalization may credit up to
+/// `signatures_required + redundancy_buffer` signers.
 fn expected_price(p: &Protocol, signatures_required: u8) -> u64 {
-    p.args.x402_round_base + u64::from(signatures_required) * p.args.x402_round_per_sig
+    p.args.x402_round_base
+        + u64::from(signatures_required + p.args.redundancy_buffer) * p.args.reward_per_signature
 }
 
 #[test]
@@ -134,6 +137,33 @@ fn settlement_rejects_an_amount_that_is_not_the_computed_price() {
         let failed = f.settle(args).unwrap_err();
         assert_molpha_error(&failed, MolphaError::AmountMismatch);
     }
+}
+
+/// Pricing the threshold alone would leave every round short by the redundancy buffer, which
+/// finalization is entitled to credit.
+#[test]
+fn the_price_covers_the_redundancy_buffer_not_just_the_threshold() {
+    let mut f = fixture();
+    let signatures_required = 4;
+    let signed = f.p.sign_duty(duty(signatures_required));
+    let args = f.p.x402_args(&signed, [0xaa; 32]);
+
+    let buffer = u64::from(f.p.args.redundancy_buffer);
+    assert!(buffer > 0, "this fixture has a buffer to pay for");
+    let threshold_only =
+        f.p.args.x402_round_base + u64::from(signatures_required) * f.p.args.reward_per_signature;
+    assert_eq!(
+        args.amount,
+        threshold_only + buffer * f.p.args.reward_per_signature
+    );
+
+    let failed = f
+        .settle(SettleX402RoundArgs {
+            amount: threshold_only,
+            ..args
+        })
+        .unwrap_err();
+    assert_molpha_error(&failed, MolphaError::AmountMismatch);
 }
 
 #[test]

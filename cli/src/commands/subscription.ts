@@ -10,6 +10,7 @@ import {
   findPlanPda,
   findProtocolConfigPda,
   findSubscriptionPda,
+  findTreasuryAta,
 } from "../lib/pdas";
 import { parseInteger, requireValue, writeJson } from "../lib/utils";
 
@@ -66,7 +67,7 @@ export function registerSubscriptionCommands(program: Command): void {
           subscription: subscriptionPda,
           usdcMint: protocolConfig.usdcMint,
           ownerUsdc,
-          treasury: protocolConfig.treasury,
+          treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
@@ -134,7 +135,7 @@ export function registerSubscriptionCommands(program: Command): void {
           plan: planPda,
           usdcMint: protocolConfig.usdcMint,
           ownerUsdc,
-          treasury: protocolConfig.treasury,
+          treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .rpc();

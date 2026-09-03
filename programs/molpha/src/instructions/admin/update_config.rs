@@ -16,7 +16,6 @@ pub struct UpdateConfigArgs {
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
     pub x402_round_base: u64,
-    pub x402_round_per_sig: u64,
     pub min_signers: u8,
 }
 
@@ -33,6 +32,10 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
         args.min_signers >= MIN_SIGNERS_FLOOR,
         MolphaError::InvalidMinSigners
     );
+    require!(
+        args.challenger_bounty_bps <= ProtocolConfig::MAX_BPS,
+        MolphaError::InvalidChallengerBounty
+    );
 
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.reward_per_signature = args.reward_per_signature;
@@ -43,7 +46,6 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_slots = args.withdrawal_cooldown_slots;
     protocol_config.x402_round_base = args.x402_round_base;
-    protocol_config.x402_round_per_sig = args.x402_round_per_sig;
     protocol_config.min_signers = args.min_signers;
 
     emit!(ProtocolConfigUpdated {
@@ -55,7 +57,6 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
         minimum_node_deposit: args.minimum_node_deposit,
         withdrawal_cooldown_slots: args.withdrawal_cooldown_slots,
         x402_round_base: args.x402_round_base,
-        x402_round_per_sig: args.x402_round_per_sig,
         min_signers: args.min_signers,
     });
 

@@ -14,11 +14,11 @@ use solana_keccak_hasher::hashv;
 ///
 /// Pinned because the CLI, gateway and SDK all build this instruction off-chain: any field
 /// added, removed or retyped here is a breaking wire change and should be a deliberate one.
-const INITIALIZE_IX_DATA_LEN: usize = 108;
+const INITIALIZE_IX_DATA_LEN: usize = 100;
 
 /// Borsh encoding of `UpdateConfigArgs`, plus the 8-byte Anchor discriminator.
 /// Pinned for the same reason as `INITIALIZE_IX_DATA_LEN`: off-chain clients encode this.
-const UPDATE_CONFIG_IX_DATA_LEN: usize = 75;
+const UPDATE_CONFIG_IX_DATA_LEN: usize = 67;
 
 /// Borsh encoding of `SubmitAttestationArgs`. Every field is fixed-width, so this is a
 /// constant — and a change to it is a breaking change for every off-chain submitter.
@@ -36,7 +36,6 @@ fn initialize_args() -> InitializeArgs {
         challenger_bounty_bps: 500,
         usdc_mint: Pubkey::new_from_array([7; 32]),
         x402_round_base: 1_000,
-        x402_round_per_sig: 15,
         min_signers: 3,
     }
 }
@@ -64,7 +63,6 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
     assert_eq!(decoded.usdc_mint, args.usdc_mint);
     assert_eq!(decoded.x402_round_base, args.x402_round_base);
-    assert_eq!(decoded.x402_round_per_sig, args.x402_round_per_sig);
     assert_eq!(decoded.min_signers, args.min_signers);
 }
 
@@ -78,7 +76,6 @@ fn update_config_args() -> UpdateConfigArgs {
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
         x402_round_base: 1_000,
-        x402_round_per_sig: 15,
         min_signers: 3,
     }
 }
@@ -104,7 +101,6 @@ fn update_config_instruction_data_is_stable_and_round_trips() {
     assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
     assert_eq!(decoded.x402_round_base, args.x402_round_base);
-    assert_eq!(decoded.x402_round_per_sig, args.x402_round_per_sig);
     assert_eq!(decoded.min_signers, args.min_signers);
 }
 

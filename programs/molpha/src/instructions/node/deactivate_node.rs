@@ -28,8 +28,12 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>, args: DeactivateNodeArgs) -
     );
 
     let mut next = ctx.accounts.new_registry.load_init()?;
-    next.copy_from_previous(&current, ctx.bumps.new_registry);
-    next.swap_remove(args.remove_index, ctx.accounts.node.key())?;
+    next.swap_remove(
+        &current,
+        args.remove_index,
+        ctx.accounts.node.key(),
+        ctx.bumps.new_registry,
+    )?;
 
     let clock = Clock::get()?;
     let node = &mut ctx.accounts.node;

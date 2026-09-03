@@ -8,11 +8,14 @@ use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
 use anchor_lang::{AccountDeserialize, AnchorDeserialize, Discriminator};
 use litesvm::types::{FailedTransactionMetadata, TransactionMetadata, TransactionResult};
 use litesvm::LiteSVM;
+use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
 use solana_clock::Clock;
 use solana_instruction::error::InstructionError;
 use solana_keypair::Keypair;
-use solana_message::Message;
+use solana_message::v1::TransactionConfig;
+use solana_message::{v0, v1, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_signer::Signer;
+use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction::Transaction;
 use solana_transaction_error::TransactionError;
 
@@ -22,11 +25,17 @@ use crate::token;
 pub const COMPUTE_BUDGET_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("ComputeBudget111111111111111111111111111111");
 
+pub const ADDRESS_LOOKUP_TABLE_PROGRAM_ID: Pubkey =
+    Pubkey::from_str_const("AddressLookupTab1e1111111111111111111111111");
+
 /// Every test transaction runs at the max per-transaction budget: CU tuning is not what these
 /// tests are for, and a silent `ComputeBudgetExceeded` reads exactly like a logic failure.
 pub const DEFAULT_CU_LIMIT: u32 = 1_400_000;
 
 pub const SOL: u64 = 1_000_000_000;
+
+/// Runtime ceiling on account data a transaction may load, which a v1 message must state.
+pub const MAX_LOADED_ACCOUNTS_DATA_SIZE: u32 = 64 * 1024 * 1024;
 
 /// Maximum serialized transaction size the Solana network accepts.
 pub const PACKET_DATA_SIZE: usize = 1_232;
@@ -60,6 +69,24 @@ pub fn set_compute_unit_limit(units: u32) -> Instruction {
     }
 }
 
+/// `RequestHeapFrame` — raises the per-invocation heap above the 32 KiB default.
+///
+/// Large punishment filings deserialize many `Node` accounts in one instruction; production
+/// callers pair this with a v0 transaction when the signer list exceeds the legacy wire limit.
+pub fn request_heap_frame(bytes: u32) -> Instruction {
+    let mut data = Vec::with_capacity(5);
+    data.push(1u8);
+    data.extend_from_slice(&bytes.to_le_bytes());
+    Instruction {
+        program_id: COMPUTE_BUDGET_PROGRAM_ID,
+        accounts: vec![],
+        data,
+    }
+}
+
+/// Largest heap frame the compute-budget program accepts (256 KiB).
+pub const MAX_HEAP_FRAME_BYTES: u32 = 256 * 1024;
+
 /// `SetComputeUnitPrice` — a harmless second instruction, used by tests that need to wedge
 /// something between the Ed25519 authorization and the settlement it authorizes.
 pub fn set_compute_unit_price(micro_lamports: u64) -> Instruction {
@@ -87,7 +114,21 @@ impl Default for TestEnv {
 
 impl TestEnv {
     pub fn new() -> Self {
-        let mut svm = LiteSVM::new();
+        Self::build(LiteSVM::new())
+    }
+
+    /// A VM with SIMD-0385 transaction v1 activated on top of the mainnet feature set.
+    ///
+    /// Opt-in rather than the default: `enable_tx_v1` is not live on mainnet, and the rest of the
+    /// suite should keep measuring the cluster the protocol actually runs on today.
+    pub fn new_with_tx_v1() -> Self {
+        let mut features = LiteSVM::mainnet_feature_set();
+        features.activate(&agave_feature_set::enable_tx_v1::ID, 0);
+        Self::build(LiteSVM::new().with_feature_set(features))
+    }
+
+    fn build(svm: LiteSVM) -> Self {
+        let mut svm = svm;
         svm.add_program(molpha::ID, program_bytes())
             .expect("load molpha program");
         let mut clock = svm.get_sysvar::<Clock>();
@@ -106,7 +147,17 @@ impl TestEnv {
     /// A funded keypair. Every actor in a test gets one of these rather than sharing the payer,
     /// so authorization failures cannot pass by accident.
     pub fn keypair(&mut self) -> Keypair {
-        let kp = Keypair::new();
+        self.fund(Keypair::new())
+    }
+
+    /// A funded keypair with a pinned secret. `node_id` commits to the node owner, so a test
+    /// that has to reproduce one exact proof of possession needs the owner to be stable across
+    /// runs rather than freshly random.
+    pub fn keypair_from_secret(&mut self, secret: [u8; 32]) -> Keypair {
+        self.fund(Keypair::new_from_array(secret))
+    }
+
+    fn fund(&mut self, kp: Keypair) -> Keypair {
         self.svm
             .airdrop(&kp.pubkey(), 1_000 * SOL)
             .expect("airdrop");
@@ -122,6 +173,15 @@ impl TestEnv {
         self.send_with_cu(ixs, signers, DEFAULT_CU_LIMIT)
     }
 
+    /// Like [`send`](Self::send), but also requests the maximum heap frame.
+    pub fn send_with_max_heap(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> TransactionResult {
+        self.send_with_cu_and_heap(ixs, signers, DEFAULT_CU_LIMIT, MAX_HEAP_FRAME_BYTES)
+    }
+
     pub fn send_with_cu(
         &mut self,
         ixs: &[Instruction],
@@ -129,6 +189,25 @@ impl TestEnv {
         cu_limit: u32,
     ) -> TransactionResult {
         let tx = self.build_transaction(ixs, signers, cu_limit);
+        let result = self.svm.send_transaction(tx);
+        self.svm.expire_blockhash();
+        result
+    }
+
+    pub fn send_with_cu_and_heap(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+        cu_limit: u32,
+        heap_bytes: u32,
+    ) -> TransactionResult {
+        let mut all = Vec::with_capacity(ixs.len() + 2);
+        all.push(set_compute_unit_limit(cu_limit));
+        if heap_bytes > 0 {
+            all.push(request_heap_frame(heap_bytes));
+        }
+        all.extend_from_slice(ixs);
+        let tx = self.build_transaction_prepared(&all, signers);
         let result = self.svm.send_transaction(tx);
         // Two otherwise-identical transactions in one test would collide on signature;
         // rotating the blockhash keeps callers from having to think about it.
@@ -147,6 +226,242 @@ impl TestEnv {
             .len()
     }
 
+    /// Wire size of `ixs` as `payer` would actually broadcast them.
+    ///
+    /// [`transaction_size`](Self::transaction_size) measures the harness's own transaction, which
+    /// always adds the funding payer as an extra signer — 96 bytes a real caller does not pay.
+    /// Instructions whose account list is near the packet limit must be measured this way.
+    pub fn transaction_size_as(&self, payer: &Pubkey, ixs: &[Instruction]) -> usize {
+        let mut all = Vec::with_capacity(ixs.len() + 1);
+        all.push(set_compute_unit_limit(DEFAULT_CU_LIMIT));
+        all.extend_from_slice(ixs);
+        let message = Message::new(&all, Some(payer));
+        let signatures = usize::from(message.header.num_required_signatures);
+        // Legacy wire format: a short-vec of 64-byte signatures, then the serialized message.
+        1 + 64 * signatures + message.serialize().len()
+    }
+
+    // -----------------------------------------------------------------------
+    // versioned transactions and address lookup tables
+    // -----------------------------------------------------------------------
+
+    /// Plant an active address lookup table holding `addresses`.
+    ///
+    /// Written straight into the accounts db rather than built through the lookup-table program:
+    /// the create-and-extend flow is Solana's code, and what these tests care about is that a
+    /// punishment executes correctly when its accounts arrive by lookup instead of as static
+    /// keys. `last_extended_slot` is left at zero so every address is active immediately, which
+    /// on-chain would mean the table was extended in an earlier slot.
+    pub fn plant_lookup_table(&mut self, addresses: &[Pubkey]) -> AddressLookupTableAccount {
+        let key = Pubkey::new_unique();
+        let table = AddressLookupTable {
+            meta: LookupTableMeta {
+                deactivation_slot: u64::MAX,
+                last_extended_slot: 0,
+                last_extended_slot_start_index: 0,
+                authority: None,
+                _padding: 0,
+            },
+            addresses: std::borrow::Cow::Owned(addresses.to_vec()),
+        };
+        let data = table.serialize_for_tests().expect("serialize lookup table");
+        self.svm
+            .set_account(
+                key,
+                solana_account::Account {
+                    lamports: SOL,
+                    data,
+                    owner: ADDRESS_LOOKUP_TABLE_PROGRAM_ID,
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("plant lookup table");
+        AddressLookupTableAccount {
+            key,
+            addresses: addresses.to_vec(),
+        }
+    }
+
+    /// Every account an instruction names that a lookup table is allowed to carry.
+    ///
+    /// Signers and program ids must stay in the static keys, so they are excluded: the runtime
+    /// rejects a program id resolved through a table, and a signature cannot be checked against
+    /// an address the transaction does not carry.
+    pub fn lookup_candidates(ixs: &[Instruction]) -> Vec<Pubkey> {
+        let mut out: Vec<Pubkey> = Vec::new();
+        for ix in ixs {
+            for meta in &ix.accounts {
+                let excluded = meta.is_signer
+                    || ixs.iter().any(|other| other.program_id == meta.pubkey)
+                    || out.contains(&meta.pubkey);
+                if !excluded {
+                    out.push(meta.pubkey);
+                }
+            }
+        }
+        out
+    }
+
+    /// Build the v0 transaction `payer` would broadcast for `ixs` against `tables`.
+    pub fn build_v0(
+        &self,
+        payer: &Pubkey,
+        ixs: &[Instruction],
+        tables: &[AddressLookupTableAccount],
+        signers: &[&Keypair],
+    ) -> VersionedTransaction {
+        let mut all = Vec::with_capacity(ixs.len() + 1);
+        all.push(set_compute_unit_limit(DEFAULT_CU_LIMIT));
+        all.extend_from_slice(ixs);
+        let message = v0::Message::try_compile(payer, &all, tables, self.svm.latest_blockhash())
+            .expect("v0 message compiles");
+        let required = usize::from(message.header.num_required_signatures);
+        let signing: Vec<&Keypair> = message.account_keys[..required]
+            .iter()
+            .map(|key| {
+                *signers
+                    .iter()
+                    .find(|kp| kp.pubkey() == *key)
+                    .unwrap_or_else(|| panic!("no keypair for required signer {key}"))
+            })
+            .collect();
+        VersionedTransaction::try_new(VersionedMessage::V0(message), &signing)
+            .expect("v0 transaction signs")
+    }
+
+    /// Serialized wire size of a v0 transaction, the number a validator actually enforces.
+    pub fn transaction_size_v0(
+        &self,
+        payer: &Pubkey,
+        ixs: &[Instruction],
+        tables: &[AddressLookupTableAccount],
+        signers: &[&Keypair],
+    ) -> usize {
+        let tx = self.build_v0(payer, ixs, tables, signers);
+        bincode::serialize(&tx)
+            .expect("transaction serializes")
+            .len()
+    }
+
+    /// Send `ixs` as a v0 transaction resolved through `tables`.
+    pub fn send_v0(
+        &mut self,
+        payer: &Pubkey,
+        ixs: &[Instruction],
+        tables: &[AddressLookupTableAccount],
+        signers: &[&Keypair],
+    ) -> TransactionResult {
+        let tx = self.build_v0(payer, ixs, tables, signers);
+        let result = self.svm.send_transaction(tx);
+        self.svm.expire_blockhash();
+        result
+    }
+
+    #[track_caller]
+    pub fn send_v0_ok(
+        &mut self,
+        payer: &Pubkey,
+        ixs: &[Instruction],
+        tables: &[AddressLookupTableAccount],
+        signers: &[&Keypair],
+    ) -> TransactionMetadata {
+        match self.send_v0(payer, ixs, tables, signers) {
+            Ok(meta) => meta,
+            Err(failed) => panic!(
+                "v0 transaction failed: {:?}\n--- logs ---\n{}",
+                failed.err,
+                failed.meta.logs.join("\n")
+            ),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // transaction v1 (SIMD-0385)
+    // -----------------------------------------------------------------------
+
+    /// Build the v1 transaction `payer` would broadcast for `ixs`.
+    ///
+    /// V1 carries no lookup tables, so every account is a static key again, but the packet grows
+    /// to [`v1::MAX_TRANSACTION_SIZE`] and the compute budget moves into the message config —
+    /// there is no `ComputeBudget` instruction and no `ComputeBudget` account to pay for.
+    pub fn build_v1(
+        &self,
+        payer: &Pubkey,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> VersionedTransaction {
+        // Every v1 config field defaults to zero rather than to the legacy default, so an
+        // unset `loaded_accounts_data_size_limit` fails the transaction outright. Real clients
+        // have to set these explicitly; legacy got them for free by omitting ComputeBudget.
+        let config = TransactionConfig::empty()
+            .with_compute_unit_limit(DEFAULT_CU_LIMIT)
+            .with_loaded_accounts_data_size_limit(MAX_LOADED_ACCOUNTS_DATA_SIZE);
+        let message =
+            v1::Message::try_compile_with_config(payer, ixs, self.svm.latest_blockhash(), config)
+                .expect("v1 message compiles");
+        let required = usize::from(message.header.num_required_signatures);
+        let signing: Vec<&Keypair> = message.account_keys[..required]
+            .iter()
+            .map(|key| {
+                *signers
+                    .iter()
+                    .find(|kp| kp.pubkey() == *key)
+                    .unwrap_or_else(|| panic!("no keypair for required signer {key}"))
+            })
+            .collect();
+        VersionedTransaction::try_new(VersionedMessage::V1(message), &signing)
+            .expect("v1 transaction signs")
+    }
+
+    pub fn transaction_size_v1(
+        &self,
+        payer: &Pubkey,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> usize {
+        bincode::serialize(&self.build_v1(payer, ixs, signers))
+            .expect("transaction serializes")
+            .len()
+    }
+
+    /// Static account keys a v1 message carries, which [`v1::MAX_ADDRESSES`] caps.
+    pub fn v1_address_count(&self, payer: &Pubkey, ixs: &[Instruction]) -> usize {
+        v1::Message::try_compile(payer, ixs, self.svm.latest_blockhash())
+            .expect("v1 message compiles")
+            .account_keys
+            .len()
+    }
+
+    pub fn send_v1(
+        &mut self,
+        payer: &Pubkey,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> TransactionResult {
+        let tx = self.build_v1(payer, ixs, signers);
+        let result = self.svm.send_transaction(tx);
+        self.svm.expire_blockhash();
+        result
+    }
+
+    #[track_caller]
+    pub fn send_v1_ok(
+        &mut self,
+        payer: &Pubkey,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> TransactionMetadata {
+        match self.send_v1(payer, ixs, signers) {
+            Ok(meta) => meta,
+            Err(failed) => panic!(
+                "v1 transaction failed: {:?}\n--- logs ---\n{}",
+                failed.err,
+                failed.meta.logs.join("\n")
+            ),
+        }
+    }
+
     /// The compute-budget prefix, message and signatures every test transaction shares.
     ///
     /// Signs with exactly the keys the message requires: callers pass whoever is conceptually
@@ -161,9 +476,13 @@ impl TestEnv {
         let mut all = Vec::with_capacity(ixs.len() + 1);
         all.push(set_compute_unit_limit(cu_limit));
         all.extend_from_slice(ixs);
+        self.build_transaction_prepared(&all, signers)
+    }
 
+    /// Build a transaction from a fully prepared instruction list (compute budget already included).
+    fn build_transaction_prepared(&self, ixs: &[Instruction], signers: &[&Keypair]) -> Transaction {
         let payer_pubkey = self.payer.pubkey();
-        let message = Message::new(&all, Some(&payer_pubkey));
+        let message = Message::new(ixs, Some(&payer_pubkey));
         let available: Vec<&Keypair> = std::iter::once(&self.payer)
             .chain(signers.iter().copied())
             .collect();
@@ -190,6 +509,22 @@ impl TestEnv {
     /// Send and require success, surfacing program logs on failure.
     pub fn send_ok(&mut self, ixs: &[Instruction], signers: &[&Keypair]) -> TransactionMetadata {
         match self.send(ixs, signers) {
+            Ok(meta) => meta,
+            Err(failed) => panic!(
+                "transaction failed: {:?}\n--- logs ---\n{}",
+                failed.err,
+                failed.meta.logs.join("\n")
+            ),
+        }
+    }
+
+    /// Like [`send_ok`](Self::send_ok), but requests the maximum heap frame first.
+    pub fn send_ok_with_max_heap(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> TransactionMetadata {
+        match self.send_with_max_heap(ixs, signers) {
             Ok(meta) => meta,
             Err(failed) => panic!(
                 "transaction failed: {:?}\n--- logs ---\n{}",
@@ -245,7 +580,12 @@ impl TestEnv {
     }
 
     pub fn token_balance(&self, token_account: &Pubkey) -> u64 {
-        token::unpack_token_account(&self.account_data(token_account)).amount
+        self.token_account(token_account).amount
+    }
+
+    /// Mint, owner and amount of an SPL token account.
+    pub fn token_account(&self, token_account: &Pubkey) -> token::TokenAccountState {
+        token::unpack_token_account(&self.account_data(token_account))
     }
 
     /// `0` when the account has not been created yet — lets tests read a balance before and

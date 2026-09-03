@@ -6,7 +6,10 @@ use solana_keccak_hasher::hashv;
 use crate::{
     error::MolphaError,
     events::NodeRegistered,
-    state::{Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim, MAX_REGISTRY_NODES},
+    state::{
+        Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim, MAX_REGISTRY_NODES,
+        NODE_DEPOSITS_SEED,
+    },
     utils::registry::derive_node_id,
 };
 
@@ -57,16 +60,19 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         NodePopError::InvalidProof => error!(MolphaError::InvalidPoP),
     })?;
 
+    // Principal goes into the node-deposit vault, never the treasury, so no reward or bounty
+    // payout can reach it.
+    let deposit = ctx.accounts.protocol_config.minimum_node_deposit;
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.owner_usdc.to_account_info(),
-                to: ctx.accounts.treasury.to_account_info(),
+                to: ctx.accounts.node_deposit_vault.to_account_info(),
                 authority: ctx.accounts.node_owner.to_account_info(),
             },
         ),
-        ctx.accounts.protocol_config.minimum_node_deposit,
+        deposit,
     )?;
 
     let now = Clock::get()?.unix_timestamp;
@@ -87,9 +93,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
 
     let current = ctx.accounts.current_registry.load()?;
     let mut next = ctx.accounts.new_registry.load_init()?;
-    next.copy_from_previous(&current, ctx.bumps.new_registry);
-    let appended_index = next.append(ctx.accounts.node.key())?;
-    require!(appended_index == node_index, MolphaError::InvalidNodeIndex);
+    next.append(&current, ctx.accounts.node.key(), ctx.bumps.new_registry)?;
     ctx.accounts.registry_state.advance_version();
 
     emit!(NodeRegistered {
@@ -173,25 +177,27 @@ pub struct RegisterNode<'info> {
     pub secp256k1_key_claim: Box<Account<'info, Secp256k1KeyClaim>>,
 
     #[account(
-        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidOwnerUsdc
-    )]
-    pub usdc_mint: Box<Account<'info, token::Mint>>,
-
-    #[account(
         mut,
-        associated_token::mint = usdc_mint,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = node_owner,
         associated_token::token_program = token_program,
     )]
     pub owner_usdc: Box<Account<'info, TokenAccount>>,
 
+    /// CHECK: seeds-validated deposit-vault authority; holds no data.
+    #[account(
+        seeds = [NODE_DEPOSITS_SEED],
+        bump = protocol_config.node_deposits_bump,
+    )]
+    pub node_deposits: UncheckedAccount<'info>,
+
     #[account(
         mut,
-        associated_token::mint = usdc_mint,
-        associated_token::authority = protocol_config,
+        associated_token::mint = protocol_config.usdc_mint,
+        associated_token::authority = node_deposits,
         associated_token::token_program = token_program,
     )]
-    pub treasury: Box<Account<'info, TokenAccount>>,
+    pub node_deposit_vault: Box<Account<'info, TokenAccount>>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,

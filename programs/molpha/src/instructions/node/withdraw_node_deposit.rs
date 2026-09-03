@@ -3,13 +3,13 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{self, Mint, Token, TokenAccount, Transfer},
+    token::{self, Token, TokenAccount, Transfer},
 };
 
 use crate::{
     error::MolphaError,
     events::NodeDepositWithdrawn,
-    state::{Node, NodeStatus, ProtocolConfig},
+    state::{Node, NodeStatus, ProtocolConfig, NODE_DEPOSITS_SEED},
 };
 
 pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
@@ -31,24 +31,34 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
         MolphaError::WithdrawalCooldownActive
     );
 
-    let config = &ctx.accounts.protocol_config;
-    let bump = [config.bump];
-    let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
+    // The vault is shared, so the payout is bounded explicitly by this node's own entitlement
+    // rather than by the balance of an account only this node can draw on.
+    require!(
+        amount <= ctx.accounts.node.locked_amount,
+        MolphaError::NothingToWithdraw
+    );
+    require!(
+        ctx.accounts.node_deposit_vault.amount >= amount,
+        MolphaError::DepositVaultUnderfunded
+    );
+
+    ctx.accounts.node.locked_amount = 0;
+    let vault_bump = [ctx.accounts.protocol_config.node_deposits_bump];
+    let signer_seeds: &[&[u8]] = &[NODE_DEPOSITS_SEED, &vault_bump];
     token::transfer(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.key(),
             Transfer {
-                from: ctx.accounts.treasury.to_account_info(),
+                from: ctx.accounts.node_deposit_vault.to_account_info(),
                 to: ctx.accounts.destination.to_account_info(),
-                authority: ctx.accounts.protocol_config.to_account_info(),
+                authority: ctx.accounts.node_deposits.to_account_info(),
             },
             &[signer_seeds],
         ),
         amount,
     )?;
 
-    let node = &mut ctx.accounts.node;
-    node.locked_amount = 0;
+    let node = &ctx.accounts.node;
 
     emit!(NodeDepositWithdrawn {
         node: node.key(),
@@ -79,23 +89,24 @@ pub struct WithdrawNodeDeposit<'info> {
     )]
     pub node: Account<'info, Node>,
 
+    /// CHECK: seeds-validated deposit-vault authority; holds no data.
     #[account(
-        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidMint
+        seeds = [NODE_DEPOSITS_SEED],
+        bump = protocol_config.node_deposits_bump,
     )]
-    pub usdc_mint: Account<'info, Mint>,
+    pub node_deposits: UncheckedAccount<'info>,
 
     #[account(
         mut,
-        associated_token::mint = usdc_mint,
-        associated_token::authority = protocol_config,
+        associated_token::mint = protocol_config.usdc_mint,
+        associated_token::authority = node_deposits,
         associated_token::token_program = token_program,
     )]
-    pub treasury: Account<'info, TokenAccount>,
+    pub node_deposit_vault: Account<'info, TokenAccount>,
 
     #[account(
-        init_if_needed,
-        payer = owner,
-        associated_token::mint = usdc_mint,
+        mut,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = owner,
         associated_token::token_program = token_program,
     )]

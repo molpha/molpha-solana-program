@@ -1,4 +1,9 @@
 //! Shared node punishment: apply penalties, evict victims, and run the common sentence tail.
+//!
+//! A filing settles in one instruction. Because every node's principal sits in one shared vault,
+//! the batch sweeps its whole forfeiture with a single transfer and funds the reporter's bounty
+//! from it immediately, so the transaction costs one account per signer and nothing per guilty
+//! node.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, TokenAccount, Transfer};
@@ -9,7 +14,7 @@ use crate::{
     events::NodePunished,
     state::{
         MembershipAction, Node, NodeStatus, OffenceKind, Penalty, ProtocolConfig, PunishmentCase,
-        Registry, RegistryState, SignedStatement,
+        Registry, RegistryState, SignedStatement, NODE_DEPOSITS_SEED,
     },
 };
 
@@ -59,33 +64,42 @@ pub fn apply_penalty(node: &mut Node, penalty: Penalty, now: i64) -> Result<Pena
     })
 }
 
-/// Outcome of a [`punish_guilty_nodes`] batch.
+/// Outcome of a [`slash_guilty_nodes`] batch.
 #[derive(Clone, Debug, Default)]
 pub struct PunishmentBatch {
     /// Nodes slashed in resolution order; may be shorter than `guilty_bitmap` if some are tombstoned.
     pub victims: Vec<Pubkey>,
-    pub slashed_total: u64,
+    /// Principal deducted from the victims and swept into the treasury.
+    pub slashed_locked: u64,
+    /// Reward credits cancelled, and so released from `ProtocolConfig.reward_liability`.
+    pub slashed_rewards: u64,
 }
 
-/// Slash every guilty node. Already-tombstoned nodes are skipped so one stale bit cannot block the batch.
-pub fn slash_guilty_nodes<'info>(
-    remaining_accounts: &'info [AccountInfo<'info>],
-    resolved: &[(usize, molpha_verifier::SignerXy)],
-    guilty_bitmap: &[u8; 32],
-    offence: OffenceKind,
+impl PunishmentBatch {
+    pub fn slashed_total(&self) -> u64 {
+        self.slashed_locked.saturating_add(self.slashed_rewards)
+    }
+}
+
+/// Slash every guilty node, accumulating what the batch forfeits.
+///
+/// Already-tombstoned nodes are skipped so one stale bit cannot block the batch. Nothing else is
+/// skipped: the whole sentence settles in this instruction, so there is no half-settled state a
+/// later offence could collide with, and no way for a node to become temporarily unpunishable.
+fn slash_guilty_nodes<'info>(
+    input: &SlashInput<'_, 'info>,
     withdrawal_cooldown_slots: u64,
-    program_id: &Pubkey,
 ) -> Result<PunishmentBatch> {
-    let penalty = offence.penalty();
+    let penalty = input.offence.penalty();
     let mut batch = PunishmentBatch::default();
     let clock = Clock::get()?;
 
-    for ((bit_pos, _), account_info) in resolved.iter().zip(remaining_accounts.iter()) {
-        if !bitmap_bit_set(guilty_bitmap, *bit_pos) {
+    for ((bit_pos, _), account_info) in input.resolved.iter().zip(input.signer_accounts.iter()) {
+        if !bitmap_bit_set(&input.guilty_bitmap, *bit_pos) {
             continue;
         }
         require!(
-            account_info.owner == program_id,
+            account_info.owner == input.program_id,
             MolphaError::InvalidCreditNodeAccount
         );
         let mut node: Account<Node> = Account::try_from(account_info)?;
@@ -99,60 +113,51 @@ pub fn slash_guilty_nodes<'info>(
                 .checked_add(withdrawal_cooldown_slots)
                 .ok_or(MolphaError::WithdrawalArithmeticOverflow)?;
         }
-        batch.slashed_total = batch.slashed_total.saturating_add(outcome.total());
+
+        batch.slashed_locked = batch.slashed_locked.saturating_add(outcome.slashed_locked);
+        batch.slashed_rewards = batch
+            .slashed_rewards
+            .saturating_add(outcome.slashed_rewards);
 
         emit!(NodePunished {
             node: account_info.key(),
             owner: node.owner,
-            offence,
+            offence: input.offence,
             slashed_locked: outcome.slashed_locked,
             slashed_rewards: outcome.slashed_rewards,
             new_status: node.status,
             punished_at: clock.unix_timestamp,
         });
         batch.victims.push(account_info.key());
-        node.exit(program_id)?;
+        node.exit(input.program_id)?;
     }
 
     Ok(batch)
 }
 
-/// Evict `victims` into a fresh registry snapshot. Rescans by pubkey because `swap_remove` shifts indices.
-pub fn evict_nodes(
-    current: &Registry,
-    next: &mut Registry,
-    bump: u8,
-    victims: &[Pubkey],
-) -> Result<()> {
-    next.copy_from_previous(current, bump);
-    for victim in victims {
-        let found = (0..usize::from(next.node_count))
-            .find(|&i| Pubkey::new_from_array(next.nodes[i]) == *victim);
-        if let Some(index) = found {
-            next.swap_remove(index as u16, *victim)?;
-        }
-    }
-    Ok(())
-}
-
 /// Mutable accounts shared by every node-punishment sentence.
+///
+/// The token accounts are a fixed cost: one shared deposit vault however many nodes are guilty.
 pub struct SlashAccounts<'a, 'info> {
     pub registry_state: &'a mut Account<'info, RegistryState>,
     pub current_registry: &'a AccountLoader<'info, Registry>,
     pub new_registry: &'a AccountLoader<'info, Registry>,
     pub new_registry_bump: u8,
-    pub protocol_config: &'a Account<'info, ProtocolConfig>,
+    pub protocol_config: &'a mut Account<'info, ProtocolConfig>,
     pub punishment_case: &'a mut Account<'info, PunishmentCase>,
     pub punishment_case_bump: u8,
     pub reporter: Pubkey,
-    pub treasury: &'a Account<'info, TokenAccount>,
+    pub node_deposits: AccountInfo<'info>,
+    pub node_deposit_vault: &'a mut Account<'info, TokenAccount>,
+    pub treasury: &'a mut Account<'info, TokenAccount>,
     pub reporter_usdc: &'a Account<'info, TokenAccount>,
     pub token_program: Pubkey,
 }
 
-/// Proof output from an offence-specific handler, fed into [`execute_punishment`].
+/// Proof output from an offence-specific handler, fed into [`slash_nodes`].
 pub struct SlashInput<'a, 'info> {
-    pub remaining_accounts: &'info [AccountInfo<'info>],
+    /// The signer `Node` accounts the aggregate was verified against, in ascending bit order.
+    pub signer_accounts: &'info [AccountInfo<'info>],
     pub program_id: &'info Pubkey,
     pub resolved: &'a [(usize, molpha_verifier::SignerXy)],
     pub guilty_bitmap: [u8; 32],
@@ -170,7 +175,6 @@ pub struct SlashOutcome {
     pub bounty_paid: u64,
     pub previous_version: u32,
     pub node_count_after: u16,
-    pub redundancy_buffer_after: u8,
     pub now: i64,
     pub now_slot: u64,
 }
@@ -185,31 +189,50 @@ pub fn slash_nodes<'a, 'b, 'info>(
     let now = clock.unix_timestamp;
     let now_slot = clock.slot;
 
-    let batch = slash_guilty_nodes(
-        input.remaining_accounts,
-        input.resolved,
-        &input.guilty_bitmap,
-        input.offence,
-        accounts.protocol_config.withdrawal_cooldown_slots,
-        input.program_id,
-    )?;
+    let batch = slash_guilty_nodes(&input, accounts.protocol_config.withdrawal_cooldown_slots)?;
     require!(!batch.victims.is_empty(), MolphaError::NothingToPunish);
-    let slashed_total = batch.slashed_total;
+    let slashed_total = batch.slashed_total();
 
     let previous_version = accounts.registry_state.current_version;
-    let (node_count_after, redundancy_buffer_after) = {
-        let current = accounts.current_registry.load()?;
-        let mut next = accounts.new_registry.load_init()?;
-        evict_nodes(
-            &current,
-            &mut next,
-            accounts.new_registry_bump,
-            &batch.victims,
-        )?;
-        (next.node_count, next.redundancy_buffer)
-    };
+    let current = accounts.current_registry.load()?;
+    let mut next = accounts.new_registry.load_init()?;
+    next.swap_remove_batch(&current, &batch.victims, accounts.new_registry_bump)?;
     accounts.registry_state.advance_version();
 
+    // Cancelled reward credits stop being a claim on the treasury.
+    accounts.protocol_config.reward_liability = accounts
+        .protocol_config
+        .reward_liability
+        .checked_sub(batch.slashed_rewards)
+        .ok_or(MolphaError::RewardLiabilityUnderflow)?;
+
+    // Sweep the forfeited principal out of the deposit vault in one transfer, whatever the size
+    // of the guilty set. The amount comes directly from the guilty nodes' locked balances.
+    if batch.slashed_locked > 0 {
+        require!(
+            accounts.node_deposit_vault.amount >= batch.slashed_locked,
+            MolphaError::DepositVaultUnderfunded
+        );
+
+        let vault_bump = [accounts.protocol_config.node_deposits_bump];
+        let vault_seeds: &[&[u8]] = &[NODE_DEPOSITS_SEED, &vault_bump];
+        token::transfer(
+            CpiContext::new_with_signer(
+                accounts.token_program,
+                Transfer {
+                    from: accounts.node_deposit_vault.to_account_info(),
+                    to: accounts.treasury.to_account_info(),
+                    authority: accounts.node_deposits.clone(),
+                },
+                &[vault_seeds],
+            ),
+            batch.slashed_locked,
+        )?;
+    }
+
+    // The bounty is funded by what this punishment just recovered: the principal swept in above,
+    // plus the reward credits released from `reward_liability`. `challenger_bounty_bps` is capped
+    // at 100% of their sum, so it can never be paid out of another party's money.
     let bounty = bps_of(
         slashed_total,
         accounts.protocol_config.challenger_bounty_bps,
@@ -229,6 +252,12 @@ pub fn slash_nodes<'a, 'b, 'info>(
             ),
             bounty,
         )?;
+
+        accounts.treasury.reload()?;
+        require!(
+            accounts.treasury.amount >= accounts.protocol_config.reward_liability,
+            MolphaError::TreasuryInsolvent
+        );
     }
 
     accounts.punishment_case.init(
@@ -248,8 +277,7 @@ pub fn slash_nodes<'a, 'b, 'info>(
         slashed_total,
         bounty_paid: bounty,
         previous_version,
-        node_count_after,
-        redundancy_buffer_after,
+        node_count_after: next.node_count,
         now,
         now_slot,
     })

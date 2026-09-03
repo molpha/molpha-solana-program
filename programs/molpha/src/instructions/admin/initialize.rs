@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     error::MolphaError,
     events::ProtocolInitialized,
-    state::{ProtocolConfig, Registry, RegistryState, MIN_SIGNERS_FLOOR},
+    state::{ProtocolConfig, Registry, RegistryState, MIN_SIGNERS_FLOOR, NODE_DEPOSITS_SEED},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -22,7 +22,6 @@ pub struct InitializeArgs {
     pub challenger_bounty_bps: u16,
     pub usdc_mint: Pubkey,
     pub x402_round_base: u64,
-    pub x402_round_per_sig: u64,
     pub min_signers: u8,
 }
 
@@ -41,6 +40,10 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
         args.min_signers >= MIN_SIGNERS_FLOOR,
         MolphaError::InvalidMinSigners
     );
+    require!(
+        args.challenger_bounty_bps <= ProtocolConfig::MAX_BPS,
+        MolphaError::InvalidChallengerBounty
+    );
 
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.authority = ctx.accounts.authority.key();
@@ -53,7 +56,8 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_slots = args.withdrawal_cooldown_slots;
     protocol_config.x402_round_base = args.x402_round_base;
-    protocol_config.x402_round_per_sig = args.x402_round_per_sig;
+    protocol_config.reward_liability = 0;
+    protocol_config.node_deposits_bump = ctx.bumps.node_deposits;
     protocol_config.min_signers = args.min_signers;
     protocol_config.bump = ctx.bumps.protocol_config;
 
@@ -68,6 +72,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
         registry_state: ctx.accounts.registry_state.key(),
         registry: ctx.accounts.registry.key(),
         treasury: ctx.accounts.treasury.key(),
+        node_deposit_vault: ctx.accounts.node_deposit_vault.key(),
         authority: ctx.accounts.authority.key(),
         usdc_mint: ctx.accounts.usdc_mint.key(),
         initialized_at: clock.unix_timestamp,
@@ -119,6 +124,22 @@ pub struct Initialize<'info> {
         associated_token::token_program = token_program,
     )]
     pub treasury: Account<'info, TokenAccount>,
+
+    /// Token authority for the node-deposit vault. Distinct from `protocol_config` so that the
+    /// signer used for every treasury payout cannot reach node principal.
+    /// CHECK: seeds-validated; holds no data and is never read or written.
+    #[account(seeds = [NODE_DEPOSITS_SEED], bump)]
+    pub node_deposits: UncheckedAccount<'info>,
+
+    /// One vault for every node's security deposit, held apart from protocol revenue.
+    #[account(
+        init,
+        payer = authority,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = node_deposits,
+        associated_token::token_program = token_program,
+    )]
+    pub node_deposit_vault: Account<'info, TokenAccount>,
 
     #[account(mut)]
     pub authority: Signer<'info>,

@@ -80,12 +80,20 @@ fn register_node_writes_identity_takes_the_deposit_and_appends_a_snapshot() {
     let claim: Secp256k1KeyClaim = p.env.get(&pda::secp256k1_key_claim(&key.compressed));
     assert_eq!(claim.node_pubkey, pda::node(&owner.pubkey()));
 
-    // Deposit moved owner -> treasury.
+    // Deposit moved owner -> the node's own vault; the treasury never sees principal.
     assert_eq!(
         p.env.token_balance(&owner_usdc),
         owner_before - p.args.minimum_node_deposit
     );
-    assert_eq!(p.treasury_balance(), p.args.minimum_node_deposit);
+    assert_eq!(p.node_deposit_balance(), p.args.minimum_node_deposit);
+    assert_eq!(p.treasury_balance(), 0);
+
+    // The vault's authority is a PDA of its own, not `protocol_config`, so the signer used for
+    // every treasury payout cannot reach node principal.
+    let vault = p.env.token_account(&p.node_deposit_vault());
+    assert_eq!(vault.owner, pda::node_deposits());
+    assert_ne!(vault.owner, pda::protocol_config());
+    assert_eq!(vault.mint, p.usdc_mint);
 
     // A fresh snapshot holds the node; the genesis snapshot is untouched.
     assert_eq!(p.current_version(), 1);
@@ -147,6 +155,41 @@ fn register_node_rejects_a_zero_registration_salt() {
     let args = p.register_node_args(&owner.pubkey(), &key, [0u8; 32], 8_001);
     let failed = register(&mut p, &owner, &args).unwrap_err();
     assert_molpha_error(&failed, MolphaError::InvalidRegistrationSalt);
+}
+
+#[test]
+fn register_node_accepts_a_proof_of_possession_whose_reduction_needs_the_full_width() {
+    const OWNER_SECRET: [u8; 32] = [
+        0x25, 0x65, 0x35, 0xc0, 0xde, 0xa7, 0x0f, 0x83, 0xd2, 0xfc, 0x53, 0x2b, 0xc1, 0xc0, 0x6f,
+        0x68, 0x38, 0x50, 0x5f, 0x99, 0x50, 0x02, 0x73, 0x9c, 0xef, 0x81, 0x34, 0x84, 0x0e, 0xba,
+        0x17, 0x45,
+    ];
+    const NODE_SECRET: [u8; 32] = [
+        0x1a, 0xf0, 0x81, 0x3a, 0x8e, 0x17, 0x7b, 0xa6, 0xbc, 0x3a, 0x7b, 0x0f, 0x27, 0xd5, 0xdd,
+        0x18, 0x67, 0x6a, 0xb3, 0x85, 0x0d, 0x60, 0x9d, 0xd3, 0xfc, 0xfa, 0x62, 0x36, 0x36, 0x10,
+        0x28, 0xfd,
+    ];
+
+    let mut p = Protocol::start();
+    let key = NodeKey::from_secret(NODE_SECRET);
+    assert_eq!(
+        key.compressed[1], 0xff,
+        "the pinned key must sit near the order"
+    );
+
+    let owner = p.env.keypair_from_secret(OWNER_SECRET);
+    p.fund_usdc(&owner.pubkey(), p.args.minimum_node_deposit * 4);
+
+    let mut registration_salt = [0u8; 32];
+    registration_salt[0] = 1;
+
+    let args = p.register_node_args(&owner.pubkey(), &key, registration_salt, 8_010);
+    register(&mut p, &owner, &args).expect("proof of possession verifies");
+
+    let node: Node = p.env.get(&pda::node(&owner.pubkey()));
+    assert_eq!(node.secp256k1_pubkey_x, key.x);
+    assert_eq!(node.secp256k1_pubkey_y, key.y);
+    assert_eq!(node.status, NodeStatus::Active);
 }
 
 #[test]

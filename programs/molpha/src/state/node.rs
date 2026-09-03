@@ -14,6 +14,11 @@ pub struct Node {
     pub status: NodeStatus,
     pub ip: [u8; 4],
     pub port: u16,
+    /// USDC security deposit, held in the shared node-deposit vault.
+    ///
+    /// Set once at registration and only ever reduced, by slashing or withdrawal. Nothing in the
+    /// program raises it, which is what bounds every debit from the shared vault to the node's
+    /// own entitlement.
     pub locked_amount: u64,
     pub claimable_rewards: u64,
     pub registered_at: i64,

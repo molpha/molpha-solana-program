@@ -116,3 +116,41 @@ fn tombstoned_node_cannot_be_punished_again() {
     };
     assert!(apply_penalty(&mut node, penalty, 1).is_err());
 }
+
+/// A node can be punished twice, and the second penalty applies to what the first one left.
+///
+/// Each filing settles its own forfeiture, so there is no carried state for the two to collide
+/// over and no way for the pair to forfeit more than the node ever deposited.
+#[test]
+fn a_second_penalty_accumulates_onto_an_uncranked_seizure() {
+    let mut node = node_fixture(1_000, 0, NodeStatus::Active);
+    let half = Penalty {
+        slash_bps: 5_000,
+        membership: MembershipAction::Freeze,
+        freeze_secs: 60,
+    };
+    let first = apply_penalty(&mut node, half, 100).unwrap();
+    assert_eq!(first.slashed_locked, 500);
+    assert_eq!(node.locked_amount, 500);
+
+    // Nothing has been settled yet, and the node offends again.
+    node.status = NodeStatus::Active;
+    let full = Penalty {
+        slash_bps: 10_000,
+        membership: MembershipAction::Tombstone,
+        freeze_secs: 0,
+    };
+    let second = apply_penalty(&mut node, full, 200).unwrap();
+
+    assert_eq!(
+        second.slashed_locked, 500,
+        "the second penalty applies to what the first one left"
+    );
+    assert_eq!(node.locked_amount, 0);
+    assert_eq!(
+        first.slashed_locked + second.slashed_locked,
+        1_000,
+        "the two penalties together forfeit the whole deposit, and no more"
+    );
+    assert_eq!(node.status, NodeStatus::Tombstoned);
+}

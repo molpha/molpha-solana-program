@@ -14,27 +14,25 @@ type UpdateConfigFile = {
   withdrawalCooldownSlots?: string;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
-  maxReceiptDelaySlots?: string;
-  protocolFee?: string;
+  maxReceiptDelaySeconds?: string;
   disputeWindowSlots?: string;
   gatewayBondMin?: string;
   challengerBountyBps?: number;
   x402RoundBase?: string;
-  x402RoundPerSig?: string;
   minSigners?: number;
 };
 
+/// Mirrors `ProtocolConfig`'s tunables. `reward_liability` is protocol-maintained accounting,
+/// not a knob, so `update_config` neither reads nor writes it.
 type ProtocolConfigAccount = {
   withdrawalCooldownSlots: { toString(): string };
   minimumNodeDeposit: { toString(): string };
   rewardPerSignature: { toString(): string };
-  maxReceiptDelaySlots: { toString(): string };
-  protocolFee: { toString(): string };
+  maxReceiptDelaySeconds: { toString(): string };
   disputeWindowSlots: { toString(): string };
   gatewayBondMin: { toString(): string };
   challengerBountyBps: number;
   x402RoundBase: { toString(): string };
-  x402RoundPerSig: { toString(): string };
   minSigners: number;
 };
 
@@ -49,17 +47,14 @@ export function registerUpdateConfigCommand(admin: Command): void {
     )
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
-    .option("--receipt-submitter-bonus <amount>", "receipt submitter bonus")
-    .option("--max-receipt-delay-slots <slots>", "max receipt delay")
-    .option("--protocol-fee <amount>", "fixed protocol fee per round")
+    .option(
+      "--max-receipt-delay-seconds <seconds>",
+      "max age of canonical_timestamp at settlement ingress"
+    )
     .option("--dispute-window-slots <slots>", "settled round dispute window")
     .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
     .option("--x402-round-base <amount>", "base x402 round settlement price")
-    .option(
-      "--x402-round-per-sig <amount>",
-      "per-required-signature x402 round settlement price"
-    )
     .option(
       "--min-signers <count>",
       "minimum signatures_required accepted by settlement"
@@ -133,25 +128,15 @@ function buildUpdateConfigArgs(
       ),
       "reward per signature"
     ),
-    maxReceiptDelaySlots: bn(
+    maxReceiptDelaySeconds: bn(
       requireValue(
         optionOrConfig(
-          options.maxReceiptDelaySlots as string | undefined,
-          config.maxReceiptDelaySlots
-        ) ?? current.maxReceiptDelaySlots.toString(),
+          options.maxReceiptDelaySeconds as string | undefined,
+          config.maxReceiptDelaySeconds
+        ) ?? current.maxReceiptDelaySeconds.toString(),
         "max receipt delay"
       ),
       "max receipt delay"
-    ),
-    protocolFee: bn(
-      requireValue(
-        optionOrConfig(
-          options.protocolFee as string | undefined,
-          config.protocolFee
-        ) ?? current.protocolFee.toString(),
-        "protocol fee"
-      ),
-      "protocol fee"
     ),
     disputeWindowSlots: bn(
       requireValue(
@@ -188,17 +173,7 @@ function buildUpdateConfigArgs(
       ),
       "x402 round base"
     ),
-    x402RoundPerSig: bn(
-      requireValue(
-        optionOrConfig(
-          options.x402RoundPerSig as string | undefined,
-          config.x402RoundPerSig
-        ) ?? current.x402RoundPerSig.toString(),
-        "x402 round per signature"
-      ),
-      "x402 round per signature"
-    ),
-    min_signers:
+    minSigners:
       optionOrConfig(
         options.minSigners as number | undefined,
         config.minSigners

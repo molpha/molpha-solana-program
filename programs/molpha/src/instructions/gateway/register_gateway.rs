@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{self, Token, TokenAccount, Transfer},
+    token::{self, Mint, Token, TokenAccount, Transfer},
 };
 
 use crate::{
@@ -85,7 +85,7 @@ pub struct RegisterGateway<'info> {
     #[account(
         constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidOwnerUsdc
     )]
-    pub usdc_mint: Account<'info, token::Mint>,
+    pub usdc_mint: Account<'info, Mint>,
 
     #[account(
         mut,

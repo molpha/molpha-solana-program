@@ -13,6 +13,8 @@ import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import { deriveNodeId } from "../lib/ids";
 import {
+  findNodeDepositVault,
+  findNodeDepositsPda,
   findNodePda,
   findProtocolConfigPda,
   findRegistryPda,
@@ -105,6 +107,12 @@ export function registerRegistryCommands(program: Command): void {
         config.usdcMint,
         nodeOwner.publicKey
       );
+      // Security deposits live in one vault under its own authority, not in the treasury.
+      const [nodeDeposits] = findNodeDepositsPda(ctx.programId);
+      const nodeDepositVault = findNodeDepositVault(
+        ctx.programId,
+        config.usdcMint
+      );
 
       const args = {
         ...buildRegisterNodeArgs({
@@ -130,7 +138,8 @@ export function registerRegistryCommands(program: Command): void {
           secp256K1KeyClaim,
           usdcMint: config.usdcMint,
           ownerUsdc,
-          treasury: config.treasury,
+          nodeDeposits,
+          nodeDepositVault,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
@@ -274,7 +283,11 @@ export function registerRegistryCommands(program: Command): void {
           protocolConfig,
           node,
           usdcMint: config.usdcMint,
-          treasury: config.treasury,
+          nodeDeposits: findNodeDepositsPda(ctx.programId)[0],
+          nodeDepositVault: findNodeDepositVault(
+            ctx.programId,
+            config.usdcMint
+          ),
           destination,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,

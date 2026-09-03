@@ -3,10 +3,7 @@
 //! Same-duty different-value pairs must use `punish_equivocation`. Cross-version reuse is out of scope.
 
 use anchor_lang::prelude::*;
-use anchor_spl::{
-    associated_token::AssociatedToken,
-    token::{Mint, Token, TokenAccount},
-};
+use anchor_spl::token::{Token, TokenAccount};
 use molpha_verifier::bitmap::{bitmap_bit_set, bitmap_is_subset, bitmap_load, bitmap_store};
 
 use crate::{
@@ -15,6 +12,7 @@ use crate::{
     state::{
         nonce_reuse_evidence_hash, resolve_registry_signers_indexed, OffenceKind, ProtocolConfig,
         PunishmentCase, Registry, RegistryState, SignedStatement, SigningContext,
+        NODE_DEPOSITS_SEED,
     },
     utils::{
         slash::{slash_nodes, SlashAccounts, SlashInput},
@@ -152,16 +150,18 @@ pub fn punish_nonce_reuse<'info>(
             current_registry: &ctx.accounts.current_registry,
             new_registry: &ctx.accounts.new_registry,
             new_registry_bump: ctx.bumps.new_registry,
-            protocol_config: &ctx.accounts.protocol_config,
+            protocol_config: &mut ctx.accounts.protocol_config,
             punishment_case: &mut ctx.accounts.punishment_case,
             punishment_case_bump: ctx.bumps.punishment_case,
             reporter,
-            treasury: &ctx.accounts.treasury,
+            node_deposits: ctx.accounts.node_deposits.to_account_info(),
+            node_deposit_vault: &mut ctx.accounts.node_deposit_vault,
+            treasury: &mut ctx.accounts.treasury,
             reporter_usdc: &ctx.accounts.reporter_usdc,
             token_program: ctx.accounts.token_program.key(),
         },
         SlashInput {
-            remaining_accounts: ctx.remaining_accounts,
+            signer_accounts: ctx.remaining_accounts,
             program_id: ctx.program_id,
             resolved: &resolved,
             guilty_bitmap,
@@ -202,6 +202,7 @@ pub struct PunishNonceReuse<'info> {
     pub reporter: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]
@@ -244,29 +245,39 @@ pub struct PunishNonceReuse<'info> {
     )]
     pub punishment_case: Box<Account<'info, PunishmentCase>>,
 
+    /// CHECK: seeds-validated deposit-vault authority; holds no data.
     #[account(
-        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidMint
+        seeds = [NODE_DEPOSITS_SEED],
+        bump = protocol_config.node_deposits_bump,
     )]
-    pub usdc_mint: Box<Account<'info, Mint>>,
+    pub node_deposits: UncheckedAccount<'info>,
 
     #[account(
         mut,
-        associated_token::mint = usdc_mint,
+        associated_token::mint = protocol_config.usdc_mint,
+        associated_token::authority = node_deposits,
+        associated_token::token_program = token_program,
+    )]
+    pub node_deposit_vault: Box<Account<'info, TokenAccount>>,
+
+    #[account(
+        mut,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = protocol_config,
         associated_token::token_program = token_program,
     )]
     pub treasury: Box<Account<'info, TokenAccount>>,
 
+    /// Must already exist. Creating it here would cost two more transaction slots, which the
+    /// signer list needs more than a reporter needs the convenience.
     #[account(
-        init_if_needed,
-        payer = reporter,
-        associated_token::mint = usdc_mint,
+        mut,
+        associated_token::mint = protocol_config.usdc_mint,
         associated_token::authority = reporter,
         associated_token::token_program = token_program,
     )]
     pub reporter_usdc: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
