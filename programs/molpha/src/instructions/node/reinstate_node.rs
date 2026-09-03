@@ -26,8 +26,7 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
         MolphaError::NodeAlreadyInRegistry
     );
     let mut next = ctx.accounts.new_registry.load_init()?;
-    next.copy_from_previous(&current, ctx.bumps.new_registry);
-    next.append(node_key)?;
+    next.append(&current, node_key, ctx.bumps.new_registry)?;
     ctx.accounts.registry_state.advance_version();
 
     let node = &mut ctx.accounts.node;

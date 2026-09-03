@@ -5,7 +5,6 @@
 
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{Registry, RegistryState, MAX_REGISTRY_NODES};
-use molpha::utils::evict_nodes;
 
 fn registry_with(nodes: &[Pubkey]) -> Registry {
     let mut nodes_arr = [[0u8; 32]; MAX_REGISTRY_NODES];
@@ -56,8 +55,7 @@ fn snapshot_copy_and_swap_remove_do_not_mutate_source() {
         bump: 0,
         nodes: [[0; 32]; MAX_REGISTRY_NODES],
     };
-    next.copy_from_previous(&source, 8);
-    next.swap_remove(1, second).unwrap();
+    next.swap_remove(&source, 1, second, 8).unwrap();
 
     assert_eq!(source.node_count, 3);
     assert_eq!(source.node(1).unwrap(), second);
@@ -68,7 +66,7 @@ fn snapshot_copy_and_swap_remove_do_not_mutate_source() {
 }
 
 #[test]
-fn evict_nodes_handles_swap_index_hazard() {
+fn swap_remove_batch_handles_swap_index_hazard() {
     let n0 = Pubkey::new_unique();
     let n1 = Pubkey::new_unique();
     let n2 = Pubkey::new_unique();
@@ -76,7 +74,7 @@ fn evict_nodes_handles_swap_index_hazard() {
     let current = registry_with(&[n0, n1, n2, n3]);
     let mut next = registry_with(&[]);
 
-    evict_nodes(&current, &mut next, 1, &[n0, n3]).unwrap();
+    next.swap_remove_batch(&current, &[n0, n3], 1).unwrap();
     assert_eq!(next.node_count, 2);
     let remaining: Vec<Pubkey> = (0..usize::from(next.node_count))
         .map(|i| Pubkey::new_from_array(next.nodes[i]))
@@ -87,12 +85,12 @@ fn evict_nodes_handles_swap_index_hazard() {
 }
 
 #[test]
-fn evict_nodes_skips_absent_victim() {
+fn swap_remove_batch_skips_absent_victim() {
     let n0 = Pubkey::new_unique();
     let ghost = Pubkey::new_unique();
     let current = registry_with(&[n0]);
     let mut next = registry_with(&[]);
 
-    evict_nodes(&current, &mut next, 1, &[ghost]).unwrap();
+    next.swap_remove_batch(&current, &[ghost], 1).unwrap();
     assert_eq!(next.node_count, 1);
 }

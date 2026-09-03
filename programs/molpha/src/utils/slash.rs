@@ -135,24 +135,6 @@ fn slash_guilty_nodes<'info>(
     Ok(batch)
 }
 
-/// Evict `victims` into a fresh registry snapshot. Rescans by pubkey because `swap_remove` shifts indices.
-pub fn evict_nodes(
-    current: &Registry,
-    next: &mut Registry,
-    bump: u8,
-    victims: &[Pubkey],
-) -> Result<()> {
-    next.copy_from_previous(current, bump);
-    for victim in victims {
-        let found = (0..usize::from(next.node_count))
-            .find(|&i| Pubkey::new_from_array(next.nodes[i]) == *victim);
-        if let Some(index) = found {
-            next.swap_remove(index as u16, *victim)?;
-        }
-    }
-    Ok(())
-}
-
 /// Mutable accounts shared by every node-punishment sentence.
 ///
 /// The token accounts are a fixed cost: one shared deposit vault however many nodes are guilty.
@@ -193,7 +175,6 @@ pub struct SlashOutcome {
     pub bounty_paid: u64,
     pub previous_version: u32,
     pub node_count_after: u16,
-    pub redundancy_buffer_after: u8,
     pub now: i64,
     pub now_slot: u64,
 }
@@ -213,17 +194,9 @@ pub fn slash_nodes<'a, 'b, 'info>(
     let slashed_total = batch.slashed_total();
 
     let previous_version = accounts.registry_state.current_version;
-    let (node_count_after, redundancy_buffer_after) = {
-        let current = accounts.current_registry.load()?;
-        let mut next = accounts.new_registry.load_init()?;
-        evict_nodes(
-            &current,
-            &mut next,
-            accounts.new_registry_bump,
-            &batch.victims,
-        )?;
-        (next.node_count, next.redundancy_buffer)
-    };
+    let current = accounts.current_registry.load()?;
+    let mut next = accounts.new_registry.load_init()?;
+    next.swap_remove_batch(&current, &batch.victims, accounts.new_registry_bump)?;
     accounts.registry_state.advance_version();
 
     // Cancelled reward credits stop being a claim on the treasury.
@@ -312,8 +285,7 @@ pub fn slash_nodes<'a, 'b, 'info>(
         slashed_total,
         bounty_paid: bounty,
         previous_version,
-        node_count_after,
-        redundancy_buffer_after,
+        node_count_after: next.node_count,
         now,
         now_slot,
     })

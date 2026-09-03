@@ -98,9 +98,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
 
     let current = ctx.accounts.current_registry.load()?;
     let mut next = ctx.accounts.new_registry.load_init()?;
-    next.copy_from_previous(&current, ctx.bumps.new_registry);
-    let appended_index = next.append(ctx.accounts.node.key())?;
-    require!(appended_index == node_index, MolphaError::InvalidNodeIndex);
+    next.append(&current, ctx.accounts.node.key(), ctx.bumps.new_registry)?;
     ctx.accounts.registry_state.advance_version();
 
     emit!(NodeRegistered {

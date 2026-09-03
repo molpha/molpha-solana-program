@@ -22,8 +22,7 @@ pub fn update_registry_policy(
     );
 
     let mut new_registry = ctx.accounts.new_registry.load_init()?;
-    new_registry.copy_from_previous(&current, ctx.bumps.new_registry);
-    new_registry.redundancy_buffer = redundancy_buffer;
+    new_registry.update_buffer(&current, redundancy_buffer, ctx.bumps.new_registry);
 
     ctx.accounts.registry_state.advance_version();
 

@@ -93,7 +93,8 @@ impl Registry {
         self.nodes.copy_from_slice(&previous.nodes);
     }
 
-    pub fn append(&mut self, node: Pubkey) -> Result<u16> {
+    pub fn append(&mut self, previous: &Registry, node: Pubkey, bump: u8) -> Result<()> {
+        self.copy_from_previous(previous, bump);
         let index = usize::from(self.node_count);
         require!(index < MAX_REGISTRY_NODES, MolphaError::NodeCapExceeded);
         self.nodes[index] = node.to_bytes();
@@ -101,10 +102,22 @@ impl Registry {
             .node_count
             .checked_add(1)
             .ok_or(error!(MolphaError::NodeCapExceeded))?;
-        Ok(index as u16)
+        Ok(())
     }
 
-    pub fn swap_remove(&mut self, remove_index: u16, node: Pubkey) -> Result<()> {
+    pub fn update_buffer(&mut self, previous: &Registry, redundancy_buffer: u8, bump: u8) {
+        self.copy_from_previous(previous, bump);
+        self.redundancy_buffer = redundancy_buffer;
+    }
+
+    pub fn swap_remove(
+        &mut self,
+        previous: &Registry,
+        remove_index: u16,
+        node: Pubkey,
+        bump: u8,
+    ) -> Result<()> {
+        self.copy_from_previous(previous, bump);
         let remove_index = usize::from(remove_index);
         require!(
             remove_index < usize::from(self.node_count),
@@ -120,6 +133,26 @@ impl Registry {
         self.nodes[remove_index] = self.nodes[last_index];
         self.nodes[last_index] = [0u8; 32];
         self.node_count -= 1;
+        Ok(())
+    }
+
+    pub fn swap_remove_batch(
+        &mut self,
+        previous: &Registry,
+        remove_nodes: &[Pubkey],
+        bump: u8,
+    ) -> Result<()> {
+        self.copy_from_previous(previous, bump);
+        for remove_node in remove_nodes {
+            let remove_index = (0..usize::from(self.node_count))
+                .find(|&i| Pubkey::new_from_array(self.nodes[i]) == *remove_node);
+            if let Some(remove_index) = remove_index {
+                let last_index = usize::from(self.node_count - 1);
+                self.nodes[remove_index] = self.nodes[last_index];
+                self.nodes[last_index] = [0u8; 32];
+                self.node_count -= 1;
+            }
+        }
         Ok(())
     }
 }
