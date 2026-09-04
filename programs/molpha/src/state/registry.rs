@@ -59,7 +59,7 @@ impl Registry {
 
     pub fn append(&mut self, previous: &Registry, node: Pubkey, bump: u8) -> Result<()> {
         require!(
-            usize::from(self.node_count) < MAX_REGISTRY_NODES,
+            usize::from(previous.node_count) < MAX_REGISTRY_NODES,
             MolphaError::NodeCapExceeded
         );
         require!(
