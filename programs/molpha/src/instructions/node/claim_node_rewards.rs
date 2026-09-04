@@ -27,8 +27,6 @@ pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
         .ok_or(MolphaError::RewardLiabilityUnderflow)?;
     ctx.accounts.node.claimable_rewards = 0;
 
-    let bump = [ctx.accounts.protocol_config.bump];
-    let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
     token::transfer(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.key(),
@@ -37,7 +35,7 @@ pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
                 to: ctx.accounts.destination.to_account_info(),
                 authority: ctx.accounts.protocol_config.to_account_info(),
             },
-            &[signer_seeds],
+            &[&ctx.accounts.protocol_config.seeds()],
         ),
         amount,
     )?;

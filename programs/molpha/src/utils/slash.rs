@@ -243,8 +243,6 @@ pub fn slash_nodes<'a, 'b, 'info>(
             MolphaError::DepositVaultUnderfunded
         );
 
-        let registry_state_seeds: &[&[u8]] =
-            &[RegistryState::SEED_PREFIX, &[accounts.registry_state.bump]];
         token::transfer(
             CpiContext::new_with_signer(
                 accounts.token_program,
@@ -253,7 +251,7 @@ pub fn slash_nodes<'a, 'b, 'info>(
                     to: accounts.treasury.to_account_info(),
                     authority: accounts.registry_state.to_account_info(),
                 },
-                &[registry_state_seeds],
+                &[&accounts.registry_state.seeds()],
             ),
             batch.slashed_locked,
         )?;
@@ -267,8 +265,6 @@ pub fn slash_nodes<'a, 'b, 'info>(
         accounts.protocol_config.challenger_bounty_bps,
     );
     if bounty > 0 {
-        let bump = [accounts.protocol_config.bump];
-        let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
         token::transfer(
             CpiContext::new_with_signer(
                 accounts.token_program,
@@ -277,7 +273,7 @@ pub fn slash_nodes<'a, 'b, 'info>(
                     to: accounts.reporter_usdc.to_account_info(),
                     authority: accounts.protocol_config.to_account_info(),
                 },
-                &[signer_seeds],
+                &[&accounts.protocol_config.seeds()],
             ),
             bounty,
         )?;

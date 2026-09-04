@@ -219,13 +219,19 @@ pub struct RoundFinalized {
 }
 
 #[event]
-pub struct RoundDisputed {
+pub struct RoundVoided {
     pub round_record: Pubkey,
+    pub gateway: Pubkey,
+    pub round_restored: bool,
+    pub voided_at: i64,
+}
+
+#[event]
+pub struct GatewaySlashed {
     pub gateway: Pubkey,
     pub slashed_bond: u64,
     pub challenger_bounty: u64,
-    pub round_restored: bool,
-    pub disputed_at: i64,
+    pub slashed_at: i64,
 }
 
 #[event]

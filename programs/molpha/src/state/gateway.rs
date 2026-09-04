@@ -27,4 +27,12 @@ pub enum GatewayStatus {
 impl Gateway {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_gateway";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
+
+    pub fn seeds(&self) -> [&[u8]; 3] {
+        [
+            Self::SEED_PREFIX,
+            self.authority.as_ref(),
+            core::slice::from_ref(&self.bump),
+        ]
+    }
 }

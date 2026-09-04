@@ -39,10 +39,6 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
     );
 
     node.locked_amount = 0;
-    let registry_state_seeds: &[&[u8]] = &[
-        RegistryState::SEED_PREFIX,
-        &[ctx.accounts.registry_state.bump],
-    ];
     token::transfer(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.key(),
@@ -51,7 +47,7 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
                 to: ctx.accounts.destination.to_account_info(),
                 authority: ctx.accounts.registry_state.to_account_info(),
             },
-            &[registry_state_seeds],
+            &[&ctx.accounts.registry_state.seeds()],
         ),
         amount,
     )?;

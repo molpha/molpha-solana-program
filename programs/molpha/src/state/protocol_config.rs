@@ -29,4 +29,11 @@ impl ProtocolConfig {
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
     /// Upper bound for every basis-point knob.
     pub const MAX_BPS: u16 = 10_000;
+
+    pub fn seeds(&self) -> [&[u8]; 2] {
+        [
+            Self::SEED_PREFIX,
+            core::slice::from_ref(&self.bump),
+        ]
+    }
 }
