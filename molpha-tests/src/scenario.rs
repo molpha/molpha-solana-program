@@ -10,7 +10,7 @@ use anchor_lang::{InstructionData, ToAccountMetas};
 use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
     AddDelegateArgs, AddPlanArgs, DeactivateNodeArgs, InitializeArgs, PunishEquivocationArgs,
-    PunishNonceReuseArgs, PunishUnsolicitedSigningArgs, RegisterGatewayArgs, RegisterNodeArgs,
+    PunishCommitmentReuseArgs, PunishUnsolicitedSigningArgs, RegisterGatewayArgs, RegisterNodeArgs,
     RemoveDelegateArgs, SettleRoundArgs, SettleX402RoundArgs, SubmitAttestationArgs,
     UpdateConfigArgs, UpdateNodeEndpointArgs, UpdatePlanArgs,
 };
@@ -1306,18 +1306,18 @@ impl Protocol {
         }
     }
 
-    pub fn punish_nonce_reuse_ix(
+    pub fn punish_commitment_reuse_ix(
         &self,
         reporter: &Pubkey,
-        args: PunishNonceReuseArgs,
+        args: PunishCommitmentReuseArgs,
     ) -> Instruction {
-        self.punish_nonce_reuse_ix_with_registry(reporter, args, self.current_version() + 1)
+        self.punish_commitment_reuse_ix_with_registry(reporter, args, self.current_version() + 1)
     }
 
-    pub fn punish_nonce_reuse_ix_with_registry(
+    pub fn punish_commitment_reuse_ix_with_registry(
         &self,
         reporter: &Pubkey,
-        args: PunishNonceReuseArgs,
+        args: PunishCommitmentReuseArgs,
         new_registry_version: u32,
     ) -> Instruction {
         let union = union_bitmap(
@@ -1325,7 +1325,7 @@ impl Protocol {
             &args.statement_b.signers_bitmap,
         );
         let accused = self.node_pdas_for_bitmap(args.registry_version, &union);
-        let mut accounts = molpha::accounts::PunishNonceReuse {
+        let mut accounts = molpha::accounts::PunishCommitmentReuse {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
             registry_state: pda::registry_state(),
@@ -1345,7 +1345,7 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts,
-            data: molpha::instruction::PunishNonceReuse { args }.data(),
+            data: molpha::instruction::PunishCommitmentReuse { args }.data(),
         }
     }
 }

@@ -262,7 +262,7 @@ pub struct UnsolicitedSigningProven {
 }
 
 #[event]
-pub struct NonceReuseProven {
+pub struct CommitmentReuseProven {
     pub registry_version: u32,
     pub commitment_addr: [u8; 20],
     pub source_id_a: [u8; 32],

@@ -196,5 +196,5 @@ fn offence_kind_discriminants_are_stable() {
         borsh::to_vec(&OffenceKind::UnsolicitedSigning).unwrap(),
         vec![1]
     );
-    assert_eq!(borsh::to_vec(&OffenceKind::NonceReuse).unwrap(), vec![2]);
+    assert_eq!(borsh::to_vec(&OffenceKind::CommitmentReuse).unwrap(), vec![2]);
 }

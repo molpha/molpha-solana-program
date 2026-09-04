@@ -19,10 +19,10 @@
 //! shape with the maximum intruder count that fits one transaction).
 
 use molpha::instructions::{
-    PunishEquivocationArgs, PunishNonceReuseArgs, PunishUnsolicitedSigningArgs,
+    PunishCommitmentReuseArgs, PunishEquivocationArgs, PunishUnsolicitedSigningArgs,
 };
 use molpha::state::{
-    equivocation_evidence_hash, nonce_reuse_evidence_hash, unsolicited_signing_evidence_hash, Node,
+    equivocation_evidence_hash, commitment_reuse_evidence_hash, unsolicited_signing_evidence_hash, Node,
     NodeStatus,
 };
 use molpha_tests::crypto;
@@ -144,15 +144,15 @@ fn nonce_reuse_round_pair(p: &Protocol) -> (SignedAttestation, SignedAttestation
     (a, b)
 }
 
-fn nonce_reuse_args(a: &SignedAttestation, b: &SignedAttestation) -> PunishNonceReuseArgs {
+fn commitment_reuse_args(a: &SignedAttestation, b: &SignedAttestation) -> PunishCommitmentReuseArgs {
     let duty_a = a.duty;
-    PunishNonceReuseArgs {
+    PunishCommitmentReuseArgs {
         registry_version: duty_a.registry_version,
         context_a: a.signing_context(),
         statement_a: a.statement(),
         context_b: b.signing_context(),
         statement_b: b.statement(),
-        evidence_hash: nonce_reuse_evidence_hash(
+        evidence_hash: commitment_reuse_evidence_hash(
             duty_a.registry_version,
             &a.signing_context(),
             &a.statement(),
@@ -269,13 +269,13 @@ fn a_fully_overlapping_nonce_reuse_fits_a_legacy_packet_up_to_the_pinned_coaliti
             .value([0xbb; 32]);
         let a = p.sign_duty_with_bits(duty_a, &bits, Some(SHARED_NONCE));
         let b = p.sign_duty_with_bits(duty_b, &bits, Some(SHARED_NONCE));
-        let args = PunishNonceReuseArgs {
+        let args = PunishCommitmentReuseArgs {
             registry_version: duty_a.registry_version,
             context_a: a.signing_context(),
             statement_a: a.statement(),
             context_b: b.signing_context(),
             statement_b: b.statement(),
-            evidence_hash: nonce_reuse_evidence_hash(
+            evidence_hash: commitment_reuse_evidence_hash(
                 duty_a.registry_version,
                 &a.signing_context(),
                 &a.statement(),
@@ -283,7 +283,7 @@ fn a_fully_overlapping_nonce_reuse_fits_a_legacy_packet_up_to_the_pinned_coaliti
                 &b.statement(),
             ),
         };
-        let ix = p.punish_nonce_reuse_ix(&reporter, args);
+        let ix = p.punish_commitment_reuse_ix(&reporter, args);
         let size = p.env.transaction_size_as(&reporter, &[ix]);
         sizes.push((coalition, size));
         if size <= PACKET_DATA_SIZE {
@@ -292,11 +292,11 @@ fn a_fully_overlapping_nonce_reuse_fits_a_legacy_packet_up_to_the_pinned_coaliti
     }
 
     for (coalition, size) in &sizes {
-        println!("punish_nonce_reuse: {coalition:>2} signers, all guilty -> {size} bytes");
+        println!("punish_commitment_reuse: {coalition:>2} signers, all guilty -> {size} bytes");
     }
     assert_eq!(
         largest_fitting, MAX_LEGACY_NONCE_REUSE,
-        "the guilty set a legacy nonce-reuse filing can carry changed"
+        "the guilty set a legacy commitment-reuse filing can carry changed"
     );
 }
 
@@ -343,12 +343,12 @@ fn a_fully_overlapping_nonce_reuse_with_20_round_signers_executes() {
     let reporter = p.reporter();
 
     let (a, b) = nonce_reuse_round_pair(&p);
-    let args = nonce_reuse_args(&a, &b);
+    let args = commitment_reuse_args(&a, &b);
     let guilty = intersect_bitmap(&a.signers_bitmap, &b.signers_bitmap);
     assert_eq!(crypto::bitmap_bits(&guilty).len(), ROUND_SIGNER_COUNT);
     let guilty_pdas = p.node_pdas_for_bitmap(args.registry_version, &guilty);
 
-    let ix = p.punish_nonce_reuse_ix(&reporter.pubkey(), args);
+    let ix = p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
     let size = p
         .env
         .transaction_size_as(&reporter.pubkey(), std::slice::from_ref(&ix));
@@ -503,12 +503,12 @@ fn a_twenty_signer_nonce_reuse_fits_a_packet_as_a_v0_transaction_and_lands() {
     let reporter = p.reporter();
 
     let (a, b) = nonce_reuse_round_pair(&p);
-    let args = nonce_reuse_args(&a, &b);
+    let args = commitment_reuse_args(&a, &b);
     let guilty = intersect_bitmap(&a.signers_bitmap, &b.signers_bitmap);
     let guilty_pdas = p.node_pdas_for_bitmap(args.registry_version, &guilty);
     assert_eq!(guilty_pdas.len(), ROUND_SIGNER_COUNT);
 
-    let ix = p.punish_nonce_reuse_ix(&reporter.pubkey(), args);
+    let ix = p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
     let lookup = TestEnv::lookup_candidates(std::slice::from_ref(&ix));
     let table = p.env.plant_lookup_table(&lookup);
     let signers = [&reporter];

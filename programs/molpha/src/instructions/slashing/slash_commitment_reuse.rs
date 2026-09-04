@@ -8,9 +8,9 @@ use molpha_verifier::bitmap::{bitmap_bit_set, bitmap_is_subset, bitmap_load, bit
 
 use crate::{
     error::{map_attestation_err, MolphaError},
-    events::NonceReuseProven,
+    events::CommitmentReuseProven,
     state::{
-        nonce_reuse_evidence_hash, resolve_registry_signers_indexed, OffenceKind, ProtocolConfig,
+        commitment_reuse_evidence_hash, resolve_registry_signers_indexed, OffenceKind, ProtocolConfig,
         PunishmentCase, Registry, RegistryState, SignedStatement, SigningContext,
         NODE_DEPOSITS_SEED,
     },
@@ -21,7 +21,7 @@ use crate::{
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct PunishNonceReuseArgs {
+pub struct PunishCommitmentReuseArgs {
     pub registry_version: u32,
     pub context_a: SigningContext,
     pub statement_a: SignedStatement,
@@ -31,9 +31,9 @@ pub struct PunishNonceReuseArgs {
     pub evidence_hash: [u8; 32],
 }
 
-pub fn punish_nonce_reuse<'info>(
-    ctx: Context<'info, PunishNonceReuse<'info>>,
-    args: PunishNonceReuseArgs,
+pub fn punish_commitment_reuse<'info>(
+    ctx: Context<'info, PunishCommitmentReuse<'info>>,
+    args: PunishCommitmentReuseArgs,
 ) -> Result<()> {
     require!(
         args.statement_a.commitment_addr == args.statement_b.commitment_addr,
@@ -65,7 +65,7 @@ pub fn punish_nonce_reuse<'info>(
     );
 
     require!(
-        nonce_reuse_evidence_hash(
+        commitment_reuse_evidence_hash(
             args.registry_version,
             &args.context_a,
             &args.statement_a,
@@ -166,14 +166,14 @@ pub fn punish_nonce_reuse<'info>(
             resolved: &resolved,
             guilty_bitmap,
             guilty_count,
-            offence: OffenceKind::NonceReuse,
+            offence: OffenceKind::CommitmentReuse,
             registry_version: args.registry_version,
             evidence_hash: args.evidence_hash,
             new_registry_version,
         },
     )?;
 
-    emit!(NonceReuseProven {
+    emit!(CommitmentReuseProven {
         registry_version: args.registry_version,
         commitment_addr: args.statement_a.commitment_addr,
         source_id_a: args.context_a.source_id,
@@ -196,8 +196,8 @@ pub fn punish_nonce_reuse<'info>(
 }
 
 #[derive(Accounts)]
-#[instruction(args: PunishNonceReuseArgs)]
-pub struct PunishNonceReuse<'info> {
+#[instruction(args: PunishCommitmentReuseArgs)]
+pub struct PunishCommitmentReuse<'info> {
     #[account(mut)]
     pub reporter: Signer<'info>,
 

@@ -36,10 +36,10 @@ fn penalties_are_pinned() {
     assert_eq!(unsolicited.membership, MembershipAction::Tombstone);
     assert_eq!(unsolicited.freeze_secs, 0);
 
-    let nonce_reuse = OffenceKind::NonceReuse.penalty();
-    assert_eq!(nonce_reuse.slash_bps, 5_000);
-    assert_eq!(nonce_reuse.membership, MembershipAction::Tombstone);
-    assert_eq!(nonce_reuse.freeze_secs, 0);
+    let commitment_reuse = OffenceKind::CommitmentReuse.penalty();
+    assert_eq!(commitment_reuse.slash_bps, 5_000);
+    assert_eq!(commitment_reuse.membership, MembershipAction::Tombstone);
+    assert_eq!(commitment_reuse.freeze_secs, 0);
 }
 
 #[test]

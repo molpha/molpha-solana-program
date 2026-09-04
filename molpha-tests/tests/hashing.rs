@@ -8,7 +8,7 @@
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{
     equivocation_evidence_hash, hash_request_auth, hash_request_auth_fields,
-    nonce_reuse_evidence_hash, unsolicited_signing_evidence_hash, RequestAuth, SignedStatement,
+    commitment_reuse_evidence_hash, unsolicited_signing_evidence_hash, RequestAuth, SignedStatement,
     SigningContext, DOMAIN_EQUIVOCATION, DOMAIN_REQAUTH,
 };
 
@@ -182,22 +182,22 @@ fn offence_evidence_domains_do_not_collide() {
 
     let equivocation = equivocation_evidence_hash(&[7u8; 32], 4, 3, 1_700_000_000, &a, &b);
     let unsolicited = unsolicited_signing_evidence_hash(&[7u8; 32], 4, 3, 1_700_000_000, &a);
-    let nonce_reuse = nonce_reuse_evidence_hash(4, &ctx_a, &a, &ctx_b, &b);
+    let commitment_reuse = commitment_reuse_evidence_hash(4, &ctx_a, &a, &ctx_b, &b);
 
     assert_ne!(equivocation, unsolicited);
-    assert_ne!(equivocation, nonce_reuse);
-    assert_ne!(unsolicited, nonce_reuse);
+    assert_ne!(equivocation, commitment_reuse);
+    assert_ne!(unsolicited, commitment_reuse);
 }
 
 #[test]
-fn nonce_reuse_hash_is_pairwise_order_independent() {
+fn commitment_reuse_hash_is_pairwise_order_independent() {
     let ctx_a = fixture_context(7, 3, 1_700_000_000);
     let stmt_a = fixture_statement(1, 0b0011);
     let ctx_b = fixture_context(9, 4, 1_700_000_100);
     let stmt_b = fixture_statement(2, 0b0101);
 
-    let forward = nonce_reuse_evidence_hash(4, &ctx_a, &stmt_a, &ctx_b, &stmt_b);
-    let backward = nonce_reuse_evidence_hash(4, &ctx_b, &stmt_b, &ctx_a, &stmt_a);
+    let forward = commitment_reuse_evidence_hash(4, &ctx_a, &stmt_a, &ctx_b, &stmt_b);
+    let backward = commitment_reuse_evidence_hash(4, &ctx_b, &stmt_b, &ctx_a, &stmt_a);
     assert_eq!(forward, backward);
 }
 
@@ -208,8 +208,8 @@ fn nonce_reuse_hash_pairs_each_context_with_its_own_statement() {
     let ctx_b = fixture_context(9, 4, 1_700_000_100);
     let stmt_b = fixture_statement(2, 0b0101);
 
-    let paired = nonce_reuse_evidence_hash(4, &ctx_a, &stmt_a, &ctx_b, &stmt_b);
-    let cross_paired = nonce_reuse_evidence_hash(4, &ctx_a, &stmt_b, &ctx_b, &stmt_a);
+    let paired = commitment_reuse_evidence_hash(4, &ctx_a, &stmt_a, &ctx_b, &stmt_b);
+    let cross_paired = commitment_reuse_evidence_hash(4, &ctx_a, &stmt_b, &ctx_b, &stmt_a);
     assert_ne!(paired, cross_paired);
 }
 
@@ -219,73 +219,73 @@ fn nonce_reuse_hash_is_sensitive_to_every_field() {
     let stmt_a = fixture_statement(1, 0b0011);
     let ctx_b = fixture_context(9, 4, 1_700_000_100);
     let stmt_b = fixture_statement(2, 0b0101);
-    let base = nonce_reuse_evidence_hash(4, &ctx_a, &stmt_a, &ctx_b, &stmt_b);
+    let base = commitment_reuse_evidence_hash(4, &ctx_a, &stmt_a, &ctx_b, &stmt_b);
 
     assert_ne!(
-        nonce_reuse_evidence_hash(5, &ctx_a, &stmt_a, &ctx_b, &stmt_b),
+        commitment_reuse_evidence_hash(5, &ctx_a, &stmt_a, &ctx_b, &stmt_b),
         base
     );
 
     let mut ctx_a2 = ctx_a;
     ctx_a2.source_id = [8u8; 32];
     assert_ne!(
-        nonce_reuse_evidence_hash(4, &ctx_a2, &stmt_a, &ctx_b, &stmt_b),
+        commitment_reuse_evidence_hash(4, &ctx_a2, &stmt_a, &ctx_b, &stmt_b),
         base
     );
     let mut ctx_a3 = ctx_a;
     ctx_a3.signatures_required = 9;
     assert_ne!(
-        nonce_reuse_evidence_hash(4, &ctx_a3, &stmt_a, &ctx_b, &stmt_b),
+        commitment_reuse_evidence_hash(4, &ctx_a3, &stmt_a, &ctx_b, &stmt_b),
         base
     );
     let mut ctx_a4 = ctx_a;
     ctx_a4.canonical_timestamp += 1;
     assert_ne!(
-        nonce_reuse_evidence_hash(4, &ctx_a4, &stmt_a, &ctx_b, &stmt_b),
+        commitment_reuse_evidence_hash(4, &ctx_a4, &stmt_a, &ctx_b, &stmt_b),
         base
     );
 
     let mut ctx_b2 = ctx_b;
     ctx_b2.source_id = [10u8; 32];
     assert_ne!(
-        nonce_reuse_evidence_hash(4, &ctx_a, &stmt_a, &ctx_b2, &stmt_b),
+        commitment_reuse_evidence_hash(4, &ctx_a, &stmt_a, &ctx_b2, &stmt_b),
         base
     );
     let mut ctx_b3 = ctx_b;
     ctx_b3.signatures_required = 6;
     assert_ne!(
-        nonce_reuse_evidence_hash(4, &ctx_a, &stmt_a, &ctx_b3, &stmt_b),
+        commitment_reuse_evidence_hash(4, &ctx_a, &stmt_a, &ctx_b3, &stmt_b),
         base
     );
     let mut ctx_b4 = ctx_b;
     ctx_b4.canonical_timestamp += 1;
     assert_ne!(
-        nonce_reuse_evidence_hash(4, &ctx_a, &stmt_a, &ctx_b4, &stmt_b),
+        commitment_reuse_evidence_hash(4, &ctx_a, &stmt_a, &ctx_b4, &stmt_b),
         base
     );
 
     let mut stmt_a2 = stmt_a.clone();
     stmt_a2.value[0] ^= 0xff;
     assert_ne!(
-        nonce_reuse_evidence_hash(4, &ctx_a, &stmt_a2, &ctx_b, &stmt_b),
+        commitment_reuse_evidence_hash(4, &ctx_a, &stmt_a2, &ctx_b, &stmt_b),
         base
     );
     let mut stmt_a3 = stmt_a.clone();
     stmt_a3.agg_sig_s[0] ^= 0xff;
     assert_ne!(
-        nonce_reuse_evidence_hash(4, &ctx_a, &stmt_a3, &ctx_b, &stmt_b),
+        commitment_reuse_evidence_hash(4, &ctx_a, &stmt_a3, &ctx_b, &stmt_b),
         base
     );
     let mut stmt_a4 = stmt_a.clone();
     stmt_a4.commitment_addr[0] ^= 0xff;
     assert_ne!(
-        nonce_reuse_evidence_hash(4, &ctx_a, &stmt_a4, &ctx_b, &stmt_b),
+        commitment_reuse_evidence_hash(4, &ctx_a, &stmt_a4, &ctx_b, &stmt_b),
         base
     );
     let mut stmt_a5 = stmt_a.clone();
     stmt_a5.signers_bitmap[0] ^= 0xff;
     assert_ne!(
-        nonce_reuse_evidence_hash(4, &ctx_a, &stmt_a5, &ctx_b, &stmt_b),
+        commitment_reuse_evidence_hash(4, &ctx_a, &stmt_a5, &ctx_b, &stmt_b),
         base
     );
 }
