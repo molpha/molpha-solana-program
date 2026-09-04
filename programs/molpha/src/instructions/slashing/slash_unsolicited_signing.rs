@@ -10,7 +10,6 @@ use crate::{
     state::{
         resolve_registry_signers_indexed, unsolicited_signing_evidence_hash, OffenceKind,
         ProtocolConfig, PunishmentCase, Registry, RegistryState, SignedStatement,
-        NODE_DEPOSITS_SEED,
     },
     utils::{
         slash::{slash_nodes, SlashAccounts, SlashInput},
@@ -97,7 +96,6 @@ pub fn punish_unsolicited_signing<'info>(
             punishment_case: &mut ctx.accounts.punishment_case,
             punishment_case_bump: ctx.bumps.punishment_case,
             reporter,
-            node_deposits: ctx.accounts.node_deposits.to_account_info(),
             node_deposit_vault: &mut ctx.accounts.node_deposit_vault,
             treasury: &mut ctx.accounts.treasury,
             reporter_usdc: &ctx.accounts.reporter_usdc,
@@ -183,17 +181,10 @@ pub struct PunishUnsolicitedSigning<'info> {
     )]
     pub punishment_case: Box<Account<'info, PunishmentCase>>,
 
-    /// CHECK: seeds-validated deposit-vault authority; holds no data.
-    #[account(
-        seeds = [NODE_DEPOSITS_SEED],
-        bump = protocol_config.node_deposits_bump,
-    )]
-    pub node_deposits: UncheckedAccount<'info>,
-
     #[account(
         mut,
         associated_token::mint = protocol_config.usdc_mint,
-        associated_token::authority = node_deposits,
+        associated_token::authority = registry_state,
         associated_token::token_program = token_program,
     )]
     pub node_deposit_vault: Box<Account<'info, TokenAccount>>,

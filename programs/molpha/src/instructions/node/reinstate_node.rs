@@ -5,7 +5,7 @@ use anchor_lang::prelude::*;
 use crate::{
     error::MolphaError,
     events::NodeReinstated,
-    state::{Node, NodeStatus, ProtocolConfig, Registry, RegistryState},
+    state::{Node, NodeStatus, ProtocolConfig, Registry, RegistryState, LIVELINESS_SCORE_MAX},
 };
 
 pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
@@ -20,21 +20,18 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
 
     let node_key = ctx.accounts.node.key();
     let current = ctx.accounts.current_registry.load()?;
-    require!(
-        !(0..usize::from(current.node_count))
-            .any(|i| Pubkey::new_from_array(current.nodes[i]) == node_key),
-        MolphaError::NodeAlreadyInRegistry
-    );
     let mut next = ctx.accounts.new_registry.load_init()?;
     next.append(&current, node_key, ctx.bumps.new_registry)?;
     ctx.accounts.registry_state.advance_version();
 
     let node = &mut ctx.accounts.node;
     node.status = NodeStatus::Active;
+    node.liveliness_score = LIVELINESS_SCORE_MAX;
 
     emit!(NodeReinstated {
         node: node_key,
         owner: node.owner,
+        index: u32::from(current.node_count),
         registry_version: ctx.accounts.registry_state.next_version,
         reinstated_at: now,
     });

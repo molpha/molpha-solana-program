@@ -414,7 +414,7 @@ fn a_surplus_in_the_deposit_vault_is_not_withdrawable() {
     let mut p = Protocol::start();
     p.register_nodes("vault-surplus", 2);
     let deposit = p.args.minimum_node_deposit;
-    p.fund_usdc(&pda::node_deposits(), 500_000_000);
+    p.fund_usdc(&pda::registry_state(), 500_000_000);
     assert_eq!(p.node_deposit_balance(), 2 * deposit + 500_000_000);
     assert_eq!(p.total_locked_deposits(), 2 * deposit);
 

@@ -6,10 +6,7 @@ use solana_keccak_hasher::hashv;
 use crate::{
     error::MolphaError,
     events::NodeRegistered,
-    state::{
-        Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim, MAX_REGISTRY_NODES,
-        NODE_DEPOSITS_SEED,
-    },
+    state::{Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim},
     utils::registry::derive_node_id,
 };
 
@@ -28,15 +25,6 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         args.ip != [0, 0, 0, 0] && args.port != 0,
         MolphaError::InvalidNodeEndpoint
     );
-
-    let node_index = {
-        let registry = ctx.accounts.current_registry.load()?;
-        require!(
-            u32::from(registry.node_count) < MAX_REGISTRY_NODES as u32,
-            MolphaError::NodeCapExceeded
-        );
-        registry.node_count
-    };
 
     require!(
         args.registration_salt != [0u8; 32],
@@ -98,7 +86,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
 
     emit!(NodeRegistered {
         node: ctx.accounts.node.key(),
-        index: u32::from(node_index),
+        index: u32::from(current.node_count),
         registry_version: ctx.accounts.registry_state.next_version,
         owner,
         ip: args.ip,
@@ -184,17 +172,10 @@ pub struct RegisterNode<'info> {
     )]
     pub owner_usdc: Box<Account<'info, TokenAccount>>,
 
-    /// CHECK: seeds-validated deposit-vault authority; holds no data.
-    #[account(
-        seeds = [NODE_DEPOSITS_SEED],
-        bump = protocol_config.node_deposits_bump,
-    )]
-    pub node_deposits: UncheckedAccount<'info>,
-
     #[account(
         mut,
         associated_token::mint = protocol_config.usdc_mint,
-        associated_token::authority = node_deposits,
+        associated_token::authority = registry_state,
         associated_token::token_program = token_program,
     )]
     pub node_deposit_vault: Box<Account<'info, TokenAccount>>,

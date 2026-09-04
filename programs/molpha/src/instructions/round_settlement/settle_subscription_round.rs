@@ -86,6 +86,7 @@ pub fn settle_subscription_round<'info>(
 
     ctx.accounts.round_record.init(RoundReceiptInitArgs {
         consumer_id: subscription.owner.to_bytes(),
+        selection_bitmap: validated.selection_bitmap,
         agg_sig: args.agg_sig,
         attestation_message_hash: validated.attestation_message_hash,
         gateway: gateway.key(),

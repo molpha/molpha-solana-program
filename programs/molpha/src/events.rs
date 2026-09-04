@@ -11,6 +11,7 @@ pub struct ProtocolConfigUpdated {
     pub challenger_bounty_bps: u16,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_slots: u64,
+    pub liveliness_freeze_threshold: u16,
     pub x402_round_base: u64,
     pub min_signers: u8,
 }
@@ -52,9 +53,25 @@ pub struct NodeEndpointUpdated {
 pub struct NodeDeactivated {
     pub node: Pubkey,
     pub owner: Pubkey,
-    pub index: u32,
     pub new_registry_version: u32,
     pub deactivated_at: i64,
+}
+
+#[event]
+pub struct NodeLivelinessPenalized {
+    pub node: Pubkey,
+    pub round_record: Pubkey,
+    pub score: u16,
+}
+
+#[event]
+pub struct NodeFrozenForInactivity {
+    pub node: Pubkey,
+    pub owner: Pubkey,
+    pub score: u16,
+    pub frozen_until: i64,
+    pub new_registry_version: u32,
+    pub frozen_at: i64,
 }
 
 #[event]
@@ -202,13 +219,19 @@ pub struct RoundFinalized {
 }
 
 #[event]
-pub struct RoundDisputed {
+pub struct RoundVoided {
     pub round_record: Pubkey,
+    pub gateway: Pubkey,
+    pub round_restored: bool,
+    pub voided_at: i64,
+}
+
+#[event]
+pub struct GatewaySlashed {
     pub gateway: Pubkey,
     pub slashed_bond: u64,
     pub challenger_bounty: u64,
-    pub round_restored: bool,
-    pub disputed_at: i64,
+    pub slashed_at: i64,
 }
 
 #[event]
@@ -296,6 +319,7 @@ pub struct NodePunished {
 pub struct NodeReinstated {
     pub node: Pubkey,
     pub owner: Pubkey,
+    pub index: u32,
     pub registry_version: u32,
     pub reinstated_at: i64,
 }

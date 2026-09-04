@@ -2,7 +2,7 @@
 
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
-use molpha::events::{RewardsClaimed, RoundDisputed, RoundFinalized};
+use molpha::events::{GatewaySlashed, RewardsClaimed, RoundFinalized, RoundVoided};
 use molpha::instructions::AddPlanArgs;
 use molpha::state::{
     Gateway, GatewayStatus, Node, NodeStatus, PlanType, RoundReceiptRecord, RoundRecordStatus,
@@ -332,14 +332,17 @@ fn validating_a_fabricated_x402_round_voids_it_and_slashes_the_bond() {
         treasury_before + bond - expected_bounty
     );
 
-    let event: RoundDisputed = only_event(&meta);
-    assert_eq!(event.round_record, record);
-    assert_eq!(event.slashed_bond, bond);
-    assert_eq!(event.challenger_bounty, expected_bounty);
+    let voided_event: RoundVoided = only_event(&meta);
+    assert_eq!(voided_event.round_record, record);
     assert!(
-        !event.round_restored,
+        !voided_event.round_restored,
         "x402 rounds are paid up front and are not refunded"
     );
+
+    let gateway_slashed_event: GatewaySlashed = only_event(&meta);
+    assert_eq!(gateway_slashed_event.gateway, f.gateway_pda());
+    assert_eq!(gateway_slashed_event.slashed_bond, bond);
+    assert_eq!(gateway_slashed_event.challenger_bounty, expected_bounty);
 }
 
 #[test]
@@ -376,7 +379,7 @@ fn validating_a_fabricated_subscription_round_gives_the_round_back() {
         f.p.env.get::<RoundReceiptRecord>(&record).status,
         RoundRecordStatus::Voided
     );
-    let event: RoundDisputed = only_event(&meta);
+    let event: RoundVoided = only_event(&meta);
     assert!(event.round_restored);
 }
 

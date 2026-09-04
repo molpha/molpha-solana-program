@@ -30,8 +30,15 @@ pub mod molpha {
         instructions::register_node(ctx, args)
     }
 
-    pub fn deactivate_node(ctx: Context<DeactivateNode>, args: DeactivateNodeArgs) -> Result<()> {
-        instructions::deactivate_node(ctx, args)
+    pub fn deactivate_node(ctx: Context<DeactivateNode>, node_owner: Pubkey) -> Result<()> {
+        instructions::deactivate_node(ctx, node_owner)
+    }
+
+    pub fn freeze_unresponsive_node(
+        ctx: Context<FreezeUnresponsiveNode>,
+        node_owner: Pubkey,
+    ) -> Result<()> {
+        instructions::freeze_unresponsive_node(ctx, node_owner)
     }
 
     pub fn update_node_endpoint(

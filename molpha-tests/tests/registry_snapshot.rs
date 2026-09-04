@@ -55,7 +55,7 @@ fn snapshot_copy_and_swap_remove_do_not_mutate_source() {
         bump: 0,
         nodes: [[0; 32]; MAX_REGISTRY_NODES],
     };
-    next.swap_remove(&source, 1, second, 8).unwrap();
+    next.swap_remove(&source, second, 8).unwrap();
 
     assert_eq!(source.node_count, 3);
     assert_eq!(source.node(1).unwrap(), second);

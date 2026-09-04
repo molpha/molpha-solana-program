@@ -27,6 +27,11 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 - registration requires a domain-separated Schnorr proof of possession bound to the program and
   derived node identity; verifier hot paths rely on this registration invariant
 - `update_registry_policy` snapshots redundancy-policy changes without changing membership
+- **Liveliness scoring** — each `Node` carries a score (max 10,000). Round finalization penalizes
+  missed selections and rewards participation; `freeze_unresponsive_node` evicts nodes whose score
+  drops below `liveliness_freeze_threshold`, and `reinstate_node` restores them after cooldown
+- Node security deposits are held in a **shared USDC vault** (the canonical ATA of `registry_state`),
+  separate from the protocol treasury; per-node `locked_amount` tracks each node's share
 
 ### Plans, subscriptions, and feeds
 
@@ -261,6 +266,13 @@ Gateway settle_x402_round (pays price from its canonical USDC ATA, any rail)
 | Subscription round  | `molpha_round`         | subscription owner, gateway, `source_id`, `signatures_required` (u8), ts (`u64` LE) |
 | x402 round          | `molpha_x402_round`    | `payer_id` (32), gateway, `source_id`, `signatures_required` (u8), ts (`u64` LE) |
 
+**Derived token accounts** (not PDAs, but program-enforced):
+
+| Account             | Owner / authority      | Notes                                                         |
+| ------------------- | ---------------------- | ------------------------------------------------------------- |
+| Protocol treasury   | `protocol_config` PDA  | USDC ATA for protocol revenue and node rewards                |
+| Node deposit vault  | `registry_state` PDA   | Shared USDC vault for all node security deposits              |
+
 Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_GUIDE.md#3-on-chain-accounts-and-pdas).
 
 ## Security
@@ -269,6 +281,7 @@ Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_G
 - Registry version checks on attestations
 - PDA-scoped accounts and authority checks per instruction
 - USDC deposits and protocol fee configuration for node registration and subscriptions
+- Node deposits are custodied in a shared vault (`registry_state` ATA), isolated from treasury revenue
 - Gateway deactivation keeps its bond ATA slashable through the full dispute window
 
 ### Withdrawals

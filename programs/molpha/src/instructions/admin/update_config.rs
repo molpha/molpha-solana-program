@@ -15,6 +15,7 @@ pub struct UpdateConfigArgs {
     pub dispute_window_slots: u64,
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
+    pub liveliness_freeze_threshold: u16,
     pub x402_round_base: u64,
     pub min_signers: u8,
 }
@@ -45,6 +46,7 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
     protocol_config.challenger_bounty_bps = args.challenger_bounty_bps;
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_slots = args.withdrawal_cooldown_slots;
+    protocol_config.liveliness_freeze_threshold = args.liveliness_freeze_threshold;
     protocol_config.x402_round_base = args.x402_round_base;
     protocol_config.min_signers = args.min_signers;
 
@@ -56,6 +58,7 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
         challenger_bounty_bps: args.challenger_bounty_bps,
         minimum_node_deposit: args.minimum_node_deposit,
         withdrawal_cooldown_slots: args.withdrawal_cooldown_slots,
+        liveliness_freeze_threshold: args.liveliness_freeze_threshold,
         x402_round_base: args.x402_round_base,
         min_signers: args.min_signers,
     });

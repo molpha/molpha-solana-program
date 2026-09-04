@@ -6,7 +6,7 @@ use molpha::error::MolphaError;
 use molpha::events::{
     NodeDeactivated, NodeEndpointUpdated, NodeRegistered, RegistryUpdated, RegistryVersionReason,
 };
-use molpha::instructions::{DeactivateNodeArgs, RegisterNodeArgs};
+use molpha::instructions::RegisterNodeArgs;
 use molpha::state::{Node, NodeStatus, RegistryState, Secp256k1KeyClaim};
 use molpha_tests::crypto::{self, NodeKey};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
@@ -91,7 +91,7 @@ fn register_node_writes_identity_takes_the_deposit_and_appends_a_snapshot() {
     // The vault's authority is a PDA of its own, not `protocol_config`, so the signer used for
     // every treasury payout cannot reach node principal.
     let vault = p.env.token_account(&p.node_deposit_vault());
-    assert_eq!(vault.owner, pda::node_deposits());
+    assert_eq!(vault.owner, pda::registry_state());
     assert_ne!(vault.owner, pda::protocol_config());
     assert_eq!(vault.mint, p.usdc_mint);
 
@@ -383,7 +383,6 @@ fn deactivate_node_by_its_owner_removes_it_and_starts_the_withdrawal_cooldown() 
 
     let event: NodeDeactivated = only_event(&meta);
     assert_eq!(event.node, target);
-    assert_eq!(event.index, 1);
     assert_eq!(event.new_registry_version, 5);
 }
 
@@ -427,51 +426,9 @@ fn deactivate_node_is_not_repeatable() {
     p.env.send_ok(&[ix], &[&owner]);
 
     // The node is gone from the registry, so build the second attempt by hand.
-    let ix = p.deactivate_node_raw_ix(
-        &owner.pubkey(),
-        DeactivateNodeArgs {
-            node_owner: owner.pubkey(),
-            remove_index: 0,
-        },
-    );
+    let ix = p.deactivate_node_raw_ix(&owner.pubkey(), &owner.pubkey());
     let failed = p.env.send_err(&[ix], &[&owner]);
     assert_molpha_error(&failed, MolphaError::NodeNotActive);
-}
-
-#[test]
-fn deactivate_node_rejects_a_remove_index_that_points_at_another_node() {
-    let mut p = Protocol::start();
-    p.register_nodes("deactivate-index", 3);
-    let owner = p.nodes[0].owner.insecure_clone();
-    let current_version = p.current_version();
-
-    let ix = p.deactivate_node_raw_ix(
-        &owner.pubkey(),
-        DeactivateNodeArgs {
-            node_owner: owner.pubkey(),
-            remove_index: 2, // node 0 lives at index 0
-        },
-    );
-    let failed = p.env.send_err(&[ix], &[&owner]);
-    assert_molpha_error(&failed, MolphaError::InvalidNodeAccount);
-    assert_eq!(p.current_version(), current_version);
-}
-
-#[test]
-fn deactivate_node_rejects_a_remove_index_past_the_end_of_the_registry() {
-    let mut p = Protocol::start();
-    p.register_nodes("deactivate-oob", 2);
-    let owner = p.nodes[0].owner.insecure_clone();
-
-    let ix = p.deactivate_node_raw_ix(
-        &owner.pubkey(),
-        DeactivateNodeArgs {
-            node_owner: owner.pubkey(),
-            remove_index: 99,
-        },
-    );
-    let failed = p.env.send_err(&[ix], &[&owner]);
-    assert_molpha_error(&failed, MolphaError::InvalidNodeIndex);
 }
 
 // ---------------------------------------------------------------------------

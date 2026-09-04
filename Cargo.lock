@@ -1947,6 +1947,7 @@ dependencies = [
 name = "molpha-tests"
 version = "0.1.0"
 dependencies = [
+ "agave-feature-set",
  "anchor-lang",
  "anchor-spl",
  "base64 0.23.1",
@@ -1958,6 +1959,7 @@ dependencies = [
  "molpha-verifier",
  "serde_json",
  "solana-account",
+ "solana-address-lookup-table-interface",
  "solana-clock",
  "solana-instruction",
  "solana-keccak-hasher",
@@ -1970,9 +1972,9 @@ dependencies = [
 
 [[package]]
 name = "molpha-verifier"
-version = "0.3.0-dev.8"
+version = "0.3.0-dev.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18cc7d5e9f5c0c283eeef8ccc903e5d729e0921c73c11e4c5033e39fe1abadf2"
+checksum = "2656841939fdddec5d1c562734a756dd455aa34cab205658d0ecf8a57f08d5ec"
 dependencies = [
  "borsh",
  "ethnum",

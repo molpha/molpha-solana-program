@@ -3,11 +3,12 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token::{self, Mint, Token, TokenAccount, Transfer},
 };
+use molpha_verifier::bitmap::bitmap_popcount;
 use molpha_verifier::SchnorrSignature;
 
 use crate::{
     error::{map_attestation_accounts_err, MolphaError},
-    events::RoundDisputed,
+    events::{GatewaySlashed, RoundVoided},
     instructions::round_settlement::finalize_round::credit_round_rewards,
     state::{
         Gateway, GatewayStatus, ProtocolConfig, Registry, RoundReceiptRecord, RoundRecordKind,
@@ -16,8 +17,7 @@ use crate::{
 };
 
 pub fn validate_round<'info>(mut ctx: Context<'info, ValidateRound<'info>>) -> Result<()> {
-    let clock = Clock::get()?;
-    let now = clock.unix_timestamp;
+    let now = Clock::get()?.unix_timestamp;
     let record = &ctx.accounts.round_record;
 
     let signature = SchnorrSignature {
@@ -25,12 +25,18 @@ pub fn validate_round<'info>(mut ctx: Context<'info, ValidateRound<'info>>) -> R
         commitment: record.commitment,
         signers_bitmap: record.signers_bitmap,
     };
+
+    let signer_count = bitmap_popcount(&record.signers_bitmap) as usize;
+    let signer_accounts = ctx
+        .remaining_accounts
+        .get(..signer_count)
+        .ok_or_else(|| error!(MolphaError::MissingSignerAccount))?;
     let is_valid_sig = molpha_verifier::solana::verify_aggregate_over_hash_accounts(
         &ctx.accounts.registry.to_account_info(),
         signature,
         &record.attestation_message_hash,
         record.registry_version,
-        ctx.remaining_accounts,
+        signer_accounts,
         ctx.program_id,
     )
     .map_err(map_attestation_accounts_err)?;
@@ -63,13 +69,11 @@ pub fn validate_round<'info>(mut ctx: Context<'info, ValidateRound<'info>>) -> R
     };
 
     let config = &ctx.accounts.protocol_config;
-    let mut slashed_bond: u64 = 0;
-    let mut bounty: u64 = 0;
 
     // If the gateway is active, transfer the bounty and remainder to the challenger and treasury.
     if ctx.accounts.gateway.status != GatewayStatus::Slashed {
-        slashed_bond = ctx.accounts.gateway_bond.amount;
-        bounty = (slashed_bond as u128)
+        let slashed_bond = ctx.accounts.gateway_bond.amount;
+        let bounty = (slashed_bond as u128)
             .saturating_mul(config.challenger_bounty_bps as u128)
             .checked_div(10_000)
             .unwrap_or(0) as u64;
@@ -87,18 +91,23 @@ pub fn validate_round<'info>(mut ctx: Context<'info, ValidateRound<'info>>) -> R
 
         let gateway = &mut ctx.accounts.gateway;
         gateway.status = GatewayStatus::Slashed;
+
+        emit!(GatewaySlashed {
+            gateway: gateway.key(),
+            slashed_bond,
+            challenger_bounty: bounty,
+            slashed_at: now,
+        });
     }
 
     let record = &mut ctx.accounts.round_record;
     record.status = RoundRecordStatus::Voided;
 
-    emit!(RoundDisputed {
+    emit!(RoundVoided {
         round_record: record.key(),
         gateway: record.gateway,
-        slashed_bond,
-        challenger_bounty: bounty,
         round_restored,
-        disputed_at: clock.unix_timestamp,
+        voided_at: now,
     });
 
     Ok(())
@@ -109,9 +118,6 @@ fn transfer_from_gateway_bond<'info>(
     destination: AccountInfo<'info>,
     amount: u64,
 ) -> Result<()> {
-    let authority = ctx.accounts.gateway.authority;
-    let bump = [ctx.accounts.gateway.bump];
-    let signer_seeds: &[&[u8]] = &[Gateway::SEED_PREFIX, authority.as_ref(), &bump];
     token::transfer(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.key(),
@@ -120,7 +126,7 @@ fn transfer_from_gateway_bond<'info>(
                 to: destination,
                 authority: ctx.accounts.gateway.to_account_info(),
             },
-            &[signer_seeds],
+            &[&ctx.accounts.gateway.seeds()],
         ),
         amount,
     )?;

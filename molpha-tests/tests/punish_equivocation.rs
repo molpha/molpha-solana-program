@@ -496,7 +496,7 @@ fn a_node_can_be_punished_again_after_surviving_an_earlier_punishment() {
         node.status = NodeStatus::Active;
         node.locked_amount = locked_each / 2;
     });
-    case.p.fund_usdc(&pda::node_deposits(), locked_each / 2);
+    case.p.fund_usdc(&pda::registry_state(), locked_each / 2);
     case.p.assert_solvent();
 
     // A second, unrelated filing takes what is left, and no more.

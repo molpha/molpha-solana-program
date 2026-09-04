@@ -759,13 +759,9 @@ async function main() {
         nodeId: item.nodeId,
         secp256k1PrivateKey: item.secpPrivateKey,
       });
-      const [nodeDepositsPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("molpha_node_deposits")],
-        programId
-      );
       const nodeDepositVault = getAssociatedTokenAddressSync(
         usdcMint,
-        nodeDepositsPda,
+        registryStatePda,
         true
       );
       const registerNodeArgs = buildRegisterNodeArgs({
@@ -791,7 +787,6 @@ async function main() {
           usdcMint,
           ownerUsdc,
           // Deposits go to the shared node-deposit vault, not the treasury.
-          nodeDeposits: nodeDepositsPda,
           nodeDepositVault,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
