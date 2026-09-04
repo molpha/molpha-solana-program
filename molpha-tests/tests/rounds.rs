@@ -334,7 +334,10 @@ fn validating_a_fabricated_x402_round_voids_it_and_slashes_the_bond() {
 
     let voided_event: RoundVoided = only_event(&meta);
     assert_eq!(voided_event.round_record, record);
-    assert!(!voided_event.round_restored, "x402 rounds are paid up front and are not refunded");
+    assert!(
+        !voided_event.round_restored,
+        "x402 rounds are paid up front and are not refunded"
+    );
 
     let gateway_slashed_event: GatewaySlashed = only_event(&meta);
     assert_eq!(gateway_slashed_event.gateway, f.gateway_pda());

@@ -25,9 +25,6 @@ impl RegistryState {
     }
 
     pub fn seeds(&self) -> [&[u8]; 2] {
-        [
-            Self::SEED_PREFIX,
-            core::slice::from_ref(&self.bump),
-        ]
+        [Self::SEED_PREFIX, core::slice::from_ref(&self.bump)]
     }
 }
