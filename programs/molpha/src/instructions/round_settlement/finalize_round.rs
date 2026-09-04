@@ -7,10 +7,11 @@ use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
 
 use crate::{
     error::MolphaError,
-    events::RoundFinalized,
+    events::{NodeLivelinessPenalized, RoundFinalized},
     state::{
         Gateway, GatewayStatus, Node, ProtocolConfig, Registry, RoundReceiptRecord,
-        RoundRecordStatus,
+        RoundRecordStatus, LIVELINESS_PENALTY_PER_MISS, LIVELINESS_RECOVERY_PER_SIGN,
+        LIVELINESS_SCORE_MAX,
     },
 };
 
@@ -55,9 +56,15 @@ pub(crate) fn credit_round_rewards<'info>(
 ) -> Result<()> {
     let credited = bitmap_load(&record.signers_bitmap);
     let credited_count = credited.count_ones();
+    let missed = bitmap_load(&record.selection_bitmap) & !credited;
+    let missed_count = missed.count_ones();
     require!(
-        remaining_accounts.len() == credited_count as usize,
+        remaining_accounts.len() >= credited_count as usize,
         MolphaError::InvalidCreditNodeAccount
+    );
+    require!(
+        remaining_accounts.len() == (credited_count + missed_count) as usize,
+        MolphaError::InvalidMissedNodeAccount
     );
 
     let reward = record.reward_per_signature;
@@ -91,6 +98,37 @@ pub(crate) fn credit_round_rewards<'info>(
             .claimable_rewards
             .checked_add(reward)
             .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
+        node.liveliness_score = node
+            .liveliness_score
+            .saturating_add(LIVELINESS_RECOVERY_PER_SIGN)
+            .min(LIVELINESS_SCORE_MAX);
+        node.exit(program_id)?;
+
+        Ok(())
+    })?;
+
+    let round_record = record.key();
+    for_each_set_bit_u256(missed, |bit_pos| {
+        let node_ai = remaining_accounts
+            .get(cursor)
+            .ok_or(error!(MolphaError::InvalidMissedNodeAccount))?;
+        cursor += 1;
+
+        require_keys_eq!(
+            node_ai.key(),
+            registry.node(bit_pos)?,
+            MolphaError::InvalidMissedNodeAccount
+        );
+        let mut node: Account<Node> = Account::try_from(node_ai)?;
+
+        node.liveliness_score = node
+            .liveliness_score
+            .saturating_sub(LIVELINESS_PENALTY_PER_MISS);
+        emit!(NodeLivelinessPenalized {
+            node: node.key(),
+            round_record,
+            score: node.liveliness_score,
+        });
         node.exit(program_id)?;
 
         Ok(())

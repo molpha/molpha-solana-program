@@ -113,6 +113,7 @@ pub fn settle_x402_round<'info>(
 
     ctx.accounts.round_record.init(RoundReceiptInitArgs {
         consumer_id: args.payer_id,
+        selection_bitmap: validated.selection_bitmap,
         agg_sig: args.agg_sig,
         attestation_message_hash: validated.attestation_message_hash,
         gateway: gateway.key(),

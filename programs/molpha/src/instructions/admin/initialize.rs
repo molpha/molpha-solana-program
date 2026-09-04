@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     error::MolphaError,
     events::ProtocolInitialized,
-    state::{ProtocolConfig, Registry, RegistryState, MIN_SIGNERS_FLOOR, NODE_DEPOSITS_SEED},
+    state::{ProtocolConfig, Registry, RegistryState, MIN_SIGNERS_FLOOR},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -20,6 +20,7 @@ pub struct InitializeArgs {
     pub dispute_window_slots: u64,
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
+    pub liveliness_freeze_threshold: u16,
     pub usdc_mint: Pubkey,
     pub x402_round_base: u64,
     pub min_signers: u8,
@@ -55,9 +56,9 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.challenger_bounty_bps = args.challenger_bounty_bps;
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_slots = args.withdrawal_cooldown_slots;
+    protocol_config.liveliness_freeze_threshold = args.liveliness_freeze_threshold;
     protocol_config.x402_round_base = args.x402_round_base;
     protocol_config.reward_liability = 0;
-    protocol_config.node_deposits_bump = ctx.bumps.node_deposits;
     protocol_config.min_signers = args.min_signers;
     protocol_config.bump = ctx.bumps.protocol_config;
 
@@ -125,18 +126,12 @@ pub struct Initialize<'info> {
     )]
     pub treasury: Account<'info, TokenAccount>,
 
-    /// Token authority for the node-deposit vault. Distinct from `protocol_config` so that the
-    /// signer used for every treasury payout cannot reach node principal.
-    /// CHECK: seeds-validated; holds no data and is never read or written.
-    #[account(seeds = [NODE_DEPOSITS_SEED], bump)]
-    pub node_deposits: UncheckedAccount<'info>,
-
     /// One vault for every node's security deposit, held apart from protocol revenue.
     #[account(
         init,
         payer = authority,
         associated_token::mint = usdc_mint,
-        associated_token::authority = node_deposits,
+        associated_token::authority = registry_state,
         associated_token::token_program = token_program,
     )]
     pub node_deposit_vault: Account<'info, TokenAccount>,

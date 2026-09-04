@@ -15,8 +15,6 @@ pub struct RegistryState {
 }
 
 impl RegistryState {
-    // The singleton retains the legacy one-seed address; version snapshots use the same prefix
-    // plus a version seed, so the PDA namespaces remain disjoint.
     pub const SEED_PREFIX: &'static [u8] = b"molpha_registry";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
@@ -30,15 +28,6 @@ impl RegistryState {
         self.current_version = self.next_version;
         self.next_version = self.next_version.checked_add(1).unwrap();
     }
-
-    // pub fn require_next_version(&self, new_version: u32) -> Result<()> {
-    //     let expected = self
-    //         .current_version
-    //         .checked_add(1)
-    //         .ok_or(error!(MolphaError::RegistryVersionOverflow))?;
-    //     require!(new_version == expected, MolphaError::InvalidRegistryVersion);
-    //     Ok(())
-    // }
 }
 
 /// Immutable, version-addressed snapshot of the ordered node set and selection policy.
@@ -94,14 +83,18 @@ impl Registry {
     }
 
     pub fn append(&mut self, previous: &Registry, node: Pubkey, bump: u8) -> Result<()> {
+        require!(
+            usize::from(self.node_count) < MAX_REGISTRY_NODES,
+            MolphaError::NodeCapExceeded
+        );
+        require!(
+            !previous.is_node_in_registry(node),
+            MolphaError::NodeAlreadyInRegistry
+        );
+
         self.copy_from_previous(previous, bump);
-        let index = usize::from(self.node_count);
-        require!(index < MAX_REGISTRY_NODES, MolphaError::NodeCapExceeded);
-        self.nodes[index] = node.to_bytes();
-        self.node_count = self
-            .node_count
-            .checked_add(1)
-            .ok_or(error!(MolphaError::NodeCapExceeded))?;
+        self.nodes[usize::from(self.node_count)] = node.to_bytes();
+        self.node_count = self.node_count.checked_add(1).unwrap();
         Ok(())
     }
 
@@ -110,29 +103,9 @@ impl Registry {
         self.redundancy_buffer = redundancy_buffer;
     }
 
-    pub fn swap_remove(
-        &mut self,
-        previous: &Registry,
-        remove_index: u16,
-        node: Pubkey,
-        bump: u8,
-    ) -> Result<()> {
+    pub fn swap_remove(&mut self, previous: &Registry, node: Pubkey, bump: u8) -> Result<()> {
         self.copy_from_previous(previous, bump);
-        let remove_index = usize::from(remove_index);
-        require!(
-            remove_index < usize::from(self.node_count),
-            MolphaError::InvalidNodeIndex
-        );
-        require_keys_eq!(
-            Pubkey::new_from_array(self.nodes[remove_index]),
-            node,
-            MolphaError::InvalidNodeAccount
-        );
-
-        let last_index = usize::from(self.node_count - 1);
-        self.nodes[remove_index] = self.nodes[last_index];
-        self.nodes[last_index] = [0u8; 32];
-        self.node_count -= 1;
+        self.swap_remove_index(self.get_index(node)?)?;
         Ok(())
     }
 
@@ -144,15 +117,28 @@ impl Registry {
     ) -> Result<()> {
         self.copy_from_previous(previous, bump);
         for remove_node in remove_nodes {
-            let remove_index = (0..usize::from(self.node_count))
-                .find(|&i| Pubkey::new_from_array(self.nodes[i]) == *remove_node);
-            if let Some(remove_index) = remove_index {
-                let last_index = usize::from(self.node_count - 1);
-                self.nodes[remove_index] = self.nodes[last_index];
-                self.nodes[last_index] = [0u8; 32];
-                self.node_count -= 1;
+            if self.is_node_in_registry(*remove_node) {
+                self.swap_remove_index(self.get_index(*remove_node)?)?;
             }
         }
+        Ok(())
+    }
+
+    pub fn get_index(&self, node: Pubkey) -> Result<usize> {
+        (0..usize::from(self.node_count))
+            .find(|&i| Pubkey::new_from_array(self.nodes[i]) == node)
+            .ok_or(error!(MolphaError::InvalidNodeAccount))
+    }
+
+    pub fn is_node_in_registry(&self, node: Pubkey) -> bool {
+        (0..usize::from(self.node_count)).any(|i| Pubkey::new_from_array(self.nodes[i]) == node)
+    }
+
+    fn swap_remove_index(&mut self, index: usize) -> Result<()> {
+        let last_index = usize::from(self.node_count - 1);
+        self.nodes[index] = self.nodes[last_index];
+        self.nodes[last_index] = [0u8; 32];
+        self.node_count -= 1;
         Ok(())
     }
 }

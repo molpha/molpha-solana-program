@@ -3,6 +3,7 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token::{self, Mint, Token, TokenAccount, Transfer},
 };
+use molpha_verifier::bitmap::bitmap_popcount;
 use molpha_verifier::SchnorrSignature;
 
 use crate::{
@@ -25,12 +26,17 @@ pub fn validate_round<'info>(mut ctx: Context<'info, ValidateRound<'info>>) -> R
         commitment: record.commitment,
         signers_bitmap: record.signers_bitmap,
     };
+    let signer_count = bitmap_popcount(&record.signers_bitmap) as usize;
+    let signer_accounts = ctx
+        .remaining_accounts
+        .get(..signer_count)
+        .ok_or_else(|| error!(MolphaError::MissingSignerAccount))?;
     let is_valid_sig = molpha_verifier::solana::verify_aggregate_over_hash_accounts(
         &ctx.accounts.registry.to_account_info(),
         signature,
         &record.attestation_message_hash,
         record.registry_version,
-        ctx.remaining_accounts,
+        signer_accounts,
         ctx.program_id,
     )
     .map_err(map_attestation_accounts_err)?;

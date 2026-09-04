@@ -15,9 +15,6 @@ use crate::{
 pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
     let amount = ctx.accounts.node.claimable_rewards;
     require!(amount > 0, MolphaError::NothingToClaim);
-
-    // Rewards are backed by treasury revenue only; the invariant is maintained at credit time,
-    // so a failure here means the treasury was drained outside the protocol's own payout paths.
     require!(
         ctx.accounts.treasury.amount >= amount,
         MolphaError::TreasuryInsolvent

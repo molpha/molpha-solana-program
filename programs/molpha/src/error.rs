@@ -136,6 +136,8 @@ pub enum MolphaError {
     UnauthorisedConsumer,
     #[msg("mismatched or missing credited node account")]
     InvalidCreditNodeAccount,
+    #[msg("mismatched or missing missed node account")]
+    InvalidMissedNodeAccount,
 
     #[msg("computed price does not match the gateway-signed amount")]
     AmountMismatch,
@@ -164,6 +166,8 @@ pub enum MolphaError {
     NodeStillFrozen,
     #[msg("node is already present in the current registry")]
     NodeAlreadyInRegistry,
+    #[msg("node liveliness score is not below the freeze threshold")]
+    LivelinessAboveThreshold,
     #[msg("every signer was within the derived selection - no unsolicited signer")]
     SignersFullySelected,
     #[msg("every guilty node is already tombstoned")]
@@ -184,6 +188,8 @@ pub enum MolphaError {
     TreasuryInsolvent,
     #[msg("challenger_bounty_bps must not exceed 10000")]
     InvalidChallengerBounty,
+    #[msg("invalid liveliness configuration")]
+    InvalidLivelinessConfig,
     #[msg("reward liability underflow")]
     RewardLiabilityUnderflow,
     #[msg("node deposit vault does not cover the recorded total deposits")]

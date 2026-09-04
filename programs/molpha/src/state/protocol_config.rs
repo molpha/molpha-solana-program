@@ -2,13 +2,6 @@ use anchor_lang::prelude::*;
 
 pub const MIN_SIGNERS_FLOOR: u8 = 3;
 
-/// Seed of the PDA that owns the shared node-deposit vault.
-///
-/// Deliberately not `protocol_config`: that PDA signs every treasury payout, so giving the
-/// deposits a different authority means a reward or bounty instruction cannot reach node
-/// principal even by mistake.
-pub const NODE_DEPOSITS_SEED: &[u8] = b"molpha_node_deposits";
-
 #[account]
 #[derive(InitSpace)]
 pub struct ProtocolConfig {
@@ -23,13 +16,12 @@ pub struct ProtocolConfig {
     pub challenger_bounty_bps: u16,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_slots: u64,
+    pub liveliness_freeze_threshold: u16,
     pub x402_round_base: u64,
     /// Sum of every `Node.claimable_rewards`. The treasury must always hold at least this much
     pub reward_liability: u64,
     pub min_signers: u8,
     pub bump: u8,
-    /// Bump for [`NODE_DEPOSITS_SEED`], the deposit vault's token authority.
-    pub node_deposits_bump: u8,
 }
 
 impl ProtocolConfig {

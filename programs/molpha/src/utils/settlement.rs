@@ -20,6 +20,7 @@ pub struct SettlementAttestationInput<'a> {
 
 pub struct ValidatedSettlementAttestation {
     pub credited_count: u32,
+    pub selection_bitmap: [u8; 32],
     pub attestation_message_hash: [u8; 32],
 }
 
@@ -78,6 +79,7 @@ pub fn validate_settlement_attestation(
 
     Ok(ValidatedSettlementAttestation {
         credited_count,
+        selection_bitmap: expected_selection,
         attestation_message_hash,
     })
 }

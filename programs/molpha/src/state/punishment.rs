@@ -39,6 +39,8 @@ pub enum OffenceKind {
     /// A node contributed a partial signature under one aggregate nonce commitment for two
     /// different signed messages.
     NonceReuse,
+    /// A node liveliness score dropped below the freeze threshold.
+    Inactivity,
 }
 
 impl OffenceKind {
@@ -58,6 +60,11 @@ impl OffenceKind {
                 slash_bps: 5_000,
                 membership: MembershipAction::Tombstone,
                 freeze_secs: 0,
+            },
+            OffenceKind::Inactivity => Penalty {
+                slash_bps: 0,
+                membership: MembershipAction::Freeze,
+                freeze_secs: 86_400,
             },
         }
     }

@@ -9,10 +9,10 @@ use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::{InstructionData, ToAccountMetas};
 use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
-    AddDelegateArgs, AddPlanArgs, DeactivateNodeArgs, InitializeArgs, PunishEquivocationArgs,
-    PunishNonceReuseArgs, PunishUnsolicitedSigningArgs, RegisterGatewayArgs, RegisterNodeArgs,
-    RemoveDelegateArgs, SettleRoundArgs, SettleX402RoundArgs, SubmitAttestationArgs,
-    UpdateConfigArgs, UpdateNodeEndpointArgs, UpdatePlanArgs,
+    AddDelegateArgs, AddPlanArgs, InitializeArgs, PunishEquivocationArgs, PunishNonceReuseArgs,
+    PunishUnsolicitedSigningArgs, RegisterGatewayArgs, RegisterNodeArgs, RemoveDelegateArgs,
+    SettleRoundArgs, SettleX402RoundArgs, SubmitAttestationArgs, UpdateConfigArgs,
+    UpdateNodeEndpointArgs, UpdatePlanArgs,
 };
 use molpha::state::{AggregatedSig, PlanType, RegistryState};
 use solana_keypair::Keypair;
@@ -180,6 +180,7 @@ pub fn default_initialize_args(usdc_mint: Pubkey) -> InitializeArgs {
         dispute_window_slots: 100,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
+        liveliness_freeze_threshold: 5_000,
         usdc_mint,
         x402_round_base: 1_000_000,
         min_signers: 3,
@@ -201,8 +202,7 @@ pub fn initialize_ix(
             registry: pda::registry(0),
             usdc_mint: *usdc_mint_account,
             treasury: pda::ata(&pda::protocol_config(), usdc_mint_account),
-            node_deposits: pda::node_deposits(),
-            node_deposit_vault: pda::ata(&pda::node_deposits(), usdc_mint_account),
+            node_deposit_vault: pda::ata(&pda::registry_state(), usdc_mint_account),
             authority: *authority,
             token_program: pda::TOKEN_PROGRAM_ID,
             associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -268,6 +268,11 @@ impl ProtocolBuilder {
 
     pub fn challenger_bounty_bps(mut self, value: u16) -> Self {
         self.args.challenger_bounty_bps = value;
+        self
+    }
+
+    pub fn liveliness_freeze_threshold(mut self, value: u16) -> Self {
+        self.args.liveliness_freeze_threshold = value;
         self
     }
 
@@ -355,7 +360,7 @@ impl Protocol {
 
     /// The one vault holding every node's security deposit.
     pub fn node_deposit_vault(&self) -> Pubkey {
-        pda::ata(&pda::node_deposits(), &self.usdc_mint)
+        pda::ata(&pda::registry_state(), &self.usdc_mint)
     }
 
     pub fn node_deposit_balance(&self) -> u64 {
@@ -484,7 +489,6 @@ impl Protocol {
                 node: pda::node(owner),
                 secp256k1_key_claim: pda::secp256k1_key_claim(&args.secp256k1_pubkey_compressed),
                 owner_usdc: pda::ata(owner, &self.usdc_mint),
-                node_deposits: pda::node_deposits(),
                 node_deposit_vault: self.node_deposit_vault(),
                 system_program: anchor_lang::solana_program::system_program::ID,
                 token_program: pda::TOKEN_PROGRAM_ID,
@@ -560,22 +564,11 @@ impl Protocol {
 
     pub fn deactivate_node_ix(&self, index: usize, caller: &Pubkey) -> Instruction {
         let node = &self.nodes[index];
-        let current_version = self.current_version();
-        let registry = self.env.registry(current_version);
-        let remove_index = registry
-            .index_of(&node.pda)
-            .expect("node is in the current registry");
-        self.deactivate_node_raw_ix(
-            caller,
-            DeactivateNodeArgs {
-                node_owner: node.owner.pubkey(),
-                remove_index,
-            },
-        )
+        self.deactivate_node_raw_ix(caller, &node.owner.pubkey())
     }
 
-    /// `deactivate_node` with caller-chosen args — for index and version failure cases.
-    pub fn deactivate_node_raw_ix(&self, caller: &Pubkey, args: DeactivateNodeArgs) -> Instruction {
+    /// `deactivate_node` with a caller-chosen owner — for repeat and failure cases.
+    pub fn deactivate_node_raw_ix(&self, caller: &Pubkey, node_owner: &Pubkey) -> Instruction {
         let current_version = self.current_version();
         Instruction {
             program_id: molpha::ID,
@@ -585,11 +578,14 @@ impl Protocol {
                 registry_state: pda::registry_state(),
                 current_registry: pda::registry(current_version),
                 new_registry: pda::registry(current_version + 1),
-                node: pda::node(&args.node_owner),
+                node: pda::node(node_owner),
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
-            data: molpha::instruction::DeactivateNode { args }.data(),
+            data: molpha::instruction::DeactivateNode {
+                node_owner: *node_owner,
+            }
+            .data(),
         }
     }
 
@@ -995,6 +991,9 @@ impl Protocol {
         }
         .to_account_metas(None);
         accounts.extend(crate::env::writable_metas(credited_nodes.iter().copied()));
+        let missed_bitmap = bitmap_difference(&record.selection_bitmap, &record.signers_bitmap);
+        let missed_nodes = self.node_pdas_for_bitmap(record.registry_version, &missed_bitmap);
+        accounts.extend(crate::env::writable_metas(missed_nodes));
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -1029,6 +1028,9 @@ impl Protocol {
         }
         .to_account_metas(None);
         accounts.extend(crate::env::writable_metas(signer_nodes.iter().copied()));
+        let missed_bitmap = bitmap_difference(&record.selection_bitmap, &record.signers_bitmap);
+        let missed_nodes = self.node_pdas_for_bitmap(record.registry_version, &missed_bitmap);
+        accounts.extend(crate::env::writable_metas(missed_nodes));
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -1061,7 +1063,7 @@ impl Protocol {
                 owner: *owner,
                 protocol_config: pda::protocol_config(),
                 node: pda::node(owner),
-                node_deposits: pda::node_deposits(),
+                registry_state: pda::registry_state(),
                 node_deposit_vault: self.node_deposit_vault(),
                 destination: pda::ata(owner, &self.usdc_mint),
                 token_program: pda::TOKEN_PROGRAM_ID,
@@ -1190,6 +1192,27 @@ impl Protocol {
         self.reinstate_node_raw_ix(caller, node_owner, self.current_version() + 1)
     }
 
+    pub fn freeze_unresponsive_node_ix(&self, caller: &Pubkey, node_owner: &Pubkey) -> Instruction {
+        let current_version = self.current_version();
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::FreezeUnresponsiveNode {
+                caller: *caller,
+                protocol_config: pda::protocol_config(),
+                registry_state: pda::registry_state(),
+                current_registry: pda::registry(current_version),
+                new_registry: pda::registry(current_version + 1),
+                node: pda::node(node_owner),
+                system_program: anchor_lang::solana_program::system_program::ID,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::FreezeUnresponsiveNode {
+                node_owner: *node_owner,
+            }
+            .data(),
+        }
+    }
+
     /// `reinstate_node` with a caller-chosen target version — for version failure cases.
     pub fn reinstate_node_raw_ix(
         &self,
@@ -1250,7 +1273,6 @@ impl Protocol {
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
-            node_deposits: pda::node_deposits(),
             node_deposit_vault: self.node_deposit_vault(),
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
@@ -1290,7 +1312,6 @@ impl Protocol {
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
-            node_deposits: pda::node_deposits(),
             node_deposit_vault: self.node_deposit_vault(),
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
@@ -1333,7 +1354,6 @@ impl Protocol {
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
-            node_deposits: pda::node_deposits(),
             node_deposit_vault: self.node_deposit_vault(),
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
@@ -1378,6 +1398,15 @@ pub fn union_bitmap(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
     out
 }
 
+/// Bits present in `a` but not `b`.
+pub fn bitmap_difference(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        out[i] = a[i] & !b[i];
+    }
+    out
+}
+
 /// Bitwise intersection — the guilty set for equivocation and nonce reuse.
 pub fn intersect_bitmap(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
     let mut out = [0u8; 32];
@@ -1390,9 +1419,8 @@ pub fn intersect_bitmap(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
 impl Protocol {
     /// Rewrite a `Node` account in place.
     ///
-    /// The only supported use is producing `NodeStatus::Frozen`, which `reinstate_node` handles
-    /// but no shipped penalty currently produces (every offence tombstones). Without this the
-    /// freeze branch would be untestable, and untested, until the first penalty table change.
+    /// Use this only to create focused test states that would otherwise require many rounds, such
+    /// as a partially depleted liveliness score.
     ///
     /// Writing `locked_amount`, `claimable_rewards` or `pending_seizure` here desynchronises the
     /// node from its deposit vault and from `ProtocolConfig.reward_liability`, which the program
@@ -1431,18 +1459,5 @@ impl Protocol {
         assert_eq!(&data[..8], molpha::state::ProtocolConfig::DISCRIMINATOR);
         data.resize(molpha::state::ProtocolConfig::SPACE, 0);
         self.env.overwrite_account(&key, data);
-    }
-
-    /// Take a node out of the registry and freeze it until `frozen_until`.
-    pub fn freeze_node(&mut self, index: usize, frozen_until: i64) {
-        let owner = self.nodes[index].owner.insecure_clone();
-        let ix = self.deactivate_node_ix(index, &owner.pubkey());
-        self.env.send_ok(&[ix], &[&owner]);
-
-        let node_pda = self.nodes[index].pda;
-        self.overwrite_node(&node_pda, |node| {
-            node.status = molpha::state::NodeStatus::Frozen;
-            node.frozen_until = frozen_until;
-        });
     }
 }

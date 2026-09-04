@@ -311,8 +311,9 @@ impl TestEnv {
         tables: &[AddressLookupTableAccount],
         signers: &[&Keypair],
     ) -> VersionedTransaction {
-        let mut all = Vec::with_capacity(ixs.len() + 1);
+        let mut all = Vec::with_capacity(ixs.len() + 2);
         all.push(set_compute_unit_limit(DEFAULT_CU_LIMIT));
+        all.push(request_heap_frame(MAX_HEAP_FRAME_BYTES));
         all.extend_from_slice(ixs);
         let message = v0::Message::try_compile(payer, &all, tables, self.svm.latest_blockhash())
             .expect("v0 message compiles");

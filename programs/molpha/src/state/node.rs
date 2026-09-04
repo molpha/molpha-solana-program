@@ -4,6 +4,10 @@ use crate::error::{map_attestation_accounts_err, map_attestation_err};
 
 use super::Registry;
 
+pub const LIVELINESS_SCORE_MAX: u16 = 10_000;
+pub const LIVELINESS_PENALTY_PER_MISS: u16 = 500;
+pub const LIVELINESS_RECOVERY_PER_SIGN: u16 = 100;
+
 /// Permanent node identity and reward account; never closed or re-keyed.
 #[account]
 #[derive(InitSpace)]
@@ -14,13 +18,9 @@ pub struct Node {
     pub status: NodeStatus,
     pub ip: [u8; 4],
     pub port: u16,
-    /// USDC security deposit, held in the shared node-deposit vault.
-    ///
-    /// Set once at registration and only ever reduced, by slashing or withdrawal. Nothing in the
-    /// program raises it, which is what bounds every debit from the shared vault to the node's
-    /// own entitlement.
     pub locked_amount: u64,
     pub claimable_rewards: u64,
+    pub liveliness_score: u16,
     pub registered_at: i64,
     pub withdrawable_slot: u64,
     pub frozen_until: i64,
@@ -51,6 +51,7 @@ impl Node {
         self.port = port;
         self.locked_amount = locked_amount;
         self.claimable_rewards = 0;
+        self.liveliness_score = LIVELINESS_SCORE_MAX;
         self.registered_at = registered_at;
         self.withdrawable_slot = 0;
         self.frozen_until = 0;
