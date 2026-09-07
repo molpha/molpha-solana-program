@@ -13,7 +13,7 @@ export type AggregatedSigArgs = {
 function bytesFromField(
   value: string | number[] | Uint8Array,
   expectedLength: number,
-  label: string
+  label: string,
 ): Uint8Array {
   if (typeof value === "string") {
     return hexToBytes(value, expectedLength, label);
@@ -21,7 +21,7 @@ function bytesFromField(
   const bytes = Uint8Array.from(value);
   if (bytes.length !== expectedLength) {
     throw new Error(
-      `${label} must be ${expectedLength} bytes, got ${bytes.length}`
+      `${label} must be ${expectedLength} bytes, got ${bytes.length}`,
     );
   }
   return bytes;
@@ -73,8 +73,8 @@ export function parseAggregatedSigJson(filePath: string): AggregatedSigArgs {
     aggSigS: raw.aggSigS
       ? bytesFromField(raw.aggSigS, 32, "agg sig s")
       : raw.s
-      ? bytesFromField(raw.s, 32, "agg sig s")
-      : undefined,
+        ? bytesFromField(raw.s, 32, "agg sig s")
+        : undefined,
     commitment: raw.commitment
       ? bytesFromField(raw.commitment, 20, "commitment")
       : undefined,
@@ -99,11 +99,11 @@ export function signersBitmapFromOptions(options: {
   }
   if (options.signerCount) {
     return evmUint256BitmapForFirstN(
-      parseInteger(options.signerCount, "signer count")
+      parseInteger(options.signerCount, "signer count"),
     );
   }
   throw new Error(
-    "Provide --signers-bitmap, --credited-bits, or --signer-count"
+    "Provide --signers-bitmap, --credited-bits, or --signer-count",
   );
 }
 

@@ -45,25 +45,25 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .option("--config <path>", "json config file with fields to override")
     .option(
       "--withdrawal-cooldown-slots <slots>",
-      "node withdrawal cooldown in slots"
+      "node withdrawal cooldown in slots",
     )
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
     .option(
       "--max-settlement-delay-seconds <seconds>",
-      "max age of canonical_timestamp at settlement ingress"
+      "max age of canonical_timestamp at settlement ingress",
     )
     .option("--dispute-window-slots <slots>", "settled round dispute window")
     .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
     .option(
       "--liveliness-freeze-threshold <score>",
-      "liveliness score below which a node may be frozen"
+      "liveliness score below which a node may be frozen",
     )
     .option("--x402-round-base <amount>", "base x402 round settlement price")
     .option(
       "--min-signers <count>",
-      "minimum signatures_required accepted by settlement"
+      "minimum signatures_required accepted by settlement",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -75,7 +75,7 @@ export function registerUpdateConfigCommand(admin: Command): void {
       const current = await fetchAccountOrNull<ProtocolConfigAccount>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!current) {
         throw new Error("Protocol config is not initialized");
@@ -101,93 +101,93 @@ export function registerUpdateConfigCommand(admin: Command): void {
 function buildUpdateConfigArgs(
   options: Record<string, string | number | undefined>,
   config: UpdateConfigFile,
-  current: ProtocolConfigAccount
+  current: ProtocolConfigAccount,
 ) {
   return {
     withdrawalCooldownSlots: bn(
       requireValue(
         optionOrConfig(
           options.withdrawalCooldownSlots as string | undefined,
-          config.withdrawalCooldownSlots
+          config.withdrawalCooldownSlots,
         ) ?? current.withdrawalCooldownSlots.toString(),
-        "withdrawal cooldown"
+        "withdrawal cooldown",
       ),
-      "withdrawal cooldown"
+      "withdrawal cooldown",
     ),
     minimumNodeDeposit: bn(
       requireValue(
         optionOrConfig(
           options.minimumNodeDeposit as string | undefined,
-          config.minimumNodeDeposit
+          config.minimumNodeDeposit,
         ) ?? current.minimumNodeDeposit.toString(),
-        "minimum node deposit"
+        "minimum node deposit",
       ),
-      "minimum node deposit"
+      "minimum node deposit",
     ),
     rewardPerSignature: bn(
       requireValue(
         optionOrConfig(
           options.rewardPerSignature as string | undefined,
-          config.rewardPerSignature
+          config.rewardPerSignature,
         ) ?? current.rewardPerSignature.toString(),
-        "reward per signature"
+        "reward per signature",
       ),
-      "reward per signature"
+      "reward per signature",
     ),
     maxSettlementDelaySeconds: bn(
       requireValue(
         optionOrConfig(
           options.maxSettlementDelaySeconds as string | undefined,
-          config.maxSettlementDelaySeconds
+          config.maxSettlementDelaySeconds,
         ) ?? current.maxSettlementDelaySeconds.toString(),
-        "max settlement delay"
+        "max settlement delay",
       ),
-      "max settlement delay"
+      "max settlement delay",
     ),
     disputeWindowSlots: bn(
       requireValue(
         optionOrConfig(
           options.disputeWindowSlots as string | undefined,
-          config.disputeWindowSlots
+          config.disputeWindowSlots,
         ) ?? current.disputeWindowSlots.toString(),
-        "dispute window"
+        "dispute window",
       ),
-      "dispute window"
+      "dispute window",
     ),
     gatewayBondMin: bn(
       requireValue(
         optionOrConfig(
           options.gatewayBondMin as string | undefined,
-          config.gatewayBondMin
+          config.gatewayBondMin,
         ) ?? current.gatewayBondMin.toString(),
-        "gateway bond minimum"
+        "gateway bond minimum",
       ),
-      "gateway bond minimum"
+      "gateway bond minimum",
     ),
     challengerBountyBps:
       optionOrConfig(
         options.challengerBountyBps as number | undefined,
-        config.challengerBountyBps
+        config.challengerBountyBps,
       ) ?? current.challengerBountyBps,
     livelinessFreezeThreshold:
       optionOrConfig(
         options.livelinessFreezeThreshold as number | undefined,
-        config.livelinessFreezeThreshold
+        config.livelinessFreezeThreshold,
       ) ?? current.livelinessFreezeThreshold,
     x402RoundBase: bn(
       requireValue(
         optionOrConfig(
           options.x402RoundBase as string | undefined,
-          config.x402RoundBase
+          config.x402RoundBase,
         ) ?? current.x402RoundBase.toString(),
-        "x402 round base"
+        "x402 round base",
       ),
-      "x402 round base"
+      "x402 round base",
     ),
     minSigners:
       optionOrConfig(
         options.minSigners as number | undefined,
-        config.minSigners
+        config.minSigners,
       ) ?? current.minSigners,
   };
 }

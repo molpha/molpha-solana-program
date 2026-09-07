@@ -2,12 +2,12 @@
 
 const { PublicKey } = require("@solana/web3.js");
 const { Point, utils: secpUtils } = require("@noble/secp256k1");
-const { keccak_256 } = require("@noble/hashes/sha3");
+const { keccak_256 } = require("@noble/hashes/sha3.js");
 
 const NODE_POP_PREFIX = Buffer.from("MOLPHA_NODE_POP_V1");
 const SECP256K1_KEY_CLAIM_SEED = Buffer.from("molpha_secp_key");
 const SECP256K1_ORDER_N = BigInt(
-  "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
+  "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
 );
 
 function modN(value) {
@@ -27,7 +27,7 @@ function deriveNodePopMessage(programId, nodeId) {
   if (!(programId instanceof PublicKey)) throw new Error("invalid program id");
   if (nodeId.length !== 32) throw new Error("node id must be 32 bytes");
   return Buffer.from(
-    keccak_256(Buffer.concat([NODE_POP_PREFIX, programId.toBuffer(), nodeId]))
+    keccak_256(Buffer.concat([NODE_POP_PREFIX, programId.toBuffer(), nodeId])),
   );
 }
 
@@ -44,7 +44,7 @@ function signNodePop({ programId, nodeId, secp256k1PrivateKey, nonce }) {
   const message = deriveNodePopMessage(programId, nodeId);
 
   let nonceScalar = modN(
-    bigintFromBytesBE(nonce ?? secpUtils.randomPrivateKey())
+    bigintFromBytesBE(nonce ?? secpUtils.randomPrivateKey()),
   );
   if (nonceScalar === 0n) throw new Error("PoP nonce must not be zero");
   let noncePoint = Point.BASE.multiply(nonceScalar);
@@ -62,9 +62,9 @@ function signNodePop({ programId, nodeId, secp256k1PrivateKey, nonce }) {
           Buffer.from([compressed[0] & 1]),
           message,
           r,
-        ])
-      )
-    )
+        ]),
+      ),
+    ),
   );
   const s = modN(nonceScalar + challenge * secret);
   if (s === 0n) throw new Error("generated zero PoP response scalar");
@@ -79,7 +79,7 @@ function findSecp256k1KeyClaimPda(programId, compressedPubkey) {
   const fingerprint = Buffer.from(keccak_256(compressedPubkey));
   return PublicKey.findProgramAddressSync(
     [SECP256K1_KEY_CLAIM_SEED, fingerprint],
-    programId
+    programId,
   )[0];
 }
 

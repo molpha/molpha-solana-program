@@ -1,4 +1,4 @@
-import { keccak_256 } from "@noble/hashes/sha3";
+import { keccak_256 } from "@noble/hashes/sha3.js";
 import { PublicKey } from "@solana/web3.js";
 import { u64Le } from "./utils";
 
@@ -16,7 +16,7 @@ export function hashRequestAuthFields(
   gateway: PublicKey,
   sourceId: Uint8Array,
   signaturesRequired: number,
-  timestamp: number | bigint
+  timestamp: number | bigint,
 ): Buffer {
   return Buffer.from(
     keccak_256(
@@ -27,7 +27,7 @@ export function hashRequestAuthFields(
         Buffer.from(sourceId),
         Buffer.from([signaturesRequired & 0xff]),
         u64Le(timestamp),
-      ])
-    )
+      ]),
+    ),
   );
 }

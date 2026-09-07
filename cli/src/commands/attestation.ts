@@ -47,7 +47,7 @@ export function registerAttestationCommands(program: Command): void {
     .option("--registry-version <number>", "registry version")
     .option(
       "--config-hash <hex>",
-      "optional 32-byte config hash (fixture metadata)"
+      "optional 32-byte config hash (fixture metadata)",
     )
     .option("--value <hex>", "oracle value bytes (hex)")
     .option("--canonical-timestamp <number>", "unix timestamp")
@@ -57,7 +57,7 @@ export function registerAttestationCommands(program: Command): void {
     .option(
       "--signer-seed <string>",
       "deterministic signer seed",
-      "molpha-cli-e2e-signers"
+      "molpha-cli-e2e-signers",
     )
     .action(async (options, command: Command) => {
       const programId = getProgramIdFromGlobals(command);
@@ -77,7 +77,7 @@ export function registerAttestationCommands(program: Command): void {
     .option("--registry-version <number>", "registry version")
     .option(
       "--config-hash <hex>",
-      "optional 32-byte config hash (fixture metadata)"
+      "optional 32-byte config hash (fixture metadata)",
     )
     .option("--value <hex>", "oracle value bytes (hex)")
     .option("--canonical-timestamp <number>", "unix timestamp")
@@ -87,7 +87,7 @@ export function registerAttestationCommands(program: Command): void {
     .option(
       "--signer-seed <string>",
       "deterministic signer seed",
-      "molpha-cli-e2e-signers"
+      "molpha-cli-e2e-signers",
     )
     .option("--compute-unit-limit <number>", "compute unit limit", "1400000")
     .action(async (options, command: Command) => {
@@ -96,19 +96,19 @@ export function registerAttestationCommands(program: Command): void {
       const [feedPda] = feedPdaFromSubmitArgs(
         ctx.programId,
         submitArgs,
-        ctx.wallet.publicKey
+        ctx.wallet.publicKey,
       );
       const registryVersion = Number(submitArgs.registryVersion);
       const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
       const registry = await fetchAccountOrNull<any>(
         ctx.program,
         "registry",
-        registryPda
+        registryPda,
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const remaining = signerRemainingAccounts(
         registry,
-        submitArgs.signersBitmap
+        submitArgs.signersBitmap,
       );
 
       const signature = await (ctx.program.methods as any)
@@ -144,7 +144,7 @@ export function registerAttestationCommands(program: Command): void {
     .option("--registry-version <number>", "registry version")
     .option(
       "--config-hash <hex>",
-      "optional 32-byte config hash (fixture metadata)"
+      "optional 32-byte config hash (fixture metadata)",
     )
     .option("--value <hex>", "oracle value bytes (hex)")
     .option("--canonical-timestamp <number>", "unix timestamp")
@@ -154,7 +154,7 @@ export function registerAttestationCommands(program: Command): void {
     .option(
       "--signer-seed <string>",
       "deterministic signer seed",
-      "molpha-cli-e2e-signers"
+      "molpha-cli-e2e-signers",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -162,7 +162,7 @@ export function registerAttestationCommands(program: Command): void {
       const [feedPda] = feedPdaFromSubmitArgs(
         ctx.programId,
         submitArgs,
-        ctx.wallet.publicKey
+        ctx.wallet.publicKey,
       );
       const feed = await fetchAccountOrNull<any>(ctx.program, "feed", feedPda);
       const registryVersion = Number(submitArgs.registryVersion);
@@ -170,12 +170,12 @@ export function registerAttestationCommands(program: Command): void {
       const registry = await fetchAccountOrNull<any>(
         ctx.program,
         "registry",
-        registryPda
+        registryPda,
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const remaining = signerRemainingAccounts(
         registry,
-        submitArgs.signersBitmap
+        submitArgs.signersBitmap,
       );
       await (ctx.program.methods as any)
         .verifyAttestation(submitArgs)
@@ -198,7 +198,7 @@ export function registerAttestationCommands(program: Command): void {
 
 function buildSignedPayload(
   options: Record<string, string | undefined>,
-  programId: PublicKey
+  programId: PublicKey,
 ) {
   if (options.fixture) {
     const fixture = loadVerifyFixture(options.fixture);
@@ -206,12 +206,12 @@ function buildSignedPayload(
     const signersBitmap = bytesFromField(
       submitArgs.signersBitmap,
       32,
-      "signers bitmap"
+      "signers bitmap",
     );
     const registry = {
       nodeCount: fixture.nodePubkeys.length,
       nodes: fixture.nodePubkeys.map((pubkey) =>
-        hexToBytes(pubkey, 33, "node pubkey")
+        hexToBytes(pubkey, 33, "node pubkey"),
       ),
     };
     return {
@@ -229,7 +229,7 @@ function buildSignedPayload(
   const signerSeed = options.signerSeed ?? "molpha-cli-e2e-signers";
   const signerMaterial = generateE2eSignerMaterialFromSeed(
     signerSeed,
-    signerCount
+    signerCount,
   );
   const signersBitmap = options.signersBitmap
     ? buildBitmapFromFlag(options.signersBitmap)
@@ -238,32 +238,32 @@ function buildSignedPayload(
   const payload = signE2eAttestation(
     parseInteger(
       requireValue(options.registryVersion, "Missing --registry-version"),
-      "registry version"
+      "registry version",
     ),
     signerMaterial,
     signersBitmap ?? signerCount,
     hexToBytes(
       requireValue(options.sourceId, "Missing --source-id"),
       32,
-      "source id"
+      "source id",
     ),
     {
       value: hexToBytes(
         requireValue(options.value, "Missing --value"),
         undefined,
-        "value"
+        "value",
       ),
       canonicalTimestamp: parseInteger(
         requireValue(
           options.canonicalTimestamp,
-          "Missing --canonical-timestamp"
+          "Missing --canonical-timestamp",
         ),
-        "canonical timestamp"
+        "canonical timestamp",
       ),
     },
     options.signaturesRequired
       ? parseInteger(options.signaturesRequired, "signatures required")
-      : undefined
+      : undefined,
   );
 
   return {
@@ -273,14 +273,14 @@ function buildSignedPayload(
         nodeCount: signerMaterial.compressedPubkeys.length,
         nodes: signerMaterial.compressedPubkeys,
       },
-      payload.signersBitmap
+      payload.signersBitmap,
     ),
   };
 }
 
 function resolveSubmitArgs(
   options: Record<string, string | undefined>,
-  programId: PublicKey
+  programId: PublicKey,
 ) {
   if (options.args) {
     return normalizeSubmitArgs(readJsonFile<SubmitArgsShape>(options.args));
@@ -294,13 +294,13 @@ function resolveSubmitArgs(
 function feedPdaFromSubmitArgs(
   programId: PublicKey,
   submitArgs: { sourceId: number[]; signaturesRequired: number },
-  submitter: PublicKey
+  submitter: PublicKey,
 ) {
   return findFeedPda(
     programId,
     bytesFromField(submitArgs.sourceId, 32, "source id"),
     submitArgs.signaturesRequired,
-    submitter
+    submitter,
   );
 }
 
@@ -334,7 +334,7 @@ function normalizeSubmitArgs(value: SubmitArgsShape) {
     aggSigS: Array.from(bytesFromField(value.aggSigS, 32, "agg sig s")),
     commitment: Array.from(bytesFromField(value.commitment, 20, "commitment")),
     signersBitmap: Array.from(
-      bytesFromField(value.signersBitmap, 32, "signers bitmap")
+      bytesFromField(value.signersBitmap, 32, "signers bitmap"),
     ),
   };
 }
@@ -342,7 +342,7 @@ function normalizeSubmitArgs(value: SubmitArgsShape) {
 function bytesFromField(
   value: string | number[] | Uint8Array,
   expectedLength: number | undefined,
-  label: string
+  label: string,
 ): Uint8Array {
   if (typeof value === "string") {
     return hexToBytes(value, expectedLength, label);
@@ -350,7 +350,7 @@ function bytesFromField(
   const bytes = Uint8Array.from(value);
   if (expectedLength !== undefined && bytes.length !== expectedLength) {
     throw new Error(
-      `${label} must be ${expectedLength} bytes, got ${bytes.length}`
+      `${label} must be ${expectedLength} bytes, got ${bytes.length}`,
     );
   }
   return bytes;

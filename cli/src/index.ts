@@ -27,7 +27,7 @@ async function main() {
     .option(
       "--commitment <level>",
       "processed|confirmed|finalized",
-      "confirmed"
+      "confirmed",
     )
     .option("--idl <path>", "IDL file path override");
 

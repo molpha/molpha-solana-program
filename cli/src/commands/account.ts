@@ -24,7 +24,7 @@ import {
 async function printNamedAccount(
   command: Command,
   accountName: string,
-  address: Parameters<typeof parsePublicKey>[0]
+  address: Parameters<typeof parsePublicKey>[0],
 ) {
   const ctx = await getCliContext(command);
   const pubkey = parsePublicKey(address);
@@ -75,8 +75,8 @@ export function registerAccountCommands(program: Command): void {
           ctx.programId,
           parseInteger(
             requireValue(options.version, "Missing --version"),
-            "version"
-          )
+            "version",
+          ),
         )[0].toBase58();
       await printNamedAccount(command, "registry", address);
     });
@@ -92,7 +92,7 @@ export function registerAccountCommands(program: Command): void {
         options.address ??
         findNodePda(
           ctx.programId,
-          parsePublicKey(requireValue(options.owner, "Missing --owner"))
+          parsePublicKey(requireValue(options.owner, "Missing --owner")),
         )[0].toBase58();
       await printNamedAccount(command, "node", address);
     });
@@ -110,8 +110,8 @@ export function registerAccountCommands(program: Command): void {
           ctx.programId,
           parseInteger(
             requireValue(options.planId, "Missing --plan-id"),
-            "plan id"
-          )
+            "plan id",
+          ),
         )[0].toBase58();
       await printNamedAccount(command, "plan", address);
     });
@@ -139,7 +139,7 @@ export function registerAccountCommands(program: Command): void {
     .option("--source-id <hex>", "32-byte source identifier")
     .option(
       "--signatures-required <number>",
-      "quorum used when the feed was created"
+      "quorum used when the feed was created",
     )
     .option("--submitter <pubkey>", "feed submitter (defaults to wallet)")
     .action(async (options, command: Command) => {
@@ -151,18 +151,18 @@ export function registerAccountCommands(program: Command): void {
             hexToBytes(
               requireValue(options.sourceId, "Missing --source-id"),
               32,
-              "source id"
+              "source id",
             ),
             parseInteger(
               requireValue(
                 options.signaturesRequired,
-                "Missing --signatures-required"
+                "Missing --signatures-required",
               ),
-              "signatures required"
+              "signatures required",
             ),
             options.submitter
               ? parsePublicKey(options.submitter, "submitter")
-              : ctx.wallet.publicKey
+              : ctx.wallet.publicKey,
           )[0].toBase58();
       await printNamedAccount(command, "feed", address);
     });
@@ -181,12 +181,12 @@ export function registerAccountCommands(program: Command): void {
           ctx.programId,
           parsePublicKey(
             requireValue(options.owner, "Missing --owner"),
-            "owner"
+            "owner",
           ),
           parsePublicKey(
             requireValue(options.delegate, "Missing --delegate"),
-            "delegate"
-          )
+            "delegate",
+          ),
         )[0].toBase58();
       await printNamedAccount(command, "delegate", address);
     });
@@ -204,8 +204,8 @@ export function registerAccountCommands(program: Command): void {
           ctx.programId,
           parsePublicKey(
             requireValue(options.authority, "Missing --authority"),
-            "authority"
-          )
+            "authority",
+          ),
         )[0].toBase58();
       await printNamedAccount(command, "gateway", address);
     });
@@ -232,8 +232,8 @@ export function registerAccountCommands(program: Command): void {
           hexToBytes(
             requireValue(options.secpPubkey, "Missing --secp-pubkey"),
             33,
-            "secp pubkey"
-          )
+            "secp pubkey",
+          ),
         )[0].toBase58();
       await printNamedAccount(command, "secp256k1KeyClaim", address);
     });

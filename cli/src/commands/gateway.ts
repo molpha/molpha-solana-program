@@ -29,13 +29,13 @@ export function registerGatewayCommands(program: Command): void {
     .description("Bond and register a gateway")
     .option(
       "--bond-amount <amount>",
-      "USDC bond amount (base units); defaults to protocol_config.gateway_bond_min"
+      "USDC bond amount (base units); defaults to protocol_config.gateway_bond_min",
     )
     .option("--ip <dotted>", "IPv4 endpoint", "10.0.0.1")
     .option("--port <number>", "TCP port", "8080")
     .option(
       "--gateway-wallet <path>",
-      "gateway authority keypair; defaults to provider wallet"
+      "gateway authority keypair; defaults to provider wallet",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -43,7 +43,7 @@ export function registerGatewayCommands(program: Command): void {
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!protocolConfig) {
         throw new Error("Protocol config is not initialized");
@@ -54,15 +54,15 @@ export function registerGatewayCommands(program: Command): void {
         : ctx.payer;
       const [gatewayPda] = findGatewayPda(
         ctx.programId,
-        gatewayAuthority.publicKey
+        gatewayAuthority.publicKey,
       );
       const authorityUsdc = getAssociatedTokenAddressSync(
         protocolConfig.usdcMint,
-        gatewayAuthority.publicKey
+        gatewayAuthority.publicKey,
       );
       const gatewayBond = findGatewayBondAta(
         protocolConfig.usdcMint,
-        gatewayPda
+        gatewayPda,
       );
       const bondAmount = options.bondAmount
         ? bn(options.bondAmount, "bond amount")
@@ -103,17 +103,17 @@ export function registerGatewayCommands(program: Command): void {
   gateway
     .command("deactivate")
     .description(
-      "Deactivate a gateway and start its dispute-window exit (protocol authority only)"
+      "Deactivate a gateway and start its dispute-window exit (protocol authority only)",
     )
     .requiredOption(
       "--gateway-authority <pubkey>",
-      "gateway authority to deactivate"
+      "gateway authority to deactivate",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const gatewayAuthority = parsePublicKey(
         options.gatewayAuthority,
-        "gateway authority"
+        "gateway authority",
       );
       const [protocolConfig] = findProtocolConfigPda(ctx.programId);
       const [gatewayPda] = findGatewayPda(ctx.programId, gatewayAuthority);
@@ -129,7 +129,7 @@ export function registerGatewayCommands(program: Command): void {
       const gatewayState = await fetchAccountOrNull<any>(
         ctx.program,
         "gateway",
-        gatewayPda
+        gatewayPda,
       );
       writeJson({
         signature,
@@ -145,7 +145,7 @@ export function registerGatewayCommands(program: Command): void {
     .description("Withdraw a deactivated gateway bond after its dispute window")
     .option(
       "--gateway-wallet <path>",
-      "gateway authority keypair; defaults to provider wallet"
+      "gateway authority keypair; defaults to provider wallet",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -156,7 +156,7 @@ export function registerGatewayCommands(program: Command): void {
       const config = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfig
+        protocolConfig,
       );
       if (!config) throw new Error("Protocol config is not initialized");
 
@@ -164,7 +164,7 @@ export function registerGatewayCommands(program: Command): void {
       const gatewayBond = findGatewayBondAta(config.usdcMint, gatewayPda);
       const destination = getAssociatedTokenAddressSync(
         config.usdcMint,
-        authority.publicKey
+        authority.publicKey,
       );
       const builder = (ctx.program.methods as any)
         .withdrawGatewayBond()
@@ -196,11 +196,11 @@ export function registerGatewayCommands(program: Command): void {
   gateway
     .command("withdrawal-status")
     .description(
-      "Show gateway deactivation state and remaining dispute-window slots"
+      "Show gateway deactivation state and remaining dispute-window slots",
     )
     .option(
       "--gateway-authority <pubkey>",
-      "gateway authority; defaults to provider wallet"
+      "gateway authority; defaults to provider wallet",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -211,7 +211,7 @@ export function registerGatewayCommands(program: Command): void {
       const gatewayState = await fetchAccountOrNull<any>(
         ctx.program,
         "gateway",
-        gatewayPda
+        gatewayPda,
       );
       if (!gatewayState) {
         throw new Error(`Gateway not found at ${gatewayPda.toBase58()}`);

@@ -43,11 +43,11 @@ export function registerRegistryCommands(program: Command): void {
   registry
     .command("register")
     .description(
-      "Register a permanent node and create the next registry version"
+      "Register a permanent node and create the next registry version",
     )
     .requiredOption(
       "--secp-pubkey <hex>",
-      "33-byte compressed secp256k1 pubkey"
+      "33-byte compressed secp256k1 pubkey",
     )
     .requiredOption("--registration-salt <hex>", "32-byte registration salt")
     .requiredOption("--pop-sig-r <hex>", "32-byte even-Y Schnorr nonce x")
@@ -62,12 +62,12 @@ export function registerRegistryCommands(program: Command): void {
       const config = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfig
+        protocolConfig,
       );
       const state = await fetchAccountOrNull<any>(
         ctx.program,
         "registryState",
-        registryState
+        registryState,
       );
       if (!config || !state) throw new Error("Protocol is not initialized");
 
@@ -78,7 +78,7 @@ export function registerRegistryCommands(program: Command): void {
       const current = await fetchAccountOrNull<any>(
         ctx.program,
         "registry",
-        currentRegistry
+        currentRegistry,
       );
       if (!current)
         throw new Error(`Current registry ${currentVersion} is missing`);
@@ -90,26 +90,26 @@ export function registerRegistryCommands(program: Command): void {
       const registrationSalt = hexToBytes(
         options.registrationSalt,
         32,
-        "registration salt"
+        "registration salt",
       );
       const nodeId = deriveNodeId(
         nodeOwner.publicKey,
         secpPubkey,
-        registrationSalt
+        registrationSalt,
       );
       const [node] = findNodePda(ctx.programId, nodeOwner.publicKey);
       const [secp256K1KeyClaim] = findSecp256k1KeyClaimPda(
         ctx.programId,
-        secpPubkey
+        secpPubkey,
       );
       const ownerUsdc = getAssociatedTokenAddressSync(
         config.usdcMint,
-        nodeOwner.publicKey
+        nodeOwner.publicKey,
       );
       // Security deposits live in one vault under registry_state, not in the treasury.
       const nodeDepositVault = findNodeDepositVault(
         ctx.programId,
-        config.usdcMint
+        config.usdcMint,
       );
 
       const args = {
@@ -183,11 +183,11 @@ export function registerRegistryCommands(program: Command): void {
   registry
     .command("deactivate")
     .description(
-      "Deactivate a current member and create the next registry version"
+      "Deactivate a current member and create the next registry version",
     )
     .option(
       "--node-owner <pubkey>",
-      "target owner (defaults to signer; protocol authority may target another owner)"
+      "target owner (defaults to signer; protocol authority may target another owner)",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -196,7 +196,7 @@ export function registerRegistryCommands(program: Command): void {
       const state = await fetchAccountOrNull<any>(
         ctx.program,
         "registryState",
-        registryState
+        registryState,
       );
       if (!state) throw new Error("Registry state is not initialized");
       const currentVersion = Number(state.currentVersion);
@@ -206,7 +206,7 @@ export function registerRegistryCommands(program: Command): void {
       const current = await fetchAccountOrNull<any>(
         ctx.program,
         "registry",
-        currentRegistry
+        currentRegistry,
       );
       if (!current)
         throw new Error(`Current registry ${currentVersion} is missing`);
@@ -253,7 +253,7 @@ export function registerRegistryCommands(program: Command): void {
     .description("Withdraw a cooled-down node security deposit")
     .option(
       "--node-owner-wallet <path>",
-      "node owner keypair; defaults to provider wallet"
+      "node owner keypair; defaults to provider wallet",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -264,7 +264,7 @@ export function registerRegistryCommands(program: Command): void {
       const config = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfig
+        protocolConfig,
       );
       if (!config) throw new Error("Protocol is not initialized");
 
@@ -272,7 +272,7 @@ export function registerRegistryCommands(program: Command): void {
       const [node] = findNodePda(ctx.programId, owner.publicKey);
       const destination = getAssociatedTokenAddressSync(
         config.usdcMint,
-        owner.publicKey
+        owner.publicKey,
       );
       const builder = (ctx.program.methods as any)
         .withdrawNodeDeposit()
@@ -283,7 +283,7 @@ export function registerRegistryCommands(program: Command): void {
           node,
           nodeDepositVault: findNodeDepositVault(
             ctx.programId,
-            config.usdcMint
+            config.usdcMint,
           ),
           destination,
           tokenProgram: TOKEN_PROGRAM_ID,
@@ -306,7 +306,7 @@ export function registerRegistryCommands(program: Command): void {
   registry
     .command("set-buffer")
     .description(
-      "Change redundancy buffer by creating the next registry version"
+      "Change redundancy buffer by creating the next registry version",
     )
     .requiredOption("--value <number>", "new redundancy buffer")
     .action(async (options, command: Command) => {
@@ -319,7 +319,7 @@ export function registerRegistryCommands(program: Command): void {
       const state = await fetchAccountOrNull<any>(
         ctx.program,
         "registryState",
-        registryState
+        registryState,
       );
       if (!state) throw new Error("Registry state is not initialized");
       const currentVersion = Number(state.currentVersion);

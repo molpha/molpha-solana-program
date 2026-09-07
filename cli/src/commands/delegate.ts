@@ -14,16 +14,16 @@ export function registerDelegateCommands(program: Command): void {
   delegate
     .command("add")
     .description(
-      "Add a delegate with custom request and signer limits (requires an active subscription)"
+      "Add a delegate with custom request and signer limits (requires an active subscription)",
     )
     .requiredOption("--delegate <pubkey>", "delegate pubkey")
     .requiredOption(
       "--max-data-requests <number>",
-      "max data requests the delegate may authorize"
+      "max data requests the delegate may authorize",
     )
     .requiredOption(
       "--max-signers <number>",
-      "per-delegate quorum ceiling (<= subscription.max_signers)"
+      "per-delegate quorum ceiling (<= subscription.max_signers)",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -31,26 +31,26 @@ export function registerDelegateCommands(program: Command): void {
       const [delegatePda] = findDelegatePda(
         ctx.programId,
         ctx.wallet.publicKey,
-        delegateKey
+        delegateKey,
       );
       const [subscriptionPda] = findSubscriptionPda(
         ctx.programId,
-        ctx.wallet.publicKey
+        ctx.wallet.publicKey,
       );
       const subscription = await fetchAccountOrNull(
         ctx.program,
         "subscription",
-        subscriptionPda
+        subscriptionPda,
       );
       if (!subscription) {
         throw new Error(
-          `No subscription found at ${subscriptionPda.toBase58()} — subscribe first`
+          `No subscription found at ${subscriptionPda.toBase58()} — subscribe first`,
         );
       }
 
       const maxDataRequests = parseInteger(
         options.maxDataRequests,
-        "max data requests"
+        "max data requests",
       );
       const maxSigners = parseInteger(options.maxSigners, "max signers");
 
@@ -89,11 +89,11 @@ export function registerDelegateCommands(program: Command): void {
       const [delegatePda] = findDelegatePda(
         ctx.programId,
         ctx.wallet.publicKey,
-        delegateKey
+        delegateKey,
       );
       const [subscriptionPda] = findSubscriptionPda(
         ctx.programId,
-        ctx.wallet.publicKey
+        ctx.wallet.publicKey,
       );
 
       const signature = await (ctx.program.methods as any)
@@ -126,7 +126,7 @@ export function registerDelegateCommands(program: Command): void {
       const [delegatePda] = findDelegatePda(
         ctx.programId,
         ctx.wallet.publicKey,
-        delegateKey
+        delegateKey,
       );
       const paused = options.unpaused ? false : true;
 

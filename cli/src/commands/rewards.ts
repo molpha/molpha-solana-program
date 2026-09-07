@@ -53,7 +53,7 @@ export function registerRewardsCommands(program: Command): void {
       const gateway = await fetchAccountOrNull<any>(
         ctx.program,
         "gateway",
-        gatewayPda
+        gatewayPda,
       );
       if (!gateway)
         throw new Error(`Gateway not found at ${gatewayPda.toBase58()}`);
@@ -73,14 +73,14 @@ export function registerRewardsCommands(program: Command): void {
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!protocolConfig)
         throw new Error("Protocol config is not initialized");
       const [node] = findNodePda(ctx.programId, ctx.wallet.publicKey);
       const destination = getAssociatedTokenAddressSync(
         protocolConfig.usdcMint,
-        ctx.wallet.publicKey
+        ctx.wallet.publicKey,
       );
       const signature = await (ctx.program.methods as any)
         .claimNodeRewards()

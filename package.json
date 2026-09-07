@@ -4,30 +4,42 @@
     "molpha": "cli/dist/index.js"
   },
   "scripts": {
-    "lint:fix": "prettier --no-config */*.js \"*/**/*{.js,.ts}\" -w",
-    "lint": "prettier --no-config */*.js \"*/**/*{.js,.ts}\" --check",
+    "lint": "prettier --check \"cli/**/*.{js,ts}\" \"scripts/**/*.{js,mjs,ts}\" \"migrations/**/*.{js,ts}\"",
+    "lint:fix": "prettier --write \"cli/**/*.{js,ts}\" \"scripts/**/*.{js,mjs,ts}\" \"migrations/**/*.{js,ts}\"",
     "build:molpha": "anchor build -p molpha",
     "build:cli": "tsc -p cli/tsconfig.json",
-    "test": "anchor build -p molpha && cargo test --workspace",
+    "build": "yarn build:cli && yarn build:molpha",
+    "test": "cargo test --workspace",
+    "test:anchor": "anchor test --skip-local-validator",
     "molpha": "node cli/dist/index.js",
     "molpha:dev": "ts-node -r tsconfig-paths/register cli/src/index.ts",
-    "register-nodes": "node scripts/generate-and-register-nodes.js"
+    "register-nodes": "node scripts/generate-and-register-nodes.js",
+    "upload-idl-devnet": "node scripts/upload-idl-devnet.mjs",
+    "debug-idl-upgrade": "node scripts/debug-idl-upgrade.mjs",
+    "sign-and-send-metadata-tx": "node scripts/sign-and-send-metadata-tx.mjs"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "@noble/hashes": "^1.8.0",
+    "@noble/hashes": "^2.4.0",
     "@noble/secp256k1": "^2.3.0",
-    "@solana/spl-token": "^0.4.8",
+    "@solana-program/compute-budget": "^0.18.1",
+    "@solana-program/program-metadata": "^0.9.3",
+    "@solana-program/system": "^0.14.1",
+    "@solana/instruction-plans": "^8.2.0",
+    "@solana/kit": "^8.2.0",
+    "@solana/signers": "^8.2.0",
+    "@solana/spl-token": "^0.4.15",
+    "@solana/transaction-messages": "^8.2.0",
     "@solana/web3.js": "^1.98.4",
-    "commander": "^14.0.1"
+    "commander": "^15.0.0"
   },
   "devDependencies": {
-    "@types/bn.js": "^5.1.0",
-    "@types/node": "^20.12.7",
-    "prettier": "^2.6.2",
+    "@types/bn.js": "^5.2.0",
+    "@types/node": "^22.15.0",
+    "prettier": "^3.9.6",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
