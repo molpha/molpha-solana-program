@@ -90,10 +90,10 @@ function verifyPoint(xDecimal, yDecimal, expectedCompressedHex = null) {
 
     // Extract x and y from decompressed
     const decompressedX = Buffer.from(decompressed.slice(1, 33)).toString(
-      "hex"
+      "hex",
     );
     const decompressedY = Buffer.from(decompressed.slice(33, 65)).toString(
-      "hex"
+      "hex",
     );
 
     console.log("🔄 Round-trip Verification:");
@@ -125,19 +125,19 @@ function main() {
     console.error("❌ Error: X and Y coordinates are required");
     console.log("");
     console.log(
-      "Usage: node scripts/verify-evm-point.js <X_DECIMAL> <Y_DECIMAL> [EXPECTED_COMPRESSED_HEX]"
+      "Usage: node scripts/verify-evm-point.js <X_DECIMAL> <Y_DECIMAL> [EXPECTED_COMPRESSED_HEX]",
     );
     console.log("");
     console.log("Example:");
     console.log("  node scripts/verify-evm-point.js \\");
     console.log(
-      "    23291323678511451217772133928868366990746786347038015158807413032596505148183 \\"
+      "    23291323678511451217772133928868366990746786347038015158807413032596505148183 \\",
     );
     console.log(
-      "    47168895393257141911376575107721994933810868803586352809270883649069 \\"
+      "    47168895393257141911376575107721994933810868803586352809270883649069 \\",
     );
     console.log(
-      "    0x03337e6c0a75b98cc736c4d04b82049984e7e8828e2f2821169b221f38fd54bb17"
+      "    0x03337e6c0a75b98cc736c4d04b82049984e7e8828e2f2821169b221f38fd54bb17",
     );
     console.log("");
     console.log("Or provide just x and y:");

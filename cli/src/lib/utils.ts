@@ -5,12 +5,7 @@ import os from "os";
 import path from "path";
 
 export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 export function expandHome(input: string): string {
   if (input === "~") {
@@ -70,7 +65,7 @@ export function normalizeForJson(value: unknown): JsonValue {
   if (typeof value === "object") {
     const out: Record<string, JsonValue> = {};
     for (const [key, entry] of Object.entries(
-      value as Record<string, unknown>
+      value as Record<string, unknown>,
     )) {
       out[key] = normalizeForJson(entry);
     }
@@ -118,7 +113,7 @@ export function bn(value: string | number | bigint, label: string): BN {
 
 export function optionalNumber(
   value: string | undefined,
-  fallback?: number
+  fallback?: number,
 ): number | undefined {
   if (value === undefined) {
     return fallback;
@@ -129,7 +124,7 @@ export function optionalNumber(
 export function hexToBytes(
   value: string,
   expectedLength?: number,
-  label = "hex"
+  label = "hex",
 ): Uint8Array {
   const clean = value.startsWith("0x") ? value.slice(2) : value;
   if (!/^[0-9a-fA-F]*$/.test(clean) || clean.length % 2 !== 0) {
@@ -138,7 +133,7 @@ export function hexToBytes(
   const bytes = Uint8Array.from(Buffer.from(clean, "hex"));
   if (expectedLength !== undefined && bytes.length !== expectedLength) {
     throw new Error(
-      `${label} must be ${expectedLength} bytes, got ${bytes.length}`
+      `${label} must be ${expectedLength} bytes, got ${bytes.length}`,
     );
   }
   return bytes;
@@ -147,7 +142,7 @@ export function hexToBytes(
 export function maybeHexToBytes(
   value: string | undefined,
   expectedLength?: number,
-  label?: string
+  label?: string,
 ): Uint8Array | undefined {
   if (!value) {
     return undefined;
@@ -162,7 +157,7 @@ export function bytesToHex(bytes: Uint8Array): string {
 export function fixedBytes(
   bytes: Uint8Array,
   length: number,
-  label: string
+  label: string,
 ): Uint8Array {
   if (bytes.length !== length) {
     throw new Error(`${label} must be ${length} bytes, got ${bytes.length}`);
@@ -173,7 +168,7 @@ export function fixedBytes(
 export function readHexFile(
   filePath: string,
   expectedLength?: number,
-  label?: string
+  label?: string,
 ): Uint8Array {
   return hexToBytes(readUtf8(filePath).trim(), expectedLength, label);
 }
@@ -182,7 +177,7 @@ export function parseHexOrFile(
   value: string | undefined,
   filePath: string | undefined,
   expectedLength: number,
-  label: string
+  label: string,
 ): Uint8Array {
   if (value) {
     return hexToBytes(value, expectedLength, label);
@@ -234,7 +229,7 @@ export function parseBitList(value: string, label = "bits"): number[] {
 
 export function requireValue<T>(
   value: T | undefined | null,
-  message: string
+  message: string,
 ): T {
   if (value === undefined || value === null) {
     throw new Error(message);
@@ -251,7 +246,7 @@ export function defaultWalletPath(): string {
 
 export function optionOrConfig<T>(
   optionValue: T | undefined,
-  configValue: T | undefined
+  configValue: T | undefined,
 ): T | undefined {
   return optionValue !== undefined ? optionValue : configValue;
 }

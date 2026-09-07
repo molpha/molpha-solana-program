@@ -5,7 +5,7 @@ import { normalizeForJson } from "./utils";
 export async function fetchAccountOrNull<T = any>(
   program: Program,
   accountName: string,
-  address: PublicKey
+  address: PublicKey,
 ): Promise<T | null> {
   try {
     return (await (program.account as any)[accountName].fetch(address)) as T;
@@ -16,7 +16,7 @@ export async function fetchAccountOrNull<T = any>(
 
 export async function accountExists(
   program: Program,
-  address: PublicKey
+  address: PublicKey,
 ): Promise<boolean> {
   return (await program.provider.connection.getAccountInfo(address)) !== null;
 }

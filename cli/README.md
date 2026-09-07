@@ -43,7 +43,7 @@ yarn molpha:dev --help
 | `gateway` | `register` \| `deactivate` \| `withdrawal-status` \| `withdraw-bond` |
 | `round` | `settle-subscription` \| `settle-x402` \| `finalize` \| `dispute` |
 | `rewards` | `claim-node` |
-| `attestation` | `sign` \| `submit` \| `verify` (historical, read-only) |
+| `attestation` | `sign` \| `submit` \|
 | `admin` | `update-config` |
 | `account` | `protocol-config` \| `registry` \| `registry-version` \| `node` \| `plan` \| `subscription` \| `feed` \| `delegate` \| `gateway` \| `round` \| `secp-key` |
 
@@ -193,7 +193,6 @@ yarn molpha round settle-x402 \
   32-byte identifier.
 - USDC accounts are always canonical ATAs derived by the CLI. Reward, challenger, and reporter
   ATAs are created by the program when missing; funded source ATAs must already exist.
-- `attestation verify` only rebuilds/prints submit args off chain; verification happens on submit.
 - Subscription payment uses monthly `subscribe` / `extend` (not per-round top-ups).
 - `round settle-subscription` requires an Ed25519 RequestAuth pre-instruction; provide
   `--consumer-wallet` so the CLI can sign the auth message. The message is bound to the program id

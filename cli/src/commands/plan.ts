@@ -21,20 +21,20 @@ export function registerPlanCommands(program: Command): void {
     .description("Create a plan")
     .requiredOption(
       "--plan-type <type>",
-      "basic|standard|professional|enterprise"
+      "basic|standard|professional|enterprise",
     )
     .requiredOption(
       "--subscription-price <amount>",
-      "monthly subscription price in USDC base units"
+      "monthly subscription price in USDC base units",
     )
     .requiredOption("--max-signers <count>", "max signers")
     .requiredOption(
       "--max-delegates <count>",
-      "max delegates/agents an owner may provision"
+      "max delegates/agents an owner may provision",
     )
     .requiredOption(
       "--max-rounds <count>",
-      "monthly round quota included in the plan"
+      "monthly round quota included in the plan",
     )
     .option("--private-api-enabled", "enable private api")
     .option("--inactive", "create the plan inactive")
@@ -67,16 +67,16 @@ export function registerPlanCommands(program: Command): void {
     .description("Update a plan")
     .requiredOption(
       "--plan-type <type>",
-      "basic|standard|professional|enterprise"
+      "basic|standard|professional|enterprise",
     )
     .option(
       "--subscription-price <amount>",
-      "monthly subscription price in USDC base units"
+      "monthly subscription price in USDC base units",
     )
     .option("--max-signers <count>", "max signers")
     .option(
       "--max-delegates <count>",
-      "max delegates/agents an owner may provision"
+      "max delegates/agents an owner may provision",
     )
     .option("--max-rounds <count>", "monthly round quota included in the plan")
     .option("--private-api-enabled", "enable private api")
@@ -86,8 +86,8 @@ export function registerPlanCommands(program: Command): void {
       const [protocolConfig] = findProtocolConfigPda(ctx.programId);
       const planId = planTypeId(
         planTypeToAnchor(
-          requireValue(options.planType as string, "Missing --plan-type")
-        )
+          requireValue(options.planType as string, "Missing --plan-type"),
+        ),
       );
       const [planPda] = findPlanPda(ctx.programId, planId);
 
@@ -120,7 +120,7 @@ export function registerPlanCommands(program: Command): void {
     .option("--plan-type <type>", "basic|standard|professional|enterprise")
     .option(
       "--plan-id <number>",
-      "plan id (0=basic, 1=standard, 2=professional, 3=enterprise)"
+      "plan id (0=basic, 1=standard, 2=professional, 3=enterprise)",
     )
     .option("--address <pubkey>", "plan account address")
     .action(async (options, command: Command) => {
@@ -145,26 +145,26 @@ export function registerPlanCommands(program: Command): void {
 function buildPlanArgs(options: Record<string, string | boolean>) {
   return {
     planType: planTypeToAnchor(
-      requireValue(options.planType as string, "Missing --plan-type")
+      requireValue(options.planType as string, "Missing --plan-type"),
     ),
     subscriptionPrice: bn(
       requireValue(
         options.subscriptionPrice as string,
-        "Missing --subscription-price"
+        "Missing --subscription-price",
       ),
-      "subscription price"
+      "subscription price",
     ),
     maxSigners: parseInteger(
       requireValue(options.maxSigners as string, "Missing --max-signers"),
-      "max signers"
+      "max signers",
     ),
     maxDelegates: parseInteger(
       requireValue(options.maxDelegates as string, "Missing --max-delegates"),
-      "max delegates"
+      "max delegates",
     ),
     maxRounds: parseInteger(
       requireValue(options.maxRounds as string, "Missing --max-rounds"),
-      "max rounds"
+      "max rounds",
     ),
     privateApiEnabled: Boolean(options.privateApiEnabled),
     isActive: !options.inactive,
@@ -181,11 +181,11 @@ function buildUpdatePlanArgs(
     maxRounds: { toString(): string } | number;
     privateApiEnabled: boolean;
     isActive: boolean;
-  }
+  },
 ) {
   return {
     planType: planTypeToAnchor(
-      requireValue(options.planType as string, "Missing --plan-type")
+      requireValue(options.planType as string, "Missing --plan-type"),
     ),
     subscriptionPrice:
       options.subscriptionPrice !== undefined
@@ -203,8 +203,8 @@ function buildUpdatePlanArgs(
       options.maxRounds !== undefined
         ? parseInteger(options.maxRounds as string, "max rounds")
         : typeof current.maxRounds === "number"
-        ? current.maxRounds
-        : parseInteger(current.maxRounds.toString(), "max rounds"),
+          ? current.maxRounds
+          : parseInteger(current.maxRounds.toString(), "max rounds"),
     privateApiEnabled:
       options.privateApiEnabled === true ? true : current.privateApiEnabled,
     isActive: options.inactive === true ? false : current.isActive,
@@ -221,7 +221,7 @@ function planTypeId(planType: AnchorPlanType) {
 
 function resolvePlanTarget(
   programId: PublicKey,
-  options: { planType?: string; planId?: string; address?: string }
+  options: { planType?: string; planId?: string; address?: string },
 ): { planPda: PublicKey; planId?: number } {
   if (options.address) {
     return { planPda: parsePublicKey(options.address, "plan address") };

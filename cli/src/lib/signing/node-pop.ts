@@ -1,10 +1,10 @@
 import { PublicKey } from "@solana/web3.js";
 import { Point, utils as secpUtils } from "@noble/secp256k1";
-import { keccak_256 } from "@noble/hashes/sha3";
+import { keccak_256 } from "@noble/hashes/sha3.js";
 
 export const NODE_POP_PREFIX = Buffer.from("MOLPHA_NODE_POP_V1");
 export const SECP256K1_ORDER_N = BigInt(
-  "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
+  "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
 );
 
 function modN(value: bigint): bigint {
@@ -23,11 +23,11 @@ function bytes32FromBigintBE(value: bigint): Uint8Array {
 
 export function deriveNodePopMessage(
   programId: PublicKey,
-  nodeId: Uint8Array
+  nodeId: Uint8Array,
 ): Uint8Array {
   if (nodeId.length !== 32) throw new Error("node id must be 32 bytes");
   return keccak_256(
-    Buffer.concat([NODE_POP_PREFIX, programId.toBuffer(), Buffer.from(nodeId)])
+    Buffer.concat([NODE_POP_PREFIX, programId.toBuffer(), Buffer.from(nodeId)]),
   );
 }
 
@@ -79,9 +79,9 @@ export function signNodePop(params: {
           Buffer.from(parity),
           Buffer.from(message),
           Buffer.from(r),
-        ])
-      )
-    )
+        ]),
+      ),
+    ),
   );
   const s = modN(nonce + challenge * secret);
   if (s === 0n) throw new Error("generated zero PoP response scalar");

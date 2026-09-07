@@ -26,12 +26,12 @@ function main() {
     console.log("Compressed EVM Public Key to Address Converter");
     console.log("");
     console.log(
-      "Usage: node scripts/compressed-pubkey-to-address.js <COMPRESSED_PUBKEY>"
+      "Usage: node scripts/compressed-pubkey-to-address.js <COMPRESSED_PUBKEY>",
     );
     console.log("");
     console.log("Arguments:");
     console.log(
-      "  COMPRESSED_PUBKEY    33-byte compressed public key (hex, with or without 0x prefix)"
+      "  COMPRESSED_PUBKEY    33-byte compressed public key (hex, with or without 0x prefix)",
     );
     console.log("");
     console.log("Options:");
@@ -39,10 +39,10 @@ function main() {
     console.log("");
     console.log("Examples:");
     console.log(
-      "  node scripts/compressed-pubkey-to-address.js 0x03f0e28e2424c3100a9d0ecc3ffe2d3319a1e208c3678c6d0e29cad8d1e952d3c9"
+      "  node scripts/compressed-pubkey-to-address.js 0x03f0e28e2424c3100a9d0ecc3ffe2d3319a1e208c3678c6d0e29cad8d1e952d3c9",
     );
     console.log(
-      "  node scripts/compressed-pubkey-to-address.js 03f0e28e2424c3100a9d0ecc3ffe2d3319a1e208c3678c6d0e29cad8d1e952d3c9"
+      "  node scripts/compressed-pubkey-to-address.js 03f0e28e2424c3100a9d0ecc3ffe2d3319a1e208c3678c6d0e29cad8d1e952d3c9",
     );
     console.log("");
     process.exit(0);
@@ -83,7 +83,7 @@ function main() {
     console.error("");
     console.error("Example valid input:");
     console.error(
-      "  0x03f0e28e2424c3100a9d0ecc3ffe2d3319a1e208c3678c6d0e29cad8d1e952d3c9"
+      "  0x03f0e28e2424c3100a9d0ecc3ffe2d3319a1e208c3678c6d0e29cad8d1e952d3c9",
     );
     console.error("");
     process.exit(1);

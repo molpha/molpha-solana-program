@@ -33,7 +33,7 @@ export function registerSubscriptionCommands(program: Command): void {
     .description("Create a monthly subscription")
     .requiredOption(
       "--plan-id <number>",
-      "plan type id (0=basic, 1=standard, 2=professional, 3=enterprise)"
+      "plan type id (0=basic, 1=standard, 2=professional, 3=enterprise)",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -41,7 +41,7 @@ export function registerSubscriptionCommands(program: Command): void {
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!protocolConfig) {
         throw new Error("Protocol config is not initialized");
@@ -51,11 +51,11 @@ export function registerSubscriptionCommands(program: Command): void {
       const [planPda] = findPlanPda(ctx.programId, planId);
       const [subscriptionPda] = findSubscriptionPda(
         ctx.programId,
-        ctx.wallet.publicKey
+        ctx.wallet.publicKey,
       );
       const ownerUsdc = getAssociatedTokenAddressSync(
         protocolConfig.usdcMint,
-        ctx.wallet.publicKey
+        ctx.wallet.publicKey,
       );
 
       const signature = await (ctx.program.methods as any)
@@ -88,7 +88,7 @@ export function registerSubscriptionCommands(program: Command): void {
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!protocolConfig) {
         throw new Error("Protocol config is not initialized");
@@ -96,16 +96,16 @@ export function registerSubscriptionCommands(program: Command): void {
 
       const [subscriptionPda] = findSubscriptionPda(
         ctx.programId,
-        ctx.wallet.publicKey
+        ctx.wallet.publicKey,
       );
       const subscriptionAccount = await fetchAccountOrNull<any>(
         ctx.program,
         "subscription",
-        subscriptionPda
+        subscriptionPda,
       );
       if (!subscriptionAccount) {
         throw new Error(
-          `Subscription not found at ${subscriptionPda.toBase58()}`
+          `Subscription not found at ${subscriptionPda.toBase58()}`,
         );
       }
 
@@ -114,16 +114,16 @@ export function registerSubscriptionCommands(program: Command): void {
         "basic" in planType
           ? 0
           : "standard" in planType
-          ? 1
-          : "professional" in planType
-          ? 2
-          : "enterprise" in planType
-          ? 3
-          : Number(subscriptionAccount.planType);
+            ? 1
+            : "professional" in planType
+              ? 2
+              : "enterprise" in planType
+                ? 3
+                : Number(subscriptionAccount.planType);
       const [planPda] = findPlanPda(ctx.programId, planId);
       const ownerUsdc = getAssociatedTokenAddressSync(
         protocolConfig.usdcMint,
-        ctx.wallet.publicKey
+        ctx.wallet.publicKey,
       );
 
       const signature = await (ctx.program.methods as any)

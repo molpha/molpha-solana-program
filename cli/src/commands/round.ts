@@ -63,13 +63,13 @@ export function registerRoundCommands(program: Command): void {
     .requiredOption("--registry-version <number>", "registry version")
     .requiredOption(
       "--gateway-authority <pubkey>",
-      "gateway authority pubkey (for PDA)"
+      "gateway authority pubkey (for PDA)",
     )
     .option("--value <hex>", "oracle value bytes (hex)", "0x" + "00".repeat(32))
     .option("--subscription-owner <pubkey>", "subscription owner")
     .option(
       "--consumer-wallet <path>",
-      "consumer (owner or delegate) keypair that signs RequestAuth"
+      "consumer (owner or delegate) keypair that signs RequestAuth",
     )
     .option("--agg-sig <path>", "JSON AggregatedSig file")
     .option("--signers-bitmap <hex>", "32-byte credited signers bitmap")
@@ -81,7 +81,7 @@ export function registerRoundCommands(program: Command): void {
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!protocolConfig) {
         throw new Error("Protocol config is not initialized");
@@ -95,11 +95,11 @@ export function registerRoundCommands(program: Command): void {
         : consumer.publicKey;
       const [subscriptionPda] = findSubscriptionPda(
         ctx.programId,
-        subscriptionOwner
+        subscriptionOwner,
       );
       const gatewayAuthority = parsePublicKey(
         options.gatewayAuthority,
-        "gateway authority"
+        "gateway authority",
       );
       const [gatewayPda] = findGatewayPda(ctx.programId, gatewayAuthority);
 
@@ -107,17 +107,17 @@ export function registerRoundCommands(program: Command): void {
       const timestamp = parseInteger(options.timestamp, "timestamp");
       const signaturesRequired = parseInteger(
         options.signaturesRequired,
-        "signatures required"
+        "signatures required",
       );
       const registryVersion = parseInteger(
         options.registryVersion,
-        "registry version"
+        "registry version",
       );
       const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
       const registry = await fetchAccountOrNull<any>(
         ctx.program,
         "registry",
-        registryPda
+        registryPda,
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const value = hexToBytes(options.value, undefined, "value");
@@ -127,7 +127,7 @@ export function registerRoundCommands(program: Command): void {
             signersBitmap: signersBitmapFromOptions(options),
           });
       const creditedBits = creditedBitsFromBitmap(
-        Uint8Array.from(aggSig.signersBitmap)
+        Uint8Array.from(aggSig.signersBitmap),
       );
       const [roundRecordPda] = findSubscriptionRoundPda(
         ctx.programId,
@@ -135,7 +135,7 @@ export function registerRoundCommands(program: Command): void {
         gatewayPda,
         sourceId,
         signaturesRequired,
-        timestamp
+        timestamp,
       );
 
       const consumerDelegate = consumer.publicKey.equals(subscriptionOwner)
@@ -143,7 +143,7 @@ export function registerRoundCommands(program: Command): void {
         : findDelegatePda(
             ctx.programId,
             subscriptionOwner,
-            consumer.publicKey
+            consumer.publicKey,
           )[0];
 
       const authHash = hashRequestAuthFields(
@@ -151,7 +151,7 @@ export function registerRoundCommands(program: Command): void {
         gatewayPda,
         sourceId,
         signaturesRequired,
-        timestamp
+        timestamp,
       );
       const signature = await (ctx.program.methods as any)
         .settleSubscriptionRound({
@@ -181,7 +181,7 @@ export function registerRoundCommands(program: Command): void {
           }),
         ])
         .signers(
-          consumer.publicKey.equals(ctx.wallet.publicKey) ? [] : [consumer]
+          consumer.publicKey.equals(ctx.wallet.publicKey) ? [] : [consumer],
         )
         .rpc();
 
@@ -203,20 +203,20 @@ export function registerRoundCommands(program: Command): void {
     .requiredOption("--amount <amount>", "exact x402 round price")
     .requiredOption(
       "--payer-id <hex>",
-      "32-byte rail-scoped payer identity (keccak256(rail_id_be || payer_address))"
+      "32-byte rail-scoped payer identity (keccak256(rail_id_be || payer_address))",
     )
     .option(
       "--gateway-wallet <path>",
-      "gateway authority keypair; defaults to provider wallet"
+      "gateway authority keypair; defaults to provider wallet",
     )
     .option(
       "--payment-rail <number>",
       "payment rail registry id (0 = none, 1 = solana, 2 = base)",
-      "1"
+      "1",
     )
     .option(
       "--payment-ref <hex>",
-      "opaque payment reference (tx hash / facilitator receipt), <= 64 bytes"
+      "opaque payment reference (tx hash / facilitator receipt), <= 64 bytes",
     )
     .option("--value <hex>", "oracle value bytes (hex)", "0x" + "00".repeat(32))
     .option("--agg-sig <path>", "JSON AggregatedSig file")
@@ -229,7 +229,7 @@ export function registerRoundCommands(program: Command): void {
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!protocolConfig) {
         throw new Error("Protocol config is not initialized");
@@ -240,26 +240,26 @@ export function registerRoundCommands(program: Command): void {
         : ctx.payer;
       const [gatewayPda] = findGatewayPda(
         ctx.programId,
-        gatewayAuthority.publicKey
+        gatewayAuthority.publicKey,
       );
       const gatewayUsdc = getAssociatedTokenAddressSync(
         protocolConfig.usdcMint,
-        gatewayAuthority.publicKey
+        gatewayAuthority.publicKey,
       );
 
       const payerId = hexToBytes(options.payerId, 32, "payer id");
       const sourceId = hexToBytes(options.sourceId, 32, "source id");
       const canonicalTimestamp = parseInteger(
         options.canonicalTimestamp,
-        "canonical timestamp"
+        "canonical timestamp",
       );
       const signaturesRequired = parseInteger(
         options.signaturesRequired,
-        "signatures required"
+        "signatures required",
       );
       const registryVersion = parseInteger(
         options.registryVersion,
-        "registry version"
+        "registry version",
       );
       const paymentRail = parseInteger(options.paymentRail, "payment rail");
       const paymentRef = options.paymentRef
@@ -267,14 +267,14 @@ export function registerRoundCommands(program: Command): void {
         : new Uint8Array(0);
       if (paymentRef.length > 64) {
         throw new Error(
-          `payment ref must be <= 64 bytes, got ${paymentRef.length}`
+          `payment ref must be <= 64 bytes, got ${paymentRef.length}`,
         );
       }
       const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
       const registry = await fetchAccountOrNull<any>(
         ctx.program,
         "registry",
-        registryPda
+        registryPda,
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const amount = bn(options.amount, "amount");
@@ -285,7 +285,7 @@ export function registerRoundCommands(program: Command): void {
             signersBitmap: signersBitmapFromOptions(options),
           });
       const creditedBits = creditedBitsFromBitmap(
-        Uint8Array.from(aggSig.signersBitmap)
+        Uint8Array.from(aggSig.signersBitmap),
       );
       const [roundRecordPda] = findX402RoundPda(
         ctx.programId,
@@ -293,7 +293,7 @@ export function registerRoundCommands(program: Command): void {
         gatewayPda,
         sourceId,
         signaturesRequired,
-        canonicalTimestamp
+        canonicalTimestamp,
       );
 
       const signers = [];
@@ -344,11 +344,11 @@ export function registerRoundCommands(program: Command): void {
     .requiredOption("--round-record <pubkey>", "round receipt record address")
     .requiredOption(
       "--gateway-authority <pubkey>",
-      "gateway authority pubkey (for PDA)"
+      "gateway authority pubkey (for PDA)",
     )
     .option(
       "--credited-bits <list>",
-      "comma-separated credited bits (default: read from round record)"
+      "comma-separated credited bits (default: read from round record)",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -357,7 +357,7 @@ export function registerRoundCommands(program: Command): void {
       const record = await fetchAccountOrNull<any>(
         ctx.program,
         "roundReceiptRecord",
-        roundRecord
+        roundRecord,
       );
       if (!record) {
         throw new Error(`Round record not found at ${roundRecord.toBase58()}`);
@@ -365,7 +365,7 @@ export function registerRoundCommands(program: Command): void {
 
       const gatewayAuthority = parsePublicKey(
         options.gatewayAuthority,
-        "gateway authority"
+        "gateway authority",
       );
       const [gatewayPda] = findGatewayPda(ctx.programId, gatewayAuthority);
       const creditedBits = options.creditedBits
@@ -378,7 +378,7 @@ export function registerRoundCommands(program: Command): void {
       const registry = await fetchAccountOrNull<any>(
         ctx.program,
         "registry",
-        registryPda
+        registryPda,
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
 
@@ -386,7 +386,7 @@ export function registerRoundCommands(program: Command): void {
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!protocolConfig) throw new Error("Protocol is not initialized");
 
@@ -406,7 +406,7 @@ export function registerRoundCommands(program: Command): void {
             pubkey: registryNode(registry, bit),
             isWritable: true,
             isSigner: false,
-          }))
+          })),
         )
         .rpc();
 
@@ -423,11 +423,11 @@ export function registerRoundCommands(program: Command): void {
     .requiredOption("--round-record <pubkey>", "round receipt record address")
     .requiredOption(
       "--gateway-authority <pubkey>",
-      "gateway authority pubkey (for PDA)"
+      "gateway authority pubkey (for PDA)",
     )
     .option(
       "--subscription <pubkey>",
-      "subscription account (required for subscription rounds; omit for x402 rounds — they are never refunded)"
+      "subscription account (required for subscription rounds; omit for x402 rounds — they are never refunded)",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -435,7 +435,7 @@ export function registerRoundCommands(program: Command): void {
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!protocolConfig) {
         throw new Error("Protocol config is not initialized");
@@ -445,7 +445,7 @@ export function registerRoundCommands(program: Command): void {
       const record = await fetchAccountOrNull<any>(
         ctx.program,
         "roundReceiptRecord",
-        roundRecord
+        roundRecord,
       );
       if (!record)
         throw new Error(`Round record not found at ${roundRecord.toBase58()}`);
@@ -454,21 +454,21 @@ export function registerRoundCommands(program: Command): void {
       const registry = await fetchAccountOrNull<any>(
         ctx.program,
         "registry",
-        registryPda
+        registryPda,
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const gatewayAuthority = parsePublicKey(
         options.gatewayAuthority,
-        "gateway authority"
+        "gateway authority",
       );
       const [gatewayPda] = findGatewayPda(ctx.programId, gatewayAuthority);
       const gatewayBond = findGatewayBondAta(
         protocolConfig.usdcMint,
-        gatewayPda
+        gatewayPda,
       );
       const challengerUsdc = getAssociatedTokenAddressSync(
         protocolConfig.usdcMint,
-        ctx.wallet.publicKey
+        ctx.wallet.publicKey,
       );
 
       // `record.kind` discriminates the funding path: subscription rounds are restored on a
@@ -478,7 +478,7 @@ export function registerRoundCommands(program: Command): void {
       const subscription = isSubscription
         ? parsePublicKey(
             requireValue(options.subscription, "Missing --subscription"),
-            "subscription"
+            "subscription",
           )
         : null;
 
@@ -505,8 +505,8 @@ export function registerRoundCommands(program: Command): void {
               pubkey: registryNode(registry, bit),
               isWritable: true,
               isSigner: false,
-            })
-          )
+            }),
+          ),
         )
         .rpc();
 

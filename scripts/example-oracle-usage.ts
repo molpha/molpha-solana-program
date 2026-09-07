@@ -46,8 +46,8 @@ async function main() {
     console.log(`  Exponent:     ${pythPrice.expo}`);
     console.log(
       `  Publish Time: ${new Date(
-        pythPrice.publishTime.toNumber() * 1000
-      ).toISOString()}`
+        pythPrice.publishTime.toNumber() * 1000,
+      ).toISOString()}`,
     );
 
     // Calculate actual decimal price
@@ -60,7 +60,7 @@ async function main() {
     console.log(
       `  Range:      $${(actualPrice - actualConf).toFixed(2)} - $${(
         actualPrice + actualConf
-      ).toFixed(2)}`
+      ).toFixed(2)}`,
     );
   } catch (error) {
     console.error("Error reading Pyth price:", error.message);
@@ -77,8 +77,8 @@ async function main() {
     console.log("✅ Price is fresh (< 60 seconds old)");
     console.log(
       `   Updated: ${new Date(
-        freshPrice.publishTime.toNumber() * 1000
-      ).toISOString()}`
+        freshPrice.publishTime.toNumber() * 1000,
+      ).toISOString()}`,
     );
   } catch (error) {
     console.log("❌ Price is too old:", error.message);
@@ -116,7 +116,7 @@ async function main() {
     console.log(`  Confidence:  ±$${price.confidence?.toFixed(2)}`);
     console.log(`  Status:      ${price.status.toUpperCase()}`);
     console.log(
-      `  Timestamp:   ${new Date(price.timestamp * 1000).toISOString()}`
+      `  Timestamp:   ${new Date(price.timestamp * 1000).toISOString()}`,
     );
 
     // Check status
@@ -143,7 +143,7 @@ async function main() {
     history.slice(-5).forEach((p, i) => {
       const date = new Date(p.timestamp * 1000);
       console.log(
-        `  ${i + 1}. $${p.value.toFixed(2)} at ${date.toISOString()}`
+        `  ${i + 1}. $${p.value.toFixed(2)} at ${date.toISOString()}`,
       );
     });
   } catch (error) {
@@ -161,7 +161,7 @@ async function main() {
 
     if (!isActive) {
       console.log(
-        "⚠️  Feed needs subscription extension to continue receiving updates"
+        "⚠️  Feed needs subscription extension to continue receiving updates",
       );
     }
   } catch (error) {
@@ -181,7 +181,7 @@ async function main() {
   const encodedPrice = OracleEncoder.encodePythPrice(
     btcPrice,
     btcConf,
-    btcExpo
+    btcExpo,
   );
 
   console.log("Price Encoding Example (BTC/USD):");
@@ -199,7 +199,7 @@ async function main() {
     ethValue,
     ethStdDev,
     ethMin,
-    ethMax
+    ethMax,
   );
 
   console.log("\nAggregator Encoding Example (ETH/USD):");

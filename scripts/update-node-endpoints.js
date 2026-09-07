@@ -59,7 +59,7 @@ function parseArgs(argv) {
       opts.dryRun = true;
     } else if (arg === "--help" || arg === "-h") {
       console.log(
-        fs.readFileSync(__filename, "utf8").split("\n").slice(0, 25).join("\n")
+        fs.readFileSync(__filename, "utf8").split("\n").slice(0, 25).join("\n"),
       );
       process.exit(0);
     } else {
@@ -94,7 +94,7 @@ function formatIpv4(ipBytes) {
 function findNodePda(programId, nodeOwner) {
   return PublicKey.findProgramAddressSync(
     [NODE_SEED, nodeOwner.toBuffer()],
-    programId
+    programId,
   )[0];
 }
 
@@ -107,7 +107,7 @@ function loadManifest(filepath) {
   }
   if (!Array.isArray(raw.nodes) || raw.nodes.length === 0) {
     throw new Error(
-      `Invalid manifest at ${filepath}: expected non-empty "nodes" array`
+      `Invalid manifest at ${filepath}: expected non-empty "nodes" array`,
     );
   }
   return raw;
@@ -116,7 +116,7 @@ function loadManifest(filepath) {
 function keypairFromNodeRecord(node) {
   if (!node.solana?.secretKey?.length) {
     throw new Error(
-      `Node ${node.index ?? "?"} missing solana.secretKey in manifest`
+      `Node ${node.index ?? "?"} missing solana.secretKey in manifest`,
     );
   }
   return Keypair.fromSecretKey(Uint8Array.from(node.solana.secretKey));
@@ -127,7 +127,7 @@ function endpointsMatch(chainIp, chainPort, manifestIp, manifestPort) {
   const targetPort = Number(manifestPort);
   if (!Number.isInteger(targetPort) || targetPort <= 0 || targetPort > 65535) {
     throw new Error(
-      `Invalid port for node: ${manifestPort} (expected 1..65535)`
+      `Invalid port for node: ${manifestPort} (expected 1..65535)`,
     );
   }
 
@@ -182,7 +182,7 @@ async function main() {
     }
     if (node.ip == null || node.port == null) {
       console.log(
-        `${label} (${ownerPk}): skipping — missing ip/port in manifest`
+        `${label} (${ownerPk}): skipping — missing ip/port in manifest`,
       );
       skipped += 1;
       continue;
@@ -191,7 +191,7 @@ async function main() {
     const nodeOwner = keypairFromNodeRecord(node);
     if (nodeOwner.publicKey.toBase58() !== ownerPk) {
       throw new Error(
-        `${label}: solana.publicKey does not match solana.secretKey`
+        `${label}: solana.publicKey does not match solana.secretKey`,
       );
     }
 
@@ -203,7 +203,7 @@ async function main() {
       chainNode = await program.account.node.fetch(nodePda);
     } catch {
       console.log(
-        `${label} (${ownerPk}): skipping — Node not found at ${nodePda.toBase58()}`
+        `${label} (${ownerPk}): skipping — Node not found at ${nodePda.toBase58()}`,
       );
       skipped += 1;
       continue;
@@ -219,13 +219,13 @@ async function main() {
     }
 
     console.log(
-      `${label} (${ownerPk}): mismatch on-chain ${chainEndpoint} -> manifest ${targetEndpoint}`
+      `${label} (${ownerPk}): mismatch on-chain ${chainEndpoint} -> manifest ${targetEndpoint}`,
     );
 
     if (!chainNode.status?.active) {
       const status =
         typeof chainNode.status === "object"
-          ? Object.keys(chainNode.status)[0] ?? "unknown"
+          ? (Object.keys(chainNode.status)[0] ?? "unknown")
           : String(chainNode.status);
       console.log(`   skipping — node status is ${status}, expected Active`);
       skipped += 1;
@@ -260,7 +260,7 @@ async function main() {
   }
 
   console.log(
-    `\nDone. checked=${checked} unchanged=${unchanged} updated=${updated} skipped=${skipped}`
+    `\nDone. checked=${checked} unchanged=${unchanged} updated=${updated} skipped=${skipped}`,
   );
 }
 
