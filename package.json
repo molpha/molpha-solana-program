@@ -9,13 +9,11 @@
     "build:molpha": "anchor build -p molpha",
     "build:cli": "tsc -p cli/tsconfig.json",
     "build": "yarn build:cli && yarn build:molpha",
-    "test": "cargo test --workspace",
+    "test": "anchor build -p molpha && cargo test --workspace",
     "test:anchor": "anchor test --skip-local-validator",
     "molpha": "node cli/dist/index.js",
     "molpha:dev": "ts-node -r tsconfig-paths/register cli/src/index.ts",
     "register-nodes": "node scripts/generate-and-register-nodes.js",
-    "upload-idl-devnet": "node scripts/upload-idl-devnet.mjs",
-    "debug-idl-upgrade": "node scripts/debug-idl-upgrade.mjs",
     "sign-and-send-metadata-tx": "node scripts/sign-and-send-metadata-tx.mjs"
   },
   "dependencies": {
