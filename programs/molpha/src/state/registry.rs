@@ -8,7 +8,7 @@ pub const MAX_REGISTRY_NODES: usize = 256;
 /// Immutable, version-addressed snapshot of the ordered node set and selection policy.
 ///
 /// Only `nodes[..node_count]` is populated. Node addresses are stored as bytes to keep the
-/// zero-copy layout POD-safe and exactly 8,208 bytes including the Anchor discriminator.
+/// zero-copy layout POD-safe. `SPACE` includes the Anchor discriminator.
 #[account(zero_copy)]
 #[repr(C)]
 pub struct Registry {
@@ -17,6 +17,7 @@ pub struct Registry {
     pub redundancy_buffer: u8,
     pub bump: u8,
     pub nodes: [[u8; 32]; MAX_REGISTRY_NODES],
+    pub grace_active_until: i64,
 }
 
 impl Registry {
@@ -29,6 +30,7 @@ impl Registry {
         self.redundancy_buffer = redundancy_buffer;
         self.bump = bump;
         self.nodes = [[0u8; 32]; MAX_REGISTRY_NODES];
+        self.grace_active_until = 0;
     }
 
     pub fn node(&self, index: usize) -> Result<Pubkey> {
@@ -49,48 +51,49 @@ impl Registry {
         }
     }
 
-    pub fn copy_from_previous(&mut self, previous: &Registry, bump: u8) {
+    pub fn copy_from_previous(
+        &mut self,
+        previous: &mut Registry,
+        grace_active_until: i64,
+        bump: u8,
+    ) {
         self.version = previous.version + 1;
         self.node_count = previous.node_count;
         self.redundancy_buffer = previous.redundancy_buffer;
         self.bump = bump;
         self.nodes.copy_from_slice(&previous.nodes);
+        previous.grace_active_until = grace_active_until;
     }
 
-    pub fn append(&mut self, previous: &Registry, node: Pubkey, bump: u8) -> Result<()> {
+    /// Append a node to a snapshot that was already copied from the previous registry.
+    pub fn append_node(&mut self, node: Pubkey) -> Result<()> {
         require!(
-            usize::from(previous.node_count) < MAX_REGISTRY_NODES,
+            usize::from(self.node_count) < MAX_REGISTRY_NODES,
             MolphaError::NodeCapExceeded
         );
         require!(
-            !previous.is_node_in_registry(node),
+            !self.is_node_in_registry(node),
             MolphaError::NodeAlreadyInRegistry
         );
 
-        self.copy_from_previous(previous, bump);
         self.nodes[usize::from(self.node_count)] = node.to_bytes();
         self.node_count = self.node_count.checked_add(1).unwrap();
         Ok(())
     }
 
-    pub fn update_buffer(&mut self, previous: &Registry, redundancy_buffer: u8, bump: u8) {
-        self.copy_from_previous(previous, bump);
+    /// Update the redundancy buffer on a snapshot that was already copied from the previous registry.
+    pub fn set_redundancy_buffer(&mut self, redundancy_buffer: u8) {
         self.redundancy_buffer = redundancy_buffer;
     }
 
-    pub fn swap_remove(&mut self, previous: &Registry, node: Pubkey, bump: u8) -> Result<()> {
-        self.copy_from_previous(previous, bump);
+    /// Remove a node from a snapshot that was already copied from the previous registry.
+    pub fn swap_remove_node(&mut self, node: Pubkey) -> Result<()> {
         self.swap_remove_index(self.get_index(node)?)?;
         Ok(())
     }
 
-    pub fn swap_remove_batch(
-        &mut self,
-        previous: &Registry,
-        remove_nodes: &[Pubkey],
-        bump: u8,
-    ) -> Result<()> {
-        self.copy_from_previous(previous, bump);
+    /// Remove multiple nodes from a snapshot that was already copied from the previous registry.
+    pub fn swap_remove_nodes(&mut self, remove_nodes: &[Pubkey]) -> Result<()> {
         for remove_node in remove_nodes {
             if self.is_node_in_registry(*remove_node) {
                 self.swap_remove_index(self.get_index(*remove_node)?)?;
@@ -109,6 +112,10 @@ impl Registry {
         (0..usize::from(self.node_count)).any(|i| Pubkey::new_from_array(self.nodes[i]) == node)
     }
 
+    pub fn is_active(&self, now: i64) -> bool {
+        self.grace_active_until == 0 || self.grace_active_until > now
+    }
+
     fn swap_remove_index(&mut self, index: usize) -> Result<()> {
         let last_index = usize::from(self.node_count - 1);
         self.nodes[index] = self.nodes[last_index];
@@ -118,4 +125,4 @@ impl Registry {
     }
 }
 
-const _: () = assert!(Registry::SPACE == 8_208);
+const _: () = assert!(Registry::SPACE == 8_216);

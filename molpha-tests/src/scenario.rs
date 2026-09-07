@@ -176,7 +176,7 @@ pub fn default_initialize_args(usdc_mint: Pubkey) -> InitializeArgs {
         reward_per_signature: 10_000,
         // Wide enough that every hardcoded duty timestamp stays inside the window even after
         // a cooldown-length clock advance; freshness tests tighten it via the builder.
-        max_receipt_delay_seconds: 604_800,
+        max_settlement_delay_seconds: 604_800,
         dispute_window_slots: 100,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
@@ -291,8 +291,8 @@ impl ProtocolBuilder {
         self
     }
 
-    pub fn max_receipt_delay_seconds(mut self, value: u64) -> Self {
-        self.args.max_receipt_delay_seconds = value;
+    pub fn max_settlement_delay_seconds(mut self, value: u64) -> Self {
+        self.args.max_settlement_delay_seconds = value;
         self
     }
 
@@ -878,7 +878,6 @@ impl Protocol {
             accounts: molpha::accounts::SettleSubscriptionRound {
                 authority: *gateway_authority,
                 protocol_config: pda::protocol_config(),
-                registry_state: pda::registry_state(),
                 registry: pda::registry(duty.registry_version),
                 subscription: pda::subscription(subscription_owner),
                 consumer_delegate,
@@ -928,7 +927,6 @@ impl Protocol {
             accounts: molpha::accounts::SettleX402Round {
                 authority: *gateway_authority,
                 protocol_config: pda::protocol_config(),
-                registry_state: pda::registry_state(),
                 registry: pda::registry(args.registry_version),
                 gateway,
                 gateway_usdc: pda::ata(gateway_authority, &self.usdc_mint),

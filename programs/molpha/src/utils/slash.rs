@@ -16,6 +16,7 @@ use crate::{
         MembershipAction, Node, NodeStatus, OffenceKind, Penalty, ProtocolConfig, PunishmentCase,
         Registry, RegistryState, SignedStatement,
     },
+    utils::registry::with_registry_snapshot,
 };
 
 /// Slashed amounts from a single [`apply_penalty`] call.
@@ -137,12 +138,13 @@ fn slash_guilty_nodes<'info>(
 
 #[allow(clippy::too_many_arguments)]
 pub fn penalize_node<'info>(
-    current_registry: &AccountLoader<'info, Registry>,
+    current_registry: &mut AccountLoader<'info, Registry>,
     new_registry: &mut AccountLoader<'info, Registry>,
     registry_state: &mut Account<'info, RegistryState>,
     node: &mut Account<'info, Node>,
     offence: OffenceKind,
     withdrawal_cooldown_slots: u64,
+    grace_active_until: i64,
     new_registry_bump: u8,
     clock: &Clock,
 ) -> Result<PenaltyOutcome> {
@@ -154,10 +156,17 @@ pub fn penalize_node<'info>(
             .ok_or(MolphaError::WithdrawalArithmeticOverflow)?;
     }
 
-    let current = current_registry.load()?;
-    let mut next = new_registry.load_init()?;
-    next.swap_remove(&current, node.key(), new_registry_bump)?;
-    registry_state.advance_version();
+    with_registry_snapshot(
+        registry_state,
+        current_registry,
+        new_registry,
+        grace_active_until,
+        new_registry_bump,
+        |_current, next| {
+            next.swap_remove_node(node.key())?;
+            Ok(())
+        },
+    )?;
 
     emit!(NodePunished {
         node: node.key(),
@@ -183,7 +192,6 @@ pub struct SlashAccounts<'a, 'info> {
     pub punishment_case: &'a mut Account<'info, PunishmentCase>,
     pub punishment_case_bump: u8,
     pub reporter: Pubkey,
-    // pub node_deposits: AccountInfo<'info>,
     pub node_deposit_vault: &'a mut Account<'info, TokenAccount>,
     pub treasury: &'a mut Account<'info, TokenAccount>,
     pub reporter_usdc: &'a Account<'info, TokenAccount>,
@@ -202,6 +210,7 @@ pub struct SlashInput<'a, 'info> {
     pub registry_version: u32,
     pub evidence_hash: [u8; 32],
     pub new_registry_version: u32,
+    pub grace_active_until: i64,
 }
 
 /// Values the offence-specific `*Proven` event needs after the shared sentence runs.
@@ -223,10 +232,17 @@ pub fn slash_nodes<'a, 'b, 'info>(
     require!(!batch.victims.is_empty(), MolphaError::NothingToPunish);
     let slashed_total = batch.slashed_total();
 
-    let current = accounts.current_registry.load()?;
-    let mut next = accounts.new_registry.load_init()?;
-    next.swap_remove_batch(&current, &batch.victims, accounts.new_registry_bump)?;
-    accounts.registry_state.advance_version();
+    with_registry_snapshot(
+        accounts.registry_state,
+        accounts.current_registry,
+        accounts.new_registry,
+        input.grace_active_until,
+        accounts.new_registry_bump,
+        |_current, next| {
+            next.swap_remove_nodes(&batch.victims)?;
+            Ok(())
+        },
+    )?;
 
     // Cancelled reward credits stop being a claim on the treasury.
     accounts.protocol_config.reward_liability = accounts

@@ -27,6 +27,8 @@ pub enum MolphaError {
     PubkeyNotOnCurve,
     #[msg("registry version or version-addressed registry account is invalid")]
     InvalidRegistryVersion,
+    #[msg("registry is not active")]
+    RegistryNotActive,
     #[msg("source_id does not match feed.source_id")]
     InvalidSourceId,
     #[msg("new redundancy buffer must differ from the current registry policy")]
@@ -178,11 +180,11 @@ pub enum MolphaError {
     NonceReuseSameMessage,
     #[msg("same duty with different values is equivocation - file it as one")]
     PreferEquivocation,
-    #[msg("canonical_timestamp is older than now - max_receipt_delay_seconds")]
+    #[msg("canonical_timestamp is older than now - max_settlement_delay_seconds")]
     AttestationTooStale,
     #[msg("canonical_timestamp is further ahead of cluster time than the allowed drift")]
     AttestationInFuture,
-    #[msg("max_receipt_delay_seconds must be greater than zero")]
+    #[msg("max_settlement_delay_seconds must be greater than zero")]
     InvalidMaxReceiptDelay,
     #[msg("treasury balance cannot back the protocol's reward liability")]
     TreasuryInsolvent,

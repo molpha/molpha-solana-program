@@ -61,7 +61,7 @@ yarn molpha init \
   --gateway-fee 20 \
   --receipt-submitter-bonus 5 \
   --protocol-fee-bps 100 \
-  --max-receipt-delay-slots 256 \
+  --max-settlement-delay-seconds 256 \
   --protocol-fee 0 \
   --dispute-window-slots 256 \
   --gateway-bond-min 500000000 \

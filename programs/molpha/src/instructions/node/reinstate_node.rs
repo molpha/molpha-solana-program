@@ -6,6 +6,7 @@ use crate::{
     error::MolphaError,
     events::NodeReinstated,
     state::{Node, NodeStatus, ProtocolConfig, Registry, RegistryState, LIVELINESS_SCORE_MAX},
+    utils::registry::with_registry_snapshot,
 };
 
 pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
@@ -19,10 +20,18 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
     );
 
     let node_key = ctx.accounts.node.key();
-    let current = ctx.accounts.current_registry.load()?;
-    let mut next = ctx.accounts.new_registry.load_init()?;
-    next.append(&current, node_key, ctx.bumps.new_registry)?;
-    ctx.accounts.registry_state.advance_version();
+    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
+    let index = with_registry_snapshot(
+        &mut ctx.accounts.registry_state,
+        &ctx.accounts.current_registry,
+        &ctx.accounts.new_registry,
+        grace_active_until,
+        ctx.bumps.new_registry,
+        |current, next| {
+            next.append_node(node_key)?;
+            Ok(u32::from(current.node_count))
+        },
+    )?;
 
     let node = &mut ctx.accounts.node;
     node.status = NodeStatus::Active;
@@ -31,7 +40,7 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
     emit!(NodeReinstated {
         node: node_key,
         owner: node.owner,
-        index: u32::from(current.node_count),
+        index,
         registry_version: ctx.accounts.registry_state.next_version,
         reinstated_at: now,
     });
@@ -59,6 +68,7 @@ pub struct ReinstateNode<'info> {
     pub registry_state: Box<Account<'info, RegistryState>>,
 
     #[account(
+        mut,
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
         bump,
     )]

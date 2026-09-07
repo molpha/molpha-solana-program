@@ -7,7 +7,7 @@ use crate::{
     error::MolphaError,
     events::NodeRegistered,
     state::{Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim},
-    utils::registry::derive_node_id,
+    utils::registry::{derive_node_id, with_registry_snapshot},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -79,14 +79,22 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         .secp256k1_key_claim
         .init(ctx.accounts.node.key(), ctx.bumps.secp256k1_key_claim);
 
-    let current = ctx.accounts.current_registry.load()?;
-    let mut next = ctx.accounts.new_registry.load_init()?;
-    next.append(&current, ctx.accounts.node.key(), ctx.bumps.new_registry)?;
-    ctx.accounts.registry_state.advance_version();
+    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
+    let index = with_registry_snapshot(
+        &mut ctx.accounts.registry_state,
+        &ctx.accounts.current_registry,
+        &ctx.accounts.new_registry,
+        grace_active_until,
+        ctx.bumps.new_registry,
+        |current, next| {
+            next.append_node(ctx.accounts.node.key())?;
+            Ok(u32::from(current.node_count))
+        },
+    )?;
 
     emit!(NodeRegistered {
         node: ctx.accounts.node.key(),
-        index: u32::from(current.node_count),
+        index,
         registry_version: ctx.accounts.registry_state.next_version,
         owner,
         ip: args.ip,
@@ -126,6 +134,7 @@ pub struct RegisterNode<'info> {
     pub registry_state: Box<Account<'info, RegistryState>>,
 
     #[account(
+        mut,
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
         bump,
     )]

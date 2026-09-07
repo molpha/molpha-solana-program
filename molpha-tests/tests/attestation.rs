@@ -279,7 +279,7 @@ fn submit_attestation_rejects_a_stale_canonical_timestamp() {
     let mut p = with_nodes("submit-too-stale");
     let submitter = p.env.keypair();
     let now = p.env.unix_timestamp() as u64;
-    let window = p.args.max_receipt_delay_seconds;
+    let window = p.args.max_settlement_delay_seconds;
 
     // A virgin feed (fresh submitter) has no `FeedNotNewer` ratchet, so the window is the
     // only thing stopping a ground timestamp here.
@@ -325,7 +325,7 @@ fn submit_attestation_update_branch_enforces_freshness() {
     let first = duty().at(p.env.unix_timestamp() as u64);
     submit(&mut p, &submitter, first);
 
-    let window = p.args.max_receipt_delay_seconds;
+    let window = p.args.max_settlement_delay_seconds;
     p.env.advance_seconds(window as i64 + 100);
     // Newer than the feed, so `FeedNotNewer` would pass — but stale against the clock.
     let stale = first.at(first.canonical_timestamp + 1).value([0xee; 32]);
@@ -337,7 +337,9 @@ fn submit_attestation_update_branch_enforces_freshness() {
 
 #[test]
 fn the_freshness_window_comes_from_config() {
-    let mut p = Protocol::builder().max_receipt_delay_seconds(1_000).start();
+    let mut p = Protocol::builder()
+        .max_settlement_delay_seconds(1_000)
+        .start();
     p.register_nodes("submit-window", NODE_COUNT);
     let submitter = p.env.keypair();
     let now = p.env.unix_timestamp() as u64;

@@ -20,13 +20,16 @@ pub fn freeze_unresponsive_node(
     let clock = Clock::get()?;
     let node = &mut ctx.accounts.node;
 
+    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
+
     penalize_node(
-        &ctx.accounts.current_registry,
+        &mut ctx.accounts.current_registry,
         &mut ctx.accounts.new_registry,
         &mut ctx.accounts.registry_state,
         node,
         OffenceKind::Inactivity,
         ctx.accounts.protocol_config.withdrawal_cooldown_slots,
+        grace_active_until,
         ctx.bumps.new_registry,
         &clock,
     )?;
@@ -63,6 +66,7 @@ pub struct FreezeUnresponsiveNode<'info> {
     pub registry_state: Account<'info, RegistryState>,
 
     #[account(
+        mut,
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
         bump,
     )]

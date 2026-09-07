@@ -586,7 +586,7 @@ fn settlement_requires_the_named_gateway_to_sign() {
 }
 
 #[test]
-fn settlement_rejects_a_registry_version_that_is_no_longer_current() {
+fn settlement_rejects_a_registry_after_its_grace_period() {
     let mut f = fixture();
     let owner = f.owner.insecure_clone();
     let gateway = f.gateway.insecure_clone();
@@ -599,9 +599,28 @@ fn settlement_rejects_a_registry_version_that_is_no_longer_current() {
     let ix = f.p.update_registry_policy_ix(&authority.pubkey(), next, 4);
     f.p.env.send_ok(&[ix], &[&authority]);
 
+    // advance the clock to after the grace period
+    f.p.env
+        .advance_seconds(f.p.args.max_settlement_delay_seconds as i64 + 1);
     let ixs = settle_ixs(&f, &owner, None, &signed);
     let failed = f.p.env.send_err(&ixs, &[&owner, &gateway]);
-    assert_molpha_error(&failed, MolphaError::InvalidRegistryVersion);
+    assert_molpha_error(&failed, MolphaError::RegistryNotActive);
+}
+
+#[test]
+fn settlement_accepts_a_superseded_registry_during_grace() {
+    let mut f = fixture();
+    let owner = f.owner.insecure_clone();
+    let gateway = f.gateway.insecure_clone();
+    let signed = f.p.sign_duty(duty(4));
+
+    let authority = f.p.authority.insecure_clone();
+    let next = f.p.current_version() + 1;
+    let ix = f.p.update_registry_policy_ix(&authority.pubkey(), next, 4);
+    f.p.env.send_ok(&[ix], &[&authority]);
+
+    let ixs = settle_ixs(&f, &owner, None, &signed);
+    f.p.env.send_ok(&ixs, &[&owner, &gateway]);
 }
 
 #[test]
@@ -610,7 +629,7 @@ fn settlement_rejects_a_stale_authorized_request() {
     let owner = f.owner.insecure_clone();
     let gateway = f.gateway.insecure_clone();
     let now = f.p.env.unix_timestamp() as u64;
-    let window = f.p.args.max_receipt_delay_seconds;
+    let window = f.p.args.max_settlement_delay_seconds;
 
     // The consumer authorization matches the duty, so the failure is the freshness window,
     // not the signature: a banked authorization cannot be redeemed after the window expires.

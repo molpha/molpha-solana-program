@@ -10,7 +10,7 @@ pub struct ProtocolConfig {
     pub reward_per_signature: u64,
     /// Max age in seconds of `canonical_timestamp` relative to cluster time at
     /// attestation/settlement ingress. Bounds the offline selection-grind space.
-    pub max_receipt_delay_seconds: u64,
+    pub max_settlement_delay_seconds: u64,
     pub dispute_window_slots: u64,
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
@@ -29,6 +29,12 @@ impl ProtocolConfig {
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
     /// Upper bound for every basis-point knob.
     pub const MAX_BPS: u16 = 10_000;
+
+    pub fn get_grace_active_until(&self) -> i64 {
+        let now = Clock::get().unwrap().unix_timestamp;
+        now.checked_add(self.max_settlement_delay_seconds as i64)
+            .unwrap()
+    }
 
     pub fn seeds(&self) -> [&[u8]; 2] {
         [Self::SEED_PREFIX, core::slice::from_ref(&self.bump)]

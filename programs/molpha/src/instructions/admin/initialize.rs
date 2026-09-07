@@ -16,7 +16,7 @@ pub struct InitializeArgs {
     pub redundancy_buffer: u8,
     pub minimum_node_deposit: u64,
     pub reward_per_signature: u64,
-    pub max_receipt_delay_seconds: u64,
+    pub max_settlement_delay_seconds: u64,
     pub dispute_window_slots: u64,
     pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
@@ -34,7 +34,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
         MolphaError::InvalidWithdrawalCooldown
     );
     require!(
-        args.max_receipt_delay_seconds > 0,
+        args.max_settlement_delay_seconds > 0,
         MolphaError::InvalidMaxReceiptDelay
     );
     require!(
@@ -50,7 +50,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.authority = ctx.accounts.authority.key();
     protocol_config.usdc_mint = args.usdc_mint;
     protocol_config.reward_per_signature = args.reward_per_signature;
-    protocol_config.max_receipt_delay_seconds = args.max_receipt_delay_seconds;
+    protocol_config.max_settlement_delay_seconds = args.max_settlement_delay_seconds;
     protocol_config.dispute_window_slots = args.dispute_window_slots;
     protocol_config.gateway_bond_min = args.gateway_bond_min;
     protocol_config.challenger_bounty_bps = args.challenger_bounty_bps;

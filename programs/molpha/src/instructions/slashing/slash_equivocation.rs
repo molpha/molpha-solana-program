@@ -119,6 +119,8 @@ pub fn punish_equivocation<'info>(
 
     let reporter = ctx.accounts.reporter.key();
     let new_registry_version = ctx.accounts.registry_state.next_version;
+    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
+
     let outcome = slash_nodes(
         SlashAccounts {
             registry_state: &mut ctx.accounts.registry_state,
@@ -129,7 +131,6 @@ pub fn punish_equivocation<'info>(
             punishment_case: &mut ctx.accounts.punishment_case,
             punishment_case_bump: ctx.bumps.punishment_case,
             reporter,
-            // node_deposits: ctx.accounts.node_deposits.to_account_info(),
             node_deposit_vault: &mut ctx.accounts.node_deposit_vault,
             treasury: &mut ctx.accounts.treasury,
             reporter_usdc: &ctx.accounts.reporter_usdc,
@@ -145,6 +146,7 @@ pub fn punish_equivocation<'info>(
             registry_version: args.registry_version,
             evidence_hash: args.evidence_hash,
             new_registry_version,
+            grace_active_until,
         },
     )?;
 
@@ -191,6 +193,7 @@ pub struct PunishEquivocation<'info> {
     pub evidence_registry: AccountLoader<'info, Registry>,
 
     #[account(
+        mut,
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
         bump,
     )]
