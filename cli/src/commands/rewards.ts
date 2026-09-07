@@ -41,30 +41,6 @@ export function registerRewardsCommands(program: Command): void {
     });
 
   rewards
-    .command("balance-gateway")
-    .description("Show claimable gateway rewards")
-    .option("--authority <pubkey>", "gateway authority; defaults to wallet")
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const authority = options.authority
-        ? parsePublicKey(options.authority, "authority")
-        : ctx.wallet.publicKey;
-      const [gatewayPda] = findGatewayPda(ctx.programId, authority);
-      const gateway = await fetchAccountOrNull<any>(
-        ctx.program,
-        "gateway",
-        gatewayPda,
-      );
-      if (!gateway)
-        throw new Error(`Gateway not found at ${gatewayPda.toBase58()}`);
-      writeJson({
-        authority: authority.toBase58(),
-        gateway: gatewayPda.toBase58(),
-        claimableRewards: gateway.claimableRewards.toString(),
-      });
-    });
-
-  rewards
     .command("claim-node")
     .description("Claim finalized rewards from the signer's permanent node")
     .action(async (options, command: Command) => {

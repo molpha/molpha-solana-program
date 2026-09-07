@@ -225,10 +225,7 @@ export function registerRegistryCommands(program: Command): void {
         throw new Error("Node is not a current registry member");
 
       const signature = await (ctx.program.methods as any)
-        .deactivateNode({
-          nodeOwner,
-          removeIndex,
-        })
+        .deactivateNode(nodeOwner)
         .accountsPartial({
           authority: ctx.wallet.publicKey,
           protocolConfig,

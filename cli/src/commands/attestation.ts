@@ -134,66 +134,6 @@ export function registerAttestationCommands(program: Command): void {
         feedAccount: feed ? accountJson(feedPda, feed) : null,
       });
     });
-
-  data
-    .command("verify")
-    .description("Verify an attestation against any historical registry")
-    .option("--fixture <path>", "fixture file")
-    .option("--args <path>", "json file with submit args")
-    .option("--source-id <hex>", "32-byte source identifier")
-    .option("--registry-version <number>", "registry version")
-    .option(
-      "--config-hash <hex>",
-      "optional 32-byte config hash (fixture metadata)",
-    )
-    .option("--value <hex>", "oracle value bytes (hex)")
-    .option("--canonical-timestamp <number>", "unix timestamp")
-    .option("--signer-count <number>", "number of signers to include", "8")
-    .option("--signers-bitmap <hex>", "explicit 32-byte signers bitmap")
-    .option("--signatures-required <number>", "override signatures required")
-    .option(
-      "--signer-seed <string>",
-      "deterministic signer seed",
-      "molpha-cli-e2e-signers",
-    )
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const submitArgs = resolveSubmitArgs(options, ctx.programId);
-      const [feedPda] = feedPdaFromSubmitArgs(
-        ctx.programId,
-        submitArgs,
-        ctx.wallet.publicKey,
-      );
-      const feed = await fetchAccountOrNull<any>(ctx.program, "feed", feedPda);
-      const registryVersion = Number(submitArgs.registryVersion);
-      const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
-      const registry = await fetchAccountOrNull<any>(
-        ctx.program,
-        "registry",
-        registryPda,
-      );
-      if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
-      const remaining = signerRemainingAccounts(
-        registry,
-        submitArgs.signersBitmap,
-      );
-      await (ctx.program.methods as any)
-        .verifyAttestation(submitArgs)
-        .accountsPartial({ registry: registryPda })
-        .remainingAccounts(remaining)
-        .simulate();
-
-      writeJson({
-        feed: feedPda.toBase58(),
-        feedExists: feed !== null,
-        submitArgs: {
-          ...submitArgs,
-          canonicalTimestamp: String(submitArgs.canonicalTimestamp),
-        },
-        registry: registryPda.toBase58(),
-        verified: true,
-      });
-    });
 }
 
 function buildSignedPayload(
