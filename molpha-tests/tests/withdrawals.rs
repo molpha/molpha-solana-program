@@ -161,7 +161,7 @@ fn a_gateway_exit_waits_for_the_dispute_window_and_keeps_its_identity_account() 
     let stranger = p.env.keypair();
     let unauthorized = p.deactivate_gateway_ix(&stranger.pubkey(), &authority.pubkey());
     let failed = p.env.send_err(&[unauthorized], &[&stranger]);
-    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintHasOne);
+    assert_molpha_error(&failed, MolphaError::UnauthorizedGatewayAuthority);
 
     p.env.advance_seconds(1);
     let protocol_authority = p.authority.insecure_clone();

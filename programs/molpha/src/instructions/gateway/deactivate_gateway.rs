@@ -11,6 +11,12 @@ pub fn deactivate_gateway(ctx: Context<DeactivateGateway>) -> Result<()> {
     let gateway = &mut ctx.accounts.gateway;
     let clock = Clock::get()?;
 
+    require!(
+        gateway.authority == ctx.accounts.authority.key()
+            || config.authority == ctx.accounts.authority.key(),
+        MolphaError::UnauthorizedGatewayAuthority
+    );
+
     let withdrawable_slot = clock
         .slot
         .checked_add(config.dispute_window_slots)
@@ -35,13 +41,15 @@ pub struct DeactivateGateway<'info> {
     pub authority: Signer<'info>,
 
     #[account(
-        has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = gateway.status == GatewayStatus::Active @ MolphaError::GatewayNotActive,
+    )]
     pub gateway: Account<'info, Gateway>,
 
     pub system_program: Program<'info, System>,

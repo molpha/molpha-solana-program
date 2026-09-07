@@ -147,12 +147,12 @@ fn restore_subscription_round<'info>(
         subscription.owner.to_bytes() == ctx.accounts.round_record.consumer_id,
         MolphaError::WrongSubscriptionAccount
     );
-    require!(
-        subscription.is_active_at(now),
-        MolphaError::WrongSubscriptionAccount
-    );
 
-    subscription.restore_round()
+    if subscription.is_active_at(now) {
+        subscription.restore_round()?;
+    }
+
+    Ok(())
 }
 
 #[derive(Accounts)]

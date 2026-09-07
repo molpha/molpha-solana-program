@@ -142,7 +142,6 @@ pub fn punish_commitment_reuse<'info>(
     )?;
 
     let reporter = ctx.accounts.reporter.key();
-    let new_registry_version = ctx.accounts.registry_state.next_version;
     let outcome = slash_nodes(
         SlashAccounts {
             registry_state: &mut ctx.accounts.registry_state,
@@ -167,7 +166,6 @@ pub fn punish_commitment_reuse<'info>(
             offence: OffenceKind::CommitmentReuse,
             registry_version: args.registry_version,
             evidence_hash: args.evidence_hash,
-            new_registry_version,
         },
     )?;
 
@@ -220,6 +218,7 @@ pub struct PunishCommitmentReuse<'info> {
     pub evidence_registry: AccountLoader<'info, Registry>,
 
     #[account(
+        mut,
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
         bump,
     )]

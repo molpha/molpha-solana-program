@@ -104,6 +104,8 @@ pub enum MolphaError {
     GatewayNotDeactivated,
     #[msg("gateway is not active")]
     GatewayNotActive,
+    #[msg("caller is not gateway.authority or protocol_config.authority")]
+    UnauthorizedGatewayAuthority,
     #[msg("subscription inactive or round quota exhausted")]
     SubscriptionInactiveOrExhausted,
     #[msg("dispute failed: the committed signature verifies (no fraud)")]

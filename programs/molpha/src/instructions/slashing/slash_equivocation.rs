@@ -118,9 +118,6 @@ pub fn punish_equivocation<'info>(
     )?;
 
     let reporter = ctx.accounts.reporter.key();
-    let new_registry_version = ctx.accounts.registry_state.next_version;
-    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
-
     let outcome = slash_nodes(
         SlashAccounts {
             registry_state: &mut ctx.accounts.registry_state,
@@ -145,8 +142,6 @@ pub fn punish_equivocation<'info>(
             offence: OffenceKind::Equivocation,
             registry_version: args.registry_version,
             evidence_hash: args.evidence_hash,
-            new_registry_version,
-            grace_active_until,
         },
     )?;
 

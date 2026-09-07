@@ -209,8 +209,6 @@ pub struct SlashInput<'a, 'info> {
     pub offence: OffenceKind,
     pub registry_version: u32,
     pub evidence_hash: [u8; 32],
-    pub new_registry_version: u32,
-    pub grace_active_until: i64,
 }
 
 /// Values the offence-specific `*Proven` event needs after the shared sentence runs.
@@ -231,12 +229,12 @@ pub fn slash_nodes<'a, 'b, 'info>(
     let batch = slash_guilty_nodes(&input, accounts.protocol_config.withdrawal_cooldown_slots)?;
     require!(!batch.victims.is_empty(), MolphaError::NothingToPunish);
     let slashed_total = batch.slashed_total();
-
+    let grace_active_until = accounts.protocol_config.get_grace_active_until();
     with_registry_snapshot(
         accounts.registry_state,
         accounts.current_registry,
         accounts.new_registry,
-        input.grace_active_until,
+        grace_active_until,
         accounts.new_registry_bump,
         |_current, next| {
             next.swap_remove_nodes(&batch.victims)?;

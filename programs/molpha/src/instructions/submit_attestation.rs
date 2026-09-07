@@ -61,6 +61,11 @@ pub fn submit_attestation(
         clock.unix_timestamp,
         ctx.accounts.protocol_config.max_settlement_delay_seconds,
     )?;
+    require!(
+        args.signatures_required >= ctx.accounts.protocol_config.min_signers,
+        MolphaError::SignaturesBelowMinSigners
+    );
+
     let feed = &mut ctx.accounts.feed;
 
     if feed.source_id == [0u8; 32] {
