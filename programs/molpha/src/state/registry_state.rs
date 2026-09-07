@@ -30,15 +30,6 @@ impl RegistryState {
         self.current_version = self.next_version;
         self.next_version = self.next_version.checked_add(1).unwrap();
     }
-
-    // pub fn require_next_version(&self, new_version: u32) -> Result<()> {
-    //     let expected = self
-    //         .current_version
-    //         .checked_add(1)
-    //         .ok_or(error!(MolphaError::RegistryVersionOverflow))?;
-    //     require!(new_version == expected, MolphaError::InvalidRegistryVersion);
-    //     Ok(())
-    // }
 }
 
 /// Immutable, version-addressed snapshot of the ordered node set and selection policy.

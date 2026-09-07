@@ -282,6 +282,26 @@ pub struct CommitmentReuseProven {
 }
 
 #[event]
+pub struct NonceReuseProven {
+    pub registry_version: u32,
+    pub node_index: u32,
+    pub epoch: u64,
+    pub batch_meta: [u8; 32],
+    pub batch_root: [u8; 32],
+    pub slot: u64,
+    pub r1_x: [u8; 32],
+    pub r1_y: [u8; 32],
+    pub r2_x: [u8; 32],
+    pub r2_y: [u8; 32],
+    pub guilty_bitmap: [u8; 32],
+    pub guilty_count: u16,
+    pub evidence_hash: [u8; 32],
+    pub reporter: Pubkey,
+    pub slashed_total: u64,
+    pub bounty_paid: u64,
+}
+
+#[event]
 pub struct NodePunished {
     pub node: Pubkey,
     pub owner: Pubkey,

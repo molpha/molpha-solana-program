@@ -9,10 +9,11 @@ use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::{InstructionData, ToAccountMetas};
 use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
-    AddDelegateArgs, AddPlanArgs, DeactivateNodeArgs, InitializeArgs, PunishEquivocationArgs,
-    PunishCommitmentReuseArgs, PunishUnsolicitedSigningArgs, RegisterGatewayArgs, RegisterNodeArgs,
-    RemoveDelegateArgs, SettleRoundArgs, SettleX402RoundArgs, SubmitAttestationArgs,
-    UpdateConfigArgs, UpdateNodeEndpointArgs, UpdatePlanArgs,
+    AddDelegateArgs, AddPlanArgs, DeactivateNodeArgs, InitializeArgs, PunishCommitmentReuseArgs,
+    PunishEquivocationArgs, PunishNonceReuseArgs, PunishUnsolicitedSigningArgs,
+    RegisterGatewayArgs, RegisterNodeArgs, RemoveDelegateArgs, SettleRoundArgs,
+    SettleX402RoundArgs, SubmitAttestationArgs, UpdateConfigArgs, UpdateNodeEndpointArgs,
+    UpdatePlanArgs,
 };
 use molpha::state::{AggregatedSig, PlanType, RegistryState};
 use solana_keypair::Keypair;
@@ -1348,6 +1349,46 @@ impl Protocol {
             data: molpha::instruction::PunishCommitmentReuse { args }.data(),
         }
     }
+
+    pub fn punish_nonce_reuse_ix(
+        &self,
+        reporter: &Pubkey,
+        args: PunishNonceReuseArgs,
+    ) -> Instruction {
+        self.punish_nonce_reuse_ix_with_registry(reporter, args, self.current_version() + 1)
+    }
+
+    pub fn punish_nonce_reuse_ix_with_registry(
+        &self,
+        reporter: &Pubkey,
+        args: PunishNonceReuseArgs,
+        new_registry_version: u32,
+    ) -> Instruction {
+        let guilty = crypto::bitmap_from_bits(&[args.node_index as usize]);
+        let accused = self.node_pdas_for_bitmap(args.registry_version, &guilty);
+        let mut accounts = molpha::accounts::PunishNonceReuse {
+            reporter: *reporter,
+            protocol_config: pda::protocol_config(),
+            registry_state: pda::registry_state(),
+            evidence_registry: pda::registry(args.registry_version),
+            current_registry: pda::registry(self.current_version()),
+            new_registry: pda::registry(new_registry_version),
+            punishment_case: pda::punishment_case(&args.evidence_hash),
+            node_deposits: pda::node_deposits(),
+            node_deposit_vault: self.node_deposit_vault(),
+            treasury: self.treasury(),
+            reporter_usdc: pda::ata(reporter, &self.usdc_mint),
+            token_program: pda::TOKEN_PROGRAM_ID,
+            system_program: anchor_lang::solana_program::system_program::ID,
+        }
+        .to_account_metas(None);
+        accounts.extend(crate::env::writable_metas(accused));
+        Instruction {
+            program_id: molpha::ID,
+            accounts,
+            data: molpha::instruction::PunishNonceReuse { args }.data(),
+        }
+    }
 }
 
 /// The guilty set of an unsolicited-signing filing: signers outside the derived selection.
@@ -1378,7 +1419,7 @@ pub fn union_bitmap(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
     out
 }
 
-/// Bitwise intersection — the guilty set for equivocation and nonce reuse.
+/// Bitwise intersection — the guilty set for equivocation and commitment reuse.
 pub fn intersect_bitmap(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
     let mut out = [0u8; 32];
     for i in 0..32 {

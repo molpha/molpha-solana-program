@@ -26,9 +26,9 @@ custom-panic = []
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
 
 [dependencies]
-molpha-verifier = { version = "0.3.0-dev.9", features = ["solana"] }
-anchor-lang = { version = "1.1.2", features = ["init-if-needed"] }
-anchor-spl = { version = "1.1.2", default-features = false, features = [
+molpha-verifier = { version = "0.3.0-dev.10", features = ["solana"] }
+anchor-lang = { version = "1.2.0", features = ["init-if-needed"] }
+anchor-spl = { version = "1.2.0", default-features = false, features = [
     "associated_token",
     "token",
     "token_2022",
@@ -36,5 +36,5 @@ anchor-spl = { version = "1.1.2", default-features = false, features = [
 # Program IDs are defined in code constants
 borsh = "1.7.0"
 solana-keccak-hasher = { version = "3.1.0", features = ["sha3"] }
-solana-instructions-sysvar = "3.0.0"
+solana-instructions-sysvar = "4.0.0"
 bytemuck = { version = "1.24", features = ["derive", "min_const_generics"] }

@@ -10,8 +10,8 @@ use crate::{
     error::{map_attestation_err, MolphaError},
     events::CommitmentReuseProven,
     state::{
-        commitment_reuse_evidence_hash, resolve_registry_signers_indexed, OffenceKind, ProtocolConfig,
-        PunishmentCase, Registry, RegistryState, SignedStatement, SigningContext,
+        commitment_reuse_evidence_hash, resolve_registry_signers_indexed, OffenceKind,
+        ProtocolConfig, PunishmentCase, Registry, RegistryState, SignedStatement, SigningContext,
         NODE_DEPOSITS_SEED,
     },
     utils::{

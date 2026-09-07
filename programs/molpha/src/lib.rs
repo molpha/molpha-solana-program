@@ -149,6 +149,13 @@ pub mod molpha {
         instructions::punish_commitment_reuse(ctx, args)
     }
 
+    pub fn punish_nonce_reuse<'info>(
+        ctx: Context<'info, PunishNonceReuse<'info>>,
+        args: PunishNonceReuseArgs,
+    ) -> Result<()> {
+        instructions::punish_nonce_reuse(ctx, args)
+    }
+
     pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
         instructions::reinstate_node(ctx)
     }

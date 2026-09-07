@@ -7,9 +7,12 @@
 
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{
+    commitment_batch_message_hash, commitment_leaf_hash, commitment_reuse_evidence_hash,
     equivocation_evidence_hash, hash_request_auth, hash_request_auth_fields,
-    commitment_reuse_evidence_hash, unsolicited_signing_evidence_hash, RequestAuth, SignedStatement,
-    SigningContext, DOMAIN_EQUIVOCATION, DOMAIN_REQAUTH,
+    nonce_reuse_evidence_hash, unsolicited_signing_evidence_hash, verify_commitment_merkle_proof,
+    CommittedNoncePair, PartialTranscript, RequestAuth, SignedStatement, SigningContext,
+    COMMITMENT_MERKLE_NODE_PREFIX, DOMAIN_COMMITMENT_BATCH, DOMAIN_COMMITMENT_REUSE,
+    DOMAIN_EQUIVOCATION, DOMAIN_NONCE_REUSE, DOMAIN_REQAUTH,
 };
 
 const GATEWAY: Pubkey = Pubkey::new_from_array([0x22; 32]);
@@ -187,6 +190,194 @@ fn offence_evidence_domains_do_not_collide() {
     assert_ne!(equivocation, unsolicited);
     assert_ne!(equivocation, commitment_reuse);
     assert_ne!(unsolicited, commitment_reuse);
+
+    let nonce_reuse = fixture_nonce_reuse_hash();
+    assert_ne!(equivocation, nonce_reuse);
+    assert_ne!(unsolicited, nonce_reuse);
+    assert_ne!(commitment_reuse, nonce_reuse);
+    assert_ne!(DOMAIN_NONCE_REUSE, DOMAIN_COMMITMENT_REUSE);
+    assert_ne!(DOMAIN_NONCE_REUSE, DOMAIN_COMMITMENT_BATCH);
+}
+
+fn fixture_nonces() -> CommittedNoncePair {
+    CommittedNoncePair {
+        r1_x: [0x31; 32],
+        r1_y: [0x32; 32],
+        r2_x: [0x33; 32],
+        r2_y: [0x34; 32],
+    }
+}
+
+fn fixture_transcript(tag: u8) -> PartialTranscript {
+    PartialTranscript {
+        b: [tag; 32],
+        c: [tag.wrapping_add(1); 32],
+        s: [tag.wrapping_add(2); 32],
+    }
+}
+
+fn fixture_nonce_reuse_hash() -> [u8; 32] {
+    nonce_reuse_evidence_hash(
+        4,
+        1,
+        9,
+        &[0x55; 32],
+        &[0x66; 32],
+        3,
+        &fixture_nonces(),
+        &fixture_transcript(1),
+        &fixture_transcript(9),
+    )
+}
+
+#[test]
+fn nonce_reuse_hash_commits_to_every_field() {
+    let base = fixture_nonce_reuse_hash();
+    let nonces = fixture_nonces();
+    let (a, b) = (fixture_transcript(1), fixture_transcript(9));
+
+    // Each argument, varied one at a time.
+    assert_ne!(
+        nonce_reuse_evidence_hash(5, 1, 9, &[0x55; 32], &[0x66; 32], 3, &nonces, &a, &b),
+        base,
+        "registry_version"
+    );
+    assert_ne!(
+        nonce_reuse_evidence_hash(4, 2, 9, &[0x55; 32], &[0x66; 32], 3, &nonces, &a, &b),
+        base,
+        "node_index"
+    );
+    assert_ne!(
+        nonce_reuse_evidence_hash(4, 1, 10, &[0x55; 32], &[0x66; 32], 3, &nonces, &a, &b),
+        base,
+        "epoch"
+    );
+    assert_ne!(
+        nonce_reuse_evidence_hash(4, 1, 9, &[0x56; 32], &[0x66; 32], 3, &nonces, &a, &b),
+        base,
+        "batch_meta"
+    );
+    assert_ne!(
+        nonce_reuse_evidence_hash(4, 1, 9, &[0x55; 32], &[0x67; 32], 3, &nonces, &a, &b),
+        base,
+        "batch_root"
+    );
+    assert_ne!(
+        nonce_reuse_evidence_hash(4, 1, 9, &[0x55; 32], &[0x66; 32], 4, &nonces, &a, &b),
+        base,
+        "slot"
+    );
+
+    for mutate in [
+        (|n: &mut CommittedNoncePair| n.r1_x[0] ^= 0xff) as fn(&mut CommittedNoncePair),
+        |n: &mut CommittedNoncePair| n.r1_y[0] ^= 0xff,
+        |n: &mut CommittedNoncePair| n.r2_x[0] ^= 0xff,
+        |n: &mut CommittedNoncePair| n.r2_y[0] ^= 0xff,
+    ] {
+        let mut tampered = nonces;
+        mutate(&mut tampered);
+        assert_ne!(
+            nonce_reuse_evidence_hash(4, 1, 9, &[0x55; 32], &[0x66; 32], 3, &tampered, &a, &b),
+            base,
+            "nonce coordinate"
+        );
+    }
+
+    for mutate in [
+        (|t: &mut PartialTranscript| t.b[0] ^= 0xff) as fn(&mut PartialTranscript),
+        |t: &mut PartialTranscript| t.c[0] ^= 0xff,
+        |t: &mut PartialTranscript| t.s[0] ^= 0xff,
+    ] {
+        let mut tampered = a;
+        mutate(&mut tampered);
+        let hash =
+            nonce_reuse_evidence_hash(4, 1, 9, &[0x55; 32], &[0x66; 32], 3, &nonces, &tampered, &b);
+        assert_ne!(hash, base, "transcript field");
+    }
+}
+
+/// Filing the two transcripts in either order is one offence, so it must be one case.
+#[test]
+fn nonce_reuse_hash_is_transcript_order_independent() {
+    let nonces = fixture_nonces();
+    let (a, b) = (fixture_transcript(1), fixture_transcript(9));
+    assert_eq!(
+        nonce_reuse_evidence_hash(4, 1, 9, &[0x55; 32], &[0x66; 32], 3, &nonces, &a, &b),
+        nonce_reuse_evidence_hash(4, 1, 9, &[0x55; 32], &[0x66; 32], 3, &nonces, &b, &a),
+    );
+}
+
+/// Leaves and internal nodes carry different prefixes, so an internal node cannot be replayed as a
+/// leaf to claim a commitment that was never made.
+#[test]
+fn merkle_leaves_cannot_be_confused_with_internal_nodes() {
+    let nonces = fixture_nonces();
+    let leaf = commitment_leaf_hash(3, &nonces);
+    let other = commitment_leaf_hash(4, &nonces);
+
+    // A two-leaf tree: the root is an internal hash of both leaves.
+    let root = {
+        let (lo, hi) = if leaf <= other {
+            (leaf, other)
+        } else {
+            (other, leaf)
+        };
+        solana_keccak_hasher::hashv(&[COMMITMENT_MERKLE_NODE_PREFIX, lo.as_slice(), hi.as_slice()])
+            .to_bytes()
+    };
+    assert!(verify_commitment_merkle_proof(leaf, &[other], &root));
+    assert!(verify_commitment_merkle_proof(other, &[leaf], &root));
+
+    // The root is not itself a leaf of anything.
+    assert_ne!(root, leaf);
+    assert!(!verify_commitment_merkle_proof(root, &[], &leaf));
+    // A leaf only matches an empty proof against a root that is that leaf.
+    assert!(verify_commitment_merkle_proof(leaf, &[], &leaf));
+    assert!(!verify_commitment_merkle_proof(leaf, &[], &root));
+}
+
+#[test]
+fn commitment_leaf_commits_to_the_slot_and_both_nonces() {
+    let nonces = fixture_nonces();
+    let base = commitment_leaf_hash(3, &nonces);
+    assert_ne!(commitment_leaf_hash(4, &nonces), base);
+
+    let mut other = nonces;
+    other.r2_y[31] ^= 1;
+    assert_ne!(commitment_leaf_hash(3, &other), base);
+}
+
+#[test]
+fn batch_message_binds_the_deployment_the_registry_version_and_the_node() {
+    let base = commitment_batch_message_hash(&molpha::ID, 4, 1, 9, &[0x55; 32], &[0x66; 32]);
+    let other_program = Pubkey::new_from_array([0x99; 32]);
+
+    // A batch signed for one deployment must not be filable against another.
+    assert_ne!(
+        commitment_batch_message_hash(&other_program, 4, 1, 9, &[0x55; 32], &[0x66; 32]),
+        base
+    );
+    // `node_index` only names a node within one registry version, so both are bound.
+    assert_ne!(
+        commitment_batch_message_hash(&molpha::ID, 5, 1, 9, &[0x55; 32], &[0x66; 32]),
+        base
+    );
+    assert_ne!(
+        commitment_batch_message_hash(&molpha::ID, 4, 2, 9, &[0x55; 32], &[0x66; 32]),
+        base
+    );
+    assert_ne!(
+        commitment_batch_message_hash(&molpha::ID, 4, 1, 10, &[0x55; 32], &[0x66; 32]),
+        base
+    );
+    assert_ne!(
+        commitment_batch_message_hash(&molpha::ID, 4, 1, 9, &[0x56; 32], &[0x66; 32]),
+        base
+    );
+    assert_ne!(
+        commitment_batch_message_hash(&molpha::ID, 4, 1, 9, &[0x55; 32], &[0x67; 32]),
+        base
+    );
 }
 
 #[test]

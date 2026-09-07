@@ -1,157 +1,261 @@
-//! `punish_nonce_reuse`: one aggregate nonce commitment reused across two signed messages.
+//! `punish_nonce_reuse`: two verifying partials against one batch-committed nonce pair.
 
 use molpha::error::MolphaError;
-use molpha::events::{NodePunished, CommitmentReuseProven};
-use molpha::instructions::PunishCommitmentReuseArgs;
+use molpha::events::{NodePunished, NonceReuseProven};
+use molpha::instructions::PunishNonceReuseArgs;
 use molpha::state::{
-    commitment_reuse_evidence_hash, MembershipAction, Node, NodeStatus, OffenceKind, PunishmentCase,
+    nonce_reuse_evidence_hash, CommittedNoncePair, MembershipAction, Node, NodeStatus, OffenceKind,
+    PartialTranscript, PunishmentCase, MAX_COMMITMENT_PROOF_DEPTH,
 };
-use molpha_tests::crypto;
-use molpha_tests::env::{assert_anchor_error, assert_molpha_error, events, only_event};
+use molpha_tests::crypto::{self, CommitmentBatchTree, CommittedSlot, NodeKey};
+use molpha_tests::env::{assert_molpha_error, events, only_event, PACKET_DATA_SIZE};
 use molpha_tests::pda;
-use molpha_tests::scenario::{intersect_bitmap, Duty, Protocol, SignedAttestation};
+use molpha_tests::scenario::Protocol;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 
 const NODE_COUNT: usize = 8;
-const SIGS: u8 = 4;
-/// The nonce both statements are signed under — reusing it is the whole offence.
-const SHARED_NONCE: [u8; 32] = [0x5c; 32];
+const EPOCH: u64 = 42;
+const BATCH_META: [u8; 32] = [0x77; 32];
+/// The slot whose nonce pair gets consumed twice.
+const REUSED_SLOT: u64 = 5;
+const SLOTS_PER_BATCH: u64 = 8;
+
+/// Two challenge pairs the node evaluates against one commitment. Distinct `(b, c)` is the offence.
+const B_A: [u8; 32] = [0x03; 32];
+const C_A: [u8; 32] = [0x05; 32];
+const B_B: [u8; 32] = [0x07; 32];
+const C_B: [u8; 32] = [0x11; 32];
+
+/// Solana's per-transaction maximum, which the harness requests for every transaction.
+const MAX_COMPUTE_UNITS: u64 = 1_400_000;
+
+/// Regression ceiling. A filing measures ~690k CU and is dominated by the fixed cost every slash
+/// pays — allocating and rotating two 8 KiB registry accounts, plus two token transfers. The five
+/// `secp256k1_recover` syscalls that verify the batch signature and both partial equations are
+/// ~25k each, so the cryptography is a sixth of the bill and proof depth barely moves it.
+const NONCE_REUSE_CU_CEILING: u64 = 800_000;
+
+/// Deepest merkle proof whose filing still fits a legacy packet, asserted exactly.
+///
+/// Args are fixed-size apart from the proof, so each level of batch depth costs exactly 32 bytes.
+/// Deeper batches stay filable through a v0 transaction with an address lookup table.
+const MAX_LEGACY_PROOF_DEPTH: usize = 3;
 
 struct Case {
     p: Protocol,
     reporter: Keypair,
-    a: SignedAttestation,
-    b: SignedAttestation,
+    node_index: u32,
+    node_key: NodeKey,
+    batch: CommitmentBatchTree,
+    leaf_index: usize,
+    registry_version: u32,
 }
 
-fn duty_a() -> Duty {
-    Duty::new(NODE_COUNT as u32, SIGS).source_id([0x11; 32])
+impl Case {
+    fn slot(&self) -> &CommittedSlot {
+        &self.batch.slots[self.leaf_index]
+    }
+
+    fn nonces(&self) -> CommittedNoncePair {
+        let slot = self.slot();
+        CommittedNoncePair {
+            r1_x: slot.r1.x,
+            r1_y: slot.r1.y,
+            r2_x: slot.r2.x,
+            r2_y: slot.r2.y,
+        }
+    }
+
+    fn transcript(&self, b: [u8; 32], c: [u8; 32]) -> PartialTranscript {
+        PartialTranscript {
+            b,
+            c,
+            s: crypto::forge_partial_transcript(self.slot(), &self.node_key, &b, &c),
+        }
+    }
+
+    fn guilty_pda(&self) -> anchor_lang::prelude::Pubkey {
+        self.p.env.registry(self.registry_version).nodes[self.node_index as usize]
+    }
 }
 
-fn duty_b() -> Duty {
-    Duty::new(NODE_COUNT as u32, SIGS)
-        .source_id([0x22; 32])
-        .value([0xbb; 32])
-}
-
-/// Bits selected for both duties — a coalition that could legitimately sign either.
-fn shared_bits(p: &Protocol, a: &Duty, b: &Duty, count: usize) -> Vec<usize> {
-    let selection_b = p.selection_bits(b);
-    let shared: Vec<usize> = p
-        .selection_bits(a)
-        .into_iter()
-        .filter(|bit| selection_b.contains(bit))
-        .collect();
-    assert!(
-        shared.len() >= count,
-        "the two selections overlap on only {} of {count} needed bits",
-        shared.len()
-    );
-    shared[..count].to_vec()
-}
-
-/// One coalition signing two different duties under a single nonce.
+/// A node that committed a batch of nonce pairs and then signed twice against one of them.
 fn case() -> Case {
+    case_with_batch(SLOTS_PER_BATCH)
+}
+
+fn case_with_batch(slots: u64) -> Case {
     let mut p = Protocol::start();
     p.register_nodes("nonce-reuse", NODE_COUNT);
     let reporter = p.reporter();
+    let registry_version = p.current_version();
 
-    let (a_duty, b_duty) = (duty_a(), duty_b());
-    let bits = shared_bits(&p, &a_duty, &b_duty, SIGS as usize);
-    let a = p.sign_duty_with_bits(a_duty, &bits, Some(SHARED_NONCE));
-    let b = p.sign_duty_with_bits(b_duty, &bits, Some(SHARED_NONCE));
-    assert_eq!(
-        a.signature.commitment, b.signature.commitment,
-        "a reused nonce must produce a shared commitment"
-    );
-    assert_ne!(a.message_hash, b.message_hash);
+    // The offender is whichever node sits at registry index 0.
+    let registry = p.env.registry(registry_version);
+    let node_index = 0u32;
+    let pda_at_index = registry.nodes[node_index as usize];
+    let node_key = p
+        .nodes
+        .iter()
+        .find(|n| n.pda == pda_at_index)
+        .expect("registry entry is a registered node")
+        .key
+        .clone();
 
-    Case { p, reporter, a, b }
+    let batch = CommitmentBatchTree::derive("nonce-reuse-batch", 0, slots);
+    let leaf_index = batch
+        .slots
+        .iter()
+        .position(|s| s.slot == REUSED_SLOT.min(slots - 1))
+        .expect("reused slot is in the batch");
+
+    Case {
+        p,
+        reporter,
+        node_index,
+        node_key,
+        batch,
+        leaf_index,
+        registry_version,
+    }
 }
 
-fn args_for(_case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> PunishCommitmentReuseArgs {
-    let registry_version = a.duty.registry_version;
-    let evidence_hash = commitment_reuse_evidence_hash(
-        registry_version,
-        &a.signing_context(),
-        &a.statement(),
-        &b.signing_context(),
-        &b.statement(),
+fn args_for(case: &Case) -> PunishNonceReuseArgs {
+    args_with_transcripts(case, case.transcript(B_A, C_A), case.transcript(B_B, C_B))
+}
+
+fn args_with_transcripts(
+    case: &Case,
+    transcript_a: PartialTranscript,
+    transcript_b: PartialTranscript,
+) -> PunishNonceReuseArgs {
+    let batch_root = case.batch.root();
+    let signature = crypto::sign_commitment_batch(
+        &case.node_key,
+        &molpha::ID,
+        case.registry_version,
+        case.node_index,
+        EPOCH,
+        &BATCH_META,
+        &batch_root,
     );
-    PunishCommitmentReuseArgs {
-        registry_version,
-        context_a: a.signing_context(),
-        statement_a: a.statement(),
-        context_b: b.signing_context(),
-        statement_b: b.statement(),
+    let nonces = case.nonces();
+    let evidence_hash = nonce_reuse_evidence_hash(
+        case.registry_version,
+        case.node_index,
+        EPOCH,
+        &BATCH_META,
+        &batch_root,
+        case.slot().slot,
+        &nonces,
+        &transcript_a,
+        &transcript_b,
+    );
+    PunishNonceReuseArgs {
+        registry_version: case.registry_version,
+        node_index: case.node_index,
+        epoch: EPOCH,
+        batch_meta: BATCH_META,
+        batch_root,
+        batch_sig_s: signature.agg_sig_s,
+        batch_commitment_addr: signature.commitment,
+        slot: case.slot().slot,
+        nonces,
+        merkle_proof: case.batch.proof(case.leaf_index),
+        transcript_a,
+        transcript_b,
         evidence_hash,
     }
 }
 
-#[test]
-fn a_proven_nonce_reuse_halves_the_stake_tombstones_and_evicts_the_intersection() {
-    let mut case = case();
-    let args = args_for(&case, &case.a, &case.b);
-    let guilty_bitmap = intersect_bitmap(&case.a.signers_bitmap, &case.b.signers_bitmap);
-    let guilty = case
-        .p
-        .node_pdas_for_bitmap(case.a.duty.registry_version, &guilty_bitmap);
-    assert_eq!(guilty.len(), SIGS as usize);
+/// Recompute the evidence hash after mutating a field, so a rejection test fails on the reason it
+/// is testing rather than on a stale hash.
+fn resealed(mut args: PunishNonceReuseArgs) -> PunishNonceReuseArgs {
+    args.evidence_hash = nonce_reuse_evidence_hash(
+        args.registry_version,
+        args.node_index,
+        args.epoch,
+        &args.batch_meta,
+        &args.batch_root,
+        args.slot,
+        &args.nonces,
+        &args.transcript_a,
+        &args.transcript_b,
+    );
+    args
+}
 
-    let locked_each = case.p.args.minimum_node_deposit;
-    // Nonce reuse is a 50% slash, unlike the full slash for equivocation.
-    let penalty = OffenceKind::CommitmentReuse.penalty();
-    assert_eq!(penalty.slash_bps, 5_000);
-    assert_eq!(penalty.membership, MembershipAction::Tombstone);
-    let expected_slashed = locked_each / 2 * guilty.len() as u64;
-    let expected_bounty =
-        (expected_slashed as u128 * case.p.args.challenger_bounty_bps as u128 / 10_000) as u64;
-    let treasury_before = case.p.treasury_balance();
-
+fn file(case: &mut Case, args: PunishNonceReuseArgs) -> litesvm::types::TransactionMetadata {
     let reporter = case.reporter.insecure_clone();
-    let new_version = case.p.current_version() + 1;
-    let ix = case
-        .p
-        .punish_commitment_reuse_ix(&reporter.pubkey(), args.clone());
-    let meta = case.p.env.send_ok(&[ix], &[&reporter]);
+    let ix = case.p.punish_nonce_reuse_ix(&reporter.pubkey(), args);
+    case.p.env.send_ok(&[ix], &[&reporter])
+}
 
-    for node in &guilty {
-        let account: Node = case.p.env.get(node);
-        assert_eq!(account.status, NodeStatus::Tombstoned);
-        assert_eq!(
-            account.locked_amount,
-            locked_each - locked_each / 2,
-            "half the deposit survives the slash"
-        );
-        assert_eq!(
-            account.withdrawable_slot,
-            case.p
-                .env
-                .slot()
-                .saturating_add(case.p.args.withdrawal_cooldown_slots)
-        );
-    }
+fn file_err(
+    case: &mut Case,
+    args: PunishNonceReuseArgs,
+) -> litesvm::types::FailedTransactionMetadata {
+    let reporter = case.reporter.insecure_clone();
+    let ix = case.p.punish_nonce_reuse_ix(&reporter.pubkey(), args);
+    case.p.env.send_err(&[ix], &[&reporter])
+}
+
+#[test]
+fn a_proven_nonce_reuse_takes_the_whole_deposit_tombstones_and_evicts_the_node() {
+    let mut case = case();
+    let args = args_for(&case);
+    let guilty = case.guilty_pda();
+
+    let locked = case.p.args.minimum_node_deposit;
+    // Unlike commitment reuse, reusing a committed nonce is key-compromise-equivalent.
+    let penalty = OffenceKind::NonceReuse.penalty();
+    assert_eq!(penalty.slash_bps, 10_000);
+    assert_eq!(penalty.membership, MembershipAction::Tombstone);
+    let expected_bounty =
+        (locked as u128 * case.p.args.challenger_bounty_bps as u128 / 10_000) as u64;
+    let treasury_before = case.p.treasury_balance();
+    let new_version = case.p.current_version() + 1;
+
+    let meta = file(&mut case, args.clone());
+    println!(
+        "punish_nonce_reuse: depth {} -> {} CU",
+        args.merkle_proof.len(),
+        meta.compute_units_consumed
+    );
+    assert!(
+        meta.compute_units_consumed < NONCE_REUSE_CU_CEILING,
+        "filing got more expensive: {} CU",
+        meta.compute_units_consumed
+    );
+
+    let account: Node = case.p.env.get(&guilty);
+    assert_eq!(account.status, NodeStatus::Tombstoned);
+    assert_eq!(account.locked_amount, 0, "the full deposit is slashed");
+    assert_eq!(
+        account.withdrawable_slot,
+        case.p
+            .env
+            .slot()
+            .saturating_add(case.p.args.withdrawal_cooldown_slots)
+    );
     for node in case.p.node_pdas() {
-        if !guilty.contains(&node) {
-            let account: Node = case.p.env.get(&node);
-            assert_eq!(account.status, NodeStatus::Active);
-            assert_eq!(account.locked_amount, locked_each);
+        if node != guilty {
+            let other: Node = case.p.env.get(&node);
+            assert_eq!(other.status, NodeStatus::Active);
+            assert_eq!(other.locked_amount, locked);
         }
     }
 
     let after = case.p.env.registry(new_version);
-    assert_eq!(after.node_count as usize, NODE_COUNT - guilty.len());
-    for node in &guilty {
-        assert!(!after.nodes.contains(node));
-    }
+    assert_eq!(after.node_count as usize, NODE_COUNT - 1);
+    assert!(!after.nodes.contains(&guilty));
 
-    // The bounty is paid out of what the punishment just recovered, in the same instruction.
-    let reporter_usdc = pda::ata(&reporter.pubkey(), &case.p.usdc_mint);
+    let reporter_usdc = pda::ata(&case.reporter.pubkey(), &case.p.usdc_mint);
     assert_eq!(case.p.env.token_balance(&reporter_usdc), expected_bounty);
     assert_eq!(
         case.p.treasury_balance(),
-        treasury_before + expected_slashed - expected_bounty
+        treasury_before + locked - expected_bounty
     );
     assert_eq!(
         case.p.node_deposit_balance(),
@@ -161,305 +265,354 @@ fn a_proven_nonce_reuse_halves_the_stake_tombstones_and_evicts_the_intersection(
     case.p.assert_solvent();
 
     let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));
-    assert_eq!(record.offence, OffenceKind::CommitmentReuse);
-    assert_eq!(record.guilty_bitmap, guilty_bitmap);
-    assert_eq!(record.guilty_count, guilty.len() as u16);
-    assert_eq!(record.slashed_total, expected_slashed);
+    assert_eq!(record.offence, OffenceKind::NonceReuse);
+    assert_eq!(record.guilty_count, 1);
+    assert_eq!(record.slashed_total, locked);
     assert_eq!(record.bounty_paid, expected_bounty);
+    assert_eq!(record.registry_version, case.registry_version);
 
-    let proven: CommitmentReuseProven = only_event(&meta);
-    assert_eq!(proven.commitment_addr, case.a.signature.commitment);
-    assert_eq!(proven.source_id_a, case.a.duty.source_id);
-    assert_eq!(proven.source_id_b, case.b.duty.source_id);
-    assert_eq!(proven.guilty_count, guilty.len() as u16);
-    assert_eq!(events::<NodePunished>(&meta).len(), guilty.len());
-
-    case.p
-        .env
-        .advance_slots(case.p.args.withdrawal_cooldown_slots);
-    for node in &guilty {
-        let owner = case
-            .p
-            .nodes
-            .iter()
-            .find(|registered| registered.pda == *node)
-            .expect("guilty node is registered")
-            .owner
-            .insecure_clone();
-        let survivor = case.p.env.get::<Node>(node).locked_amount;
-        let destination = pda::ata(&owner.pubkey(), &case.p.usdc_mint);
-        let before = case.p.env.token_balance(&destination);
-        let ix = case.p.withdraw_node_deposit_ix(&owner.pubkey());
-        case.p.env.send_ok(&[ix], &[&owner]);
-        assert_eq!(case.p.env.token_balance(&destination), before + survivor);
-        assert_eq!(case.p.env.get::<Node>(node).locked_amount, 0);
-    }
+    let proven: NonceReuseProven = only_event(&meta);
+    assert_eq!(proven.node_index, case.node_index);
+    assert_eq!(proven.epoch, EPOCH);
+    assert_eq!(proven.slot, case.slot().slot);
+    assert_eq!(proven.batch_root, args.batch_root);
+    assert_eq!(proven.r1_x, args.nonces.r1_x);
+    assert_eq!(proven.guilty_count, 1);
+    assert_eq!(proven.slashed_total, locked);
+    assert_eq!(events::<NodePunished>(&meta).len(), 1);
 }
 
+/// A tombstoned node keeps nothing to slash, so a second filing has nothing to do.
 #[test]
-fn statements_that_do_not_share_a_commitment_are_not_nonce_reuse() {
-    let mut p = Protocol::start();
-    p.register_nodes("nonce-independent", NODE_COUNT);
-    let reporter = p.reporter();
-    let (a_duty, b_duty) = (duty_a(), duty_b());
-    let bits = shared_bits(&p, &a_duty, &b_duty, SIGS as usize);
-
-    // Independent nonces: exactly what honest signing does.
-    let a = p.sign_duty_with_bits(a_duty, &bits, Some([0x01; 32]));
-    let b = p.sign_duty_with_bits(b_duty, &bits, Some([0x02; 32]));
-    assert_ne!(a.signature.commitment, b.signature.commitment);
-
-    let case = Case {
-        p,
-        reporter,
-        a: a.clone(),
-        b: b.clone(),
-    };
-    let args = args_for(&case, &a, &b);
-    let mut case = case;
-    let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::NonceCommitmentMismatch);
-}
-
-#[test]
-fn one_statement_filed_against_itself_is_not_nonce_reuse() {
+fn a_second_filing_against_a_tombstoned_node_finds_nothing_to_punish() {
     let mut case = case();
-    let reporter = case.reporter.insecure_clone();
-    let args = args_for(&case, &case.a, &case.a);
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::NonceReuseSameMessage);
+    let args = args_for(&case);
+    file(&mut case, args);
+
+    let fresh = args_with_transcripts(
+        &case,
+        case.transcript([0x21; 32], [0x23; 32]),
+        case.transcript([0x27; 32], [0x29; 32]),
+    );
+    let err = file_err(&mut case, fresh);
+    assert_molpha_error(&err, MolphaError::NothingToPunish);
 }
 
 #[test]
-fn same_duty_with_different_values_must_be_filed_as_equivocation() {
-    let mut p = Protocol::start();
-    p.register_nodes("nonce-prefer-equivocation", NODE_COUNT);
-    let reporter = p.reporter();
-    let duty = duty_a();
-    let bits = p.selection_bits(&duty)[..SIGS as usize].to_vec();
-
-    // Identical duty, different values, one nonce: that is a fork, not nonce reuse.
-    let a = p.sign_duty_with_bits(duty.value([0x01; 32]), &bits, Some(SHARED_NONCE));
-    let b = p.sign_duty_with_bits(duty.value([0x02; 32]), &bits, Some(SHARED_NONCE));
-
-    let case = Case {
-        p,
-        reporter,
-        a: a.clone(),
-        b: b.clone(),
-    };
-    let args = args_for(&case, &a, &b);
-    let mut case = case;
-    let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::PreferEquivocation);
-}
-
-#[test]
-fn the_same_duty_with_the_same_value_but_different_coalitions_is_nonce_reuse() {
-    let mut p = Protocol::start();
-    p.register_nodes("nonce-same-duty", NODE_COUNT);
-    let reporter = p.reporter();
-    let duty = duty_a();
-    let selection = p.selection_bits(&duty);
-
-    // Same duty tuple and value, different signer sets: the message hashes differ because the
-    // bitmap is part of the message, so `PreferEquivocation` does not apply.
-    let a = p.sign_duty_with_bits(duty, &selection[0..4], Some(SHARED_NONCE));
-    let b = p.sign_duty_with_bits(duty, &selection[1..5], Some(SHARED_NONCE));
-    assert_eq!(a.signature.commitment, b.signature.commitment);
-
-    let case = Case {
-        p,
-        reporter,
-        a: a.clone(),
-        b: b.clone(),
-    };
-    let args = args_for(&case, &a, &b);
-    let expected_guilty = intersect_bitmap(&a.signers_bitmap, &b.signers_bitmap);
-
-    let mut case = case;
-    let reporter = case.reporter.insecure_clone();
-    let ix = case
-        .p
-        .punish_commitment_reuse_ix(&reporter.pubkey(), args.clone());
-    case.p.env.send_ok(&[ix], &[&reporter]);
-
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));
-    assert_eq!(record.guilty_bitmap, expected_guilty);
-    assert_eq!(record.guilty_count, 3);
-}
-
-#[test]
-fn disjoint_coalitions_leave_nobody_to_punish() {
-    let mut p = Protocol::start();
-    p.register_nodes("nonce-disjoint", NODE_COUNT);
-    let reporter = p.reporter();
-    let (a_duty, b_duty) = (duty_a(), duty_b());
-    let shared = shared_bits(&p, &a_duty, &b_duty, 4);
-
-    // Two coalitions drawn from the shared selection that do not overlap.
-    let a = p.sign_duty_with_bits(a_duty, &shared[0..2], Some(SHARED_NONCE));
-    let b = p.sign_duty_with_bits(b_duty, &shared[2..4], Some(SHARED_NONCE));
-    // The commitment is `address(k*G)` — a function of the nonce alone — so the two statements
-    // still collide on it. Only the guilty set is empty.
-    assert_eq!(a.signature.commitment, b.signature.commitment);
-
-    let case = Case {
-        p,
-        reporter,
-        a: a.clone(),
-        b: b.clone(),
-    };
-    let args = args_for(&case, &a, &b);
-    let mut case = case;
-    let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::GuiltySetEmpty);
-}
-
-#[test]
-fn an_evidence_hash_that_does_not_match_the_pairs_is_refused() {
+fn the_same_evidence_cannot_be_filed_twice() {
     let mut case = case();
-    let reporter = case.reporter.insecure_clone();
-    let mut args = args_for(&case, &case.a, &case.b);
-    args.evidence_hash[7] ^= 0x80;
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::EvidenceHashMismatch);
-}
+    let args = args_for(&case);
+    file(&mut case, args.clone());
 
-#[test]
-fn a_statement_whose_signature_does_not_verify_proves_nothing() {
-    let mut case = case();
-    let reporter = case.reporter.insecure_clone();
-    let tampered = case.b.with_tampered_signature();
-    let args = args_for(&case, &case.a, &tampered);
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::InvalidAggregateSignature);
-    for node in case.p.node_pdas() {
-        assert_eq!(case.p.env.get::<Node>(&node).status, NodeStatus::Active);
-    }
-}
-
-#[test]
-fn a_coalition_outside_its_own_duty_selection_is_refused() {
-    let mut p = Protocol::start();
-    p.register_nodes("nonce-unselected", NODE_COUNT);
-    let reporter = p.reporter();
-    let (a_duty, b_duty) = (duty_a(), duty_b());
-    let shared = shared_bits(&p, &a_duty, &b_duty, 3);
-    let selection_b = p.selection_bits(&b_duty);
-    let intruder = (0..NODE_COUNT)
-        .find(|bit| !selection_b.contains(bit))
-        .expect("some node is outside duty B's selection");
-
-    let mut bits_b = shared.clone();
-    bits_b.push(intruder);
-    bits_b.sort_unstable();
-
-    let a = p.sign_duty_with_bits(a_duty, &shared, Some(SHARED_NONCE));
-    let b = p.sign_duty_with_bits(b_duty, &bits_b, Some(SHARED_NONCE));
-
-    let case = Case {
-        p,
-        reporter,
-        a: a.clone(),
-        b: b.clone(),
-    };
-    let args = args_for(&case, &a, &b);
-    let mut case = case;
-    let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::SignersNotSubsetOfSelection);
-}
-
-#[test]
-fn the_same_evidence_cannot_be_filed_twice_with_the_pairs_swapped() {
-    let mut case = case();
-    let reporter = case.reporter.insecure_clone();
-    let args = args_for(&case, &case.a, &case.b);
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
-    case.p.env.send_ok(&[ix], &[&reporter]);
-
-    let swapped = args_for(&case, &case.b, &case.a);
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), swapped);
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
+    // The punishment case PDA is seeded by the evidence hash, so the replay collides on `init`.
+    let err = file_err(&mut case, args);
     assert!(
-        failed
-            .meta
-            .logs
-            .iter()
-            .any(|l| l.contains("already in use")),
+        err.meta.logs.iter().any(|l| l.contains("already in use")),
         "logs:\n{}",
-        failed.meta.logs.join("\n")
+        err.meta.logs.join("\n")
     );
 }
 
+/// Swapping the two transcripts is the same offence, so it must not open a second case.
 #[test]
-fn a_second_filing_does_not_compound_the_slash_on_an_already_tombstoned_node() {
+fn transcript_order_does_not_change_the_evidence_hash() {
+    let case = case();
+    let forward = args_for(&case);
+    let reversed =
+        args_with_transcripts(&case, case.transcript(B_B, C_B), case.transcript(B_A, C_A));
+    assert_eq!(forward.evidence_hash, reversed.evidence_hash);
+}
+
+#[test]
+fn one_challenge_pair_used_once_is_not_reuse() {
     let mut case = case();
-    let reporter = case.reporter.insecure_clone();
-    let guilty_bitmap = intersect_bitmap(&case.a.signers_bitmap, &case.b.signers_bitmap);
-    let guilty = case
+    let transcript = case.transcript(B_A, C_A);
+    // Same (b, c) twice: the equation fixes `s`, so this is one evaluation reported twice.
+    let args = resealed(args_with_transcripts(&case, transcript, transcript));
+    let err = file_err(&mut case, args);
+    assert_molpha_error(&err, MolphaError::TranscriptContextsEqual);
+}
+
+#[test]
+fn a_transcript_that_does_not_satisfy_the_equation_proves_nothing() {
+    let mut case = case();
+    let mut args = args_for(&case);
+    args.transcript_b.s[31] ^= 1;
+    let err = file_err(&mut case, resealed(args));
+    assert_molpha_error(&err, MolphaError::InvalidPartialSignature);
+}
+
+/// A filer holding one observed transcript cannot invent the second one without the node's secrets.
+#[test]
+fn a_transcript_forged_against_another_nodes_key_does_not_verify() {
+    let mut case = case();
+    let other = case
         .p
-        .node_pdas_for_bitmap(case.a.duty.registry_version, &guilty_bitmap);
-
-    let args = args_for(&case, &case.a, &case.b);
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
-    case.p.env.send_ok(&[ix], &[&reporter]);
-    let balances: Vec<u64> = guilty
+        .nodes
         .iter()
-        .map(|n| case.p.env.get::<Node>(n).locked_amount)
-        .collect();
+        .find(|n| n.pda != case.guilty_pda())
+        .expect("another registered node")
+        .key
+        .clone();
+    let b = [0x31; 32];
+    let c = [0x37; 32];
+    let forged = PartialTranscript {
+        b,
+        c,
+        s: crypto::forge_partial_transcript(case.slot(), &other, &b, &c),
+    };
+    let args = resealed(args_with_transcripts(
+        &case,
+        case.transcript(B_A, C_A),
+        forged,
+    ));
+    let err = file_err(&mut case, args);
+    assert_molpha_error(&err, MolphaError::InvalidPartialSignature);
+}
 
-    // A second, genuinely distinct nonce-reuse case over the same (now tombstoned) coalition.
-    // Walk timestamps until both duties select every member of that coalition.
-    let bits = crypto::bitmap_bits(&guilty_bitmap);
-    let (a_duty, b_duty) = (1u64..256)
-        .map(|offset| {
-            (
-                duty_a().at(duty_a().canonical_timestamp + offset),
-                duty_b().at(duty_b().canonical_timestamp + offset),
-            )
-        })
-        .find(|(a_duty, b_duty)| {
-            let selection_a = case.p.selection_bits(a_duty);
-            let selection_b = case.p.selection_bits(b_duty);
-            bits.iter()
-                .all(|b| selection_a.contains(b) && selection_b.contains(b))
-        })
-        .expect("some pair of duties selects the whole tombstoned coalition");
+#[test]
+fn non_canonical_and_zero_scalars_are_rejected() {
+    // n itself, and zero: both outside the canonical scalar range.
+    const ORDER: [u8; 32] = [
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFE, 0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36,
+        0x41, 0x41,
+    ];
+    for bad in [ORDER, [0u8; 32]] {
+        let mut case = case();
+        let mut args = args_for(&case);
+        args.transcript_a.b = bad;
+        let err = file_err(&mut case, resealed(args));
+        assert_molpha_error(&err, MolphaError::NonCanonicalScalar);
 
-    let a = case.p.sign_duty_with_bits(a_duty, &bits, Some([0x77; 32]));
-    let b = case.p.sign_duty_with_bits(b_duty, &bits, Some([0x77; 32]));
-    let args = args_for(&case, &a, &b);
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::NothingToPunish);
-
-    for (node, expected) in guilty.iter().zip(balances) {
-        assert_eq!(case.p.env.get::<Node>(node).locked_amount, expected);
+        let mut args = args_for(&case);
+        args.transcript_b.s = bad;
+        let err = file_err(&mut case, resealed(args));
+        assert_molpha_error(&err, MolphaError::NonCanonicalScalar);
     }
 }
 
+/// A node that commits garbage instead of a curve point produces unevaluable evidence, not a
+/// slash. The bad point has to be inside the signed leaf, otherwise the merkle check rejects first.
 #[test]
-fn filing_requires_the_next_registry_version() {
-    let mut case = case();
-    let reporter = case.reporter.insecure_clone();
-    let skipped = case.p.current_version() + 3;
-    let ix = case.p.punish_commitment_reuse_ix_with_registry(
-        &reporter.pubkey(),
-        args_for(&case, &case.a, &case.b),
-        skipped,
+fn a_committed_nonce_that_is_not_a_curve_point_is_rejected() {
+    let mut case = case_with_batch(1);
+    let mut args = args_for(&case);
+    args.nonces.r1_y[31] ^= 1;
+
+    // Single-leaf batch: the root is the leaf, so re-sign a root that commits the bad point.
+    args.batch_root = crypto::commitment_leaf(
+        args.slot,
+        &args.nonces.r1_x,
+        &args.nonces.r1_y,
+        &args.nonces.r2_x,
+        &args.nonces.r2_y,
     );
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintSeeds);
+    let signature = crypto::sign_commitment_batch(
+        &case.node_key,
+        &molpha::ID,
+        case.registry_version,
+        case.node_index,
+        EPOCH,
+        &BATCH_META,
+        &args.batch_root,
+    );
+    args.batch_sig_s = signature.agg_sig_s;
+    args.batch_commitment_addr = signature.commitment;
+
+    let err = file_err(&mut case, resealed(args));
+    assert_molpha_error(&err, MolphaError::InvalidNoncePoint);
+}
+
+#[test]
+fn nonces_outside_the_committed_leaf_do_not_reach_the_root() {
+    let mut case = case();
+    let other_slot = CommittedSlot::derive("uncommitted", 999);
+    let mut args = args_for(&case);
+    args.nonces = CommittedNoncePair {
+        r1_x: other_slot.r1.x,
+        r1_y: other_slot.r1.y,
+        r2_x: other_slot.r2.x,
+        r2_y: other_slot.r2.y,
+    };
+    let err = file_err(&mut case, resealed(args));
+    assert_molpha_error(&err, MolphaError::InvalidMerkleProof);
+}
+
+#[test]
+fn a_leaf_claimed_under_the_wrong_slot_does_not_reach_the_root() {
+    let mut case = case();
+    let mut args = args_for(&case);
+    args.slot += 1;
+    let err = file_err(&mut case, resealed(args));
+    assert_molpha_error(&err, MolphaError::InvalidMerkleProof);
+}
+
+#[test]
+fn a_tampered_merkle_path_is_rejected() {
+    let mut case = case();
+    let mut args = args_for(&case);
+    args.merkle_proof[0][0] ^= 1;
+    let err = file_err(&mut case, resealed(args));
+    assert_molpha_error(&err, MolphaError::InvalidMerkleProof);
+}
+
+#[test]
+fn a_proof_deeper_than_the_cap_is_refused_before_any_hashing() {
+    let mut case = case();
+    let mut args = args_for(&case);
+    args.merkle_proof = vec![[0u8; 32]; MAX_COMMITMENT_PROOF_DEPTH + 1];
+    let err = file_err(&mut case, resealed(args));
+    assert_molpha_error(&err, MolphaError::MerkleProofTooDeep);
+}
+
+#[test]
+fn a_batch_signature_that_does_not_cover_the_filed_header_is_rejected() {
+    // Every bound header field must break the signature when changed.
+    for mutate in [
+        (|args: &mut PunishNonceReuseArgs| args.epoch += 1) as fn(&mut PunishNonceReuseArgs),
+        |args: &mut PunishNonceReuseArgs| args.batch_meta[0] ^= 1,
+        |args: &mut PunishNonceReuseArgs| args.batch_sig_s[31] ^= 1,
+        |args: &mut PunishNonceReuseArgs| args.batch_commitment_addr[0] ^= 1,
+    ] {
+        let mut case = case();
+        let mut args = args_for(&case);
+        mutate(&mut args);
+        let err = file_err(&mut case, resealed(args));
+        assert_molpha_error(&err, MolphaError::InvalidBatchSignature);
+    }
+}
+
+/// A batch root nobody signed cannot be laundered by rebuilding a consistent proof around it.
+#[test]
+fn an_unsigned_batch_root_is_rejected() {
+    let mut case = case();
+    let other = CommitmentBatchTree::derive("some-other-batch", 0, SLOTS_PER_BATCH);
+    let mut args = args_for(&case);
+    args.batch_root = other.root();
+    args.merkle_proof = other.proof(case.leaf_index);
+    args.nonces = CommittedNoncePair {
+        r1_x: other.slots[case.leaf_index].r1.x,
+        r1_y: other.slots[case.leaf_index].r1.y,
+        r2_x: other.slots[case.leaf_index].r2.x,
+        r2_y: other.slots[case.leaf_index].r2.y,
+    };
+    let err = file_err(&mut case, resealed(args));
+    assert_molpha_error(&err, MolphaError::InvalidBatchSignature);
+}
+
+#[test]
+fn an_evidence_hash_that_does_not_cover_the_filing_is_rejected() {
+    let mut case = case();
+    let mut args = args_for(&case);
+    args.evidence_hash[0] ^= 1;
+    let err = file_err(&mut case, args);
+    assert_molpha_error(&err, MolphaError::EvidenceHashMismatch);
+}
+
+/// A bit past `node_count` names no registry entry, so resolution refuses it. Built by hand: the
+/// scenario builder derives its accounts from the registry and cannot address a slot that is empty.
+#[test]
+fn a_node_index_outside_the_registry_is_rejected() {
+    use anchor_lang::{InstructionData, ToAccountMetas};
+
+    let mut case = case();
+    let mut args = args_for(&case);
+    args.node_index = 250;
+    let args = resealed(args);
+
+    let reporter = case.reporter.insecure_clone();
+    let mut accounts = molpha::accounts::PunishNonceReuse {
+        reporter: reporter.pubkey(),
+        protocol_config: pda::protocol_config(),
+        registry_state: pda::registry_state(),
+        evidence_registry: pda::registry(args.registry_version),
+        current_registry: pda::registry(case.p.current_version()),
+        new_registry: pda::registry(case.p.current_version() + 1),
+        punishment_case: pda::punishment_case(&args.evidence_hash),
+        node_deposits: pda::node_deposits(),
+        node_deposit_vault: case.p.node_deposit_vault(),
+        treasury: case.p.treasury(),
+        reporter_usdc: pda::ata(&reporter.pubkey(), &case.p.usdc_mint),
+        token_program: pda::TOKEN_PROGRAM_ID,
+        system_program: anchor_lang::solana_program::system_program::ID,
+    }
+    .to_account_metas(None);
+    accounts.extend(molpha_tests::env::writable_metas(vec![case.guilty_pda()]));
+
+    let ix = anchor_lang::solana_program::instruction::Instruction {
+        program_id: molpha::ID,
+        accounts,
+        data: molpha::instruction::PunishNonceReuse { args }.data(),
+    };
+    let err = case.p.env.send_err(&[ix], &[&reporter]);
+    assert_molpha_error(&err, MolphaError::InvalidSignersBitmap);
+}
+
+/// The batch signature binds `node_index`, so pointing a real batch at a different node fails.
+#[test]
+fn evidence_cannot_be_retargeted_at_another_node() {
+    let mut case = case();
+    let mut args = args_for(&case);
+    args.node_index = 1;
+    let err = file_err(&mut case, resealed(args));
+    assert_molpha_error(&err, MolphaError::InvalidBatchSignature);
+}
+
+/// A single-leaf batch is the degenerate tree: the root is the leaf and the proof is empty.
+#[test]
+fn a_single_slot_batch_files_with_an_empty_proof() {
+    let mut case = case_with_batch(1);
+    let args = args_for(&case);
+    assert!(args.merkle_proof.is_empty());
+    file(&mut case, args);
+    assert_eq!(
+        case.p.env.get::<Node>(&case.guilty_pda()).status,
+        NodeStatus::Tombstoned
+    );
+}
+
+/// The proof is the only variable-length part of the filing; pin what a legacy packet can carry.
+#[test]
+fn proof_depth_drives_the_wire_size() {
+    let case = case();
+    let reporter = case.reporter.pubkey();
+    let base = args_for(&case);
+
+    let mut largest_fitting = None;
+    for depth in 0..=MAX_COMMITMENT_PROOF_DEPTH {
+        let mut args = base.clone();
+        args.merkle_proof = vec![[0u8; 32]; depth];
+        let ix = case.p.punish_nonce_reuse_ix(&reporter, resealed(args));
+        let size = case.p.env.transaction_size_as(&reporter, &[ix]);
+        println!("punish_nonce_reuse: proof depth {depth:>2} -> {size} bytes legacy");
+        if size <= PACKET_DATA_SIZE {
+            largest_fitting = Some(depth);
+        }
+    }
+
+    assert_eq!(
+        largest_fitting,
+        Some(MAX_LEGACY_PROOF_DEPTH),
+        "the batch depth a legacy nonce-reuse filing can carry changed"
+    );
+}
+
+#[test]
+fn the_deepest_accepted_proof_still_lands_within_the_compute_budget() {
+    // 2^14 slots: the deepest batch the instruction accepts.
+    let mut case = case_with_batch(1 << MAX_COMMITMENT_PROOF_DEPTH);
+    let args = args_for(&case);
+    assert_eq!(args.merkle_proof.len(), MAX_COMMITMENT_PROOF_DEPTH);
+
+    let meta = file(&mut case, args);
+    println!(
+        "punish_nonce_reuse: depth {MAX_COMMITMENT_PROOF_DEPTH} -> {} CU",
+        meta.compute_units_consumed
+    );
+    assert!(meta.compute_units_consumed < MAX_COMPUTE_UNITS);
+    assert_eq!(
+        case.p.env.get::<Node>(&case.guilty_pda()).status,
+        NodeStatus::Tombstoned
+    );
 }
