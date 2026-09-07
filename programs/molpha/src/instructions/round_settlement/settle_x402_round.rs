@@ -5,8 +5,8 @@ use crate::{
     error::MolphaError,
     events::X402RoundSettled,
     state::{
-        Gateway, GatewayStatus, ProtocolConfig, Registry, RegistryState, RoundReceiptInitArgs,
-        RoundReceiptRecord, RoundRecordKind,
+        Gateway, GatewayStatus, ProtocolConfig, Registry, RoundReceiptInitArgs, RoundReceiptRecord,
+        RoundRecordKind,
     },
     utils::settlement::{validate_settlement_attestation, SettlementAttestationInput},
 };
@@ -78,7 +78,6 @@ pub fn settle_x402_round<'info>(
     );
 
     let validated = validate_settlement_attestation(
-        &ctx.accounts.registry_state,
         &registry,
         SettlementAttestationInput {
             source_id: &args.source_id,
@@ -89,7 +88,7 @@ pub fn settle_x402_round<'info>(
             agg_sig: &args.agg_sig,
         },
         clock.unix_timestamp,
-        config.max_receipt_delay_seconds,
+        config.max_settlement_delay_seconds,
     )?;
 
     require!(
@@ -151,12 +150,6 @@ pub struct SettleX402Round<'info> {
         bump = protocol_config.bump,
     )]
     pub protocol_config: Box<Account<'info, ProtocolConfig>>,
-
-    #[account(
-        seeds = [RegistryState::SEED_PREFIX],
-        bump = registry_state.bump,
-    )]
-    pub registry_state: Box<Account<'info, RegistryState>>,
 
     #[account(
         seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],

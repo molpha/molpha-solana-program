@@ -14,7 +14,7 @@ type UpdateConfigFile = {
   withdrawalCooldownSlots?: string;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
-  maxReceiptDelaySeconds?: string;
+  maxSettlementDelaySeconds?: string;
   disputeWindowSlots?: string;
   gatewayBondMin?: string;
   challengerBountyBps?: number;
@@ -29,7 +29,7 @@ type ProtocolConfigAccount = {
   withdrawalCooldownSlots: { toString(): string };
   minimumNodeDeposit: { toString(): string };
   rewardPerSignature: { toString(): string };
-  maxReceiptDelaySeconds: { toString(): string };
+  maxSettlementDelaySeconds: { toString(): string };
   disputeWindowSlots: { toString(): string };
   gatewayBondMin: { toString(): string };
   challengerBountyBps: number;
@@ -50,7 +50,7 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
     .option(
-      "--max-receipt-delay-seconds <seconds>",
+      "--max-settlement-delay-seconds <seconds>",
       "max age of canonical_timestamp at settlement ingress"
     )
     .option("--dispute-window-slots <slots>", "settled round dispute window")
@@ -134,15 +134,15 @@ function buildUpdateConfigArgs(
       ),
       "reward per signature"
     ),
-    maxReceiptDelaySeconds: bn(
+    maxSettlementDelaySeconds: bn(
       requireValue(
         optionOrConfig(
-          options.maxReceiptDelaySeconds as string | undefined,
-          config.maxReceiptDelaySeconds
-        ) ?? current.maxReceiptDelaySeconds.toString(),
-        "max receipt delay"
+          options.maxSettlementDelaySeconds as string | undefined,
+          config.maxSettlementDelaySeconds
+        ) ?? current.maxSettlementDelaySeconds.toString(),
+        "max settlement delay"
       ),
-      "max receipt delay"
+      "max settlement delay"
     ),
     disputeWindowSlots: bn(
       requireValue(

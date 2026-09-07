@@ -49,11 +49,23 @@ pub fn submit_attestation(
 ) -> Result<()> {
     let (stored_value, value_kind) = Feed::encode_stored_value(&args.value)?;
     let clock = Clock::get()?;
+    require!(
+        ctx.accounts
+            .registry
+            .load()?
+            .is_active(clock.unix_timestamp),
+        MolphaError::RegistryNotActive
+    );
     require_fresh_canonical_timestamp(
         args.canonical_timestamp,
         clock.unix_timestamp,
-        ctx.accounts.protocol_config.max_receipt_delay_seconds,
+        ctx.accounts.protocol_config.max_settlement_delay_seconds,
     )?;
+    require!(
+        args.signatures_required >= ctx.accounts.protocol_config.min_signers,
+        MolphaError::SignaturesBelowMinSigners
+    );
+
     let feed = &mut ctx.accounts.feed;
 
     if feed.source_id == [0u8; 32] {

@@ -348,7 +348,7 @@ fn settlement_rejects_a_quorum_below_signatures_required() {
 }
 
 #[test]
-fn settlement_rejects_a_registry_version_that_is_no_longer_current() {
+fn settlement_rejects_a_registry_after_its_grace_period() {
     let mut f = fixture();
     let signed = f.p.sign_duty(duty(4));
     let args = f.p.x402_args(&signed, [0xaa; 32]);
@@ -358,8 +358,26 @@ fn settlement_rejects_a_registry_version_that_is_no_longer_current() {
     let ix = f.p.update_registry_policy_ix(&authority.pubkey(), next, 4);
     f.p.env.send_ok(&[ix], &[&authority]);
 
+    // advance the clock to after the grace period
+    f.p.env
+        .advance_seconds(f.p.args.max_settlement_delay_seconds as i64 + 1);
+
     let failed = f.settle(args).unwrap_err();
-    assert_molpha_error(&failed, MolphaError::InvalidRegistryVersion);
+    assert_molpha_error(&failed, MolphaError::RegistryNotActive);
+}
+
+#[test]
+fn settlement_accepts_a_superseded_registry_during_grace() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty(4));
+    let args = f.p.x402_args(&signed, [0xaa; 32]);
+
+    let authority = f.p.authority.insecure_clone();
+    let next = f.p.current_version() + 1;
+    let ix = f.p.update_registry_policy_ix(&authority.pubkey(), next, 4);
+    f.p.env.send_ok(&[ix], &[&authority]);
+
+    f.settle(args).expect("settles during grace");
 }
 
 #[test]
@@ -380,7 +398,7 @@ fn a_settlement_leaves_the_gateway_bond_and_status_untouched() {
 fn settlement_rejects_a_stale_canonical_timestamp() {
     let mut f = fixture();
     let now = f.p.env.unix_timestamp() as u64;
-    let window = f.p.args.max_receipt_delay_seconds;
+    let window = f.p.args.max_settlement_delay_seconds;
 
     // No consumer signature exists on this path, so the timestamp is pure gateway input;
     // the freshness window is what bounds the selection grind.

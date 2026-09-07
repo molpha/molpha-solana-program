@@ -26,7 +26,7 @@ type InitConfig = {
   redundancyBuffer?: number;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
-  maxReceiptDelaySeconds?: string;
+  maxSettlementDelaySeconds?: string;
   disputeWindowSlots?: string;
   gatewayBondMin?: string;
   challengerBountyBps?: number;
@@ -52,7 +52,7 @@ export function registerInitCommand(program: Command): void {
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
     .option(
-      "--max-receipt-delay-seconds <seconds>",
+      "--max-settlement-delay-seconds <seconds>",
       "max age of canonical_timestamp at settlement ingress"
     )
     .option("--dispute-window-slots <slots>", "settled round dispute window")
@@ -111,15 +111,15 @@ export function registerInitCommand(program: Command): void {
           ),
           "reward per signature"
         ),
-        maxReceiptDelaySeconds: bn(
+        maxSettlementDelaySeconds: bn(
           requireValue(
             optionOrConfig(
-              options.maxReceiptDelaySeconds,
-              config.maxReceiptDelaySeconds
+              options.maxSettlementDelaySeconds,
+              config.maxSettlementDelaySeconds
             ),
-            "Missing --max-receipt-delay-seconds"
+            "Missing --max-settlement-delay-seconds"
           ),
-          "max receipt delay"
+          "max settlement delay"
         ),
         disputeWindowSlots: bn(
           requireValue(

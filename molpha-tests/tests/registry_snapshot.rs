@@ -1,5 +1,6 @@
-//! Registry snapshot mechanics: strict version succession, `copy_from_previous` / `swap_remove`
-//! isolation, and the `evict_nodes` rescan that survives the index shift `swap_remove` causes.
+//! Registry snapshot mechanics: strict version succession, `copy_from_previous` /
+//! `swap_remove_node(s)` isolation, grace expiry via `is_active`, and the rescan that
+//! survives the index shift `swap_remove` causes.
 //!
 //! Pure unit tests — no VM.
 
@@ -17,6 +18,7 @@ fn registry_with(nodes: &[Pubkey]) -> Registry {
         redundancy_buffer: 0,
         bump: 0,
         nodes: nodes_arr,
+        grace_active_until: 0,
     }
 }
 
@@ -43,6 +45,7 @@ fn snapshot_copy_and_swap_remove_do_not_mutate_source() {
         redundancy_buffer: 2,
         bump: 1,
         nodes: [[0; 32]; MAX_REGISTRY_NODES],
+        grace_active_until: 0,
     };
     source.nodes[0] = first.to_bytes();
     source.nodes[1] = second.to_bytes();
@@ -54,11 +57,14 @@ fn snapshot_copy_and_swap_remove_do_not_mutate_source() {
         redundancy_buffer: 0,
         bump: 0,
         nodes: [[0; 32]; MAX_REGISTRY_NODES],
+        grace_active_until: 0,
     };
-    next.swap_remove(&source, second, 8).unwrap();
+    next.copy_from_previous(&mut source, 8, 2);
+    next.swap_remove_node(second).unwrap();
 
     assert_eq!(source.node_count, 3);
     assert_eq!(source.node(1).unwrap(), second);
+    assert_eq!(source.grace_active_until, 8);
     assert_eq!(next.version, 8);
     assert_eq!(next.node_count, 2);
     assert_eq!(next.node(1).unwrap(), third);
@@ -71,10 +77,11 @@ fn swap_remove_batch_handles_swap_index_hazard() {
     let n1 = Pubkey::new_unique();
     let n2 = Pubkey::new_unique();
     let n3 = Pubkey::new_unique();
-    let current = registry_with(&[n0, n1, n2, n3]);
+    let mut current = registry_with(&[n0, n1, n2, n3]);
     let mut next = registry_with(&[]);
 
-    next.swap_remove_batch(&current, &[n0, n3], 1).unwrap();
+    next.copy_from_previous(&mut current, 1, 0);
+    next.swap_remove_nodes(&[n0, n3]).unwrap();
     assert_eq!(next.node_count, 2);
     let remaining: Vec<Pubkey> = (0..usize::from(next.node_count))
         .map(|i| Pubkey::new_from_array(next.nodes[i]))
@@ -88,9 +95,26 @@ fn swap_remove_batch_handles_swap_index_hazard() {
 fn swap_remove_batch_skips_absent_victim() {
     let n0 = Pubkey::new_unique();
     let ghost = Pubkey::new_unique();
-    let current = registry_with(&[n0]);
+    let mut current = registry_with(&[n0]);
     let mut next = registry_with(&[]);
 
-    next.swap_remove_batch(&current, &[ghost], 1).unwrap();
+    next.copy_from_previous(&mut current, 1, 0);
+    next.swap_remove_nodes(&[ghost]).unwrap();
     assert_eq!(next.node_count, 1);
+}
+
+#[test]
+fn registry_is_active_until_grace_expires() {
+    let registry = Registry {
+        grace_active_until: 0,
+        ..registry_with(&[])
+    };
+    assert!(registry.is_active(0));
+    assert!(registry.is_active(i64::MAX));
+
+    let mut expired = registry_with(&[]);
+    expired.grace_active_until = 100;
+    assert!(expired.is_active(99));
+    assert!(!expired.is_active(100));
+    assert!(!expired.is_active(101));
 }

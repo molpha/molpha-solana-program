@@ -17,7 +17,7 @@ fn tuned_update_args() -> UpdateConfigArgs {
         withdrawal_cooldown_slots: 7_200,
         minimum_node_deposit: 250_000_000,
         reward_per_signature: 11,
-        max_receipt_delay_seconds: 512,
+        max_settlement_delay_seconds: 512,
         dispute_window_slots: 4_096,
         gateway_bond_min: 900_000_000,
         challenger_bounty_bps: 1_250,
@@ -39,8 +39,8 @@ fn initialize_writes_config_registry_state_and_genesis_snapshot() {
     assert_eq!(config.usdc_mint, b.usdc_mint);
     assert_eq!(config.reward_per_signature, args.reward_per_signature);
     assert_eq!(
-        config.max_receipt_delay_seconds,
-        args.max_receipt_delay_seconds
+        config.max_settlement_delay_seconds,
+        args.max_settlement_delay_seconds
     );
     assert_eq!(config.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(config.gateway_bond_min, args.gateway_bond_min);
@@ -186,8 +186,8 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
     assert_eq!(after.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(after.reward_per_signature, args.reward_per_signature);
     assert_eq!(
-        after.max_receipt_delay_seconds,
-        args.max_receipt_delay_seconds
+        after.max_settlement_delay_seconds,
+        args.max_settlement_delay_seconds
     );
     assert_eq!(after.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(after.gateway_bond_min, args.gateway_bond_min);
@@ -260,10 +260,10 @@ fn update_config_rejects_a_zero_withdrawal_cooldown() {
 }
 
 #[test]
-fn initialize_rejects_a_zero_max_receipt_delay() {
+fn initialize_rejects_a_zero_max_settlement_delay() {
     let mut b = bare();
     let args = molpha::instructions::InitializeArgs {
-        max_receipt_delay_seconds: 0,
+        max_settlement_delay_seconds: 0,
         ..default_initialize_args(b.usdc_mint)
     };
     let ix = initialize_ix(&b.authority.pubkey(), &b.usdc_mint, &args);
@@ -272,10 +272,10 @@ fn initialize_rejects_a_zero_max_receipt_delay() {
 }
 
 #[test]
-fn update_config_rejects_a_zero_max_receipt_delay() {
+fn update_config_rejects_a_zero_max_settlement_delay() {
     let mut p = Protocol::start();
     let args = UpdateConfigArgs {
-        max_receipt_delay_seconds: 0,
+        max_settlement_delay_seconds: 0,
         ..tuned_update_args()
     };
     let authority = p.authority.insecure_clone();

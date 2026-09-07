@@ -1,6 +1,6 @@
 use crate::{
     error::{map_attestation_err, MolphaError},
-    state::{AggregatedSig, Registry, RegistryState},
+    state::{AggregatedSig, Registry},
     utils::require_fresh_canonical_timestamp,
 };
 use anchor_lang::prelude::*;
@@ -26,19 +26,18 @@ pub struct ValidatedSettlementAttestation {
 
 /// Shared optimistic attestation shape checks for subscription and x402 settlement.
 pub fn validate_settlement_attestation(
-    registry_state: &RegistryState,
     registry: &Registry,
     input: SettlementAttestationInput<'_>,
     now: i64,
-    max_receipt_delay_seconds: u64,
+    max_settlement_delay_seconds: u64,
 ) -> Result<ValidatedSettlementAttestation> {
-    require!(
-        input.registry_version == registry_state.current_version
-            && registry.version == input.registry_version,
-        MolphaError::InvalidRegistryVersion
-    );
+    require!(registry.is_active(now), MolphaError::RegistryNotActive);
 
-    require_fresh_canonical_timestamp(input.canonical_timestamp, now, max_receipt_delay_seconds)?;
+    require_fresh_canonical_timestamp(
+        input.canonical_timestamp,
+        now,
+        max_settlement_delay_seconds,
+    )?;
 
     let expected_selection = derive_selection_bitmap(
         input.source_id,

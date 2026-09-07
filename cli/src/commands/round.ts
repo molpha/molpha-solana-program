@@ -27,7 +27,6 @@ import {
   findGatewayPda,
   findProtocolConfigPda,
   findRegistryPda,
-  findRegistryStatePda,
   findSubscriptionPda,
   findSubscriptionRoundPda,
   findTreasuryAta,
@@ -79,7 +78,6 @@ export function registerRoundCommands(program: Command): void {
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
-      const [registryStatePda] = findRegistryStatePda(ctx.programId);
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
@@ -157,7 +155,7 @@ export function registerRoundCommands(program: Command): void {
       );
       const signature = await (ctx.program.methods as any)
         .settleSubscriptionRound({
-          timestamp: new BN(timestamp),
+          canonicalTimestamp: new BN(timestamp),
           sourceId: Array.from(sourceId),
           signaturesRequired,
           registryVersion,
@@ -166,9 +164,8 @@ export function registerRoundCommands(program: Command): void {
           consumerAuthority: consumer.publicKey,
         })
         .accountsPartial({
-          payer: ctx.wallet.publicKey,
+          authority: ctx.wallet.publicKey,
           protocolConfig: protocolConfigPda,
-          registryState: registryStatePda,
           registry: registryPda,
           subscription: subscriptionPda,
           consumerDelegate,
@@ -177,13 +174,6 @@ export function registerRoundCommands(program: Command): void {
           instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts(
-          creditedBits.map((bit) => ({
-            pubkey: registryNode(registry, bit),
-            isWritable: false,
-            isSigner: false,
-          }))
-        )
         .preInstructions([
           Ed25519Program.createInstructionWithPrivateKey({
             privateKey: consumer.secretKey,
@@ -236,7 +226,6 @@ export function registerRoundCommands(program: Command): void {
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
-      const [registryStatePda] = findRegistryStatePda(ctx.programId);
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
@@ -328,23 +317,14 @@ export function registerRoundCommands(program: Command): void {
         .accountsPartial({
           authority: gatewayAuthority.publicKey,
           protocolConfig: protocolConfigPda,
-          registryState: registryStatePda,
           registry: registryPda,
           gateway: gatewayPda,
-          usdcMint: protocolConfig.usdcMint,
           gatewayUsdc,
           treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
           tokenProgram: TOKEN_PROGRAM_ID,
           roundRecord: roundRecordPda,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts(
-          creditedBits.map((bit) => ({
-            pubkey: registryNode(registry, bit),
-            isWritable: false,
-            isSigner: false,
-          }))
-        )
         .signers(signers)
         .rpc();
 

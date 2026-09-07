@@ -30,7 +30,7 @@ fn initialize_args() -> InitializeArgs {
         redundancy_buffer: 2,
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
-        max_receipt_delay_seconds: 256,
+        max_settlement_delay_seconds: 256,
         dispute_window_slots: 1024,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
@@ -56,8 +56,8 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
     assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
     assert_eq!(
-        decoded.max_receipt_delay_seconds,
-        args.max_receipt_delay_seconds
+        decoded.max_settlement_delay_seconds,
+        args.max_settlement_delay_seconds
     );
     assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
@@ -76,7 +76,7 @@ fn update_config_args() -> UpdateConfigArgs {
         withdrawal_cooldown_slots: 3,
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
-        max_receipt_delay_seconds: 256,
+        max_settlement_delay_seconds: 256,
         dispute_window_slots: 1024,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
@@ -100,8 +100,8 @@ fn update_config_instruction_data_is_stable_and_round_trips() {
     assert_eq!(decoded.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(decoded.reward_per_signature, args.reward_per_signature);
     assert_eq!(
-        decoded.max_receipt_delay_seconds,
-        args.max_receipt_delay_seconds
+        decoded.max_settlement_delay_seconds,
+        args.max_settlement_delay_seconds
     );
     assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);

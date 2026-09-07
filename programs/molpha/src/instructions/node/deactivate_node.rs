@@ -4,6 +4,7 @@ use crate::{
     error::MolphaError,
     events::NodeDeactivated,
     state::{Node, NodeStatus, ProtocolConfig, Registry, RegistryState},
+    utils::registry::with_registry_snapshot,
 };
 
 pub fn deactivate_node(ctx: Context<DeactivateNode>, node_owner: Pubkey) -> Result<()> {
@@ -14,15 +15,23 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>, node_owner: Pubkey) -> Resu
         MolphaError::UnauthorizedNodeAuthority
     );
 
-    let current = ctx.accounts.current_registry.load()?;
-    let mut next = ctx.accounts.new_registry.load_init()?;
-    next.swap_remove(&current, ctx.accounts.node.key(), ctx.bumps.new_registry)?;
+    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
+    with_registry_snapshot(
+        &mut ctx.accounts.registry_state,
+        &ctx.accounts.current_registry,
+        &ctx.accounts.new_registry,
+        grace_active_until,
+        ctx.bumps.new_registry,
+        |_current, next| {
+            next.swap_remove_node(ctx.accounts.node.key())?;
+            Ok(())
+        },
+    )?;
 
     let clock = Clock::get()?;
     let node = &mut ctx.accounts.node;
     node.status = NodeStatus::Deactivated;
     node.withdrawable_slot = clock.slot.saturating_add(config.withdrawal_cooldown_slots);
-    ctx.accounts.registry_state.advance_version();
 
     emit!(NodeDeactivated {
         node: node.key(),
@@ -54,6 +63,7 @@ pub struct DeactivateNode<'info> {
     pub registry_state: Account<'info, RegistryState>,
 
     #[account(
+        mut,
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
         bump,
     )]

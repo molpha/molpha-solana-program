@@ -3,7 +3,7 @@ use crate::{
     events::RoundSettled,
     state::{
         hash_request_auth_fields, Delegate, Gateway, GatewayStatus, ProtocolConfig, Registry,
-        RegistryState, RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
+        RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
     },
     utils::{
         ed25519::verify_ed25519_signature,
@@ -66,7 +66,6 @@ pub fn settle_subscription_round<'info>(
     );
 
     let validated = validate_settlement_attestation(
-        &ctx.accounts.registry_state,
         &registry,
         SettlementAttestationInput {
             source_id: &args.source_id,
@@ -77,7 +76,7 @@ pub fn settle_subscription_round<'info>(
             agg_sig: &args.agg_sig,
         },
         clock.unix_timestamp,
-        config.max_receipt_delay_seconds,
+        config.max_settlement_delay_seconds,
     )?;
 
     let reward_per_signature = config.reward_per_signature;
@@ -160,12 +159,6 @@ pub struct SettleSubscriptionRound<'info> {
         bump = protocol_config.bump,
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
-
-    #[account(
-        seeds = [RegistryState::SEED_PREFIX],
-        bump = registry_state.bump,
-    )]
-    pub registry_state: Account<'info, RegistryState>,
 
     #[account(
         seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
