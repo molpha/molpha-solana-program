@@ -285,7 +285,7 @@ pub struct UnsolicitedSigningProven {
 }
 
 #[event]
-pub struct NonceReuseProven {
+pub struct CommitmentReuseProven {
     pub registry_version: u32,
     pub commitment_addr: [u8; 20],
     pub source_id_a: [u8; 32],
@@ -296,6 +296,26 @@ pub struct NonceReuseProven {
     pub signatures_required_b: u8,
     pub canonical_timestamp_b: u64,
     pub signers_bitmap_b: [u8; 32],
+    pub guilty_bitmap: [u8; 32],
+    pub guilty_count: u16,
+    pub evidence_hash: [u8; 32],
+    pub reporter: Pubkey,
+    pub slashed_total: u64,
+    pub bounty_paid: u64,
+}
+
+#[event]
+pub struct NonceReuseProven {
+    pub registry_version: u32,
+    pub node_index: u32,
+    pub epoch: u64,
+    pub batch_meta: [u8; 32],
+    pub batch_root: [u8; 32],
+    pub slot: u64,
+    pub r1_x: [u8; 32],
+    pub r1_y: [u8; 32],
+    pub r2_x: [u8; 32],
+    pub r2_y: [u8; 32],
     pub guilty_bitmap: [u8; 32],
     pub guilty_count: u16,
     pub evidence_hash: [u8; 32],

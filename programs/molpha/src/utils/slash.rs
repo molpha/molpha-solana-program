@@ -183,7 +183,6 @@ pub struct SlashAccounts<'a, 'info> {
     pub punishment_case: &'a mut Account<'info, PunishmentCase>,
     pub punishment_case_bump: u8,
     pub reporter: Pubkey,
-    // pub node_deposits: AccountInfo<'info>,
     pub node_deposit_vault: &'a mut Account<'info, TokenAccount>,
     pub treasury: &'a mut Account<'info, TokenAccount>,
     pub reporter_usdc: &'a Account<'info, TokenAccount>,

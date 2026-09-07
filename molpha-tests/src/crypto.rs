@@ -241,6 +241,200 @@ pub fn sign_aggregate_raw(
 }
 
 // ---------------------------------------------------------------------------
+// nonce commitment batches
+// ---------------------------------------------------------------------------
+
+pub const DOMAIN_COMMITMENT_BATCH: &[u8] = b"MOLPHA_COMMITMENT_BATCH_V1";
+
+/// One slot's committed nonce pair, with the secrets kept so transcripts can be forged.
+#[derive(Clone, Debug)]
+pub struct CommittedSlot {
+    pub slot: u64,
+    pub r1_secret: [u8; 32],
+    pub r2_secret: [u8; 32],
+    pub r1: NodeKey,
+    pub r2: NodeKey,
+}
+
+impl CommittedSlot {
+    pub fn new(slot: u64, r1_secret: [u8; 32], r2_secret: [u8; 32]) -> Self {
+        Self {
+            slot,
+            r1_secret,
+            r2_secret,
+            r1: NodeKey::from_secret(r1_secret),
+            r2: NodeKey::from_secret(r2_secret),
+        }
+    }
+
+    /// Deterministic slot commitments for a test.
+    pub fn derive(domain: &str, slot: u64) -> Self {
+        let secret_for = |tag: &str| {
+            let mut attempt = 0u32;
+            loop {
+                let seed = hashv(&[
+                    domain.as_bytes(),
+                    tag.as_bytes(),
+                    &slot.to_be_bytes(),
+                    &attempt.to_be_bytes(),
+                ])
+                .to_bytes();
+                if SecretKey::parse(&seed).is_ok() {
+                    return seed;
+                }
+                attempt += 1;
+            }
+        };
+        Self::new(slot, secret_for("r1"), secret_for("r2"))
+    }
+
+    pub fn leaf(&self) -> [u8; 32] {
+        commitment_leaf(self.slot, &self.r1.x, &self.r1.y, &self.r2.x, &self.r2.y)
+    }
+}
+
+/// Merkle leaf over raw coordinates, so a test can commit a point that is not on the curve.
+pub fn commitment_leaf(
+    slot: u64,
+    r1_x: &[u8; 32],
+    r1_y: &[u8; 32],
+    r2_x: &[u8; 32],
+    r2_y: &[u8; 32],
+) -> [u8; 32] {
+    hashv(&[
+        &[0x00],
+        slot.to_be_bytes().as_slice(),
+        r1_x.as_slice(),
+        r1_y.as_slice(),
+        r2_x.as_slice(),
+        r2_y.as_slice(),
+    ])
+    .to_bytes()
+}
+
+fn merkle_parent(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
+    let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+    hashv(&[&[0x01], lo.as_slice(), hi.as_slice()]).to_bytes()
+}
+
+/// A node's signed batch of per-slot nonce commitments.
+///
+/// Sorted-sibling merkle tree; odd nodes are promoted, never duplicated.
+#[derive(Clone, Debug)]
+pub struct CommitmentBatchTree {
+    pub slots: Vec<CommittedSlot>,
+    levels: Vec<Vec<[u8; 32]>>,
+}
+
+impl CommitmentBatchTree {
+    pub fn new(slots: Vec<CommittedSlot>) -> Self {
+        assert!(!slots.is_empty(), "batch needs at least one slot");
+        let mut levels = vec![slots.iter().map(|s| s.leaf()).collect::<Vec<_>>()];
+        while levels.last().expect("level").len() > 1 {
+            let current = levels.last().expect("level");
+            let mut next = Vec::with_capacity(current.len().div_ceil(2));
+            for pair in current.chunks(2) {
+                next.push(if pair.len() == 2 {
+                    merkle_parent(&pair[0], &pair[1])
+                } else {
+                    pair[0]
+                });
+            }
+            levels.push(next);
+        }
+        Self { slots, levels }
+    }
+
+    /// A batch of `count` deterministic slots numbered from `first_slot`.
+    pub fn derive(domain: &str, first_slot: u64, count: u64) -> Self {
+        Self::new(
+            (0..count)
+                .map(|i| CommittedSlot::derive(domain, first_slot + i))
+                .collect(),
+        )
+    }
+
+    pub fn root(&self) -> [u8; 32] {
+        self.levels.last().expect("root level")[0]
+    }
+
+    pub fn depth(&self) -> usize {
+        self.levels.len() - 1
+    }
+
+    pub fn proof(&self, index: usize) -> Vec<[u8; 32]> {
+        let mut proof = Vec::new();
+        let mut idx = index;
+        for level in &self.levels[..self.levels.len() - 1] {
+            let sibling = idx ^ 1;
+            if sibling < level.len() {
+                proof.push(level[sibling]);
+            }
+            idx /= 2;
+        }
+        proof
+    }
+}
+
+/// The message a node signs to commit a batch root.
+pub fn commitment_batch_message(
+    program_id: &Pubkey,
+    registry_version: u32,
+    node_index: u32,
+    epoch: u64,
+    batch_meta: &[u8; 32],
+    batch_root: &[u8; 32],
+) -> [u8; 32] {
+    hashv(&[
+        DOMAIN_COMMITMENT_BATCH,
+        program_id.as_ref(),
+        registry_version.to_be_bytes().as_slice(),
+        node_index.to_be_bytes().as_slice(),
+        epoch.to_be_bytes().as_slice(),
+        batch_meta.as_slice(),
+        batch_root.as_slice(),
+    ])
+    .to_bytes()
+}
+
+/// Sign a batch root with the node's own key (a coalition of one).
+#[allow(clippy::too_many_arguments)]
+pub fn sign_commitment_batch(
+    node: &NodeKey,
+    program_id: &Pubkey,
+    registry_version: u32,
+    node_index: u32,
+    epoch: u64,
+    batch_meta: &[u8; 32],
+    batch_root: &[u8; 32],
+) -> AggregateSignature {
+    let message = commitment_batch_message(
+        program_id,
+        registry_version,
+        node_index,
+        epoch,
+        batch_meta,
+        batch_root,
+    );
+    sign_aggregate_raw(&node.compressed, &node.secret, &message, None)
+}
+
+/// An honest partial signature over a committed nonce pair: `s = r1 + b*r2 + c*x`.
+///
+/// Two of these over one slot with different `(b, c)` pairs is the punishable offence.
+pub fn forge_partial_transcript(
+    slot: &CommittedSlot,
+    node: &NodeKey,
+    b: &[u8; 32],
+    c: &[u8; 32],
+) -> [u8; 32] {
+    add_mod_n(
+        &slot.r1_secret,
+        &add_mod_n(&mul_mod_n(b, &slot.r2_secret), &mul_mod_n(c, &node.secret)),
+    )
+}
+
+// ---------------------------------------------------------------------------
 // bitmaps
 // ---------------------------------------------------------------------------
 

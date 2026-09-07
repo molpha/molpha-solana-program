@@ -1,3 +1,4 @@
+pub mod commitment_batch;
 pub mod delegate;
 pub mod feed;
 pub mod gateway;
@@ -13,6 +14,7 @@ pub mod round_receipt;
 pub mod secp256k1_key_claim;
 pub mod subscription;
 
+pub use commitment_batch::*;
 pub use delegate::*;
 pub use feed::*;
 pub use gateway::*;

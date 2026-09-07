@@ -129,7 +129,6 @@ pub fn punish_equivocation<'info>(
             punishment_case: &mut ctx.accounts.punishment_case,
             punishment_case_bump: ctx.bumps.punishment_case,
             reporter,
-            // node_deposits: ctx.accounts.node_deposits.to_account_info(),
             node_deposit_vault: &mut ctx.accounts.node_deposit_vault,
             treasury: &mut ctx.accounts.treasury,
             reporter_usdc: &ctx.accounts.reporter_usdc,
