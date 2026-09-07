@@ -31,7 +31,7 @@ const DEFAULT_RPCS: Record<MolphaCluster, string> = {
 };
 
 export function resolveCliOptions(
-  options: CliGlobalOptions
+  options: CliGlobalOptions,
 ): ResolvedCliOptions {
   const anchorTomlPath = resolveFromCwd("Anchor.toml");
   const cluster = options.cluster ?? inferCluster(options.rpc);
@@ -40,7 +40,7 @@ export function resolveCliOptions(
 
   if (!programId) {
     throw new Error(
-      `Could not resolve Molpha program id for cluster '${cluster}' from Anchor.toml`
+      `Could not resolve Molpha program id for cluster '${cluster}' from Anchor.toml`,
     );
   }
 
@@ -52,7 +52,7 @@ export function resolveCliOptions(
     programId,
     commitment: options.commitment ?? "confirmed",
     idlPath: resolveFromCwd(
-      options.idl ?? path.join("target", "idl", "molpha.json")
+      options.idl ?? path.join("target", "idl", "molpha.json"),
     ),
     anchorTomlPath,
   };
@@ -73,7 +73,7 @@ function inferCluster(rpc: string | undefined): MolphaCluster {
 
 export function readProgramIdFromAnchorToml(
   anchorTomlPath: string,
-  cluster: MolphaCluster
+  cluster: MolphaCluster,
 ): string | undefined {
   if (!fs.existsSync(anchorTomlPath)) {
     return undefined;
@@ -112,8 +112,8 @@ export function ensureIdlPresent(idlPath: string): void {
   if (!fs.existsSync(idlPath)) {
     throw new Error(
       `IDL not found at ${expandHome(
-        idlPath
-      )}. Run 'anchor build' or pass --idl explicitly.`
+        idlPath,
+      )}. Run 'anchor build' or pass --idl explicitly.`,
     );
   }
 }

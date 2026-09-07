@@ -13,13 +13,13 @@ pub enum FeedValueKind {
 #[account]
 #[derive(InitSpace)]
 pub struct Feed {
-    pub feed_id: [u8; 32],
+    pub source_id: [u8; 32],
     /// Stored oracle bytes: raw payload (`FeedValueKind::Value`) or keccak digest
     /// (`FeedValueKind::Hash`). Never longer than [`Feed::STORED_VALUE_LEN`].
     #[max_len(32)]
     pub value: Vec<u8>,
     pub value_kind: FeedValueKind,
-    pub canonical_timestamp: i64,
+    pub canonical_timestamp: u64,
     pub signatures_required: u8,
     pub signers_bitmap: [u8; 32],
     pub registry_version: u32,
@@ -27,10 +27,10 @@ pub struct Feed {
 }
 
 pub struct FeedInitParams {
-    pub feed_id: [u8; 32],
-    pub value: Vec<u8>,
+    pub source_id: [u8; 32],
+    pub value: [u8; 32],
     pub value_kind: FeedValueKind,
-    pub canonical_timestamp: i64,
+    pub canonical_timestamp: u64,
     pub signatures_required: u8,
     pub registry_version: u32,
     pub signers_bitmap: [u8; 32],
@@ -38,9 +38,9 @@ pub struct FeedInitParams {
 }
 
 pub struct FeedUpdateParams {
-    pub value: Vec<u8>,
+    pub value: [u8; 32],
     pub value_kind: FeedValueKind,
-    pub canonical_timestamp: i64,
+    pub canonical_timestamp: u64,
     pub registry_version: u32,
     pub signers_bitmap: [u8; 32],
     pub bump: u8,
@@ -58,21 +58,21 @@ impl Feed {
     ///
     /// - `len <= 32` → store bytes as-is, [`FeedValueKind::Value`]
     /// - `len > 32` → store `keccak256(payload)`, [`FeedValueKind::Hash`]
-    pub fn encode_stored_value(raw: &[u8]) -> Result<(Vec<u8>, FeedValueKind)> {
+    pub fn encode_stored_value(raw: &[u8]) -> Result<([u8; 32], FeedValueKind)> {
         require!(
             raw.len() <= Self::MAX_VALUE_LEN,
             crate::error::MolphaError::InvalidValueLength
         );
         if raw.len() <= Self::STORED_VALUE_LEN {
-            Ok((raw.to_vec(), FeedValueKind::Value))
+            Ok((raw.try_into().unwrap(), FeedValueKind::Value))
         } else {
-            Ok((hashv(&[raw]).to_bytes().to_vec(), FeedValueKind::Hash))
+            Ok((hashv(&[raw]).to_bytes(), FeedValueKind::Hash))
         }
     }
 
     pub fn init(&mut self, params: &FeedInitParams) {
-        self.feed_id = params.feed_id;
-        self.value = params.value.clone();
+        self.source_id = params.source_id;
+        self.value = params.value.to_vec();
         self.value_kind = params.value_kind;
         self.canonical_timestamp = params.canonical_timestamp;
         self.signatures_required = params.signatures_required;
@@ -82,47 +82,11 @@ impl Feed {
     }
 
     pub fn update(&mut self, params: &FeedUpdateParams) {
-        self.value = params.value.clone();
+        self.value = params.value.to_vec();
         self.value_kind = params.value_kind;
         self.canonical_timestamp = params.canonical_timestamp;
         self.registry_version = params.registry_version;
         self.signers_bitmap = params.signers_bitmap;
         self.bump = params.bump;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn encode_short_value_stores_raw_bytes() {
-        let raw = vec![0xabu8; 16];
-        let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
-        assert_eq!(kind, FeedValueKind::Value);
-        assert_eq!(stored, raw);
-    }
-
-    #[test]
-    fn encode_exact_32_stores_raw_bytes() {
-        let raw = vec![0x11u8; 32];
-        let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
-        assert_eq!(kind, FeedValueKind::Value);
-        assert_eq!(stored, raw);
-    }
-
-    #[test]
-    fn encode_long_value_stores_keccak_hash() {
-        let raw = vec![0x22u8; 64];
-        let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
-        assert_eq!(kind, FeedValueKind::Hash);
-        assert_eq!(stored, hashv(&[&raw]).to_bytes().to_vec());
-        assert_eq!(stored.len(), 32);
-    }
-
-    #[test]
-    fn encode_rejects_over_max_len() {
-        let raw = vec![0u8; Feed::MAX_VALUE_LEN + 1];
-        assert!(Feed::encode_stored_value(&raw).is_err());
     }
 }

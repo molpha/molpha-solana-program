@@ -1,5 +1,5 @@
 [toolchain]
-anchor_version = "1.1.2"
+anchor_version = "1.2.0"
 solana_version = "4.1.1"
 package_manager = "yarn"
 
@@ -14,10 +14,12 @@ molpha = "MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh"
 molpha = "MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh"
 
 [provider]
-cluster = "devnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "cp target/deploy/molpha.so tests/fixtures && RUST_LOG= yarn jest --runInBand --verbose --forceExit"
+# `anchor test` builds the program, then runs the Rust + LiteSVM suite.
+# LiteSVM needs no validator: run `anchor test --skip-local-validator`, or just `cargo test`.
+test = "cargo test --workspace"
 
 [hooks]

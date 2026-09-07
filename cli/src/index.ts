@@ -3,7 +3,7 @@
 import { Command } from "commander";
 import { registerAccountCommands } from "./commands/account";
 import { registerAdminCommands } from "./commands/admin";
-import { registerDataCommands } from "./commands/data";
+import { registerAttestationCommands } from "./commands/attestation";
 import { registerDelegateCommands } from "./commands/delegate";
 import { registerGatewayCommands } from "./commands/gateway";
 import { registerInitCommand } from "./commands/init";
@@ -27,7 +27,7 @@ async function main() {
     .option(
       "--commitment <level>",
       "processed|confirmed|finalized",
-      "confirmed"
+      "confirmed",
     )
     .option("--idl <path>", "IDL file path override");
 
@@ -40,7 +40,7 @@ async function main() {
   registerGatewayCommands(program);
   registerRoundCommands(program);
   registerRewardsCommands(program);
-  registerDataCommands(program);
+  registerAttestationCommands(program);
   registerAccountCommands(program);
 
   await program.parseAsync(process.argv);

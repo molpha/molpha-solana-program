@@ -6,7 +6,12 @@ import {
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import { getCliContext } from "../lib/client";
-import { findProtocolConfigPda, findRegistryStatePda } from "../lib/pdas";
+import {
+  findNodeDepositVault,
+  findProtocolConfigPda,
+  findRegistryPda,
+  findRegistryStatePda,
+} from "../lib/pdas";
 import {
   bn,
   optionOrConfig,
@@ -17,25 +22,18 @@ import {
 } from "../lib/utils";
 
 type InitConfig = {
-  registryCooldownSecs?: string;
-  previousGraceSecs?: string;
-  withdrawalCooldownSecs?: string;
-  maxNodeCount?: number;
+  withdrawalCooldownSlots?: string;
   redundancyBuffer?: number;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
-  gatewayFee?: string;
-  receiptSubmitterBonus?: string;
-  protocolFeeBps?: number;
-  maxReceiptDelaySlots?: string;
-  protocolFee?: string;
+  maxSettlementDelaySeconds?: string;
   disputeWindowSlots?: string;
   gatewayBondMin?: string;
   challengerBountyBps?: number;
+  livelinessFreezeThreshold?: number;
   usdcMint?: string;
-  agentRoundBase?: string;
-  agentRoundPerSig?: string;
-  agentEpochLenSecs?: string;
+  x402RoundBase?: string;
+  minSigners?: number;
 };
 
 export function registerInitCommand(program: Command): void {
@@ -43,31 +41,33 @@ export function registerInitCommand(program: Command): void {
     .command("init")
     .description("Initialize the Molpha protocol")
     .option("--config <path>", "json config file")
-    .option("--registry-cooldown-secs <seconds>", "registry cooldown")
-    .option("--previous-grace-secs <seconds>", "previous registry grace period")
-    .option("--withdrawal-cooldown-secs <seconds>", "node withdrawal cooldown")
-    .option("--max-node-count <count>", "max registry size")
+    .option(
+      "--withdrawal-cooldown-slots <slots>",
+      "node withdrawal cooldown in slots",
+    )
     .option(
       "--redundancy-buffer <count>",
-      "extra selection slots beyond signatures_required"
+      "extra selection slots beyond signatures_required",
     )
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
-    .option("--gateway-fee <amount>", "gateway fee")
-    .option("--receipt-submitter-bonus <amount>", "receipt submitter bonus")
-    .option("--protocol-fee-bps <bps>", "protocol fee in basis points")
-    .option("--max-receipt-delay-slots <slots>", "max receipt delay")
-    .option("--protocol-fee <amount>", "fixed protocol fee per round")
+    .option(
+      "--max-settlement-delay-seconds <seconds>",
+      "max age of canonical_timestamp at settlement ingress",
+    )
     .option("--dispute-window-slots <slots>", "settled round dispute window")
     .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
-    .option("--usdc-mint <pubkey>", "USDC mint")
-    .option("--agent-round-base <amount>", "base agent fresh-round price")
     .option(
-      "--agent-round-per-sig <amount>",
-      "per-required-signature agent fresh-round price"
+      "--liveliness-freeze-threshold <score>",
+      "liveliness score below which a node may be frozen",
     )
-    .option("--agent-epoch-len-secs <seconds>", "agent spend accounting epoch")
+    .option("--usdc-mint <pubkey>", "USDC mint")
+    .option("--x402-round-base <amount>", "base x402 round settlement price")
+    .option(
+      "--min-signers <count>",
+      "minimum signatures_required accepted by settlement",
+    )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const config = options.config
@@ -75,160 +75,111 @@ export function registerInitCommand(program: Command): void {
         : {};
       const [protocolConfig] = findProtocolConfigPda(ctx.programId);
       const [registryState] = findRegistryStatePda(ctx.programId);
+      const [registry] = findRegistryPda(ctx.programId, 0);
 
       const args = {
-        registryCooldownSecs: bn(
+        withdrawalCooldownSlots: bn(
           requireValue(
             optionOrConfig(
-              options.registryCooldownSecs,
-              config.registryCooldownSecs
+              options.withdrawalCooldownSlots,
+              config.withdrawalCooldownSlots,
             ),
-            "Missing --registry-cooldown-secs"
+            "Missing --withdrawal-cooldown-slots",
           ),
-          "registry cooldown"
-        ),
-        previousGraceSecs: bn(
-          requireValue(
-            optionOrConfig(options.previousGraceSecs, config.previousGraceSecs),
-            "Missing --previous-grace-secs"
-          ),
-          "previous grace"
-        ),
-        withdrawalCooldownSecs: bn(
-          requireValue(
-            optionOrConfig(
-              options.withdrawalCooldownSecs,
-              config.withdrawalCooldownSecs
-            ),
-            "Missing --withdrawal-cooldown-secs"
-          ),
-          "withdrawal cooldown"
-        ),
-        maxNodeCount: Number(
-          requireValue(
-            optionOrConfig(options.maxNodeCount, config.maxNodeCount),
-            "Missing --max-node-count"
-          )
+          "withdrawal cooldown",
         ),
         redundancyBuffer: Number(
-          optionOrConfig(options.redundancyBuffer, config.redundancyBuffer) ?? 2
+          optionOrConfig(options.redundancyBuffer, config.redundancyBuffer) ??
+            2,
         ),
         minimumNodeDeposit: bn(
           requireValue(
             optionOrConfig(
               options.minimumNodeDeposit,
-              config.minimumNodeDeposit
+              config.minimumNodeDeposit,
             ),
-            "Missing --minimum-node-deposit"
+            "Missing --minimum-node-deposit",
           ),
-          "minimum node deposit"
+          "minimum node deposit",
         ),
         rewardPerSignature: bn(
           requireValue(
             optionOrConfig(
               options.rewardPerSignature,
-              config.rewardPerSignature
+              config.rewardPerSignature,
             ),
-            "Missing --reward-per-signature"
+            "Missing --reward-per-signature",
           ),
-          "reward per signature"
+          "reward per signature",
         ),
-        gatewayFee: bn(
-          requireValue(
-            optionOrConfig(options.gatewayFee, config.gatewayFee),
-            "Missing --gateway-fee"
-          ),
-          "gateway fee"
-        ),
-        receiptSubmitterBonus: bn(
+        maxSettlementDelaySeconds: bn(
           requireValue(
             optionOrConfig(
-              options.receiptSubmitterBonus,
-              config.receiptSubmitterBonus
+              options.maxSettlementDelaySeconds,
+              config.maxSettlementDelaySeconds,
             ),
-            "Missing --receipt-submitter-bonus"
+            "Missing --max-settlement-delay-seconds",
           ),
-          "receipt submitter bonus"
-        ),
-        protocolFeeBps: Number(
-          requireValue(
-            optionOrConfig(options.protocolFeeBps, config.protocolFeeBps),
-            "Missing --protocol-fee-bps"
-          )
-        ),
-        maxReceiptDelaySlots: bn(
-          requireValue(
-            optionOrConfig(
-              options.maxReceiptDelaySlots,
-              config.maxReceiptDelaySlots
-            ),
-            "Missing --max-receipt-delay-slots"
-          ),
-          "max receipt delay"
-        ),
-        protocolFee: bn(
-          requireValue(
-            optionOrConfig(options.protocolFee, config.protocolFee),
-            "Missing --protocol-fee"
-          ),
-          "protocol fee"
+          "max settlement delay",
         ),
         disputeWindowSlots: bn(
           requireValue(
             optionOrConfig(
               options.disputeWindowSlots,
-              config.disputeWindowSlots
+              config.disputeWindowSlots,
             ),
-            "Missing --dispute-window-slots"
+            "Missing --dispute-window-slots",
           ),
-          "dispute window"
+          "dispute window",
         ),
         gatewayBondMin: bn(
           requireValue(
             optionOrConfig(options.gatewayBondMin, config.gatewayBondMin),
-            "Missing --gateway-bond-min"
+            "Missing --gateway-bond-min",
           ),
-          "gateway bond minimum"
+          "gateway bond minimum",
         ),
         challengerBountyBps: Number(
           requireValue(
             optionOrConfig(
               options.challengerBountyBps,
-              config.challengerBountyBps
+              config.challengerBountyBps,
             ),
-            "Missing --challenger-bounty-bps"
-          )
+            "Missing --challenger-bounty-bps",
+          ),
+        ),
+        livelinessFreezeThreshold: Number(
+          requireValue(
+            optionOrConfig(
+              options.livelinessFreezeThreshold,
+              config.livelinessFreezeThreshold,
+            ),
+            "Missing --liveliness-freeze-threshold",
+          ),
         ),
         usdcMint: parsePubkeyOption(
           optionOrConfig(options.usdcMint, config.usdcMint),
-          "usdc mint"
+          "usdc mint",
         ),
-        agentRoundBase: bn(
+        x402RoundBase: bn(
           requireValue(
-            optionOrConfig(options.agentRoundBase, config.agentRoundBase),
-            "Missing --agent-round-base"
+            optionOrConfig(options.x402RoundBase, config.x402RoundBase),
+            "Missing --x402-round-base",
           ),
-          "agent round base"
+          "x402 round base",
         ),
-        agentRoundPerSig: bn(
-          requireValue(
-            optionOrConfig(options.agentRoundPerSig, config.agentRoundPerSig),
-            "Missing --agent-round-per-sig"
-          ),
-          "agent round per signature"
-        ),
-        agentEpochLenSecs: bn(
-          requireValue(
-            optionOrConfig(options.agentEpochLenSecs, config.agentEpochLenSecs),
-            "Missing --agent-epoch-len-secs"
-          ),
-          "agent epoch length"
+        minSigners: Number(
+          optionOrConfig(options.minSigners, config.minSigners) ?? 3,
         ),
       };
       const treasury = getAssociatedTokenAddressSync(
         args.usdcMint,
         protocolConfig,
-        true
+        true,
+      );
+      const nodeDepositVault = findNodeDepositVault(
+        ctx.programId,
+        args.usdcMint,
       );
 
       const signature = await (ctx.program.methods as any)
@@ -236,8 +187,10 @@ export function registerInitCommand(program: Command): void {
         .accountsPartial({
           protocolConfig,
           registryState,
+          registry,
           usdcMint: args.usdcMint,
           treasury,
+          nodeDepositVault,
           authority: ctx.wallet.publicKey,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -249,17 +202,19 @@ export function registerInitCommand(program: Command): void {
         signature,
         protocolConfig: protocolConfig.toBase58(),
         registryState: registryState.toBase58(),
+        registry: registry.toBase58(),
         treasury: treasury.toBase58(),
+        nodeDepositVault: nodeDepositVault.toBase58(),
       });
     });
 }
 
 function parsePubkeyOption(
   value: string | undefined,
-  label: string
+  label: string,
 ): PublicKey {
   return parsePublicKey(
     requireValue(value, `Missing --${label.replace(/\s+/g, "-")}`),
-    label
+    label,
   );
 }

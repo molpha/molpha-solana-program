@@ -23,7 +23,7 @@ function compressPublicKey(uncompressedHex) {
   // Validate length
   if (pubkeyBytes.length !== 65) {
     throw new Error(
-      `Invalid uncompressed public key length: ${pubkeyBytes.length} bytes (expected 65)`
+      `Invalid uncompressed public key length: ${pubkeyBytes.length} bytes (expected 65)`,
     );
   }
 
@@ -31,8 +31,8 @@ function compressPublicKey(uncompressedHex) {
   if (pubkeyBytes[0] !== 0x04) {
     throw new Error(
       `Invalid uncompressed public key prefix: 0x${pubkeyBytes[0].toString(
-        16
-      )} (expected 0x04)`
+        16,
+      )} (expected 0x04)`,
     );
   }
 
@@ -57,14 +57,14 @@ function main() {
     console.error("❌ Error: Uncompressed public key is required");
     console.log("");
     console.log(
-      "Usage: node scripts/compress-evm-pubkey.js <UNCOMPRESSED_PUBKEY_HEX>"
+      "Usage: node scripts/compress-evm-pubkey.js <UNCOMPRESSED_PUBKEY_HEX>",
     );
     console.log("");
     console.log("The uncompressed public key should be:");
     console.log("  - 65 bytes (130 hex characters) in length");
     console.log("  - Start with 0x04 prefix");
     console.log(
-      "  - Format: 0x04 + x-coordinate (32 bytes) + y-coordinate (32 bytes)"
+      "  - Format: 0x04 + x-coordinate (32 bytes) + y-coordinate (32 bytes)",
     );
     console.log("");
     console.log("Example:");
@@ -102,19 +102,19 @@ function main() {
     // Verify by decompressing
     try {
       const point = secp256k1.ProjectivePoint.fromHex(
-        compressed.toString("hex")
+        compressed.toString("hex"),
       );
       const decompressed = point.toRawBytes(false); // false = uncompressed
       console.log(
-        "✅ Verification: Successfully decompressed back to original"
+        "✅ Verification: Successfully decompressed back to original",
       );
       console.log(
         "  Matches input:",
-        Buffer.from(decompressed).toString("hex") === inputHex
+        Buffer.from(decompressed).toString("hex") === inputHex,
       );
     } catch (e) {
       console.log(
-        "⚠️  Warning: Could not verify compression (but output is valid)"
+        "⚠️  Warning: Could not verify compression (but output is valid)",
       );
     }
 
@@ -122,8 +122,8 @@ function main() {
     console.log("💡 Usage with node registration:");
     console.log(
       `  yarn molpha registry register --secp-pubkey 0x${compressed.toString(
-        "hex"
-      )} --registration-salt <32_BYTE_HEX> --owner-usdc <ATA>`
+        "hex",
+      )} --registration-salt <32_BYTE_HEX>`,
     );
     console.log("");
   } catch (error) {

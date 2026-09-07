@@ -19,7 +19,6 @@
  *   --count <n>           Number of nodes when generating (default: 5)
  *   --output <path>       Output JSON path (default: ./generated-nodes.json)
  *   --generate-new        Generate fresh keys and overwrite the output file
- *   --finalize            Call finalize_registry_transition after last node
  *   --skip-register       Only generate keys; do not send transactions
  *
  * By default, if the output file already exists, keys are loaded from it and only
@@ -47,7 +46,7 @@ const {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } = require("@solana/spl-token");
-const { keccak_256 } = require("@noble/hashes/sha3");
+const { keccak_256 } = require("@noble/hashes/sha3.js");
 const {
   generateKeypair: generateEvmKeypair,
 } = require("./generate-evm-keypair");
@@ -57,7 +56,6 @@ const NODE_ID_PREFIX = Buffer.from("MOLPHA_NODE_ID_V1");
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 const NODE_SEED = Buffer.from("molpha_node");
-const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
 const DEFAULT_COUNT = 5;
 const DEFAULT_OUTPUT = path.resolve(process.cwd(), "generated-nodes.json");
 const OWNER_SOL_LAMPORTS = LAMPORTS_PER_SOL;
@@ -80,7 +78,6 @@ function parseArgs(argv) {
     countExplicit: false,
     output: DEFAULT_OUTPUT,
     generateNew: false,
-    finalize: false,
     securityDeposit: null,
     skipRegister: false,
   };
@@ -100,13 +97,11 @@ function parseArgs(argv) {
       opts.output = path.resolve(argv[++i]);
     } else if (arg === "--generate-new") {
       opts.generateNew = true;
-    } else if (arg === "--finalize") {
-      opts.finalize = true;
     } else if (arg === "--skip-register") {
       opts.skipRegister = true;
     } else if (arg === "--help" || arg === "-h") {
       console.log(
-        fs.readFileSync(__filename, "utf8").split("\n").slice(0, 28).join("\n")
+        fs.readFileSync(__filename, "utf8").split("\n").slice(0, 28).join("\n"),
       );
       process.exit(0);
     } else {
@@ -215,7 +210,7 @@ function resolveConnectionOptions(opts) {
   const programIdFromToml = readProgramIdFromAnchorToml(cluster);
   if (!programIdFromToml && !opts.skipRegister) {
     console.warn(
-      `⚠️  No molpha program id in Anchor.toml [programs.${cluster}]; using IDL address`
+      `⚠️  No molpha program id in Anchor.toml [programs.${cluster}]; using IDL address`,
     );
   }
 
@@ -258,40 +253,41 @@ function deriveNodeId(owner, secpCompressed, registrationSalt) {
         owner.toBuffer(),
         Buffer.from(secpCompressed),
         Buffer.from(registrationSalt),
-      ])
-    )
+      ]),
+    ),
   );
 }
 
-function findNodeOperatorPda(programId, nodeOwner) {
+function findNodePda(programId, nodeOwner) {
   return PublicKey.findProgramAddressSync(
-    [NODE_OPERATOR_SEED, nodeOwner.toBuffer()],
-    programId
+    [NODE_SEED, nodeOwner.toBuffer()],
+    programId,
   )[0];
 }
 
-function findNodePda(programId, index) {
-  const indexBytes = Buffer.alloc(4);
-  indexBytes.writeUInt32LE(index);
+function findRegistryPda(programId, version) {
+  const versionBytes = Buffer.alloc(4);
+  versionBytes.writeUInt32LE(version);
   return PublicKey.findProgramAddressSync(
-    [NODE_SEED, indexBytes],
-    programId
+    [REGISTRY_STATE_SEED, versionBytes],
+    programId,
   )[0];
 }
 
 function buildRegisterNodeArgs({
   index,
+  newRegistryVersion,
   registrationSalt,
   secpCompressed,
   popSigR,
   popSigS,
 }) {
   return {
+    newRegistryVersion,
     registrationSalt: Array.from(registrationSalt),
     ip: [127, 0, 0, 1],
     port: 8080 + index,
     secp256K1PubkeyCompressed: Array.from(secpCompressed),
-    secp256K1KeyFingerprint: Array.from(keccak_256(secpCompressed)),
     popSigR: Array.from(popSigR),
     popSigS: Array.from(popSigS),
   };
@@ -321,38 +317,12 @@ function evmKeypairRecord(evm) {
   };
 }
 
-async function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForRegistryGrace(connection, registryStatePda, program) {
-  const registry = await program.account.registryState.fetch(registryStatePda);
-  const expiresAt = Number(registry.previousExpiresAt);
-  if (expiresAt <= 0) {
-    return;
-  }
-
-  while (true) {
-    const slot = await connection.getSlot("confirmed");
-    const blockTime = await connection.getBlockTime(slot);
-    const now = blockTime ?? Math.floor(Date.now() / 1000);
-    if (now > expiresAt) {
-      return;
-    }
-    const waitSecs = Math.min(Math.max(expiresAt - now + 1, 1), 120);
-    console.log(
-      `   ⏳ Registry grace active until ${expiresAt} (now ${now}); sleeping ${waitSecs}s...`
-    );
-    await sleep(waitSecs * 1000);
-  }
-}
-
 async function ensureOwnerFunded(
   connection,
   payer,
   owner,
   usdcMint,
-  tokenAmount
+  tokenAmount,
 ) {
   const balance = await connection.getBalance(owner.publicKey);
   const ownerAta = getAssociatedTokenAddressSync(usdcMint, owner.publicKey);
@@ -365,14 +335,14 @@ async function ensureOwnerFunded(
     console.log(
       `Transferring ${
         needed / LAMPORTS_PER_SOL
-      } SOL from ${payer.publicKey.toBase58()} to ${owner.publicKey.toBase58()}`
+      } SOL from ${payer.publicKey.toBase58()} to ${owner.publicKey.toBase58()}`,
     );
     tx.add(
       SystemProgram.transfer({
         fromPubkey: payer.publicKey,
         toPubkey: owner.publicKey,
         lamports: needed,
-      })
+      }),
     );
   }
   if (!ataInfo) {
@@ -381,8 +351,8 @@ async function ensureOwnerFunded(
         payer.publicKey,
         ownerAta,
         owner.publicKey,
-        usdcMint
-      )
+        usdcMint,
+      ),
     );
   }
 
@@ -391,7 +361,7 @@ async function ensureOwnerFunded(
     .catch(() => null);
   if (!payerAtaInfo) {
     throw new Error(
-      `Admin USDC ATA ${payerAta.toBase58()} missing. Fund ${payer.publicKey.toBase58()} with USDC first.`
+      `Admin USDC ATA ${payerAta.toBase58()} missing. Fund ${payer.publicKey.toBase58()} with USDC first.`,
     );
   }
 
@@ -405,8 +375,8 @@ async function ensureOwnerFunded(
         payerAta,
         ownerAta,
         payer.publicKey,
-        tokenAmount - current
-      )
+        tokenAmount - current,
+      ),
     );
   }
 
@@ -441,7 +411,7 @@ function loadManifestFromFile(filepath) {
   }
   if (!Array.isArray(raw.nodes) || raw.nodes.length === 0) {
     throw new Error(
-      `Invalid manifest at ${filepath}: expected non-empty "nodes" array`
+      `Invalid manifest at ${filepath}: expected non-empty "nodes" array`,
     );
   }
   return raw;
@@ -450,7 +420,7 @@ function loadManifestFromFile(filepath) {
 function keypairFromNodeRecord(node) {
   if (!node.solana?.secretKey?.length) {
     throw new Error(
-      `Node ${node.index ?? "?"} missing solana.secretKey in manifest`
+      `Node ${node.index ?? "?"} missing solana.secretKey in manifest`,
     );
   }
   return Keypair.fromSecretKey(Uint8Array.from(node.solana.secretKey));
@@ -461,7 +431,7 @@ function secpCompressedFromNodeRecord(node) {
     node.evm?.publicKeyCompressed0x ?? node.evm?.publicKeyCompressed ?? null;
   if (!hex) {
     throw new Error(
-      `Node ${node.index ?? "?"} missing EVM compressed public key`
+      `Node ${node.index ?? "?"} missing EVM compressed public key`,
     );
   }
   const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
@@ -470,7 +440,7 @@ function secpCompressedFromNodeRecord(node) {
     throw new Error(
       `Node ${node.index ?? "?"}: expected 33-byte compressed pubkey, got ${
         buf.length
-      }`
+      }`,
     );
   }
   return buf;
@@ -489,7 +459,7 @@ function registrationSaltFromNodeRecord(node) {
   const hex = (node.registrationSalt ?? "").replace(/^0x/, "");
   if (hex.length !== 64) {
     throw new Error(
-      `Node ${node.index ?? "?"}: registrationSalt must be 32 bytes hex`
+      `Node ${node.index ?? "?"}: registrationSalt must be 32 bytes hex`,
     );
   }
   return Buffer.from(hex, "hex");
@@ -513,7 +483,7 @@ function prepareLoadedNodes(manifest, programId, limit) {
     const secpPrivateKey = secpPrivateKeyFromNodeRecord(record);
     const registrationSalt = registrationSaltFromNodeRecord(record);
     const nodeId = nodeIdFromRecord(record);
-    const nodePda = findNodeOperatorPda(programId, solanaOwner.publicKey);
+    const nodePda = findNodePda(programId, solanaOwner.publicKey);
     return {
       record: { ...record },
       solanaOwner,
@@ -538,9 +508,9 @@ function generateFreshNodes(programId, startIndex, count) {
     const nodeId = deriveNodeId(
       solanaOwner.publicKey,
       secpCompressed,
-      registrationSalt
+      registrationSalt,
     );
-    const nodePda = findNodeOperatorPda(programId, solanaOwner.publicKey);
+    const nodePda = findNodePda(programId, solanaOwner.publicKey);
 
     items.push({
       record: {
@@ -582,11 +552,11 @@ async function main() {
 
   const [protocolConfigPda] = PublicKey.findProgramAddressSync(
     [PROTOCOL_CONFIG_SEED],
-    programId
+    programId,
   );
   const [registryStatePda] = PublicKey.findProgramAddressSync(
     [REGISTRY_STATE_SEED],
-    programId
+    programId,
   );
 
   let protocolConfig = null;
@@ -599,25 +569,26 @@ async function main() {
 
   if (!opts.skipRegister) {
     try {
-      protocolConfig = await program.account.protocolConfig.fetch(
-        protocolConfigPda
-      );
-      registryState = await program.account.registryState.fetch(
-        registryStatePda
-      );
+      protocolConfig =
+        await program.account.protocolConfig.fetch(protocolConfigPda);
+      registryState =
+        await program.account.registryState.fetch(registryStatePda);
     } catch (e) {
       throw new Error(
-        `Protocol not initialized. Run init first. (${e.message})`
+        `Protocol not initialized. Run init first. (${e.message})`,
       );
     }
 
     if (admin.publicKey.toString() !== protocolConfig.authority.toString()) {
       throw new Error(
-        `ANCHOR_WALLET ${admin.publicKey.toBase58()} is not registry admin ${protocolConfig.authority.toBase58()}`
+        `ANCHOR_WALLET ${admin.publicKey.toBase58()} is not registry admin ${protocolConfig.authority.toBase58()}`,
       );
     }
 
-    startIndex = Number(registryState.currentNodeCount);
+    const currentRegistry = await program.account.registry.fetch(
+      findRegistryPda(programId, Number(registryState.currentVersion)),
+    );
+    startIndex = Number(currentRegistry.nodeCount);
 
     const minDeposit = BigInt(protocolConfig.minimumNodeDeposit.toString());
     depositPerNode =
@@ -627,12 +598,13 @@ async function main() {
 
     if (depositPerNode < minDeposit) {
       throw new Error(
-        `security deposit ${depositPerNode} is below minimum ${minDeposit}`
+        `security deposit ${depositPerNode} is below minimum ${minDeposit}`,
       );
     }
 
     usdcMint = protocolConfig.usdcMint;
-    treasury = protocolConfig.treasury;
+    // Neither vault is stored on the config; both are derived. Recorded here for operators.
+    treasury = getAssociatedTokenAddressSync(usdcMint, protocolConfigPda, true);
   } else {
     startIndex = 0;
     depositPerNode =
@@ -656,10 +628,10 @@ async function main() {
       console.log("Mode: generate new keys");
     }
     const generateCount = opts.countExplicit ? opts.count : DEFAULT_COUNT;
-    const maxNodes = Number(protocolConfig?.maxNodeCount ?? 0);
+    const maxNodes = Number(256);
     if (!opts.skipRegister && startIndex + generateCount > maxNodes) {
       throw new Error(
-        `Cannot register ${generateCount} nodes: registry has ${startIndex}/${maxNodes} slots used`
+        `Cannot register ${generateCount} nodes: registry has ${startIndex}/${maxNodes} slots used`,
       );
     }
     nodeItems = generateFreshNodes(programId, startIndex, generateCount);
@@ -718,61 +690,55 @@ async function main() {
   }
 
   let registeredThisRun = 0;
-  let graceWaitedThisRun = false;
-
   for (let i = 0; i < nodeItems.length; i++) {
     const item = nodeItems[i];
     const nodeRecord = item.record;
 
     console.log(
-      `Node ${nodeRecord.index}: Solana ${nodeRecord.solana.publicKey} | EVM ${nodeRecord.evm.address}`
+      `Node ${nodeRecord.index}: Solana ${nodeRecord.solana.publicKey} | EVM ${nodeRecord.evm.address}`,
     );
 
     if (!opts.skipRegister) {
       const alreadyOnChain = await isNodeRegisteredOnChain(
         provider.connection,
-        item.nodePda
+        item.nodePda,
       );
       if (alreadyOnChain) {
         console.log("   ⏭️  Already registered on-chain, skipping");
         continue;
       }
 
-      registryState = await program.account.registryState.fetch(
-        registryStatePda
-      );
-      const chainIndex = Number(registryState.currentNodeCount);
-      const maxNodes = Number(protocolConfig.maxNodeCount);
+      registryState =
+        await program.account.registryState.fetch(registryStatePda);
+      const currentVersion = Number(registryState.currentVersion);
+      if (currentVersion === 0xffffffff) {
+        throw new Error("Registry version overflow");
+      }
+      const newRegistryVersion = currentVersion + 1;
+      const currentRegistryPda = findRegistryPda(programId, currentVersion);
+      const newRegistryPda = findRegistryPda(programId, newRegistryVersion);
+      const currentRegistry =
+        await program.account.registry.fetch(currentRegistryPda);
+      const chainIndex = Number(currentRegistry.nodeCount);
+      const maxNodes = Number(256);
       if (chainIndex >= maxNodes) {
         throw new Error(
-          `Registry full (${chainIndex}/${maxNodes}); cannot register more nodes`
+          `Registry full (${chainIndex}/${maxNodes}); cannot register more nodes`,
         );
       }
 
-      if (chainIndex > 0 || graceWaitedThisRun) {
-        await waitForRegistryGrace(
-          provider.connection,
-          registryStatePda,
-          program
-        );
-      }
-      graceWaitedThisRun = true;
-
-      const nodeOperatorPda = findNodeOperatorPda(
-        programId,
-        item.solanaOwner.publicKey
-      );
-      const nodePda = findNodePda(programId, chainIndex);
+      const nodePda = findNodePda(programId, item.solanaOwner.publicKey);
       const keyClaimPda = findSecp256k1KeyClaimPda(
         programId,
-        item.secpCompressed
+        item.secpCompressed,
       );
       nodeRecord.index = chainIndex;
       nodeRecord.onChain = {
         ...nodeRecord.onChain,
         nodePda: nodePda.toBase58(),
-        nodeOperatorPda: nodeOperatorPda.toBase58(),
         secp256k1KeyClaimPda: keyClaimPda.toBase58(),
+        registryVersion: newRegistryVersion,
+        registryPda: newRegistryPda.toBase58(),
         nodeOwner: item.solanaOwner.publicKey.toBase58(),
       };
 
@@ -781,7 +747,7 @@ async function main() {
         admin,
         item.solanaOwner,
         usdcMint,
-        depositPerNode
+        depositPerNode,
       );
 
       const pop = signNodePop({
@@ -789,8 +755,14 @@ async function main() {
         nodeId: item.nodeId,
         secp256k1PrivateKey: item.secpPrivateKey,
       });
+      const nodeDepositVault = getAssociatedTokenAddressSync(
+        usdcMint,
+        registryStatePda,
+        true,
+      );
       const registerNodeArgs = buildRegisterNodeArgs({
         index: chainIndex,
+        newRegistryVersion,
         registrationSalt: item.registrationSalt,
         secpCompressed: item.secpCompressed,
         popSigR: pop.popSigR,
@@ -803,18 +775,20 @@ async function main() {
           authority: admin.publicKey,
           nodeOwner: item.solanaOwner.publicKey,
           protocolConfig: protocolConfigPda,
-          registry: registryStatePda,
-          nodeOperator: nodeOperatorPda,
+          registryState: registryStatePda,
+          currentRegistry: currentRegistryPda,
+          newRegistry: newRegistryPda,
           node: nodePda,
           secp256K1KeyClaim: keyClaimPda,
           usdcMint,
           ownerUsdc,
-          treasury,
+          // Deposits go to the shared node-deposit vault, not the treasury.
+          nodeDepositVault,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .preInstructions([
-          ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 450_000 }),
         ])
         .signers([item.solanaOwner])
         .rpc();
@@ -830,24 +804,9 @@ async function main() {
 
   manifest.nodes = nodeItems.map((item) => item.record);
 
-  if (!opts.skipRegister && opts.finalize) {
-    await waitForRegistryGrace(provider.connection, registryStatePda, program);
-    const finalizeSig = await program.methods
-      .finalizeRegistryTransition()
-      .accountsPartial({
-        registryState: registryStatePda,
-        virtualNode: null,
-        nodeOperator: null,
-        rentReceiver: admin.publicKey,
-      })
-      .rpc();
-    manifest.finalizeRegistryTransition = { signature: finalizeSig };
-    console.log(`\n✅ Finalized registry transition: ${finalizeSig}`);
-  }
-
   writeOutput(opts.output, manifest);
   console.log(
-    `\n💾 Wrote ${manifest.nodes.length} node(s) to ${opts.output} (mode 600)`
+    `\n💾 Wrote ${manifest.nodes.length} node(s) to ${opts.output} (mode 600)`,
   );
   if (!opts.skipRegister) {
     console.log(`   Registered ${registeredThisRun} node(s) this run`);

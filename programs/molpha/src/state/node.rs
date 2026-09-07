@@ -1,26 +1,29 @@
 use anchor_lang::prelude::*;
 
-use crate::error::MolphaError;
+use crate::error::{map_attestation_accounts_err, map_attestation_err};
 
-pub use molpha_verifier::state::VIRTUAL_INDEX;
+use super::Registry;
 
-/// Slot-keyed registry entry and the single account touched by the round workflows.
-///
-/// Keyed by `index` (`[SEED_PREFIX, index_le]`), it carries the node's registry slot, the
-/// secp256k1 coalition key used for Schnorr verification, and the reward balances accrued during
-/// settlement/finalization. Management/lifecycle data lives on the owner-keyed [`NodeOperator`].
+pub const LIVELINESS_SCORE_MAX: u16 = 10_000;
+pub const LIVELINESS_PENALTY_PER_MISS: u16 = 500;
+pub const LIVELINESS_RECOVERY_PER_SIGN: u16 = 100;
+
+/// Permanent node identity and reward account; never closed or re-keyed.
 #[account]
 #[derive(InitSpace)]
 pub struct Node {
-    pub index: u32,
-    /// Operator wallet — used for claim authorization and deactivate validation.
     pub owner: Pubkey,
-    /// Validated affine coordinates. `register_node` is the only write path and accepts only a
-    /// canonical compressed secp256k1 point, so verifier hot paths may safely skip re-parsing.
     pub secp256k1_pubkey_x: [u8; 32],
     pub secp256k1_pubkey_y: [u8; 32],
-    /// Finalized rewards, withdrawable via `claim_node_rewards`.
+    pub status: NodeStatus,
+    pub ip: [u8; 4],
+    pub port: u16,
+    pub locked_amount: u64,
     pub claimable_rewards: u64,
+    pub liveliness_score: u16,
+    pub registered_at: i64,
+    pub withdrawable_slot: u64,
+    pub frozen_until: i64,
     pub bump: u8,
 }
 
@@ -28,78 +31,85 @@ impl Node {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_node";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
+    #[allow(clippy::too_many_arguments)]
     pub fn init(
         &mut self,
-        index: u32,
         owner: Pubkey,
         secp256k1_pubkey_x: [u8; 32],
         secp256k1_pubkey_y: [u8; 32],
+        ip: [u8; 4],
+        port: u16,
+        locked_amount: u64,
+        registered_at: i64,
         bump: u8,
     ) {
-        self.index = index;
         self.owner = owner;
         self.secp256k1_pubkey_x = secp256k1_pubkey_x;
         self.secp256k1_pubkey_y = secp256k1_pubkey_y;
+        self.status = NodeStatus::Active;
+        self.ip = ip;
+        self.port = port;
+        self.locked_amount = locked_amount;
         self.claimable_rewards = 0;
+        self.liveliness_score = LIVELINESS_SCORE_MAX;
+        self.registered_at = registered_at;
+        self.withdrawable_slot = 0;
+        self.frozen_until = 0;
         self.bump = bump;
     }
+
+    pub fn update_endpoint(&mut self, ip: [u8; 4], port: u16) {
+        self.ip = ip;
+        self.port = port;
+    }
 }
 
-/// Parse a slice of signer accounts (typically `ctx.remaining_accounts`) into the plain
-/// `NodeEntry`s consumed by `molpha_verifier`. Each account must be owned by this program
-/// and hold a valid [`Node`]; the resulting order matches the input order.
-pub fn collect_node_entries(
+#[derive(
+    AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Default, Debug,
+)]
+pub enum NodeStatus {
+    #[default]
+    Active,
+    Deactivated,
+    /// Evicted from the registry by a punishment with `MembershipAction::Freeze`; restorable via
+    /// `reinstate_node` once `frozen_until` has passed (or immediately by the protocol authority).
+    Frozen,
+    /// Evicted from the registry by a punishment with `MembershipAction::Tombstone`. Terminal.
+    Tombstoned,
+}
+
+/// Resolve signer accounts against a registry snapshot in ascending bit order.
+pub fn resolve_registry_signers(
     accounts: &[AccountInfo],
     program_id: &Pubkey,
-) -> Result<Vec<molpha_verifier::NodeEntry>> {
-    accounts
-        .iter()
-        .map(|account| {
-            require_keys_eq!(
-                *account.owner,
-                *program_id,
-                MolphaError::MissingSignerAccount
-            );
-            let data = account.try_borrow_data()?;
-            let node = Node::try_deserialize(&mut &data[..])
-                .map_err(|_| error!(MolphaError::InvalidNodeAccount))?;
-            Ok(molpha_verifier::NodeEntry {
-                index: node.index,
-                x: node.secp256k1_pubkey_x,
-                y: node.secp256k1_pubkey_y,
-            })
-        })
-        .collect()
+    registry: &Registry,
+    signers_bitmap: &[u8; 32],
+) -> Result<Vec<molpha_verifier::SignerXy>> {
+    let entries = molpha_verifier::solana::resolve_nodes(accounts, program_id)
+        .map_err(map_attestation_accounts_err)?;
+    molpha_verifier::resolve_registry_signers(
+        &registry.nodes,
+        registry.node_count,
+        signers_bitmap,
+        &entries,
+    )
+    .map_err(map_attestation_err)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use anchor_lang::{AnchorSerialize, Discriminator};
-
-    #[test]
-    fn node_offsets_match_anchor_serialize() {
-        let account = Node {
-            index: 5,
-            owner: Pubkey::new_from_array([0xAA; 32]),
-            secp256k1_pubkey_x: [0x11; 32],
-            secp256k1_pubkey_y: [0x22; 32],
-            claimable_rewards: 9,
-            bump: 7,
-        };
-        let mut body = Vec::new();
-        account.serialize(&mut body).unwrap();
-        assert_eq!(body.len(), Node::INIT_SPACE);
-
-        let mut data = vec![0u8; Node::SPACE];
-        data[..8].copy_from_slice(Node::DISCRIMINATOR);
-        data[8..].copy_from_slice(&body);
-
-        let decoded = Node::try_deserialize(&mut data.as_slice()).expect("deserialize");
-        assert_eq!(decoded.index, account.index);
-        assert_eq!(decoded.owner, account.owner);
-        assert_eq!(decoded.secp256k1_pubkey_x, account.secp256k1_pubkey_x);
-        assert_eq!(decoded.secp256k1_pubkey_y, account.secp256k1_pubkey_y);
-        assert_eq!(decoded.claimable_rewards, account.claimable_rewards);
-    }
+/// Like [`resolve_registry_signers`], but also returns each signer's bit position.
+pub fn resolve_registry_signers_indexed(
+    accounts: &[AccountInfo],
+    program_id: &Pubkey,
+    registry: &Registry,
+    signers_bitmap: &[u8; 32],
+) -> Result<Vec<(usize, molpha_verifier::SignerXy)>> {
+    let entries = molpha_verifier::solana::resolve_nodes(accounts, program_id)
+        .map_err(map_attestation_accounts_err)?;
+    molpha_verifier::resolve_registry_signers_indexed(
+        &registry.nodes,
+        registry.node_count,
+        signers_bitmap,
+        &entries,
+    )
+    .map_err(map_attestation_err)
 }

@@ -2,14 +2,13 @@ import { Command } from "commander";
 import { accountJson, fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import {
-  findAgentEscrowPda,
   findDelegatePda,
   findFeedPda,
   findGatewayPda,
-  findNodeOperatorPda,
   findNodePda,
   findPlanPda,
   findProtocolConfigPda,
+  findRegistryPda,
   findRegistryStatePda,
   findSecp256k1KeyClaimPda,
   findSubscriptionPda,
@@ -25,7 +24,7 @@ import {
 async function printNamedAccount(
   command: Command,
   accountName: string,
-  address: Parameters<typeof parsePublicKey>[0]
+  address: Parameters<typeof parsePublicKey>[0],
 ) {
   const ctx = await getCliContext(command);
   const pubkey = parsePublicKey(address);
@@ -54,7 +53,7 @@ export function registerAccountCommands(program: Command): void {
 
   account
     .command("registry")
-    .description("Fetch registry state")
+    .description("Fetch the current-version registry pointer")
     .option("--address <pubkey>", "override PDA")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -64,35 +63,38 @@ export function registerAccountCommands(program: Command): void {
     });
 
   account
+    .command("registry-version")
+    .description("Fetch an immutable registry snapshot")
+    .option("--address <pubkey>", "registry account address")
+    .option("--version <number>", "registry version")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const address =
+        options.address ??
+        findRegistryPda(
+          ctx.programId,
+          parseInteger(
+            requireValue(options.version, "Missing --version"),
+            "version",
+          ),
+        )[0].toBase58();
+      await printNamedAccount(command, "registry", address);
+    });
+
+  account
     .command("node")
-    .description("Fetch slot-keyed node account")
+    .description("Fetch a permanent owner-keyed node account")
     .option("--address <pubkey>", "node account address")
-    .option("--index <number>", "registry slot index")
+    .option("--owner <pubkey>", "node owner")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const address =
         options.address ??
         findNodePda(
           ctx.programId,
-          parseInteger(requireValue(options.index, "Missing --index"), "index")
+          parsePublicKey(requireValue(options.owner, "Missing --owner")),
         )[0].toBase58();
       await printNamedAccount(command, "node", address);
-    });
-
-  account
-    .command("node-operator")
-    .description("Fetch owner-keyed node operator account")
-    .option("--address <pubkey>", "node operator address")
-    .option("--owner <pubkey>", "node operator owner")
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const address =
-        options.address ??
-        findNodeOperatorPda(
-          ctx.programId,
-          parsePublicKey(requireValue(options.owner, "Missing --owner"))
-        )[0].toBase58();
-      await printNamedAccount(command, "nodeOperator", address);
     });
 
   account
@@ -108,8 +110,8 @@ export function registerAccountCommands(program: Command): void {
           ctx.programId,
           parseInteger(
             requireValue(options.planId, "Missing --plan-id"),
-            "plan id"
-          )
+            "plan id",
+          ),
         )[0].toBase58();
       await printNamedAccount(command, "plan", address);
     });
@@ -134,16 +136,34 @@ export function registerAccountCommands(program: Command): void {
     .command("feed")
     .description("Fetch feed account")
     .option("--address <pubkey>", "feed address")
-    .option("--feed-id <hex>", "32-byte feed id")
+    .option("--source-id <hex>", "32-byte source identifier")
+    .option(
+      "--signatures-required <number>",
+      "quorum used when the feed was created",
+    )
+    .option("--submitter <pubkey>", "feed submitter (defaults to wallet)")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const feedId = hexToBytes(
-        requireValue(options.feedId, "Missing --feed-id"),
-        32,
-        "feed id"
-      );
-      const address =
-        options.address ?? findFeedPda(ctx.programId, feedId)[0].toBase58();
+      const address = options.address
+        ? options.address
+        : findFeedPda(
+            ctx.programId,
+            hexToBytes(
+              requireValue(options.sourceId, "Missing --source-id"),
+              32,
+              "source id",
+            ),
+            parseInteger(
+              requireValue(
+                options.signaturesRequired,
+                "Missing --signatures-required",
+              ),
+              "signatures required",
+            ),
+            options.submitter
+              ? parsePublicKey(options.submitter, "submitter")
+              : ctx.wallet.publicKey,
+          )[0].toBase58();
       await printNamedAccount(command, "feed", address);
     });
 
@@ -161,12 +181,12 @@ export function registerAccountCommands(program: Command): void {
           ctx.programId,
           parsePublicKey(
             requireValue(options.owner, "Missing --owner"),
-            "owner"
+            "owner",
           ),
           parsePublicKey(
             requireValue(options.delegate, "Missing --delegate"),
-            "delegate"
-          )
+            "delegate",
+          ),
         )[0].toBase58();
       await printNamedAccount(command, "delegate", address);
     });
@@ -184,37 +204,10 @@ export function registerAccountCommands(program: Command): void {
           ctx.programId,
           parsePublicKey(
             requireValue(options.authority, "Missing --authority"),
-            "authority"
-          )
+            "authority",
+          ),
         )[0].toBase58();
       await printNamedAccount(command, "gateway", address);
-    });
-
-  account
-    .command("agent-escrow")
-    .description("Fetch agent escrow account")
-    .option("--address <pubkey>", "escrow address")
-    .option("--authority <pubkey>", "escrow authority / x402 payer")
-    .option("--gateway <pubkey>", "gateway authority the escrow is scoped to")
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const address =
-        options.address ??
-        findAgentEscrowPda(
-          ctx.programId,
-          parsePublicKey(
-            requireValue(options.authority, "Missing --authority"),
-            "authority"
-          ),
-          findGatewayPda(
-            ctx.programId,
-            parsePublicKey(
-              requireValue(options.gateway, "Missing --gateway"),
-              "gateway"
-            )
-          )[0]
-        )[0].toBase58();
-      await printNamedAccount(command, "agentEscrow", address);
     });
 
   account
@@ -239,8 +232,8 @@ export function registerAccountCommands(program: Command): void {
           hexToBytes(
             requireValue(options.secpPubkey, "Missing --secp-pubkey"),
             33,
-            "secp pubkey"
-          )
+            "secp pubkey",
+          ),
         )[0].toBase58();
       await printNamedAccount(command, "secp256k1KeyClaim", address);
     });

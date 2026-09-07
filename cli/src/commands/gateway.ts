@@ -1,4 +1,5 @@
 import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
@@ -6,7 +7,11 @@ import { SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
-import { findGatewayPda, findProtocolConfigPda } from "../lib/pdas";
+import {
+  findGatewayBondAta,
+  findGatewayPda,
+  findProtocolConfigPda,
+} from "../lib/pdas";
 import {
   bn,
   loadKeypair,
@@ -24,22 +29,21 @@ export function registerGatewayCommands(program: Command): void {
     .description("Bond and register a gateway")
     .option(
       "--bond-amount <amount>",
-      "USDC bond amount (base units); defaults to protocol_config.gateway_bond_min"
+      "USDC bond amount (base units); defaults to protocol_config.gateway_bond_min",
     )
     .option("--ip <dotted>", "IPv4 endpoint", "10.0.0.1")
     .option("--port <number>", "TCP port", "8080")
     .option(
       "--gateway-wallet <path>",
-      "gateway authority keypair; defaults to provider wallet"
+      "gateway authority keypair; defaults to provider wallet",
     )
-    .option("--authority-usdc <pubkey>", "gateway authority USDC ATA")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!protocolConfig) {
         throw new Error("Protocol config is not initialized");
@@ -50,14 +54,16 @@ export function registerGatewayCommands(program: Command): void {
         : ctx.payer;
       const [gatewayPda] = findGatewayPda(
         ctx.programId,
-        gatewayAuthority.publicKey
+        gatewayAuthority.publicKey,
       );
-      const authorityUsdc = options.authorityUsdc
-        ? parsePublicKey(options.authorityUsdc, "authority USDC")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            gatewayAuthority.publicKey
-          );
+      const authorityUsdc = getAssociatedTokenAddressSync(
+        protocolConfig.usdcMint,
+        gatewayAuthority.publicKey,
+      );
+      const gatewayBond = findGatewayBondAta(
+        protocolConfig.usdcMint,
+        gatewayPda,
+      );
       const bondAmount = options.bondAmount
         ? bn(options.bondAmount, "bond amount")
         : protocolConfig.gatewayBondMin;
@@ -74,9 +80,10 @@ export function registerGatewayCommands(program: Command): void {
           gateway: gatewayPda,
           usdcMint: protocolConfig.usdcMint,
           authorityUsdc,
-          treasury: protocolConfig.treasury,
+          gatewayBond,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         });
 
       if (!gatewayAuthority.publicKey.equals(ctx.wallet.publicKey)) {
@@ -88,64 +95,143 @@ export function registerGatewayCommands(program: Command): void {
         signature,
         gatewayAuthority: gatewayAuthority.publicKey.toBase58(),
         gateway: gatewayPda.toBase58(),
+        gatewayBond: gatewayBond.toBase58(),
         bondAmount: bondAmount.toString(),
       });
     });
 
   gateway
-    .command("claim")
-    .description("Claim finalized gateway rewards credited by finalize_round")
-    .option(
-      "--gateway-wallet <path>",
-      "gateway authority keypair; defaults to provider wallet"
+    .command("deactivate")
+    .description(
+      "Deactivate a gateway and start its dispute-window exit (protocol authority only)",
     )
-    .option("--destination <pubkey>", "USDC destination ATA")
+    .requiredOption(
+      "--gateway-authority <pubkey>",
+      "gateway authority to deactivate",
+    )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
-      const protocolConfig = await fetchAccountOrNull<any>(
-        ctx.program,
-        "protocolConfig",
-        protocolConfigPda
+      const gatewayAuthority = parsePublicKey(
+        options.gatewayAuthority,
+        "gateway authority",
       );
-      if (!protocolConfig) {
-        throw new Error("Protocol config is not initialized");
-      }
+      const [protocolConfig] = findProtocolConfigPda(ctx.programId);
+      const [gatewayPda] = findGatewayPda(ctx.programId, gatewayAuthority);
+      const signature = await (ctx.program.methods as any)
+        .deactivateGateway()
+        .accountsPartial({
+          authority: ctx.wallet.publicKey,
+          protocolConfig,
+          gateway: gatewayPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      const gatewayState = await fetchAccountOrNull<any>(
+        ctx.program,
+        "gateway",
+        gatewayPda,
+      );
+      writeJson({
+        signature,
+        gatewayAuthority: gatewayAuthority.toBase58(),
+        gateway: gatewayPda.toBase58(),
+        deactivatedAt: gatewayState?.deactivatedAt,
+        withdrawableSlot: gatewayState?.withdrawableSlot,
+      });
+    });
 
-      const gatewayAuthority = options.gatewayWallet
+  gateway
+    .command("withdraw-bond")
+    .description("Withdraw a deactivated gateway bond after its dispute window")
+    .option(
+      "--gateway-wallet <path>",
+      "gateway authority keypair; defaults to provider wallet",
+    )
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const authority = options.gatewayWallet
         ? loadKeypair(options.gatewayWallet)
         : ctx.payer;
-      const [gatewayPda] = findGatewayPda(
-        ctx.programId,
-        gatewayAuthority.publicKey
+      const [protocolConfig] = findProtocolConfigPda(ctx.programId);
+      const config = await fetchAccountOrNull<any>(
+        ctx.program,
+        "protocolConfig",
+        protocolConfig,
       );
-      const destination = options.destination
-        ? parsePublicKey(options.destination, "destination")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            gatewayAuthority.publicKey
-          );
+      if (!config) throw new Error("Protocol config is not initialized");
 
+      const [gatewayPda] = findGatewayPda(ctx.programId, authority.publicKey);
+      const gatewayBond = findGatewayBondAta(config.usdcMint, gatewayPda);
+      const destination = getAssociatedTokenAddressSync(
+        config.usdcMint,
+        authority.publicKey,
+      );
       const builder = (ctx.program.methods as any)
-        .claimGatewayRewards()
+        .withdrawGatewayBond()
         .accountsPartial({
-          authority: gatewayAuthority.publicKey,
-          protocolConfig: protocolConfigPda,
+          authority: authority.publicKey,
+          protocolConfig,
           gateway: gatewayPda,
-          treasury: protocolConfig.treasury,
+          usdcMint: config.usdcMint,
+          gatewayBond,
           destination,
           tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         });
-
-      if (!gatewayAuthority.publicKey.equals(ctx.wallet.publicKey)) {
-        builder.signers([gatewayAuthority]);
+      if (!authority.publicKey.equals(ctx.wallet.publicKey)) {
+        builder.signers([authority]);
       }
 
       const signature = await builder.rpc();
       writeJson({
         signature,
+        gatewayAuthority: authority.publicKey.toBase58(),
         gateway: gatewayPda.toBase58(),
+        closedGatewayBond: gatewayBond.toBase58(),
         destination: destination.toBase58(),
+      });
+    });
+
+  gateway
+    .command("withdrawal-status")
+    .description(
+      "Show gateway deactivation state and remaining dispute-window slots",
+    )
+    .option(
+      "--gateway-authority <pubkey>",
+      "gateway authority; defaults to provider wallet",
+    )
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const authority = options.gatewayAuthority
+        ? parsePublicKey(options.gatewayAuthority, "gateway authority")
+        : ctx.wallet.publicKey;
+      const [gatewayPda] = findGatewayPda(ctx.programId, authority);
+      const gatewayState = await fetchAccountOrNull<any>(
+        ctx.program,
+        "gateway",
+        gatewayPda,
+      );
+      if (!gatewayState) {
+        throw new Error(`Gateway not found at ${gatewayPda.toBase58()}`);
+      }
+
+      const currentSlot = await ctx.connection.getSlot(ctx.options.commitment);
+      const deactivatedAt = Number(gatewayState.deactivatedAt.toString());
+      const withdrawableSlot = Number(gatewayState.withdrawableSlot.toString());
+      const deactivated = deactivatedAt > 0 && withdrawableSlot > 0;
+      writeJson({
+        gateway: gatewayPda.toBase58(),
+        gatewayAuthority: authority.toBase58(),
+        deactivatedAt,
+        withdrawableSlot,
+        currentSlot,
+        remainingSlots: deactivated
+          ? Math.max(0, withdrawableSlot - currentSlot)
+          : null,
+        ready: deactivated && currentSlot >= withdrawableSlot,
+        slashed: gatewayState.slashed,
       });
     });
 }

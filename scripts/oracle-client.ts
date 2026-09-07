@@ -55,7 +55,10 @@ export interface OraclePrice {
  * Molpha Oracle Client with standard oracle compatibility
  */
 export class MolphaOracleClient {
-  constructor(private program: Program, private connection: Connection) {}
+  constructor(
+    private program: Program,
+    private connection: Connection,
+  ) {}
 
   /**
    * Get raw feed data
@@ -100,7 +103,7 @@ export class MolphaOracleClient {
    */
   async getPythPriceNoOlderThan(
     feedAddress: PublicKey,
-    maxAge: number
+    maxAge: number,
   ): Promise<PythPrice> {
     const price = await this.getPythPrice(feedAddress);
     const now = Math.floor(Date.now() / 1000);
@@ -122,7 +125,7 @@ export class MolphaOracleClient {
    */
   async getSwitchboardResult(
     feedAddress: PublicKey,
-    decimals: number = 8
+    decimals: number = 8,
   ): Promise<SwitchboardResult> {
     const feed = await this.getFeed(feedAddress);
     const answer = feed.latestAnswer;
@@ -158,7 +161,7 @@ export class MolphaOracleClient {
    */
   async getPrice(
     feedAddress: PublicKey,
-    decimals: number = 8
+    decimals: number = 8,
   ): Promise<OraclePrice> {
     const feed = await this.getFeed(feedAddress);
     const pythPrice = await this.getPythPrice(feedAddress);
@@ -195,7 +198,7 @@ export class MolphaOracleClient {
   async getPriceNoOlderThan(
     feedAddress: PublicKey,
     maxAge: number,
-    decimals: number = 8
+    decimals: number = 8,
   ): Promise<OraclePrice> {
     const price = await this.getPrice(feedAddress, decimals);
     const now = Math.floor(Date.now() / 1000);
@@ -222,7 +225,7 @@ export class MolphaOracleClient {
    */
   async getPriceHistory(
     feedAddress: PublicKey,
-    decimals: number = 8
+    decimals: number = 8,
   ): Promise<OraclePrice[]> {
     const feed = await this.getFeed(feedAddress);
 
@@ -270,7 +273,7 @@ export class OracleEncoder {
     value: bigint,
     stdDev: bigint,
     min: bigint,
-    max: bigint
+    max: bigint,
   ): Buffer {
     const buffer = Buffer.alloc(32);
     buffer.writeBigInt64LE(value, 0);

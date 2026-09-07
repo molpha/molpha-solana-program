@@ -1,140 +1,28 @@
 import { BN, Program } from "@coral-xyz/anchor";
 import { AccountMeta, PublicKey } from "@solana/web3.js";
-import { findVirtualNodePda } from "./pdas";
 import { normalizeForJson } from "./utils";
-
-export type RegistryTransitionKind =
-  | "none"
-  | "add"
-  | "removeTail"
-  | "removeSwap";
-
-export type RemoveTransitionInfo = {
-  removedOldIndex: number;
-  transitionType: "removeTail" | "removeSwap";
-  movedOldIndex?: number;
-};
 
 export async function fetchAccountOrNull<T = any>(
   program: Program,
   accountName: string,
-  address: PublicKey
+  address: PublicKey,
 ): Promise<T | null> {
   try {
     return (await (program.account as any)[accountName].fetch(address)) as T;
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
 
 export async function accountExists(
   program: Program,
-  address: PublicKey
+  address: PublicKey,
 ): Promise<boolean> {
-  const info = await program.provider.connection.getAccountInfo(address);
-  return info !== null;
-}
-
-export function registryTransitionKind(value: any): RegistryTransitionKind {
-  if (!value || typeof value !== "object") {
-    return "none";
-  }
-  if ("add" in value) {
-    return "add";
-  }
-  if ("removeTail" in value) {
-    return "removeTail";
-  }
-  if ("removeSwap" in value) {
-    return "removeSwap";
-  }
-  return "none";
-}
-
-export function removeTransitionInfoFromRegistry(
-  registryState: any
-): RemoveTransitionInfo | undefined {
-  const transitionKind = registryTransitionKind(
-    registryState.lastTransitionType
-  );
-  if (transitionKind !== "removeTail" && transitionKind !== "removeSwap") {
-    return undefined;
-  }
-
-  const removedOldIndex = Number(registryState.removedOldIndex);
-  if (transitionKind === "removeTail") {
-    return {
-      removedOldIndex,
-      transitionType: "removeTail",
-    };
-  }
-
-  const movedOldIndex = Number(registryState.movedOldIndex);
-  return {
-    removedOldIndex,
-    transitionType: "removeSwap",
-    movedOldIndex: movedOldIndex === 0xffffffff ? undefined : movedOldIndex,
-  };
-}
-
-export async function resolveTransitionForRegistryVersion(
-  program: Program,
-  registryState: any,
-  registryVersion: number
-): Promise<{ remainingTransition: RemoveTransitionInfo | undefined }> {
-  if (registryVersion === registryState.currentVersion) {
-    return { remainingTransition: undefined };
-  }
-
-  if (registryVersion !== registryState.previousVersion) {
-    throw new Error(
-      `Registry version ${registryVersion} is not current (${registryState.currentVersion}) or previous (${registryState.previousVersion})`
-    );
-  }
-
-  const transitionKind = registryTransitionKind(
-    registryState.lastTransitionType
-  );
-  if (transitionKind === "none" || transitionKind === "add") {
-    return { remainingTransition: undefined };
-  }
-
-  const remainingTransition = removeTransitionInfoFromRegistry(registryState);
-  if (!remainingTransition) {
-    throw new Error("Registry state is missing remove-transition metadata");
-  }
-
-  return { remainingTransition };
-}
-
-export async function finalizeTransitionAccounts(
-  program: Program,
-  registryState: any
-): Promise<{
-  virtualNode: PublicKey | null;
-}> {
-  const transitionKind = registryTransitionKind(
-    registryState.lastTransitionType
-  );
-  if (transitionKind === "removeTail" || transitionKind === "removeSwap") {
-    const virtualNode = findVirtualNodePda(program.programId)[0];
-    return {
-      virtualNode: (await accountExists(program, virtualNode))
-        ? virtualNode
-        : null,
-    };
-  }
-
-  return {
-    virtualNode: null,
-  };
+  return (await program.provider.connection.getAccountInfo(address)) !== null;
 }
 
 export function accountJson(address: PublicKey, data: any): unknown {
-  return {
-    address: address.toBase58(),
-    account: normalizeForJson(data),
-  };
+  return { address: address.toBase58(), account: normalizeForJson(data) };
 }
 
 export function toAccountMetaList(addresses: PublicKey[]): AccountMeta[] {

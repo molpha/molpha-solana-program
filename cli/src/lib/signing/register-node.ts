@@ -1,4 +1,4 @@
-import { keccak_256 } from "@noble/hashes/sha3";
+import { keccak_256 } from "@noble/hashes/sha3.js";
 
 export function buildRegisterNodeArgs(params: {
   registrationSalt: Uint8Array;
@@ -19,9 +19,6 @@ export function buildRegisterNodeArgs(params: {
     ip: params.ip ?? [127, 0, 0, 1],
     port: params.port ?? 8080,
     secp256K1PubkeyCompressed: Array.from(params.secp256k1PubkeyCompressed),
-    secp256K1KeyFingerprint: Array.from(
-      keccak_256(params.secp256k1PubkeyCompressed)
-    ),
     popSigR: Array.from(params.popSigR),
     popSigS: Array.from(params.popSigS),
   };

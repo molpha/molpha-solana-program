@@ -11,16 +11,28 @@ pub struct Gateway {
     pub index: u32,
     pub ip: [u8; 4],
     pub port: u16,
-    /// USDC bond held in the protocol treasury, slashable on a successful dispute.
-    pub bond: u64,
-    /// Finalized fees, withdrawable via `claim_gateway_rewards`.
-    pub claimable_rewards: u64,
-    pub slashed: bool,
+    pub status: GatewayStatus,
     pub registered_at: i64,
+    pub withdrawable_slot: u64,
     pub bump: u8,
+}
+
+#[derive(InitSpace, AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GatewayStatus {
+    Active,
+    Deactivated,
+    Slashed,
 }
 
 impl Gateway {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_gateway";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
+
+    pub fn seeds(&self) -> [&[u8]; 3] {
+        [
+            Self::SEED_PREFIX,
+            self.authority.as_ref(),
+            core::slice::from_ref(&self.bump),
+        ]
+    }
 }

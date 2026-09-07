@@ -1,23 +1,23 @@
 use anchor_lang::prelude::*;
-use molpha_verifier::DataUpdateError;
+use molpha_verifier::{solana::AccountError, AttestationError};
 
 #[error_code]
 pub enum MolphaError {
-    #[msg("Registry change attempted while previous version is still accepted")]
-    TransitionStillInGrace,
+    #[msg("invalid min signers")]
+    InvalidMinSigners,
+    #[msg("invalid timestamp")]
+    InvalidTimestamp,
+    #[msg("invalid usdc mint")]
+    InvalidMint,
+    #[msg("registry version counter overflow")]
+    RegistryVersionOverflow,
     #[msg("Signer index outside node_count(version)")]
     InvalidNodeIndex,
     #[msg("Node account does not match expected index/owner")]
     InvalidNodeAccount,
-    #[msg("Previous-after-remove verification requires remove-transition metadata")]
-    InvalidTransitionAccount,
-    #[msg("moved_operator does not match the last-slot node's owner")]
-    MovedNodeMismatch,
     #[msg("Caller is not node.owner or registry.authority")]
     UnauthorizedNodeAuthority,
-    #[msg("secp256k1_pubkey matches existing active node")]
-    NodeAlreadyRegistered,
-    #[msg("pending_node_count >= max_node_count or node_index_hint >= max_node_count")]
+    #[msg("pending_node_count >= registry.node_count or node_index_hint >= registry.node_count")]
     NodeCapExceeded,
     #[msg("PoP Schnorr verification failed at registration")]
     InvalidPoP,
@@ -25,8 +25,16 @@ pub enum MolphaError {
     NodeNotActive,
     #[msg("Submitted compressed pubkey does not decompress to a valid curve point")]
     PubkeyNotOnCurve,
-    #[msg("registry_version is neither active_version nor grace-valid previous_version")]
+    #[msg("registry version or version-addressed registry account is invalid")]
     InvalidRegistryVersion,
+    #[msg("registry is not active")]
+    RegistryNotActive,
+    #[msg("source_id does not match feed.source_id")]
+    InvalidSourceId,
+    #[msg("new redundancy buffer must differ from the current registry policy")]
+    RegistryPolicyUnchanged,
+    #[msg("redundancy buffer must be between 1 and 8")]
+    InvalidRedundancyBuffer,
     #[msg("Caller is not ProtocolConfig.authority")]
     UnauthorisedAuthority,
     #[msg("Gateway endpoint is invalid")]
@@ -61,8 +69,6 @@ pub enum MolphaError {
     UnexpectedDelegateAccount,
     #[msg("delegate data_requests_used >= max_data_requests")]
     DelegateDataRequestLimitReached,
-    #[msg("remove_delegate target not found")]
-    DelegateNotFound,
     #[msg("delegate is paused")]
     DelegateNotActive,
     #[msg("signatures_required exceeds delegate.max_signers")]
@@ -71,12 +77,12 @@ pub enum MolphaError {
     DelegateCapReached,
     #[msg("registration_salt must not be zero")]
     InvalidRegistrationSalt,
-    #[msg("secp256k1 key fingerprint does not match compressed key")]
-    InvalidSecp256k1KeyFingerprint,
     #[msg("popcount(signers_bitmap) < signatures_required")]
     InsufficientSigners,
     #[msg("signatures_required exceeds subscription.max_signers")]
     SignaturesExceedSubscriptionMax,
+    #[msg("signatures_required is below protocol min_signers")]
+    SignaturesBelowMinSigners,
     #[msg("Signer bits outside selection bitmap")]
     SignersNotSubsetOfSelection,
     #[msg("PoP-Schnorr aggregate verification failed")]
@@ -88,79 +94,159 @@ pub enum MolphaError {
     #[msg("subscription has expired")]
     SubscriptionNotActive,
 
-    // ---- Receipt settlement (v0.2). Numeric codes are sequential from the macro; the
-    //      spec's 62xx values are illustrative. Names match the spec §9. ----
     #[msg("consumer Ed25519 signature missing or invalid")]
     ConsumerSigInvalid,
     #[msg("popcount(signers_bitmap) < signatures_required")]
     QuorumBelowThreshold,
-    #[msg("gateway not registered or bonded below gateway_bond_min")]
-    GatewayNotBonded,
+    #[msg("gateway is slashed")]
+    GatewaySlashed,
+    #[msg("gateway is not deactivated")]
+    GatewayNotDeactivated,
+    #[msg("gateway is not active")]
+    GatewayNotActive,
+    #[msg("caller is not gateway.authority or protocol_config.authority")]
+    UnauthorizedGatewayAuthority,
     #[msg("subscription inactive or round quota exhausted")]
     SubscriptionInactiveOrExhausted,
-    #[msg("supplied signature does not match committed agg_sig_hash")]
-    DisputeAggSigMismatch,
     #[msg("dispute failed: the committed signature verifies (no fraud)")]
     DisputeSignatureValid,
     #[msg("gateway_index does not match the bonded gateway")]
     GatewayIndexMismatch,
     #[msg("bond amount below gateway_bond_min")]
     InsufficientBond,
-    #[msg("agg_sig.signers_bitmap does not match signers_bitmap")]
-    CreditedBitmapMismatch,
     #[msg("round still inside dispute window; cannot finalize")]
     RoundNotFinalizable,
     #[msg("round is not pending")]
     RoundNotPending,
     #[msg("no claimable rewards")]
     NothingToClaim,
+    #[msg("account is not in a state that permits withdrawal")]
+    InvalidWithdrawalState,
+    #[msg("withdrawable balance is zero")]
+    NothingToWithdraw,
+    #[msg("withdrawal cooldown has not elapsed")]
+    WithdrawalCooldownActive,
+    #[msg("gateway bond is still inside its dispute window")]
+    GatewayDisputeWindowActive,
+    #[msg("round dispute window has elapsed")]
+    DisputeWindowElapsed,
+    #[msg("withdrawal deadline arithmetic overflow")]
+    WithdrawalArithmeticOverflow,
+    #[msg("withdrawal cooldown must be non-negative")]
+    InvalidWithdrawalCooldown,
     #[msg("instructions sysvar account is invalid")]
     InvalidInstructionsSysvar,
     #[msg("consumer authority is not the delegate authority")]
     UnauthorisedConsumer,
     #[msg("mismatched or missing credited node account")]
     InvalidCreditNodeAccount,
+    #[msg("mismatched or missing missed node account")]
+    InvalidMissedNodeAccount,
 
-    // ---- Agent pay-per-request access (x402 / self-funded). ----
-    #[msg("agent escrow is not active")]
-    AgentNotActive,
-    #[msg("computed price does not match the agent-signed amount")]
+    #[msg("computed price does not match the gateway-signed amount")]
     AmountMismatch,
-    #[msg("arithmetic overflow in escrow spend accounting")]
-    EpochCapExceeded,
-    #[msg("escrow ATA balance below computed price")]
-    InsufficientAgentCredits,
-    #[msg("agent request authorization signature is invalid or missing")]
-    AgentSigInvalid,
-    #[msg("agent cap parameters invalid")]
-    InvalidAgentCaps,
+    #[msg("gateway USDC float balance below computed price")]
+    InsufficientGatewayFloat,
+    #[msg("payment_ref exceeds 64 bytes")]
+    PaymentRefTooLong,
     #[msg("credited signer count exceeds signatures_required + redundancy_buffer")]
     CreditedExceedsSelection,
     #[msg("value exceeds Feed::MAX_VALUE_LEN")]
     InvalidValueLength,
+    #[msg("dispute refund/restore subscription does not match the round")]
+    WrongSubscriptionAccount,
+
+    #[msg("equivocation requires two statements with different values")]
+    EquivocationSameStatement,
+    #[msg("recomputed evidence hash does not match the supplied evidence_hash")]
+    EvidenceHashMismatch,
+    #[msg("intersection of the two signer bitmaps is empty")]
+    GuiltySetEmpty,
+    #[msg("node is permanently tombstoned")]
+    NodeTombstoned,
+    #[msg("node is not Frozen")]
+    NodeNotFrozen,
+    #[msg("node is still inside its freeze window")]
+    NodeStillFrozen,
+    #[msg("node is already present in the current registry")]
+    NodeAlreadyInRegistry,
+    #[msg("node liveliness score is not below the freeze threshold")]
+    LivelinessAboveThreshold,
+    #[msg("every signer was within the derived selection - no unsolicited signer")]
+    SignersFullySelected,
+    #[msg("every guilty node is already tombstoned")]
+    NothingToPunish,
+    #[msg("statements do not share an aggregate nonce commitment")]
+    NonceCommitmentMismatch,
+    #[msg("statements commit to the same message hash")]
+    NonceReuseSameMessage,
+    #[msg("same duty with different values is equivocation - file it as one")]
+    PreferEquivocation,
+    #[msg("canonical_timestamp is older than now - max_settlement_delay_seconds")]
+    AttestationTooStale,
+    #[msg("canonical_timestamp is further ahead of cluster time than the allowed drift")]
+    AttestationInFuture,
+    #[msg("max_settlement_delay_seconds must be greater than zero")]
+    InvalidMaxReceiptDelay,
+    #[msg("treasury balance cannot back the protocol's reward liability")]
+    TreasuryInsolvent,
+    #[msg("challenger_bounty_bps must not exceed 10000")]
+    InvalidChallengerBounty,
+    #[msg("invalid liveliness configuration")]
+    InvalidLivelinessConfig,
+    #[msg("reward liability underflow")]
+    RewardLiabilityUnderflow,
+    #[msg("node deposit vault does not cover the recorded total deposits")]
+    DepositVaultUnderfunded,
+    #[msg("both transcripts carry the same (b, c) challenge pair")]
+    TranscriptContextsEqual,
+    #[msg("scalar is zero or not below the secp256k1 curve order")]
+    NonCanonicalScalar,
+    #[msg("merkle proof exceeds the maximum accepted depth")]
+    MerkleProofTooDeep,
+    #[msg("merkle proof does not connect the leaf to the signed batch root")]
+    InvalidMerkleProof,
+    #[msg("commitment batch signature does not verify against the node key")]
+    InvalidBatchSignature,
+    #[msg("partial signature does not satisfy the nonce equation")]
+    InvalidPartialSignature,
+    #[msg("committed nonce is not a valid secp256k1 point")]
+    InvalidNoncePoint,
 }
 
-pub(crate) fn map_data_update_err(error: DataUpdateError) -> anchor_lang::error::Error {
+pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {
     match error {
-        DataUpdateError::InvalidAggregateSignature => {
+        AttestationError::InvalidAggregateSignature => {
             error!(MolphaError::InvalidAggregateSignature)
         }
-        DataUpdateError::InvalidSignature => error!(MolphaError::InvalidSignature),
-        DataUpdateError::InsufficientSigners => error!(MolphaError::InsufficientSigners),
-        DataUpdateError::SignersNotSubsetOfSelection => {
+        AttestationError::InvalidSignature => error!(MolphaError::InvalidSignature),
+        AttestationError::InsufficientSigners => error!(MolphaError::InsufficientSigners),
+        AttestationError::SignersNotSubsetOfSelection => {
             error!(MolphaError::SignersNotSubsetOfSelection)
         }
-        DataUpdateError::InvalidSignersBitmap => error!(MolphaError::InvalidSignersBitmap),
-        DataUpdateError::GroupBitmapDerivationFailed => {
+        AttestationError::InvalidSignersBitmap => error!(MolphaError::InvalidSignersBitmap),
+        AttestationError::GroupBitmapDerivationFailed => {
             error!(MolphaError::GroupBitmapDerivationFailed)
         }
-        DataUpdateError::SignerCountMismatch | DataUpdateError::MissingSignerAccount => {
+        AttestationError::SignerCountMismatch | AttestationError::MissingSignerAccount => {
             error!(MolphaError::MissingSignerAccount)
         }
-        DataUpdateError::InvalidRegistryVersion => error!(MolphaError::InvalidRegistryVersion),
-        DataUpdateError::InvalidNodeIndex => error!(MolphaError::InvalidNodeIndex),
-        DataUpdateError::InvalidTransitionAccount => {
-            error!(MolphaError::InvalidTransitionAccount)
+        AttestationError::InvalidRegistryVersion => error!(MolphaError::InvalidRegistryVersion),
+        AttestationError::InvalidNodeIndex => error!(MolphaError::InvalidNodeIndex),
+    }
+}
+
+pub(crate) fn map_attestation_accounts_err(error: AccountError) -> anchor_lang::error::Error {
+    match error {
+        AccountError::Attestation(inner) => map_attestation_err(inner),
+        AccountError::AccountBorrowFailed | AccountError::InvalidAccountOwner => {
+            error!(MolphaError::MissingSignerAccount)
+        }
+        AccountError::InvalidRegistryAccount | AccountError::InvalidRegistryPda => {
+            error!(MolphaError::InvalidRegistryVersion)
+        }
+        AccountError::InvalidNodeAccount | AccountError::InvalidNodePda => {
+            error!(MolphaError::InvalidNodeAccount)
         }
     }
 }

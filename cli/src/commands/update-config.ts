@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
-import { findProtocolConfigPda, findRegistryStatePda } from "../lib/pdas";
+import { findProtocolConfigPda } from "../lib/pdas";
 import {
   bn,
   optionOrConfig,
@@ -11,45 +11,31 @@ import {
 } from "../lib/utils";
 
 type UpdateConfigFile = {
-  registryCooldownSecs?: string;
-  previousGraceSecs?: string;
-  withdrawalCooldownSecs?: string;
-  maxNodeCount?: number;
-  redundancyBuffer?: number;
+  withdrawalCooldownSlots?: string;
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
-  gatewayFee?: string;
-  receiptSubmitterBonus?: string;
-  protocolFeeBps?: number;
-  maxReceiptDelaySlots?: string;
-  protocolFee?: string;
+  maxSettlementDelaySeconds?: string;
   disputeWindowSlots?: string;
   gatewayBondMin?: string;
   challengerBountyBps?: number;
-  agentRoundBase?: string;
-  agentRoundPerSig?: string;
-  agentEpochLenSecs?: string;
+  livelinessFreezeThreshold?: number;
+  x402RoundBase?: string;
+  minSigners?: number;
 };
 
+/// Mirrors `ProtocolConfig`'s tunables. `reward_liability` is protocol-maintained accounting,
+/// not a knob, so `update_config` neither reads nor writes it.
 type ProtocolConfigAccount = {
-  registryCooldownSecs: { toString(): string };
-  previousGraceSecs: { toString(): string };
-  withdrawalCooldownSecs: { toString(): string };
-  maxNodeCount: number;
-  redundancyBuffer: number;
+  withdrawalCooldownSlots: { toString(): string };
   minimumNodeDeposit: { toString(): string };
   rewardPerSignature: { toString(): string };
-  gatewayFee: { toString(): string };
-  receiptSubmitterBonus: { toString(): string };
-  protocolFeeBps: number;
-  maxReceiptDelaySlots: { toString(): string };
-  protocolFee: { toString(): string };
+  maxSettlementDelaySeconds: { toString(): string };
   disputeWindowSlots: { toString(): string };
   gatewayBondMin: { toString(): string };
   challengerBountyBps: number;
-  agentRoundBase: { toString(): string };
-  agentRoundPerSig: { toString(): string };
-  agentEpochLenSecs: { toString(): string };
+  livelinessFreezeThreshold: number;
+  x402RoundBase: { toString(): string };
+  minSigners: number;
 };
 
 export function registerUpdateConfigCommand(admin: Command): void {
@@ -57,42 +43,39 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .command("update-config")
     .description("Update protocol config (authority only)")
     .option("--config <path>", "json config file with fields to override")
-    .option("--registry-cooldown-secs <seconds>", "registry cooldown")
-    .option("--previous-grace-secs <seconds>", "previous registry grace period")
-    .option("--withdrawal-cooldown-secs <seconds>", "node withdrawal cooldown")
-    .option("--max-node-count <count>", "max registry size")
     .option(
-      "--redundancy-buffer <count>",
-      "extra selection slots beyond signatures_required"
+      "--withdrawal-cooldown-slots <slots>",
+      "node withdrawal cooldown in slots",
     )
     .option("--minimum-node-deposit <amount>", "minimum USDC deposit")
     .option("--reward-per-signature <amount>", "reward per signature")
-    .option("--gateway-fee <amount>", "gateway fee")
-    .option("--receipt-submitter-bonus <amount>", "receipt submitter bonus")
-    .option("--protocol-fee-bps <bps>", "protocol fee in basis points")
-    .option("--max-receipt-delay-slots <slots>", "max receipt delay")
-    .option("--protocol-fee <amount>", "fixed protocol fee per round")
+    .option(
+      "--max-settlement-delay-seconds <seconds>",
+      "max age of canonical_timestamp at settlement ingress",
+    )
     .option("--dispute-window-slots <slots>", "settled round dispute window")
     .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
-    .option("--agent-round-base <amount>", "base agent fresh-round price")
     .option(
-      "--agent-round-per-sig <amount>",
-      "per-required-signature agent fresh-round price"
+      "--liveliness-freeze-threshold <score>",
+      "liveliness score below which a node may be frozen",
     )
-    .option("--agent-epoch-len-secs <seconds>", "agent spend accounting epoch")
+    .option("--x402-round-base <amount>", "base x402 round settlement price")
+    .option(
+      "--min-signers <count>",
+      "minimum signatures_required accepted by settlement",
+    )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const config = options.config
         ? readJsonFile<UpdateConfigFile>(options.config)
         : {};
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
-      const [registryStatePda] = findRegistryStatePda(ctx.programId);
 
       const current = await fetchAccountOrNull<ProtocolConfigAccount>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!current) {
         throw new Error("Protocol config is not initialized");
@@ -104,7 +87,6 @@ export function registerUpdateConfigCommand(admin: Command): void {
         .updateConfig(args)
         .accountsPartial({
           protocolConfig: protocolConfigPda,
-          registryState: registryStatePda,
           authority: ctx.wallet.publicKey,
         })
         .rpc();
@@ -112,7 +94,6 @@ export function registerUpdateConfigCommand(admin: Command): void {
       writeJson({
         signature,
         protocolConfig: protocolConfigPda.toBase58(),
-        registryState: registryStatePda.toBase58(),
       });
     });
 }
@@ -120,168 +101,93 @@ export function registerUpdateConfigCommand(admin: Command): void {
 function buildUpdateConfigArgs(
   options: Record<string, string | number | undefined>,
   config: UpdateConfigFile,
-  current: ProtocolConfigAccount
+  current: ProtocolConfigAccount,
 ) {
   return {
-    registryCooldownSecs: bn(
+    withdrawalCooldownSlots: bn(
       requireValue(
         optionOrConfig(
-          options.registryCooldownSecs as string | undefined,
-          config.registryCooldownSecs
-        ) ?? current.registryCooldownSecs.toString(),
-        "registry cooldown"
+          options.withdrawalCooldownSlots as string | undefined,
+          config.withdrawalCooldownSlots,
+        ) ?? current.withdrawalCooldownSlots.toString(),
+        "withdrawal cooldown",
       ),
-      "registry cooldown"
+      "withdrawal cooldown",
     ),
-    previousGraceSecs: bn(
-      requireValue(
-        optionOrConfig(
-          options.previousGraceSecs as string | undefined,
-          config.previousGraceSecs
-        ) ?? current.previousGraceSecs.toString(),
-        "previous grace"
-      ),
-      "previous grace"
-    ),
-    withdrawalCooldownSecs: bn(
-      requireValue(
-        optionOrConfig(
-          options.withdrawalCooldownSecs as string | undefined,
-          config.withdrawalCooldownSecs
-        ) ?? current.withdrawalCooldownSecs.toString(),
-        "withdrawal cooldown"
-      ),
-      "withdrawal cooldown"
-    ),
-    maxNodeCount:
-      optionOrConfig(
-        options.maxNodeCount as number | undefined,
-        config.maxNodeCount
-      ) ?? current.maxNodeCount,
-    redundancyBuffer:
-      optionOrConfig(
-        options.redundancyBuffer as number | undefined,
-        config.redundancyBuffer
-      ) ?? current.redundancyBuffer,
     minimumNodeDeposit: bn(
       requireValue(
         optionOrConfig(
           options.minimumNodeDeposit as string | undefined,
-          config.minimumNodeDeposit
+          config.minimumNodeDeposit,
         ) ?? current.minimumNodeDeposit.toString(),
-        "minimum node deposit"
+        "minimum node deposit",
       ),
-      "minimum node deposit"
+      "minimum node deposit",
     ),
     rewardPerSignature: bn(
       requireValue(
         optionOrConfig(
           options.rewardPerSignature as string | undefined,
-          config.rewardPerSignature
+          config.rewardPerSignature,
         ) ?? current.rewardPerSignature.toString(),
-        "reward per signature"
+        "reward per signature",
       ),
-      "reward per signature"
+      "reward per signature",
     ),
-    gatewayFee: bn(
+    maxSettlementDelaySeconds: bn(
       requireValue(
         optionOrConfig(
-          options.gatewayFee as string | undefined,
-          config.gatewayFee
-        ) ?? current.gatewayFee.toString(),
-        "gateway fee"
+          options.maxSettlementDelaySeconds as string | undefined,
+          config.maxSettlementDelaySeconds,
+        ) ?? current.maxSettlementDelaySeconds.toString(),
+        "max settlement delay",
       ),
-      "gateway fee"
-    ),
-    receiptSubmitterBonus: bn(
-      requireValue(
-        optionOrConfig(
-          options.receiptSubmitterBonus as string | undefined,
-          config.receiptSubmitterBonus
-        ) ?? current.receiptSubmitterBonus.toString(),
-        "receipt submitter bonus"
-      ),
-      "receipt submitter bonus"
-    ),
-    protocolFeeBps:
-      optionOrConfig(
-        options.protocolFeeBps as number | undefined,
-        config.protocolFeeBps
-      ) ?? current.protocolFeeBps,
-    maxReceiptDelaySlots: bn(
-      requireValue(
-        optionOrConfig(
-          options.maxReceiptDelaySlots as string | undefined,
-          config.maxReceiptDelaySlots
-        ) ?? current.maxReceiptDelaySlots.toString(),
-        "max receipt delay"
-      ),
-      "max receipt delay"
-    ),
-    protocolFee: bn(
-      requireValue(
-        optionOrConfig(
-          options.protocolFee as string | undefined,
-          config.protocolFee
-        ) ?? current.protocolFee.toString(),
-        "protocol fee"
-      ),
-      "protocol fee"
+      "max settlement delay",
     ),
     disputeWindowSlots: bn(
       requireValue(
         optionOrConfig(
           options.disputeWindowSlots as string | undefined,
-          config.disputeWindowSlots
+          config.disputeWindowSlots,
         ) ?? current.disputeWindowSlots.toString(),
-        "dispute window"
+        "dispute window",
       ),
-      "dispute window"
+      "dispute window",
     ),
     gatewayBondMin: bn(
       requireValue(
         optionOrConfig(
           options.gatewayBondMin as string | undefined,
-          config.gatewayBondMin
+          config.gatewayBondMin,
         ) ?? current.gatewayBondMin.toString(),
-        "gateway bond minimum"
+        "gateway bond minimum",
       ),
-      "gateway bond minimum"
+      "gateway bond minimum",
     ),
     challengerBountyBps:
       optionOrConfig(
         options.challengerBountyBps as number | undefined,
-        config.challengerBountyBps
+        config.challengerBountyBps,
       ) ?? current.challengerBountyBps,
-    agentRoundBase: bn(
+    livelinessFreezeThreshold:
+      optionOrConfig(
+        options.livelinessFreezeThreshold as number | undefined,
+        config.livelinessFreezeThreshold,
+      ) ?? current.livelinessFreezeThreshold,
+    x402RoundBase: bn(
       requireValue(
         optionOrConfig(
-          options.agentRoundBase as string | undefined,
-          config.agentRoundBase
-        ) ?? current.agentRoundBase.toString(),
-        "agent round base"
+          options.x402RoundBase as string | undefined,
+          config.x402RoundBase,
+        ) ?? current.x402RoundBase.toString(),
+        "x402 round base",
       ),
-      "agent round base"
+      "x402 round base",
     ),
-    agentRoundPerSig: bn(
-      requireValue(
-        optionOrConfig(
-          options.agentRoundPerSig as string | undefined,
-          config.agentRoundPerSig
-        ) ?? current.agentRoundPerSig.toString(),
-        "agent round per signature"
-      ),
-      "agent round per signature"
-    ),
-    agentEpochLenSecs: bn(
-      requireValue(
-        optionOrConfig(
-          options.agentEpochLenSecs as string | undefined,
-          config.agentEpochLenSecs
-        ) ?? current.agentEpochLenSecs.toString(),
-        "agent epoch length"
-      ),
-      "agent epoch length"
-    ),
+    minSigners:
+      optionOrConfig(
+        options.minSigners as number | undefined,
+        config.minSigners,
+      ) ?? current.minSigners,
   };
 }

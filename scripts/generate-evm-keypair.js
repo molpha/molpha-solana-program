@@ -14,7 +14,7 @@
  */
 
 const secp256k1 = require("@noble/secp256k1");
-const { keccak_256 } = require("@noble/hashes/sha3");
+const { keccak_256 } = require("@noble/hashes/sha3.js");
 const fs = require("fs");
 const path = require("path");
 
@@ -100,7 +100,7 @@ function displayKeypair(keypair) {
   console.log("  Hex:", keypair.publicKeyUncompressed.toString("hex"));
   console.log(
     "  With 0x:",
-    "0x" + keypair.publicKeyUncompressed.toString("hex")
+    "0x" + keypair.publicKeyUncompressed.toString("hex"),
   );
   console.log("  Length:", keypair.publicKeyUncompressed.length, "bytes");
   console.log("  Format: 0x04 + x-coordinate + y-coordinate");
@@ -108,7 +108,7 @@ function displayKeypair(keypair) {
 
   console.log("📐 Public Key (Affine Coordinates):");
   console.log(
-    "  /// @dev Point encapsulates a secp256k1 point in Affine coordinates."
+    "  /// @dev Point encapsulates a secp256k1 point in Affine coordinates.",
   );
   console.log("  struct Point {");
   console.log("      uint x;");
@@ -132,7 +132,7 @@ function displayKeypair(keypair) {
   console.log("  Format: 0x" + expectedPrefix + " + x-coordinate");
   console.log(
     "  Prefix verification:",
-    actualPrefix === expectedPrefix ? "✅ correct" : "❌ mismatch"
+    actualPrefix === expectedPrefix ? "✅ correct" : "❌ mismatch",
   );
   console.log("");
 
@@ -141,7 +141,7 @@ function displayKeypair(keypair) {
   console.log("  Length:", keypair.address.length, "bytes");
   console.log(
     "  Checksum:",
-    toChecksumAddress("0x" + keypair.address.toString("hex"))
+    toChecksumAddress("0x" + keypair.address.toString("hex")),
   );
   console.log("");
 
@@ -161,7 +161,7 @@ function compressedPubkeyToAddress(compressedPubkey) {
   // Validate compressed public key format
   if (pubkeyBytes.length !== 33) {
     throw new Error(
-      `Invalid compressed public key length: ${pubkeyBytes.length} bytes (expected 33)`
+      `Invalid compressed public key length: ${pubkeyBytes.length} bytes (expected 33)`,
     );
   }
 
@@ -169,8 +169,8 @@ function compressedPubkeyToAddress(compressedPubkey) {
   if (prefix !== 0x02 && prefix !== 0x03) {
     throw new Error(
       `Invalid compressed public key prefix: 0x${prefix.toString(
-        16
-      )} (expected 0x02 or 0x03)`
+        16,
+      )} (expected 0x02 or 0x03)`,
     );
   }
 
@@ -191,7 +191,7 @@ function toChecksumAddress(address) {
   // Simple checksum implementation (EIP-55)
   const addr = address.toLowerCase().replace("0x", "");
   const hash = Buffer.from(keccak_256(Buffer.from(addr, "utf-8"))).toString(
-    "hex"
+    "hex",
   );
   let checksumAddr = "0x";
 
@@ -226,14 +226,14 @@ function main() {
       console.log("Examples:");
       console.log("  node scripts/generate-evm-keypair.js");
       console.log(
-        "  node scripts/generate-evm-keypair.js --save ./keys/evm-keypair.json"
+        "  node scripts/generate-evm-keypair.js --save ./keys/evm-keypair.json",
       );
       console.log("");
       console.log("Output:");
       console.log("  - Private key (32 bytes hex)");
       console.log("  - Public key uncompressed (65 bytes hex)");
       console.log(
-        "  - Public key compressed (33 bytes hex) - for node registration"
+        "  - Public key compressed (33 bytes hex) - for node registration",
       );
       console.log("  - Ethereum address (20 bytes hex with checksum)");
       console.log("");
@@ -250,13 +250,13 @@ function main() {
 
     // Verify address derivation from compressed pubkey
     const derivedAddress = compressedPubkeyToAddress(
-      keypair.publicKeyCompressed
+      keypair.publicKeyCompressed,
     );
     const addressesMatch = derivedAddress.equals(keypair.address);
     console.log("✅ Verification:");
     console.log(
       "  Derived address from compressed pubkey:",
-      "0x" + derivedAddress.toString("hex")
+      "0x" + derivedAddress.toString("hex"),
     );
     console.log("  Address match:", addressesMatch ? "✅ PASS" : "❌ FAIL");
     console.log("");
@@ -275,24 +275,24 @@ function main() {
     console.log("1. Register node with compressed public key:");
     console.log(
       `   yarn molpha registry register --secp-pubkey 0x${keypair.publicKeyCompressed.toString(
-        "hex"
-      )} --registration-salt <32_BYTE_HEX> --owner-usdc <ATA>`
+        "hex",
+      )} --registration-salt <32_BYTE_HEX>`,
     );
     console.log("");
     console.log("2. Compress an existing uncompressed public key:");
     console.log(
       `   node scripts/compress-evm-pubkey.js 0x${keypair.publicKeyUncompressed.toString(
-        "hex"
-      )}`
+        "hex",
+      )}`,
     );
     console.log("");
 
     if (!savePath) {
       console.log(
-        "⚠️  WARNING: Keypair not saved! Save it now if you want to keep it:"
+        "⚠️  WARNING: Keypair not saved! Save it now if you want to keep it:",
       );
       console.log(
-        `   node scripts/generate-evm-keypair.js --save ./keys/evm-keypair.json`
+        `   node scripts/generate-evm-keypair.js --save ./keys/evm-keypair.json`,
       );
       console.log("");
     }

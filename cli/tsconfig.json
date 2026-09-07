@@ -5,7 +5,7 @@
     "outDir": "dist",
     "target": "es2020",
     "module": "commonjs",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "ignoreDeprecations": "6.0",
     "declaration": false,
     "resolveJsonModule": true,

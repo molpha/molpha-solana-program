@@ -10,13 +10,9 @@ import {
   findPlanPda,
   findProtocolConfigPda,
   findSubscriptionPda,
+  findTreasuryAta,
 } from "../lib/pdas";
-import {
-  parseInteger,
-  parsePublicKey,
-  requireValue,
-  writeJson,
-} from "../lib/utils";
+import { parseInteger, requireValue, writeJson } from "../lib/utils";
 
 function planTypeToAnchor(planId: number) {
   const types = ["basic", "standard", "professional", "enterprise"] as const;
@@ -37,16 +33,15 @@ export function registerSubscriptionCommands(program: Command): void {
     .description("Create a monthly subscription")
     .requiredOption(
       "--plan-id <number>",
-      "plan type id (0=basic, 1=standard, 2=professional, 3=enterprise)"
+      "plan type id (0=basic, 1=standard, 2=professional, 3=enterprise)",
     )
-    .option("--owner-usdc <pubkey>", "owner token account")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!protocolConfig) {
         throw new Error("Protocol config is not initialized");
@@ -56,14 +51,12 @@ export function registerSubscriptionCommands(program: Command): void {
       const [planPda] = findPlanPda(ctx.programId, planId);
       const [subscriptionPda] = findSubscriptionPda(
         ctx.programId,
-        ctx.wallet.publicKey
+        ctx.wallet.publicKey,
       );
-      const ownerUsdc = options.ownerUsdc
-        ? parsePublicKey(options.ownerUsdc, "owner USDC account")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            ctx.wallet.publicKey
-          );
+      const ownerUsdc = getAssociatedTokenAddressSync(
+        protocolConfig.usdcMint,
+        ctx.wallet.publicKey,
+      );
 
       const signature = await (ctx.program.methods as any)
         .subscribe(planTypeToAnchor(planId))
@@ -74,7 +67,7 @@ export function registerSubscriptionCommands(program: Command): void {
           subscription: subscriptionPda,
           usdcMint: protocolConfig.usdcMint,
           ownerUsdc,
-          treasury: protocolConfig.treasury,
+          treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
@@ -89,14 +82,13 @@ export function registerSubscriptionCommands(program: Command): void {
   subscription
     .command("extend")
     .description("Extend an existing subscription by one month")
-    .option("--owner-usdc <pubkey>", "owner token account")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
       const protocolConfig = await fetchAccountOrNull<any>(
         ctx.program,
         "protocolConfig",
-        protocolConfigPda
+        protocolConfigPda,
       );
       if (!protocolConfig) {
         throw new Error("Protocol config is not initialized");
@@ -104,16 +96,16 @@ export function registerSubscriptionCommands(program: Command): void {
 
       const [subscriptionPda] = findSubscriptionPda(
         ctx.programId,
-        ctx.wallet.publicKey
+        ctx.wallet.publicKey,
       );
       const subscriptionAccount = await fetchAccountOrNull<any>(
         ctx.program,
         "subscription",
-        subscriptionPda
+        subscriptionPda,
       );
       if (!subscriptionAccount) {
         throw new Error(
-          `Subscription not found at ${subscriptionPda.toBase58()}`
+          `Subscription not found at ${subscriptionPda.toBase58()}`,
         );
       }
 
@@ -122,19 +114,17 @@ export function registerSubscriptionCommands(program: Command): void {
         "basic" in planType
           ? 0
           : "standard" in planType
-          ? 1
-          : "professional" in planType
-          ? 2
-          : "enterprise" in planType
-          ? 3
-          : Number(subscriptionAccount.planType);
+            ? 1
+            : "professional" in planType
+              ? 2
+              : "enterprise" in planType
+                ? 3
+                : Number(subscriptionAccount.planType);
       const [planPda] = findPlanPda(ctx.programId, planId);
-      const ownerUsdc = options.ownerUsdc
-        ? parsePublicKey(options.ownerUsdc, "owner USDC account")
-        : getAssociatedTokenAddressSync(
-            protocolConfig.usdcMint,
-            ctx.wallet.publicKey
-          );
+      const ownerUsdc = getAssociatedTokenAddressSync(
+        protocolConfig.usdcMint,
+        ctx.wallet.publicKey,
+      );
 
       const signature = await (ctx.program.methods as any)
         .extendSubscription()
@@ -145,7 +135,7 @@ export function registerSubscriptionCommands(program: Command): void {
           plan: planPda,
           usdcMint: protocolConfig.usdcMint,
           ownerUsdc,
-          treasury: protocolConfig.treasury,
+          treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .rpc();

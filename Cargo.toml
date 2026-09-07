@@ -1,6 +1,10 @@
 [workspace]
 members = [
     "programs/molpha",
+    "molpha-tests",
+]
+exclude = [
+    "molpha-verifier",
 ]
 resolver = "2"
 

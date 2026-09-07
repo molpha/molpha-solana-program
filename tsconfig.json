@@ -1,16 +1,16 @@
 {
   "compilerOptions": {
-    "types": ["mocha", "chai", "jest", "node"],
+    "types": ["node"],
     "typeRoots": ["./node_modules/@types"],
-    "lib": ["es2015", "es2017", "es2020"],
+    "lib": ["es2020"],
     "module": "commonjs",
-    "target": "es2017",
+    "target": "es2020",
+    "moduleResolution": "bundler",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "ignoreDeprecations": "6.0",
-    "strict": false,
-    "noImplicitAny": false,
+    "strict": true,
     "resolveJsonModule": true
   }
 }

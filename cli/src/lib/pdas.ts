@@ -1,62 +1,79 @@
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
-import { keccak_256 } from "@noble/hashes/sha3";
+import { keccak_256 } from "@noble/hashes/sha3.js";
 import { u32Le, u64Le } from "./utils";
 
 export const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
 export const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
-/** Slot-keyed registry/workflow account (`Node`). */
+export const REGISTRY_SEED = Buffer.from("molpha_registry");
+/** Permanent owner-keyed node identity and reward account. */
 export const NODE_SEED = Buffer.from("molpha_node");
-/** Owner-keyed management account (`NodeOperator`). */
-export const NODE_OPERATOR_SEED = Buffer.from("molpha_node_operator");
 export const SECP256K1_KEY_CLAIM_SEED = Buffer.from("molpha_secp_key");
 export const PLAN_SEED = Buffer.from("molpha_plan");
 export const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 export const FEED_SEED = Buffer.from("molpha_feed");
 export const DELEGATE_SEED = Buffer.from("molpha_delegate");
 export const GATEWAY_SEED = Buffer.from("molpha_gateway");
-export const AGENT_ESCROW_SEED = Buffer.from("molpha_agent");
-export const AGENT_ROUND_SEED = Buffer.from("molpha_agent_round");
+export const X402_ROUND_SEED = Buffer.from("molpha_x402_round");
 export const ROUND_SEED = Buffer.from("molpha_round");
-export const VIRTUAL_INDEX = 0xffffffff;
 
 export function findProtocolConfigPda(
-  programId: PublicKey
+  programId: PublicKey,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([PROTOCOL_CONFIG_SEED], programId);
 }
 
+/// The protocol treasury: the canonical USDC ATA of the `protocol_config` PDA.
+///
+/// `ProtocolConfig` does not store this address — it is derived, and the program enforces the
+/// derivation through its `associated_token` constraints.
+export function findTreasuryAta(
+  programId: PublicKey,
+  usdcMint: PublicKey,
+): PublicKey {
+  const [protocolConfig] = findProtocolConfigPda(programId);
+  return getAssociatedTokenAddressSync(usdcMint, protocolConfig, true);
+}
+
+/// The one vault holding every node's security deposit.
+export function findNodeDepositVault(
+  programId: PublicKey,
+  usdcMint: PublicKey,
+): PublicKey {
+  const [authority] = findRegistryStatePda(programId);
+  return getAssociatedTokenAddressSync(usdcMint, authority, true);
+}
+
 export function findRegistryStatePda(
-  programId: PublicKey
+  programId: PublicKey,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([REGISTRY_STATE_SEED], programId);
 }
 
-/** Slot-keyed `Node` account (the per-round workflow account). */
-export function findNodePda(
+export function findRegistryPda(
   programId: PublicKey,
-  index: number
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([NODE_SEED, u32Le(index)], programId);
-}
-
-export function findVirtualNodePda(programId: PublicKey): [PublicKey, number] {
-  return findNodePda(programId, VIRTUAL_INDEX);
-}
-
-/** Owner-keyed `NodeOperator` account (management/lifecycle). */
-export function findNodeOperatorPda(
-  programId: PublicKey,
-  owner: PublicKey
+  version: number,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [NODE_OPERATOR_SEED, owner.toBuffer()],
-    programId
+    [REGISTRY_SEED, u32Le(version)],
+    programId,
+  );
+}
+
+/** Permanent owner-keyed `Node` account. */
+export function findNodePda(
+  programId: PublicKey,
+  owner: PublicKey,
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [NODE_SEED, owner.toBuffer()],
+    programId,
   );
 }
 
 export function findSecp256k1KeyClaimPda(
   programId: PublicKey,
-  secp256k1PubkeyCompressed: Uint8Array
+  secp256k1PubkeyCompressed: Uint8Array,
 ): [PublicKey, number] {
   if (secp256k1PubkeyCompressed.length !== 33) {
     throw new Error("secp256k1 public key must be 33 bytes");
@@ -64,111 +81,129 @@ export function findSecp256k1KeyClaimPda(
   const fingerprint = keccak_256(secp256k1PubkeyCompressed);
   return PublicKey.findProgramAddressSync(
     [SECP256K1_KEY_CLAIM_SEED, Buffer.from(fingerprint)],
-    programId
+    programId,
   );
 }
 
 export function findPlanPda(
   programId: PublicKey,
-  planId: number
+  planId: number,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [PLAN_SEED, Buffer.from([planId])],
-    programId
+    programId,
   );
 }
 
 export function findSubscriptionPda(
   programId: PublicKey,
-  owner: PublicKey
+  owner: PublicKey,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SUBSCRIPTION_SEED, owner.toBuffer()],
-    programId
+    programId,
   );
 }
 
 export function findFeedPda(
   programId: PublicKey,
-  feedId: Uint8Array
+  sourceId: Uint8Array,
+  signaturesRequired: number,
+  submitter: PublicKey,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [FEED_SEED, Buffer.from(feedId)],
-    programId
+    [
+      FEED_SEED,
+      Buffer.from(sourceId),
+      Buffer.from([signaturesRequired & 0xff]),
+      submitter.toBuffer(),
+    ],
+    programId,
   );
 }
 
 export function findDelegatePda(
   programId: PublicKey,
   owner: PublicKey,
-  delegate: PublicKey
+  delegate: PublicKey,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [DELEGATE_SEED, owner.toBuffer(), delegate.toBuffer()],
-    programId
+    programId,
   );
 }
 
 export function findGatewayPda(
   programId: PublicKey,
-  authority: PublicKey
+  authority: PublicKey,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [GATEWAY_SEED, authority.toBuffer()],
-    programId
+    programId,
   );
 }
 
-/** Per-(authority, gateway) x402 escrow PDA. */
-export function findAgentEscrowPda(
-  programId: PublicKey,
-  authority: PublicKey,
-  gateway: PublicKey
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [AGENT_ESCROW_SEED, authority.toBuffer(), gateway.toBuffer()],
-    programId
-  );
+/** Gateway-owned USDC ATA that holds the slashable bond. */
+export function findGatewayBondAta(
+  usdcMint: PublicKey,
+  gatewayPda: PublicKey,
+): PublicKey {
+  return getAssociatedTokenAddressSync(usdcMint, gatewayPda, true);
+}
+
+/**
+ * Rail-scoped payer identity — `keccak256(rail_id_be ‖ payer_address_bytes)`. `railId` is the
+ * payment-rail registry id (0 = none/subscription, 1 = solana, 2 = base).
+ */
+export function derivePayerId(
+  railId: number,
+  addressBytes: Uint8Array | Buffer,
+): Uint8Array {
+  const railIdBe = Buffer.alloc(2);
+  railIdBe.writeUInt16BE(railId, 0);
+  return keccak_256(Buffer.concat([railIdBe, Buffer.from(addressBytes)]));
 }
 
 /** Subscription / delegate round receipt PDA. */
 export function findSubscriptionRoundPda(
   programId: PublicKey,
-  consumerAuthority: PublicKey,
-  apiConfigHash: Uint8Array,
+  subscriptionOwner: PublicKey,
+  gatewayPda: PublicKey,
+  sourceId: Uint8Array,
   signaturesRequired: number,
-  timestamp: number | bigint
+  timestamp: number | bigint,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [
       ROUND_SEED,
-      consumerAuthority.toBuffer(),
-      Buffer.from(apiConfigHash),
+      subscriptionOwner.toBuffer(),
+      gatewayPda.toBuffer(),
+      Buffer.from(sourceId),
       Buffer.from([signaturesRequired & 0xff]),
       u64Le(timestamp),
     ],
-    programId
+    programId,
   );
 }
 
-/** Agent (x402) round receipt PDA. */
-export function findAgentRoundPda(
+/** x402 round receipt PDA. */
+export function findX402RoundPda(
   programId: PublicKey,
-  authority: PublicKey,
+  payerId: Uint8Array | Buffer,
   gateway: PublicKey,
-  apiConfigHash: Uint8Array,
+  sourceId: Uint8Array,
   signaturesRequired: number,
-  canonicalTimestamp: number | bigint
+  canonicalTimestamp: number | bigint,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [
-      AGENT_ROUND_SEED,
-      authority.toBuffer(),
+      X402_ROUND_SEED,
+      Buffer.from(payerId),
       gateway.toBuffer(),
-      Buffer.from(apiConfigHash),
+      Buffer.from(sourceId),
       Buffer.from([signaturesRequired & 0xff]),
       u64Le(canonicalTimestamp),
     ],
-    programId
+    programId,
   );
 }

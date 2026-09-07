@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
-  ANCHOR_VERSION: "1.1.2"
+  NODE_VERSION: "22"
+  ANCHOR_VERSION: "1.2.0"
   SOLANA_VERSION: "4.1.1"
   RUST_VERSION: "1.97.1"
 
@@ -123,5 +123,6 @@ jobs:
           mkdir -p "$HOME/.config/solana"
           solana-keygen new --no-bip39-passphrase --silent --outfile "$HOME/.config/solana/id.json"
 
-      - name: Run tests
-        run: yarn test
+      - name: Run Rust + LiteSVM tests
+        # The suite loads target/deploy/molpha.so, so it depends on the Anchor build above.
+        run: cargo test --workspace
