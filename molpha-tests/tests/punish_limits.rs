@@ -52,10 +52,10 @@ const UNSOLICITED_REGISTRY_NODES: usize = ROUND_SIGNER_COUNT + MAX_UNSOLICITED_I
 /// Asserted exactly. A filing costs one account per signer plus a fixed set of token accounts,
 /// so every account added to the punishment context costs a signer directly, and going back to a
 /// vault per guilty node would halve this number.
-const MAX_LEGACY_EQUIVOCATION: usize = 10;
+const MAX_LEGACY_EQUIVOCATION: usize = 11;
 
-/// Same, for `punish_commitment_reuse`, whose two signing contexts make its args the largest.
-const MAX_LEGACY_COMMITMENT_REUSE: usize = 9;
+/// Same, for `punish_nonce_reuse`, whose two signing contexts make its args the largest.
+const MAX_LEGACY_NONCE_REUSE: usize = 10;
 
 /// Solana's per-transaction maximum, which the harness requests for every transaction.
 const MAX_COMPUTE_UNITS: u64 = 1_400_000;
@@ -298,7 +298,7 @@ fn a_fully_overlapping_commitment_reuse_fits_a_legacy_packet_up_to_the_pinned_co
         println!("punish_commitment_reuse: {coalition:>2} signers, all guilty -> {size} bytes");
     }
     assert_eq!(
-        largest_fitting, MAX_LEGACY_COMMITMENT_REUSE,
+        largest_fitting, MAX_LEGACY_NONCE_REUSE,
         "the guilty set a legacy commitment-reuse filing can carry changed"
     );
 }
@@ -425,7 +425,7 @@ fn unsolicited_signing_with_20_round_signers_and_max_intruders_executes() {
 ///
 /// Pinned as a count so that adding an account to a punishment shows up here too: a lookup table
 /// absorbs it, but it still costs a byte and still has to be in the table.
-const EQUIVOCATION_LOOKUP_ACCOUNTS: usize = 11;
+const EQUIVOCATION_LOOKUP_ACCOUNTS: usize = 10;
 
 /// A full production round is 18 signatures required plus a 2-node buffer. Punishing all 20 does
 /// not fit a legacy packet, and this is the transaction a reporter would actually broadcast.

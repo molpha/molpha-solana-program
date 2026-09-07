@@ -35,11 +35,6 @@ pub fn registry(version: u32) -> Pubkey {
     pda(&[Registry::SEED_PREFIX, &version.to_le_bytes()])
 }
 
-/// Authority of the shared node-deposit vault.
-pub fn node_deposits() -> Pubkey {
-    pda(&[molpha::state::NODE_DEPOSITS_SEED])
-}
-
 pub fn node(owner: &Pubkey) -> Pubkey {
     pda(&[Node::SEED_PREFIX, owner.as_ref()])
 }

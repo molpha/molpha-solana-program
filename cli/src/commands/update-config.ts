@@ -18,6 +18,7 @@ type UpdateConfigFile = {
   disputeWindowSlots?: string;
   gatewayBondMin?: string;
   challengerBountyBps?: number;
+  livelinessFreezeThreshold?: number;
   x402RoundBase?: string;
   minSigners?: number;
 };
@@ -32,6 +33,7 @@ type ProtocolConfigAccount = {
   disputeWindowSlots: { toString(): string };
   gatewayBondMin: { toString(): string };
   challengerBountyBps: number;
+  livelinessFreezeThreshold: number;
   x402RoundBase: { toString(): string };
   minSigners: number;
 };
@@ -54,6 +56,10 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .option("--dispute-window-slots <slots>", "settled round dispute window")
     .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
+    .option(
+      "--liveliness-freeze-threshold <score>",
+      "liveliness score below which a node may be frozen"
+    )
     .option("--x402-round-base <amount>", "base x402 round settlement price")
     .option(
       "--min-signers <count>",
@@ -163,6 +169,11 @@ function buildUpdateConfigArgs(
         options.challengerBountyBps as number | undefined,
         config.challengerBountyBps
       ) ?? current.challengerBountyBps,
+    livelinessFreezeThreshold:
+      optionOrConfig(
+        options.livelinessFreezeThreshold as number | undefined,
+        config.livelinessFreezeThreshold
+      ) ?? current.livelinessFreezeThreshold,
     x402RoundBase: bn(
       requireValue(
         optionOrConfig(

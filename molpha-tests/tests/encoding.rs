@@ -14,11 +14,11 @@ use solana_keccak_hasher::hashv;
 ///
 /// Pinned because the CLI, gateway and SDK all build this instruction off-chain: any field
 /// added, removed or retyped here is a breaking wire change and should be a deliberate one.
-const INITIALIZE_IX_DATA_LEN: usize = 100;
+const INITIALIZE_IX_DATA_LEN: usize = 102;
 
 /// Borsh encoding of `UpdateConfigArgs`, plus the 8-byte Anchor discriminator.
 /// Pinned for the same reason as `INITIALIZE_IX_DATA_LEN`: off-chain clients encode this.
-const UPDATE_CONFIG_IX_DATA_LEN: usize = 67;
+const UPDATE_CONFIG_IX_DATA_LEN: usize = 69;
 
 /// Borsh encoding of `SubmitAttestationArgs`. Every field is fixed-width, so this is a
 /// constant — and a change to it is a breaking change for every off-chain submitter.
@@ -34,6 +34,7 @@ fn initialize_args() -> InitializeArgs {
         dispute_window_slots: 1024,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
+        liveliness_freeze_threshold: 5_000,
         usdc_mint: Pubkey::new_from_array([7; 32]),
         x402_round_base: 1_000,
         min_signers: 3,
@@ -61,6 +62,10 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
     assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
+    assert_eq!(
+        decoded.liveliness_freeze_threshold,
+        args.liveliness_freeze_threshold
+    );
     assert_eq!(decoded.usdc_mint, args.usdc_mint);
     assert_eq!(decoded.x402_round_base, args.x402_round_base);
     assert_eq!(decoded.min_signers, args.min_signers);
@@ -75,6 +80,7 @@ fn update_config_args() -> UpdateConfigArgs {
         dispute_window_slots: 1024,
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
+        liveliness_freeze_threshold: 5_000,
         x402_round_base: 1_000,
         min_signers: 3,
     }
@@ -100,6 +106,10 @@ fn update_config_instruction_data_is_stable_and_round_trips() {
     assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
+    assert_eq!(
+        decoded.liveliness_freeze_threshold,
+        args.liveliness_freeze_threshold
+    );
     assert_eq!(decoded.x402_round_base, args.x402_round_base);
     assert_eq!(decoded.min_signers, args.min_signers);
 }
@@ -145,6 +155,7 @@ fn permanent_node_roundtrips() {
         port: 8080,
         locked_amount: 100,
         claimable_rewards: 9,
+        liveliness_score: 9_500,
         registered_at: 1,
         withdrawable_slot: 0,
         frozen_until: 0,
@@ -161,6 +172,7 @@ fn permanent_node_roundtrips() {
     assert_eq!(decoded.owner, account.owner);
     assert_eq!(decoded.secp256k1_pubkey_x, account.secp256k1_pubkey_x);
     assert_eq!(decoded.claimable_rewards, account.claimable_rewards);
+    assert_eq!(decoded.liveliness_score, account.liveliness_score);
 }
 
 /// The only caller is `submit_attestation`, whose `value` is a fixed `[u8; 32]`.

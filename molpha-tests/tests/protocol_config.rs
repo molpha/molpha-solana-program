@@ -21,6 +21,7 @@ fn tuned_update_args() -> UpdateConfigArgs {
         dispute_window_slots: 4_096,
         gateway_bond_min: 900_000_000,
         challenger_bounty_bps: 1_250,
+        liveliness_freeze_threshold: 4_000,
         x402_round_base: 2_000,
         min_signers: 5,
     }
@@ -44,6 +45,10 @@ fn initialize_writes_config_registry_state_and_genesis_snapshot() {
     assert_eq!(config.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(config.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(config.challenger_bounty_bps, args.challenger_bounty_bps);
+    assert_eq!(
+        config.liveliness_freeze_threshold,
+        args.liveliness_freeze_threshold
+    );
     assert_eq!(config.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(
         config.withdrawal_cooldown_slots,
@@ -187,6 +192,10 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
     assert_eq!(after.dispute_window_slots, args.dispute_window_slots);
     assert_eq!(after.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(after.challenger_bounty_bps, args.challenger_bounty_bps);
+    assert_eq!(
+        after.liveliness_freeze_threshold,
+        args.liveliness_freeze_threshold
+    );
     assert_eq!(after.x402_round_base, args.x402_round_base);
     assert_eq!(after.min_signers, args.min_signers);
     assert_eq!(
@@ -202,6 +211,10 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
     let event: ProtocolConfigUpdated = only_event(&meta);
     assert_eq!(event.min_signers, args.min_signers);
     assert_eq!(event.reward_per_signature, args.reward_per_signature);
+    assert_eq!(
+        event.liveliness_freeze_threshold,
+        args.liveliness_freeze_threshold
+    );
 }
 
 #[test]

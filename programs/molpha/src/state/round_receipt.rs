@@ -7,6 +7,7 @@ pub struct RoundReceiptRecord {
     // for x402 it's payer_id, for subscription it's subcription owner pubkey
     pub consumer_id: [u8; 32],
     pub signers_bitmap: [u8; 32],
+    pub selection_bitmap: [u8; 32],
     pub agg_sig_s: [u8; 32],
     pub commitment: [u8; 20],
     pub attestation_message_hash: [u8; 32],
@@ -36,6 +37,7 @@ pub enum RoundRecordKind {
 
 pub struct RoundReceiptInitArgs {
     pub consumer_id: [u8; 32],
+    pub selection_bitmap: [u8; 32],
     pub agg_sig: crate::state::AggregatedSig,
     pub attestation_message_hash: [u8; 32],
     pub gateway: Pubkey,
@@ -54,6 +56,7 @@ impl RoundReceiptRecord {
     pub fn init(&mut self, args: RoundReceiptInitArgs) {
         self.consumer_id = args.consumer_id;
         self.signers_bitmap = args.agg_sig.signers_bitmap;
+        self.selection_bitmap = args.selection_bitmap;
         self.agg_sig_s = args.agg_sig.agg_sig_s;
         self.commitment = args.agg_sig.commitment;
         self.attestation_message_hash = args.attestation_message_hash;

@@ -42,6 +42,8 @@ pub enum OffenceKind {
     /// A node produced two verifying partial signatures against one nonce pair it had committed
     /// in a signed batch. Key-compromise-equivalent: a third such partial extracts the share.
     NonceReuse,
+    /// A node liveliness score dropped below the freeze threshold.
+    Inactivity,
 }
 
 impl OffenceKind {
@@ -66,6 +68,11 @@ impl OffenceKind {
                 slash_bps: 10_000,
                 membership: MembershipAction::Tombstone,
                 freeze_secs: 0,
+            },
+            OffenceKind::Inactivity => Penalty {
+                slash_bps: 0,
+                membership: MembershipAction::Freeze,
+                freeze_secs: 86_400,
             },
         }
     }

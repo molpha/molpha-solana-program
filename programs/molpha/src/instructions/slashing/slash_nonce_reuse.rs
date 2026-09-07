@@ -29,7 +29,7 @@ use crate::{
         commitment_batch_message_hash, commitment_leaf_hash, nonce_reuse_evidence_hash,
         resolve_registry_signers_indexed, verify_commitment_merkle_proof, CommittedNoncePair,
         OffenceKind, PartialTranscript, ProtocolConfig, PunishmentCase, Registry, RegistryState,
-        MAX_COMMITMENT_PROOF_DEPTH, MAX_REGISTRY_NODES, NODE_DEPOSITS_SEED,
+        MAX_COMMITMENT_PROOF_DEPTH, MAX_REGISTRY_NODES,
     },
     utils::slash::{slash_nodes, SlashAccounts, SlashInput},
 };
@@ -162,7 +162,6 @@ pub fn punish_nonce_reuse<'info>(
             punishment_case: &mut ctx.accounts.punishment_case,
             punishment_case_bump: ctx.bumps.punishment_case,
             reporter,
-            node_deposits: ctx.accounts.node_deposits.to_account_info(),
             node_deposit_vault: &mut ctx.accounts.node_deposit_vault,
             treasury: &mut ctx.accounts.treasury,
             reporter_usdc: &ctx.accounts.reporter_usdc,
@@ -260,17 +259,10 @@ pub struct PunishNonceReuse<'info> {
     )]
     pub punishment_case: Box<Account<'info, PunishmentCase>>,
 
-    /// CHECK: seeds-validated deposit-vault authority; holds no data.
-    #[account(
-        seeds = [NODE_DEPOSITS_SEED],
-        bump = protocol_config.node_deposits_bump,
-    )]
-    pub node_deposits: UncheckedAccount<'info>,
-
     #[account(
         mut,
         associated_token::mint = protocol_config.usdc_mint,
-        associated_token::authority = node_deposits,
+        associated_token::authority = registry_state,
         associated_token::token_program = token_program,
     )]
     pub node_deposit_vault: Box<Account<'info, TokenAccount>>,

@@ -14,7 +14,7 @@ use crate::{
     events::NodePunished,
     state::{
         MembershipAction, Node, NodeStatus, OffenceKind, Penalty, ProtocolConfig, PunishmentCase,
-        Registry, RegistryState, SignedStatement, NODE_DEPOSITS_SEED,
+        Registry, RegistryState, SignedStatement,
     },
 };
 
@@ -135,6 +135,42 @@ fn slash_guilty_nodes<'info>(
     Ok(batch)
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn penalize_node<'info>(
+    current_registry: &AccountLoader<'info, Registry>,
+    new_registry: &mut AccountLoader<'info, Registry>,
+    registry_state: &mut Account<'info, RegistryState>,
+    node: &mut Account<'info, Node>,
+    offence: OffenceKind,
+    withdrawal_cooldown_slots: u64,
+    new_registry_bump: u8,
+    clock: &Clock,
+) -> Result<PenaltyOutcome> {
+    let outcome = apply_penalty(node, offence.penalty(), clock.unix_timestamp)?;
+    if node.status == NodeStatus::Tombstoned {
+        node.withdrawable_slot = clock
+            .slot
+            .checked_add(withdrawal_cooldown_slots)
+            .ok_or(MolphaError::WithdrawalArithmeticOverflow)?;
+    }
+
+    let current = current_registry.load()?;
+    let mut next = new_registry.load_init()?;
+    next.swap_remove(&current, node.key(), new_registry_bump)?;
+    registry_state.advance_version();
+
+    emit!(NodePunished {
+        node: node.key(),
+        owner: node.owner,
+        offence,
+        slashed_locked: outcome.slashed_locked,
+        slashed_rewards: outcome.slashed_rewards,
+        new_status: node.status,
+        punished_at: clock.unix_timestamp,
+    });
+    Ok(outcome)
+}
+
 /// Mutable accounts shared by every node-punishment sentence.
 ///
 /// The token accounts are a fixed cost: one shared deposit vault however many nodes are guilty.
@@ -147,7 +183,6 @@ pub struct SlashAccounts<'a, 'info> {
     pub punishment_case: &'a mut Account<'info, PunishmentCase>,
     pub punishment_case_bump: u8,
     pub reporter: Pubkey,
-    pub node_deposits: AccountInfo<'info>,
     pub node_deposit_vault: &'a mut Account<'info, TokenAccount>,
     pub treasury: &'a mut Account<'info, TokenAccount>,
     pub reporter_usdc: &'a Account<'info, TokenAccount>,
@@ -173,10 +208,6 @@ pub struct SlashInput<'a, 'info> {
 pub struct SlashOutcome {
     pub slashed_total: u64,
     pub bounty_paid: u64,
-    pub previous_version: u32,
-    pub node_count_after: u16,
-    pub now: i64,
-    pub now_slot: u64,
 }
 
 /// Shared sentence: slash guilty nodes, evict them into a successor registry, pay the reporter
@@ -186,14 +217,11 @@ pub fn slash_nodes<'a, 'b, 'info>(
     input: SlashInput<'b, 'info>,
 ) -> Result<SlashOutcome> {
     let clock = Clock::get()?;
-    let now = clock.unix_timestamp;
-    let now_slot = clock.slot;
 
     let batch = slash_guilty_nodes(&input, accounts.protocol_config.withdrawal_cooldown_slots)?;
     require!(!batch.victims.is_empty(), MolphaError::NothingToPunish);
     let slashed_total = batch.slashed_total();
 
-    let previous_version = accounts.registry_state.current_version;
     let current = accounts.current_registry.load()?;
     let mut next = accounts.new_registry.load_init()?;
     next.swap_remove_batch(&current, &batch.victims, accounts.new_registry_bump)?;
@@ -214,17 +242,15 @@ pub fn slash_nodes<'a, 'b, 'info>(
             MolphaError::DepositVaultUnderfunded
         );
 
-        let vault_bump = [accounts.protocol_config.node_deposits_bump];
-        let vault_seeds: &[&[u8]] = &[NODE_DEPOSITS_SEED, &vault_bump];
         token::transfer(
             CpiContext::new_with_signer(
                 accounts.token_program,
                 Transfer {
                     from: accounts.node_deposit_vault.to_account_info(),
                     to: accounts.treasury.to_account_info(),
-                    authority: accounts.node_deposits.clone(),
+                    authority: accounts.registry_state.to_account_info(),
                 },
-                &[vault_seeds],
+                &[&accounts.registry_state.seeds()],
             ),
             batch.slashed_locked,
         )?;
@@ -238,8 +264,6 @@ pub fn slash_nodes<'a, 'b, 'info>(
         accounts.protocol_config.challenger_bounty_bps,
     );
     if bounty > 0 {
-        let bump = [accounts.protocol_config.bump];
-        let signer_seeds: &[&[u8]] = &[ProtocolConfig::SEED_PREFIX, &bump];
         token::transfer(
             CpiContext::new_with_signer(
                 accounts.token_program,
@@ -248,7 +272,7 @@ pub fn slash_nodes<'a, 'b, 'info>(
                     to: accounts.reporter_usdc.to_account_info(),
                     authority: accounts.protocol_config.to_account_info(),
                 },
-                &[signer_seeds],
+                &[&accounts.protocol_config.seeds()],
             ),
             bounty,
         )?;
@@ -269,17 +293,13 @@ pub fn slash_nodes<'a, 'b, 'info>(
         slashed_total,
         bounty,
         input.evidence_hash,
-        now_slot,
+        clock.slot,
         accounts.punishment_case_bump,
     );
 
     Ok(SlashOutcome {
         slashed_total,
         bounty_paid: bounty,
-        previous_version,
-        node_count_after: next.node_count,
-        now,
-        now_slot,
     })
 }
 

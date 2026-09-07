@@ -9,13 +9,16 @@ use anchor_spl::{
 use crate::{
     error::MolphaError,
     events::NodeDepositWithdrawn,
-    state::{Node, NodeStatus, ProtocolConfig, NODE_DEPOSITS_SEED},
+    state::{Node, NodeStatus, ProtocolConfig, RegistryState},
 };
 
 pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
-    let node = &ctx.accounts.node;
+    let node = &mut ctx.accounts.node;
     let amount = node.locked_amount;
-    require!(amount > 0, MolphaError::NothingToWithdraw);
+    require!(
+        amount > 0 && amount <= node.locked_amount,
+        MolphaError::NothingToWithdraw
+    );
     require!(
         node.status == NodeStatus::Deactivated || node.status == NodeStatus::Tombstoned,
         MolphaError::InvalidWithdrawalState
@@ -30,35 +33,24 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
         clock.slot >= node.withdrawable_slot,
         MolphaError::WithdrawalCooldownActive
     );
-
-    // The vault is shared, so the payout is bounded explicitly by this node's own entitlement
-    // rather than by the balance of an account only this node can draw on.
-    require!(
-        amount <= ctx.accounts.node.locked_amount,
-        MolphaError::NothingToWithdraw
-    );
     require!(
         ctx.accounts.node_deposit_vault.amount >= amount,
         MolphaError::DepositVaultUnderfunded
     );
 
-    ctx.accounts.node.locked_amount = 0;
-    let vault_bump = [ctx.accounts.protocol_config.node_deposits_bump];
-    let signer_seeds: &[&[u8]] = &[NODE_DEPOSITS_SEED, &vault_bump];
+    node.locked_amount = 0;
     token::transfer(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.node_deposit_vault.to_account_info(),
                 to: ctx.accounts.destination.to_account_info(),
-                authority: ctx.accounts.node_deposits.to_account_info(),
+                authority: ctx.accounts.registry_state.to_account_info(),
             },
-            &[signer_seeds],
+            &[&ctx.accounts.registry_state.seeds()],
         ),
         amount,
     )?;
-
-    let node = &ctx.accounts.node;
 
     emit!(NodeDepositWithdrawn {
         node: node.key(),
@@ -89,17 +81,16 @@ pub struct WithdrawNodeDeposit<'info> {
     )]
     pub node: Account<'info, Node>,
 
-    /// CHECK: seeds-validated deposit-vault authority; holds no data.
     #[account(
-        seeds = [NODE_DEPOSITS_SEED],
-        bump = protocol_config.node_deposits_bump,
+        seeds = [RegistryState::SEED_PREFIX],
+        bump = registry_state.bump,
     )]
-    pub node_deposits: UncheckedAccount<'info>,
+    pub registry_state: Box<Account<'info, RegistryState>>,
 
     #[account(
         mut,
         associated_token::mint = protocol_config.usdc_mint,
-        associated_token::authority = node_deposits,
+        associated_token::authority = registry_state,
         associated_token::token_program = token_program,
     )]
     pub node_deposit_vault: Account<'info, TokenAccount>,

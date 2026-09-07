@@ -40,7 +40,7 @@ const NONCE_REUSE_CU_CEILING: u64 = 800_000;
 ///
 /// Args are fixed-size apart from the proof, so each level of batch depth costs exactly 32 bytes.
 /// Deeper batches stay filable through a v0 transaction with an address lookup table.
-const MAX_LEGACY_PROOF_DEPTH: usize = 3;
+const MAX_LEGACY_PROOF_DEPTH: usize = 4;
 
 struct Case {
     p: Protocol,
@@ -530,7 +530,6 @@ fn a_node_index_outside_the_registry_is_rejected() {
         current_registry: pda::registry(case.p.current_version()),
         new_registry: pda::registry(case.p.current_version() + 1),
         punishment_case: pda::punishment_case(&args.evidence_hash),
-        node_deposits: pda::node_deposits(),
         node_deposit_vault: case.p.node_deposit_vault(),
         treasury: case.p.treasury(),
         reporter_usdc: pda::ata(&reporter.pubkey(), &case.p.usdc_mint),

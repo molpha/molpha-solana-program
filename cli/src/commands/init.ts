@@ -8,7 +8,6 @@ import { Command } from "commander";
 import { getCliContext } from "../lib/client";
 import {
   findNodeDepositVault,
-  findNodeDepositsPda,
   findProtocolConfigPda,
   findRegistryPda,
   findRegistryStatePda,
@@ -31,6 +30,7 @@ type InitConfig = {
   disputeWindowSlots?: string;
   gatewayBondMin?: string;
   challengerBountyBps?: number;
+  livelinessFreezeThreshold?: number;
   usdcMint?: string;
   x402RoundBase?: string;
   minSigners?: number;
@@ -58,6 +58,10 @@ export function registerInitCommand(program: Command): void {
     .option("--dispute-window-slots <slots>", "settled round dispute window")
     .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
+    .option(
+      "--liveliness-freeze-threshold <score>",
+      "liveliness score below which a node may be frozen"
+    )
     .option("--usdc-mint <pubkey>", "USDC mint")
     .option("--x402-round-base <amount>", "base x402 round settlement price")
     .option(
@@ -143,6 +147,15 @@ export function registerInitCommand(program: Command): void {
             "Missing --challenger-bounty-bps"
           )
         ),
+        livelinessFreezeThreshold: Number(
+          requireValue(
+            optionOrConfig(
+              options.livelinessFreezeThreshold,
+              config.livelinessFreezeThreshold
+            ),
+            "Missing --liveliness-freeze-threshold"
+          )
+        ),
         usdcMint: parsePubkeyOption(
           optionOrConfig(options.usdcMint, config.usdcMint),
           "usdc mint"
@@ -163,7 +176,6 @@ export function registerInitCommand(program: Command): void {
         protocolConfig,
         true
       );
-      const [nodeDeposits] = findNodeDepositsPda(ctx.programId);
       const nodeDepositVault = findNodeDepositVault(
         ctx.programId,
         args.usdcMint
@@ -177,7 +189,6 @@ export function registerInitCommand(program: Command): void {
           registry,
           usdcMint: args.usdcMint,
           treasury,
-          nodeDeposits,
           nodeDepositVault,
           authority: ctx.wallet.publicKey,
           tokenProgram: TOKEN_PROGRAM_ID,

@@ -14,7 +14,6 @@ import { getCliContext } from "../lib/client";
 import { deriveNodeId } from "../lib/ids";
 import {
   findNodeDepositVault,
-  findNodeDepositsPda,
   findNodePda,
   findProtocolConfigPda,
   findRegistryPda,
@@ -107,8 +106,7 @@ export function registerRegistryCommands(program: Command): void {
         config.usdcMint,
         nodeOwner.publicKey
       );
-      // Security deposits live in one vault under its own authority, not in the treasury.
-      const [nodeDeposits] = findNodeDepositsPda(ctx.programId);
+      // Security deposits live in one vault under registry_state, not in the treasury.
       const nodeDepositVault = findNodeDepositVault(
         ctx.programId,
         config.usdcMint
@@ -138,7 +136,6 @@ export function registerRegistryCommands(program: Command): void {
           secp256K1KeyClaim,
           usdcMint: config.usdcMint,
           ownerUsdc,
-          nodeDeposits,
           nodeDepositVault,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
@@ -271,6 +268,7 @@ export function registerRegistryCommands(program: Command): void {
       );
       if (!config) throw new Error("Protocol is not initialized");
 
+      const [registryState] = findRegistryStatePda(ctx.programId);
       const [node] = findNodePda(ctx.programId, owner.publicKey);
       const destination = getAssociatedTokenAddressSync(
         config.usdcMint,
@@ -281,9 +279,8 @@ export function registerRegistryCommands(program: Command): void {
         .accountsPartial({
           owner: owner.publicKey,
           protocolConfig,
+          registryState,
           node,
-          usdcMint: config.usdcMint,
-          nodeDeposits: findNodeDepositsPda(ctx.programId)[0],
           nodeDepositVault: findNodeDepositVault(
             ctx.programId,
             config.usdcMint

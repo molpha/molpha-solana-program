@@ -1,30 +1,35 @@
 //! `reinstate_node`: bringing a frozen node back into the registry.
 //!
-//! Every penalty in the current table tombstones, so `NodeStatus::Frozen` is not reachable
-//! through the instruction set today. These tests plant the state directly (see
-//! `Protocol::freeze_node`) so the reinstatement path stays covered ahead of the first penalty
-//! that uses `MembershipAction::Freeze`.
+//! The node is frozen through the permissionless liveliness crank before each reinstatement.
 
 use molpha::error::MolphaError;
 use molpha::events::NodeReinstated;
-use molpha::state::{Node, NodeStatus};
+use molpha::state::{Node, NodeStatus, OffenceKind, LIVELINESS_SCORE_MAX};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::scenario::Protocol;
 use solana_signer::Signer;
 
 const NODE_COUNT: usize = 4;
 
-fn frozen_protocol(freeze_for: i64) -> (Protocol, usize) {
+const INACTIVITY_FREEZE_SECS: i64 = OffenceKind::Inactivity.penalty().freeze_secs;
+
+fn frozen_protocol() -> (Protocol, usize) {
     let mut p = Protocol::start();
     p.register_nodes("reinstate", NODE_COUNT);
-    let frozen_until = p.env.unix_timestamp() + freeze_for;
-    p.freeze_node(1, frozen_until);
-    (p, 1)
+    let index = 1;
+    let node_pda = p.nodes[index].pda;
+    let owner = p.nodes[index].owner.pubkey();
+    let score = p.args.liveliness_freeze_threshold - 1;
+    p.overwrite_node(&node_pda, |node| node.liveliness_score = score);
+    let caller = p.env.keypair();
+    let ix = p.freeze_unresponsive_node_ix(&caller.pubkey(), &owner);
+    p.env.send_ok(&[ix], &[&caller]);
+    (p, index)
 }
 
 #[test]
 fn a_thawed_node_is_reinstated_by_anyone_and_rejoins_the_registry() {
-    let (mut p, index) = frozen_protocol(600);
+    let (mut p, index) = frozen_protocol();
     let node_pda = p.nodes[index].pda;
     let owner = p.nodes[index].owner.pubkey();
     assert!(!p
@@ -33,13 +38,15 @@ fn a_thawed_node_is_reinstated_by_anyone_and_rejoins_the_registry() {
         .nodes
         .contains(&node_pda));
 
-    p.env.advance_seconds(601);
+    p.env.advance_seconds(INACTIVITY_FREEZE_SECS + 1);
     let stranger = p.env.keypair();
     let expected_version = p.current_version() + 1;
     let ix = p.reinstate_node_ix(&stranger.pubkey(), &owner);
     let meta = p.env.send_ok(&[ix], &[&stranger]);
 
-    assert_eq!(p.env.get::<Node>(&node_pda).status, NodeStatus::Active);
+    let node: Node = p.env.get(&node_pda);
+    assert_eq!(node.status, NodeStatus::Active);
+    assert_eq!(node.liveliness_score, LIVELINESS_SCORE_MAX);
     let registry = p.env.registry(expected_version);
     assert_eq!(registry.node_count as usize, NODE_COUNT);
     assert!(registry.nodes.contains(&node_pda));
@@ -53,7 +60,7 @@ fn a_thawed_node_is_reinstated_by_anyone_and_rejoins_the_registry() {
 
 #[test]
 fn a_still_frozen_node_cannot_be_reinstated_by_a_stranger() {
-    let (mut p, index) = frozen_protocol(600);
+    let (mut p, index) = frozen_protocol();
     let owner = p.nodes[index].owner.pubkey();
     let stranger = p.env.keypair();
 
@@ -68,7 +75,7 @@ fn a_still_frozen_node_cannot_be_reinstated_by_a_stranger() {
 
 #[test]
 fn a_still_frozen_node_cannot_be_reinstated_early_by_its_owner() {
-    let (mut p, index) = frozen_protocol(600);
+    let (mut p, index) = frozen_protocol();
     let owner = p.nodes[index].owner.insecure_clone();
 
     let ix = p.reinstate_node_ix(&owner.pubkey(), &owner.pubkey());
@@ -82,7 +89,7 @@ fn a_still_frozen_node_cannot_be_reinstated_early_by_its_owner() {
 
 #[test]
 fn the_protocol_authority_may_thaw_a_node_early() {
-    let (mut p, index) = frozen_protocol(10_000);
+    let (mut p, index) = frozen_protocol();
     let owner = p.nodes[index].owner.pubkey();
     let authority = p.authority.insecure_clone();
 
@@ -158,7 +165,8 @@ fn a_frozen_node_that_is_still_in_the_registry_is_not_added_twice() {
 
 #[test]
 fn reinstatement_requires_the_next_registry_version() {
-    let (mut p, index) = frozen_protocol(0);
+    let (mut p, index) = frozen_protocol();
+    p.env.advance_seconds(INACTIVITY_FREEZE_SECS + 1);
     let owner = p.nodes[index].owner.pubkey();
     let caller = p.env.keypair();
 
