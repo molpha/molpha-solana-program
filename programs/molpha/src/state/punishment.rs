@@ -3,18 +3,18 @@
 use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
+use crate::state::CommittedNoncePair;
+
 pub const DOMAIN_EQUIVOCATION: &[u8] = b"MOLPHA_EQUIVOCATION_V1";
 pub const DOMAIN_UNSOLICITED_SIGNING: &[u8] = b"MOLPHA_UNSOLICITED_SIGNING_V1";
+pub const DOMAIN_COMMITMENT_REUSE: &[u8] = b"MOLPHA_COMMITMENT_REUSE_V1";
 pub const DOMAIN_NONCE_REUSE: &[u8] = b"MOLPHA_NONCE_REUSE_V1";
 
 /// Registry-membership consequence of a punishment.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
 pub enum MembershipAction {
-    /// Pure fine — registry membership untouched.
     None,
-    /// Evict from the registry; restorable via `reinstate_node` once thawed.
     Freeze,
-    /// Evict from the registry permanently. Terminal — no restoration path.
     Tombstone,
 }
 
@@ -38,6 +38,9 @@ pub enum OffenceKind {
     UnsolicitedSigning,
     /// A node contributed a partial signature under one aggregate nonce commitment for two
     /// different signed messages.
+    CommitmentReuse,
+    /// A node produced two verifying partial signatures against one nonce pair it had committed
+    /// in a signed batch. Key-compromise-equivalent: a third such partial extracts the share.
     NonceReuse,
     /// A node liveliness score dropped below the freeze threshold.
     Inactivity,
@@ -56,8 +59,13 @@ impl OffenceKind {
                 membership: MembershipAction::Tombstone,
                 freeze_secs: 0,
             },
-            OffenceKind::NonceReuse => Penalty {
+            OffenceKind::CommitmentReuse => Penalty {
                 slash_bps: 5_000,
+                membership: MembershipAction::Tombstone,
+                freeze_secs: 0,
+            },
+            OffenceKind::NonceReuse => Penalty {
+                slash_bps: 10_000,
                 membership: MembershipAction::Tombstone,
                 freeze_secs: 0,
             },
@@ -70,7 +78,7 @@ impl OffenceKind {
     }
 }
 
-/// Duty tuple for one statement in a nonce-reuse filing.
+/// Duty tuple for one statement in a commitment-reuse filing.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SigningContext {
     pub source_id: [u8; 32],
@@ -157,8 +165,8 @@ fn context_statement_hash(context: &SigningContext, statement: &SignedStatement)
     .to_bytes()
 }
 
-/// Evidence hash for nonce reuse; also the `PunishmentCase` PDA seed.
-pub fn nonce_reuse_evidence_hash(
+/// Evidence hash for commitment reuse; also the `PunishmentCase` PDA seed.
+pub fn commitment_reuse_evidence_hash(
     registry_version: u32,
     context_a: &SigningContext,
     statement_a: &SignedStatement,
@@ -173,8 +181,76 @@ pub fn nonce_reuse_evidence_hash(
         (hash_b, hash_a)
     };
     hashv(&[
+        DOMAIN_COMMITMENT_REUSE,
+        registry_version.to_be_bytes().as_slice(),
+        lo.as_slice(),
+        hi.as_slice(),
+    ])
+    .to_bytes()
+}
+
+/// One partial-signature transcript: the challenge scalars and the resulting share.
+///
+/// The program never recomputes `b` or `c` from a signing context — the offence is defined purely
+/// by the equation `s*G == R1 + b*R2 + c*X`, which is why message transport and commitment lists
+/// stay off-chain.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PartialTranscript {
+    /// Binding factor.
+    pub b: [u8; 32],
+    /// Challenge.
+    pub c: [u8; 32],
+    /// The node's partial signature scalar.
+    pub s: [u8; 32],
+}
+
+fn partial_transcript_hash(transcript: &PartialTranscript) -> [u8; 32] {
+    hashv(&[
+        transcript.b.as_slice(),
+        transcript.c.as_slice(),
+        transcript.s.as_slice(),
+    ])
+    .to_bytes()
+}
+
+/// Evidence hash for nonce-slot reuse; also the `PunishmentCase` PDA seed.
+///
+/// Covers the offence identity only: which node, under which registry version, reused which
+/// committed slot, with which two transcripts. The merkle path and batch signature are
+/// verification witnesses rather than identity, so they are excluded — a given leaf under a signed
+/// root has exactly one path anyway. Transcript hashes are order-normalized so that swapping the
+/// two transcripts cannot open a second case over one offence.
+#[allow(clippy::too_many_arguments)]
+pub fn nonce_reuse_evidence_hash(
+    registry_version: u32,
+    node_index: u32,
+    epoch: u64,
+    batch_meta: &[u8; 32],
+    batch_root: &[u8; 32],
+    slot: u64,
+    nonces: &CommittedNoncePair,
+    transcript_a: &PartialTranscript,
+    transcript_b: &PartialTranscript,
+) -> [u8; 32] {
+    let hash_a = partial_transcript_hash(transcript_a);
+    let hash_b = partial_transcript_hash(transcript_b);
+    let (lo, hi) = if hash_a <= hash_b {
+        (hash_a, hash_b)
+    } else {
+        (hash_b, hash_a)
+    };
+    hashv(&[
         DOMAIN_NONCE_REUSE,
         registry_version.to_be_bytes().as_slice(),
+        node_index.to_be_bytes().as_slice(),
+        epoch.to_be_bytes().as_slice(),
+        batch_meta.as_slice(),
+        batch_root.as_slice(),
+        slot.to_be_bytes().as_slice(),
+        nonces.r1_x.as_slice(),
+        nonces.r1_y.as_slice(),
+        nonces.r2_x.as_slice(),
+        nonces.r2_y.as_slice(),
         lo.as_slice(),
         hi.as_slice(),
     ])

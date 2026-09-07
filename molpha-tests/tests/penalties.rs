@@ -1,7 +1,7 @@
 //! The fixed penalty table and the arithmetic `apply_penalty` runs on a single node.
 //!
 //! Pure unit tests — no VM. `punish_equivocation`, `punish_unsolicited_signing` and
-//! `punish_nonce_reuse` cover the same penalties end-to-end against the VM.
+//! `punish_commitment_reuse` cover the same penalties end-to-end against the VM.
 
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{MembershipAction, Node, NodeStatus, OffenceKind, Penalty};
@@ -37,10 +37,10 @@ fn penalties_are_pinned() {
     assert_eq!(unsolicited.membership, MembershipAction::Tombstone);
     assert_eq!(unsolicited.freeze_secs, 0);
 
-    let nonce_reuse = OffenceKind::NonceReuse.penalty();
-    assert_eq!(nonce_reuse.slash_bps, 5_000);
-    assert_eq!(nonce_reuse.membership, MembershipAction::Tombstone);
-    assert_eq!(nonce_reuse.freeze_secs, 0);
+    let commitment_reuse = OffenceKind::CommitmentReuse.penalty();
+    assert_eq!(commitment_reuse.slash_bps, 5_000);
+    assert_eq!(commitment_reuse.membership, MembershipAction::Tombstone);
+    assert_eq!(commitment_reuse.freeze_secs, 0);
 }
 
 #[test]

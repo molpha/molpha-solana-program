@@ -196,6 +196,20 @@ pub enum MolphaError {
     RewardLiabilityUnderflow,
     #[msg("node deposit vault does not cover the recorded total deposits")]
     DepositVaultUnderfunded,
+    #[msg("both transcripts carry the same (b, c) challenge pair")]
+    TranscriptContextsEqual,
+    #[msg("scalar is zero or not below the secp256k1 curve order")]
+    NonCanonicalScalar,
+    #[msg("merkle proof exceeds the maximum accepted depth")]
+    MerkleProofTooDeep,
+    #[msg("merkle proof does not connect the leaf to the signed batch root")]
+    InvalidMerkleProof,
+    #[msg("commitment batch signature does not verify against the node key")]
+    InvalidBatchSignature,
+    #[msg("partial signature does not satisfy the nonce equation")]
+    InvalidPartialSignature,
+    #[msg("committed nonce is not a valid secp256k1 point")]
+    InvalidNoncePoint,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {

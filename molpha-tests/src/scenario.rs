@@ -9,10 +9,11 @@ use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::{InstructionData, ToAccountMetas};
 use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
-    AddDelegateArgs, AddPlanArgs, InitializeArgs, PunishEquivocationArgs, PunishNonceReuseArgs,
-    PunishUnsolicitedSigningArgs, RegisterGatewayArgs, RegisterNodeArgs, RemoveDelegateArgs,
-    SettleRoundArgs, SettleX402RoundArgs, SubmitAttestationArgs, UpdateConfigArgs,
-    UpdateNodeEndpointArgs, UpdatePlanArgs,
+    AddDelegateArgs, AddPlanArgs, InitializeArgs, PunishCommitmentReuseArgs,
+    PunishEquivocationArgs, PunishNonceReuseArgs, PunishUnsolicitedSigningArgs,
+    RegisterGatewayArgs, RegisterNodeArgs, RemoveDelegateArgs, SettleRoundArgs,
+    SettleX402RoundArgs, SubmitAttestationArgs, UpdateConfigArgs, UpdateNodeEndpointArgs,
+    UpdatePlanArgs,
 };
 use molpha::state::{AggregatedSig, PlanType, RegistryState};
 use solana_keypair::Keypair;
@@ -507,7 +508,9 @@ impl Protocol {
         port: u16,
     ) -> RegisterNodeArgs {
         let node_id = crypto::derive_node_id(owner, &key.compressed, &salt);
-        let nonce = solana_keccak_hasher::hashv(&[b"molpha-test-pop-nonce", &node_id]).to_bytes();
+        let nonce =
+            solana_keccak_hasher::hashv(&[b"molpha-test-pop-nonce".as_ref(), node_id.as_ref()])
+                .to_bytes();
         let (pop_sig_r, pop_sig_s) = crypto::sign_pop(&molpha::ID, &node_id, key, &nonce);
         RegisterNodeArgs {
             registration_salt: salt,
@@ -1325,6 +1328,48 @@ impl Protocol {
         }
     }
 
+    pub fn punish_commitment_reuse_ix(
+        &self,
+        reporter: &Pubkey,
+        args: PunishCommitmentReuseArgs,
+    ) -> Instruction {
+        self.punish_commitment_reuse_ix_with_registry(reporter, args, self.current_version() + 1)
+    }
+
+    pub fn punish_commitment_reuse_ix_with_registry(
+        &self,
+        reporter: &Pubkey,
+        args: PunishCommitmentReuseArgs,
+        new_registry_version: u32,
+    ) -> Instruction {
+        let union = union_bitmap(
+            &args.statement_a.signers_bitmap,
+            &args.statement_b.signers_bitmap,
+        );
+        let accused = self.node_pdas_for_bitmap(args.registry_version, &union);
+        let mut accounts = molpha::accounts::PunishCommitmentReuse {
+            reporter: *reporter,
+            protocol_config: pda::protocol_config(),
+            registry_state: pda::registry_state(),
+            evidence_registry: pda::registry(args.registry_version),
+            current_registry: pda::registry(self.current_version()),
+            new_registry: pda::registry(new_registry_version),
+            punishment_case: pda::punishment_case(&args.evidence_hash),
+            node_deposit_vault: self.node_deposit_vault(),
+            treasury: self.treasury(),
+            reporter_usdc: pda::ata(reporter, &self.usdc_mint),
+            token_program: pda::TOKEN_PROGRAM_ID,
+            system_program: anchor_lang::solana_program::system_program::ID,
+        }
+        .to_account_metas(None);
+        accounts.extend(crate::env::writable_metas(accused));
+        Instruction {
+            program_id: molpha::ID,
+            accounts,
+            data: molpha::instruction::PunishCommitmentReuse { args }.data(),
+        }
+    }
+
     pub fn punish_nonce_reuse_ix(
         &self,
         reporter: &Pubkey,
@@ -1339,11 +1384,8 @@ impl Protocol {
         args: PunishNonceReuseArgs,
         new_registry_version: u32,
     ) -> Instruction {
-        let union = union_bitmap(
-            &args.statement_a.signers_bitmap,
-            &args.statement_b.signers_bitmap,
-        );
-        let accused = self.node_pdas_for_bitmap(args.registry_version, &union);
+        let guilty = crypto::bitmap_from_bits(&[args.node_index as usize]);
+        let accused = self.node_pdas_for_bitmap(args.registry_version, &guilty);
         let mut accounts = molpha::accounts::PunishNonceReuse {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
