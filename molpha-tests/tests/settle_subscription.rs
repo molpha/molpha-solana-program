@@ -134,7 +134,7 @@ fn delegate_settlement_consumes_the_delegates_request_quota() {
     let mut f = fixture();
     let delegate = f.p.env.keypair();
     let owner = f.owner.insecure_clone();
-    f.p.add_delegate(&owner, &delegate.pubkey(), 5, 4);
+    f.p.add_delegate(&owner, &delegate.pubkey(), 5);
 
     let duty = duty(4);
     let signed = f.p.sign_duty(duty);
@@ -323,13 +323,13 @@ fn owner_direct_settlement_rejects_a_delegate_account() {
     let owner = f.owner.insecure_clone();
     let gateway = f.gateway.insecure_clone();
     let delegate = f.p.env.keypair();
-    f.p.add_delegate(&owner, &delegate.pubkey(), 5, 4);
+    f.p.add_delegate(&owner, &delegate.pubkey(), 5);
 
     let signed = f.p.sign_duty(duty(4));
     let delegate_pda = pda::delegate(&owner.pubkey(), &delegate.pubkey());
     let ixs = settle_ixs(&f, &owner, Some(delegate_pda), &signed);
     let failed = f.p.env.send_err(&ixs, &[&owner, &gateway]);
-    assert_molpha_error(&failed, MolphaError::UnexpectedDelegateAccount);
+    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -338,7 +338,7 @@ fn delegate_settlement_requires_the_delegate_account() {
     let owner = f.owner.insecure_clone();
     let gateway = f.gateway.insecure_clone();
     let delegate = f.p.env.keypair();
-    f.p.add_delegate(&owner, &delegate.pubkey(), 5, 4);
+    f.p.add_delegate(&owner, &delegate.pubkey(), 5);
 
     let signed = f.p.sign_duty(duty(4));
     let ixs = settle_ixs(&f, &delegate, None, &signed);
@@ -352,32 +352,14 @@ fn a_delegate_of_another_owner_cannot_spend_this_subscription() {
     let gateway = f.gateway.insecure_clone();
     let other_owner = f.p.subscribe(PlanType::Professional);
     let delegate = f.p.env.keypair();
-    f.p.add_delegate(&other_owner, &delegate.pubkey(), 5, 4);
+    f.p.add_delegate(&other_owner, &delegate.pubkey(), 5);
 
     let signed = f.p.sign_duty(duty(4));
     // The delegate is real, but it belongs to `other_owner`'s subscription.
     let foreign_delegate_pda = pda::delegate(&other_owner.pubkey(), &delegate.pubkey());
     let ixs = settle_ixs(&f, &delegate, Some(foreign_delegate_pda), &signed);
     let failed = f.p.env.send_err(&ixs, &[&delegate, &gateway]);
-    assert_molpha_error(&failed, MolphaError::UnauthorisedConsumer);
-}
-
-#[test]
-fn a_paused_delegate_cannot_settle() {
-    let mut f = fixture();
-    let owner = f.owner.insecure_clone();
-    let gateway = f.gateway.insecure_clone();
-    let delegate = f.p.env.keypair();
-    f.p.add_delegate(&owner, &delegate.pubkey(), 5, 4);
-    let ix =
-        f.p.set_delegate_paused_ix(&owner.pubkey(), &delegate.pubkey(), true);
-    f.p.env.send_ok(&[ix], &[&owner]);
-
-    let signed = f.p.sign_duty(duty(4));
-    let delegate_pda = pda::delegate(&owner.pubkey(), &delegate.pubkey());
-    let ixs = settle_ixs(&f, &delegate, Some(delegate_pda), &signed);
-    let failed = f.p.env.send_err(&ixs, &[&delegate, &gateway]);
-    assert_molpha_error(&failed, MolphaError::DelegateNotActive);
+    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -386,7 +368,7 @@ fn a_delegate_runs_out_of_data_requests() {
     let owner = f.owner.insecure_clone();
     let gateway = f.gateway.insecure_clone();
     let delegate = f.p.env.keypair();
-    f.p.add_delegate(&owner, &delegate.pubkey(), 2, 4);
+    f.p.add_delegate(&owner, &delegate.pubkey(), 2);
     let delegate_pda = pda::delegate(&owner.pubkey(), &delegate.pubkey());
 
     let base = duty(4);
@@ -438,22 +420,6 @@ fn owner_direct_settlement_is_capped_by_the_subscription_ceiling() {
     let ixs = settle_ixs(&f, &owner, None, &signed);
     let failed = f.p.env.send_err(&ixs, &[&owner, &gateway]);
     assert_molpha_error(&failed, MolphaError::SignaturesExceedSubscriptionMax);
-}
-
-#[test]
-fn delegate_settlement_is_capped_by_the_delegate_ceiling() {
-    let mut f = fixture();
-    let owner = f.owner.insecure_clone();
-    let gateway = f.gateway.insecure_clone();
-    let delegate = f.p.env.keypair();
-    // The delegate is granted less than the subscription allows.
-    f.p.add_delegate(&owner, &delegate.pubkey(), 5, 4);
-    let delegate_pda = pda::delegate(&owner.pubkey(), &delegate.pubkey());
-
-    let signed = f.p.sign_duty(duty(5));
-    let ixs = settle_ixs(&f, &delegate, Some(delegate_pda), &signed);
-    let failed = f.p.env.send_err(&ixs, &[&delegate, &gateway]);
-    assert_molpha_error(&failed, MolphaError::SignaturesExceedDelegateMax);
 }
 
 #[test]

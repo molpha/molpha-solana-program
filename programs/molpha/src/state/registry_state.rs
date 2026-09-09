@@ -14,7 +14,6 @@ impl RegistryState {
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
     pub fn init(&mut self, bump: u8) {
-        self.current_version = 0;
         self.next_version = 1;
         self.bump = bump;
     }

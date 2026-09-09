@@ -69,10 +69,6 @@ pub enum MolphaError {
     UnexpectedDelegateAccount,
     #[msg("delegate data_requests_used >= max_data_requests")]
     DelegateDataRequestLimitReached,
-    #[msg("delegate is paused")]
-    DelegateNotActive,
-    #[msg("signatures_required exceeds delegate.max_signers")]
-    SignaturesExceedDelegateMax,
     #[msg("subscription delegate_count >= plan.max_delegates")]
     DelegateCapReached,
     #[msg("registration_salt must not be zero")]

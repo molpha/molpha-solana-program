@@ -64,11 +64,6 @@ pub fn settle_x402_round<'info>(
     let clock = Clock::get()?;
     let now_slot = clock.slot;
 
-    require!(
-        args.signatures_required >= config.min_signers,
-        MolphaError::SignaturesBelowMinSigners
-    );
-
     let price = compute_x402_price(config, args.signatures_required, registry.redundancy_buffer)?;
     require!(price == args.amount, MolphaError::AmountMismatch);
 
@@ -79,6 +74,7 @@ pub fn settle_x402_round<'info>(
 
     let validated = validate_settlement_attestation(
         &registry,
+        &config,
         SettlementAttestationInput {
             source_id: &args.source_id,
             canonical_timestamp: args.canonical_timestamp,
@@ -88,7 +84,6 @@ pub fn settle_x402_round<'info>(
             agg_sig: &args.agg_sig,
         },
         clock.unix_timestamp,
-        config.max_settlement_delay_seconds,
     )?;
 
     require!(

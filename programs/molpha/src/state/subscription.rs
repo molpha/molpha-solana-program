@@ -1,15 +1,13 @@
 use anchor_lang::prelude::*;
 
 use crate::error::MolphaError;
-use crate::state::PlanType;
+use crate::state::{Plan, PlanType};
 
 #[account]
 #[derive(InitSpace)]
 pub struct Subscription {
     pub owner: Pubkey,
     pub plan_type: PlanType,
-    pub prepaid_usdc: u64,
-    pub price: u64,
     pub valid_until: i64,
     pub used_rounds: u64,
     pub max_rounds: u64,
@@ -19,38 +17,22 @@ pub struct Subscription {
     pub bump: u8,
 }
 
-pub struct SubscriptionInitArgs {
-    pub owner: Pubkey,
-    pub plan_type: PlanType,
-    pub monthly_price: u64,
-    pub max_delegates: u32,
-    pub max_signers: u8,
-    pub max_rounds: u64,
-    pub now: i64,
-    pub bump: u8,
-}
-
 impl Subscription {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_subscription";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
     pub const SECONDS_PER_MONTH: i64 = 30 * 24 * 60 * 60;
 
-    pub fn init(&mut self, args: SubscriptionInitArgs) {
-        self.owner = args.owner;
-        self.plan_type = args.plan_type;
-        self.prepaid_usdc = args.monthly_price;
-        self.price = args.monthly_price;
-        self.valid_until = args
-            .now
+    pub fn init(&mut self, owner: Pubkey, plan: &Plan, now: i64, bump: u8) {
+        self.owner = owner;
+        self.plan_type = plan.plan_type;
+        self.valid_until = now
             .checked_add(Self::SECONDS_PER_MONTH)
             .ok_or(MolphaError::InvalidTimestamp)
             .unwrap();
-        self.used_rounds = 0;
-        self.max_rounds = args.max_rounds;
-        self.delegate_count = 0;
-        self.max_delegates = args.max_delegates;
-        self.max_signers = args.max_signers;
-        self.bump = args.bump;
+        self.max_rounds = plan.max_rounds;
+        self.max_delegates = plan.max_delegates;
+        self.max_signers = plan.max_signers;
+        self.bump = bump;
     }
 
     pub fn is_active_at(&self, now: i64) -> bool {

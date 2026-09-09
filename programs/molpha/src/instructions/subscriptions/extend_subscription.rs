@@ -25,11 +25,6 @@ pub fn extend_subscription(ctx: Context<ExtendSubscription>) -> Result<()> {
     )?;
 
     let subscription = &mut ctx.accounts.subscription;
-    subscription.prepaid_usdc = subscription
-        .prepaid_usdc
-        .checked_add(monthly_price)
-        .ok_or(MolphaError::InvalidPlanParams)?;
-    subscription.price = monthly_price;
     subscription.valid_until = if subscription.valid_until > now {
         subscription
             .valid_until
@@ -43,7 +38,7 @@ pub fn extend_subscription(ctx: Context<ExtendSubscription>) -> Result<()> {
     emit!(SubscriptionExtended {
         owner: ctx.accounts.owner.key(),
         plan_type: subscription.plan_type as u8,
-        prepaid_usdc: subscription.prepaid_usdc,
+        extended_at: now,
         valid_until: subscription.valid_until,
     });
 

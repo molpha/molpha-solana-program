@@ -35,10 +35,6 @@ pub fn settle_subscription_round<'info>(
     let registry = ctx.accounts.registry.load()?;
 
     require!(
-        args.signatures_required >= config.min_signers,
-        MolphaError::SignaturesBelowMinSigners
-    );
-    require!(
         subscription.is_active_at(clock.unix_timestamp) && subscription.has_round_quota(),
         MolphaError::SubscriptionInactiveOrExhausted
     );
@@ -67,6 +63,7 @@ pub fn settle_subscription_round<'info>(
 
     let validated = validate_settlement_attestation(
         &registry,
+        &config,
         SettlementAttestationInput {
             source_id: &args.source_id,
             canonical_timestamp: args.canonical_timestamp,
@@ -76,7 +73,6 @@ pub fn settle_subscription_round<'info>(
             agg_sig: &args.agg_sig,
         },
         clock.unix_timestamp,
-        config.max_settlement_delay_seconds,
     )?;
 
     let reward_per_signature = config.reward_per_signature;
@@ -138,11 +134,6 @@ fn authorize_consumer(
         consumer_authority,
         MolphaError::UnauthorisedConsumer
     );
-    require!(delegate.is_active(), MolphaError::DelegateNotActive);
-    require!(
-        signatures_required <= delegate.max_signers,
-        MolphaError::SignaturesExceedDelegateMax
-    );
     delegate.try_consume_data_request()?;
 
     Ok(())
@@ -169,7 +160,11 @@ pub struct SettleSubscriptionRound<'info> {
     #[account(mut)]
     pub subscription: Account<'info, Subscription>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [Delegate::SEED_PREFIX, subscription.owner.as_ref(), args.consumer_authority.as_ref()],
+        bump = consumer_delegate.bump,
+    )]
     pub consumer_delegate: Option<Account<'info, Delegate>>,
 
     #[account(

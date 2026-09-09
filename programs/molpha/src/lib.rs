@@ -12,7 +12,7 @@ pub mod utils;
 use instructions::*;
 use state::PlanType;
 
-declare_id!("MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh");
+declare_id!("MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3");
 
 #[program]
 pub mod molpha {
@@ -77,10 +77,6 @@ pub mod molpha {
 
     pub fn remove_delegate(ctx: Context<RemoveDelegate>, args: RemoveDelegateArgs) -> Result<()> {
         instructions::remove_delegate(ctx, args)
-    }
-
-    pub fn set_delegate_paused(ctx: Context<SetDelegatePaused>, paused: bool) -> Result<()> {
-        instructions::set_delegate_paused(ctx, paused)
     }
 
     pub fn submit_attestation(

@@ -677,12 +677,10 @@ impl Protocol {
         owner: &Keypair,
         delegate: &Pubkey,
         max_data_requests: u64,
-        max_signers: u8,
     ) {
         let args = AddDelegateArgs {
             delegate: *delegate,
             max_data_requests,
-            max_signers,
         };
         let ix = self.add_delegate_ix(&owner.pubkey(), &args);
         let owner = owner.insecure_clone();
@@ -1127,23 +1125,6 @@ impl Protocol {
                 },
             }
             .data(),
-        }
-    }
-
-    pub fn set_delegate_paused_ix(
-        &self,
-        owner: &Pubkey,
-        delegate: &Pubkey,
-        paused: bool,
-    ) -> Instruction {
-        Instruction {
-            program_id: molpha::ID,
-            accounts: molpha::accounts::SetDelegatePaused {
-                owner: *owner,
-                delegate_account: pda::delegate(owner, delegate),
-            }
-            .to_account_metas(None),
-            data: molpha::instruction::SetDelegatePaused { paused }.data(),
         }
     }
 

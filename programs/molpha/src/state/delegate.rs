@@ -16,12 +16,8 @@ pub enum AgentStatus {
 pub struct Delegate {
     pub owner: Pubkey,
     pub delegate: Pubkey,
-    /// Owner pause / protocol freeze backstop.
-    pub status: AgentStatus,
     pub max_data_requests: u64,
     pub data_requests_used: u64,
-    /// Per-delegate quorum ceiling; clamped to `plan.max_signers` at creation.
-    pub max_signers: u8,
     pub bump: u8,
 }
 
@@ -34,20 +30,13 @@ impl Delegate {
         owner: Pubkey,
         delegate: Pubkey,
         max_data_requests: u64,
-        max_signers: u8,
         bump: u8,
     ) {
         self.owner = owner;
         self.delegate = delegate;
-        self.status = AgentStatus::Active;
         self.max_data_requests = max_data_requests;
         self.data_requests_used = 0;
-        self.max_signers = max_signers;
         self.bump = bump;
-    }
-
-    pub fn is_active(&self) -> bool {
-        self.status == AgentStatus::Active
     }
 
     pub fn try_consume_data_request(&mut self) -> Result<()> {
