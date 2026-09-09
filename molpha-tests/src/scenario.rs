@@ -693,18 +693,19 @@ impl Protocol {
 
     pub fn register_gateway_ix(
         &self,
-        authority: &Pubkey,
+        gateway_authority: &Pubkey,
         args: &RegisterGatewayArgs,
     ) -> Instruction {
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::RegisterGateway {
-                gateway_authority: *authority,
+                authority: self.authority.pubkey(),
+                gateway_authority: *gateway_authority,
                 protocol_config: pda::protocol_config(),
-                gateway: pda::gateway(authority),
+                gateway: pda::gateway(gateway_authority),
                 usdc_mint: self.usdc_mint,
-                authority_usdc: pda::ata(authority, &self.usdc_mint),
-                gateway_bond: pda::ata(&pda::gateway(authority), &self.usdc_mint),
+                authority_usdc: pda::ata(&self.authority.pubkey(), &self.usdc_mint),
+                gateway_bond: pda::ata(&pda::gateway(gateway_authority), &self.usdc_mint),
                 system_program: anchor_lang::solana_program::system_program::ID,
                 token_program: pda::TOKEN_PROGRAM_ID,
                 associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -716,17 +717,19 @@ impl Protocol {
 
     /// A bonded gateway whose authority also holds a USDC float for x402 settlement.
     pub fn register_gateway(&mut self, float: u64) -> Keypair {
-        let authority = self.env.keypair();
+        let gateway_authority = self.env.keypair();
         let bond = self.args.gateway_bond_min;
-        self.fund_usdc(&authority.pubkey(), bond + float);
+        self.fund_usdc(&self.authority.pubkey(), bond);
+        self.fund_usdc(&gateway_authority.pubkey(), float);
         let args = RegisterGatewayArgs {
             ip: [10, 0, 0, 7],
             port: 9_000,
             bond_amount: bond,
         };
-        let ix = self.register_gateway_ix(&authority.pubkey(), &args);
-        self.env.send_ok(&[ix], &[&authority]);
-        authority
+        let ix = self.register_gateway_ix(&gateway_authority.pubkey(), &args);
+        let protocol_authority = self.authority.insecure_clone();
+        self.env.send_ok(&[ix], &[&protocol_authority]);
+        gateway_authority
     }
 
     pub fn deactivate_gateway_ix(

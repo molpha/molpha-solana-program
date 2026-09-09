@@ -210,6 +210,7 @@ fn a_gateway_exit_waits_for_the_dispute_window_and_keeps_its_identity_account() 
     assert_eq!(withdrawn.gateway, gateway);
     assert_eq!(withdrawn.amount, bond);
 
+    p.fund_usdc(&p.authority.pubkey(), bond);
     let register = p.register_gateway_ix(
         &authority.pubkey(),
         &RegisterGatewayArgs {
@@ -218,7 +219,8 @@ fn a_gateway_exit_waits_for_the_dispute_window_and_keeps_its_identity_account() 
             bond_amount: bond,
         },
     );
-    let failed = p.env.send_err(&[register], &[&authority]);
+    let protocol_authority = p.authority.insecure_clone();
+    let failed = p.env.send_err(&[register], &[&protocol_authority]);
     assert!(
         failed
             .meta
