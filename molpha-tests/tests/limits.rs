@@ -182,15 +182,16 @@ fn settle(p: &mut Protocol, gateway: &Keypair, coalition: usize) -> (Pubkey, Sig
     let signed = p.sign_duty(duty);
     assert_eq!(signed.signer_pdas.len(), coalition);
 
+    let round_request = signed.round_request();
     let args = p.x402_args(&signed, [0xab; 32]);
     let record = pda::x402_round(
         &args.payer_id,
         &pda::gateway(&gateway.pubkey()),
-        &args.source_id,
-        args.signatures_required,
-        args.canonical_timestamp,
+        &round_request.source_id,
+        round_request.signatures_required,
+        round_request.canonical_timestamp,
     );
-    let ix = p.settle_x402_round_ix(&gateway.pubkey(), args);
+    let ix = p.settle_x402_round_ix(&gateway.pubkey(), round_request, args);
     let gw = gateway.insecure_clone();
     p.env.send_ok(&[ix], &[&gw]);
     (record, signed)

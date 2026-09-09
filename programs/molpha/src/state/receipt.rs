@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
+use crate::utils::settlement::RoundRequest;
+
 pub const DOMAIN_REQAUTH: &[u8] = b"MOLPHA_REQAUTH_V1";
 
 /// Consumer authorization fields signed by the requester.
@@ -37,15 +39,13 @@ pub fn hash_request_auth(request_auth: &RequestAuth) -> [u8; 32] {
 /// deployment never verifies against another.
 pub fn hash_request_auth_fields(
     gateway: &Pubkey,
-    source_id: &[u8; 32],
-    signatures_required: u8,
-    timestamp: u64,
+    round_request: &RoundRequest,
 ) -> [u8; 32] {
     hash_request_auth(&RequestAuth {
         program_id: crate::ID,
         gateway: *gateway,
-        source_id: *source_id,
-        signatures_required,
-        timestamp,
+        source_id: round_request.source_id,
+        signatures_required: round_request.signatures_required,
+        timestamp: round_request.canonical_timestamp,
     })
 }

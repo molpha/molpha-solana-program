@@ -55,19 +55,9 @@ fn case() -> Case {
 }
 
 fn args_for(_case: &Case, statement: &SignedAttestation) -> PunishUnsolicitedSigningArgs {
-    let duty = statement.duty;
-    let evidence_hash = unsolicited_signing_evidence_hash(
-        &duty.source_id,
-        duty.registry_version,
-        duty.signatures_required,
-        duty.canonical_timestamp,
-        &statement.statement(),
-    );
+    let evidence_hash =
+        unsolicited_signing_evidence_hash(&statement.round_request(), &statement.statement());
     PunishUnsolicitedSigningArgs {
-        source_id: duty.source_id,
-        registry_version: duty.registry_version,
-        signatures_required: duty.signatures_required,
-        canonical_timestamp: duty.canonical_timestamp,
         statement: statement.statement(),
         evidence_hash,
     }
@@ -106,7 +96,7 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
     let new_version = case.p.current_version() + 1;
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), case.statement.round_request(), args.clone());
     let meta = case.p.env.send_ok(&[ix], &[&reporter]);
 
     for node in &guilty {
@@ -176,7 +166,7 @@ fn a_fully_selected_coalition_is_not_an_offence() {
     let reporter = case.reporter.insecure_clone();
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), case.statement.round_request(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::SignersFullySelected);
 }
@@ -190,7 +180,7 @@ fn a_statement_whose_signature_does_not_verify_proves_nothing() {
 
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), case.statement.round_request(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::InvalidAggregateSignature);
     for node in case.p.node_pdas() {
@@ -207,7 +197,7 @@ fn an_evidence_hash_that_does_not_match_the_statement_is_refused() {
 
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), case.statement.round_request(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::EvidenceHashMismatch);
 }
@@ -219,13 +209,13 @@ fn the_same_evidence_cannot_be_filed_twice() {
     let args = args_for(&case, &case.statement);
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), case.statement.round_request(), args.clone());
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     // Same evidence, next registry version: the case PDA is seeded by the evidence hash alone.
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), case.statement.round_request(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert!(
         failed
@@ -245,6 +235,7 @@ fn filing_requires_the_next_registry_version() {
     let skipped = case.p.current_version() + 4;
     let ix = case.p.punish_unsolicited_signing_ix_with_registry(
         &reporter.pubkey(),
+        case.statement.round_request(),
         args_for(&case, &case.statement),
         skipped,
     );
@@ -261,7 +252,7 @@ fn an_already_tombstoned_intruder_leaves_nothing_to_punish() {
     let args = args_for(&case, &case.statement);
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), case.statement.round_request(), args);
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     // A second, distinct offence by the same node (a different timestamp, so different evidence)
@@ -281,25 +272,18 @@ fn an_already_tombstoned_intruder_leaves_nothing_to_punish() {
     bits.push(intruder);
     bits.sort_unstable();
 
-    let evidence_version = duty.registry_version;
     let statement = case.p.sign_duty_with_bits(duty, &bits, None);
+    let round_request = statement.round_request();
     let args = PunishUnsolicitedSigningArgs {
-        source_id: duty.source_id,
-        registry_version: evidence_version,
-        signatures_required: duty.signatures_required,
-        canonical_timestamp: duty.canonical_timestamp,
         statement: statement.statement(),
         evidence_hash: unsolicited_signing_evidence_hash(
-            &duty.source_id,
-            evidence_version,
-            duty.signatures_required,
-            duty.canonical_timestamp,
+            &round_request,
             &statement.statement(),
         ),
     };
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), round_request, args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::NothingToPunish);
 }
@@ -330,7 +314,7 @@ fn two_intruders_in_one_statement_are_both_punished() {
     let reporter = case.reporter.insecure_clone();
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), case.statement.round_request(), args.clone());
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     for bit in &intruders {

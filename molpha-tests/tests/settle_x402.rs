@@ -5,6 +5,7 @@ use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::X402RoundSettled;
 use molpha::instructions::SettleX402RoundArgs;
+use molpha::utils::settlement::RoundRequest;
 use molpha::state::{
     Gateway, GatewayStatus, RoundReceiptRecord, RoundRecordKind, RoundRecordStatus,
 };
@@ -43,18 +44,24 @@ impl Fixture {
         pda::ata(&self.gateway_pda(), &self.p.usdc_mint)
     }
 
-    fn record(&self, args: &SettleX402RoundArgs) -> Pubkey {
+    fn record(&self, round_request: &RoundRequest, args: &SettleX402RoundArgs) -> Pubkey {
         pda::x402_round(
             &args.payer_id,
             &self.gateway_pda(),
-            &args.source_id,
-            args.signatures_required,
-            args.canonical_timestamp,
+            &round_request.source_id,
+            round_request.signatures_required,
+            round_request.canonical_timestamp,
         )
     }
 
-    fn settle(&mut self, args: SettleX402RoundArgs) -> litesvm::types::TransactionResult {
-        let ix = self.p.settle_x402_round_ix(&self.gateway.pubkey(), args);
+    fn settle(
+        &mut self,
+        round_request: RoundRequest,
+        args: SettleX402RoundArgs,
+    ) -> litesvm::types::TransactionResult {
+        let ix = self
+            .p
+            .settle_x402_round_ix(&self.gateway.pubkey(), round_request, args);
         let gateway = self.gateway.insecure_clone();
         self.p.env.send(&[ix], &[&gateway])
     }
@@ -62,6 +69,14 @@ impl Fixture {
 
 fn duty(signatures_required: u8) -> Duty {
     Duty::new(NODE_COUNT as u32, signatures_required)
+}
+
+fn x402_settlement(
+    p: &Protocol,
+    signed: &molpha_tests::scenario::SignedAttestation,
+    payer_id: [u8; 32],
+) -> (RoundRequest, SettleX402RoundArgs) {
+    (signed.round_request(), p.x402_args(signed, payer_id))
 }
 
 /// The whole selection is charged for, not just the threshold: finalization may credit up to
@@ -76,6 +91,7 @@ fn settlement_debits_the_gateway_float_and_credits_the_treasury() {
     let mut f = fixture();
     let duty = duty(4);
     let signed = f.p.sign_duty(duty);
+    let round_request = signed.round_request();
     let args = f.p.x402_args(&signed, [0xaa; 32]);
     let price = expected_price(&f.p, 4);
     assert_eq!(args.amount, price);
@@ -84,7 +100,9 @@ fn settlement_debits_the_gateway_float_and_credits_the_treasury() {
     let bond_before = f.p.env.token_balance(&f.bond_ata());
     let treasury_before = f.p.treasury_balance();
 
-    let ix = f.p.settle_x402_round_ix(&f.gateway.pubkey(), args.clone());
+    let ix = f
+        .p
+        .settle_x402_round_ix(&f.gateway.pubkey(), round_request, args.clone());
     let gateway = f.gateway.insecure_clone();
     let meta = f.p.env.send_ok(&[ix], &[&gateway]);
 
@@ -96,7 +114,7 @@ fn settlement_debits_the_gateway_float_and_credits_the_treasury() {
         "the bond is not a payment source"
     );
 
-    let record: RoundReceiptRecord = f.p.env.get(&f.record(&args));
+    let record: RoundReceiptRecord = f.p.env.get(&f.record(&round_request, &args));
     assert_eq!(record.status, RoundRecordStatus::Pending);
     assert_eq!(record.kind, RoundRecordKind::X402);
     assert_eq!(record.gateway, f.gateway_pda());
@@ -117,9 +135,11 @@ fn the_price_scales_with_the_requested_quorum() {
     let mut f = fixture();
     for signatures_required in [3u8, 5, 7] {
         let signed = f.p.sign_duty(duty(signatures_required));
+        let round_request = signed.round_request();
         let args = f.p.x402_args(&signed, [signatures_required; 32]);
         assert_eq!(args.amount, expected_price(&f.p, signatures_required));
-        f.settle(args).expect("settles at the computed price");
+        f.settle(round_request, args)
+            .expect("settles at the computed price");
     }
 }
 
@@ -127,6 +147,7 @@ fn the_price_scales_with_the_requested_quorum() {
 fn settlement_rejects_an_amount_that_is_not_the_computed_price() {
     let mut f = fixture();
     let signed = f.p.sign_duty(duty(4));
+    let round_request = signed.round_request();
     let base = f.p.x402_args(&signed, [0xaa; 32]);
 
     for amount in [base.amount - 1, base.amount + 1, 0] {
@@ -134,7 +155,7 @@ fn settlement_rejects_an_amount_that_is_not_the_computed_price() {
             amount,
             ..base.clone()
         };
-        let failed = f.settle(args).unwrap_err();
+        let failed = f.settle(round_request, args).unwrap_err();
         assert_molpha_error(&failed, MolphaError::AmountMismatch);
     }
 }
@@ -146,6 +167,7 @@ fn the_price_covers_the_redundancy_buffer_not_just_the_threshold() {
     let mut f = fixture();
     let signatures_required = 4;
     let signed = f.p.sign_duty(duty(signatures_required));
+    let round_request = signed.round_request();
     let args = f.p.x402_args(&signed, [0xaa; 32]);
 
     let buffer = u64::from(f.p.args.redundancy_buffer);
@@ -158,10 +180,13 @@ fn the_price_covers_the_redundancy_buffer_not_just_the_threshold() {
     );
 
     let failed = f
-        .settle(SettleX402RoundArgs {
-            amount: threshold_only,
-            ..args
-        })
+        .settle(
+            round_request,
+            SettleX402RoundArgs {
+                amount: threshold_only,
+                ..args
+            },
+        )
         .unwrap_err();
     assert_molpha_error(&failed, MolphaError::AmountMismatch);
 }
@@ -170,13 +195,14 @@ fn the_price_covers_the_redundancy_buffer_not_just_the_threshold() {
 fn payment_ref_is_accepted_at_both_length_boundaries_and_rejected_past_it() {
     let mut f = fixture();
     let signed = f.p.sign_duty(duty(4));
+    let round_request = signed.round_request();
 
     for (payer, len) in [([0x01u8; 32], 0usize), ([0x02u8; 32], 64)] {
         let args = SettleX402RoundArgs {
             payment_ref: vec![7u8; len],
             ..f.p.x402_args(&signed, payer)
         };
-        f.settle(args).unwrap_or_else(|e| {
+        f.settle(round_request, args).unwrap_or_else(|e| {
             panic!("payment_ref of {len} bytes should be accepted: {:?}", e.err)
         });
     }
@@ -185,7 +211,7 @@ fn payment_ref_is_accepted_at_both_length_boundaries_and_rejected_past_it() {
         payment_ref: vec![7u8; 65],
         ..f.p.x402_args(&signed, [0x03; 32])
     };
-    let failed = f.settle(args).unwrap_err();
+    let failed = f.settle(round_request, args).unwrap_err();
     assert_molpha_error(&failed, MolphaError::PaymentRefTooLong);
 }
 
@@ -193,12 +219,12 @@ fn payment_ref_is_accepted_at_both_length_boundaries_and_rejected_past_it() {
 fn the_same_round_cannot_be_settled_twice_for_one_payer() {
     let mut f = fixture();
     let signed = f.p.sign_duty(duty(4));
-    let args = f.p.x402_args(&signed, [0xaa; 32]);
+    let (round_request, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
 
-    f.settle(args.clone()).expect("first settlement");
+    f.settle(round_request, args.clone()).expect("first settlement");
     let float_after_first = f.p.env.token_balance(&f.float_ata());
 
-    let failed = f.settle(args).unwrap_err();
+    let failed = f.settle(round_request, args).unwrap_err();
     assert!(
         failed
             .meta
@@ -219,17 +245,18 @@ fn the_same_round_cannot_be_settled_twice_for_one_payer() {
 fn records_are_scoped_per_payer_so_two_payers_each_pay_in_full() {
     let mut f = fixture();
     let signed = f.p.sign_duty(duty(4));
+    let round_request = signed.round_request();
     let first = f.p.x402_args(&signed, [0x11; 32]);
     let second = f.p.x402_args(&signed, [0x22; 32]);
     let price = first.amount;
 
     let float_before = f.p.env.token_balance(&f.float_ata());
-    f.settle(first.clone()).expect("first payer");
-    f.settle(second.clone()).expect("second payer");
+    f.settle(round_request, first.clone()).expect("first payer");
+    f.settle(round_request, second.clone()).expect("second payer");
 
-    assert_ne!(f.record(&first), f.record(&second));
-    assert!(f.p.env.account_exists(&f.record(&first)));
-    assert!(f.p.env.account_exists(&f.record(&second)));
+    assert_ne!(f.record(&round_request, &first), f.record(&round_request, &second));
+    assert!(f.p.env.account_exists(&f.record(&round_request, &first)));
+    assert!(f.p.env.account_exists(&f.record(&round_request, &second)));
     assert_eq!(
         f.p.env.token_balance(&f.float_ata()),
         float_before - 2 * price
@@ -244,8 +271,8 @@ fn settlement_rejects_an_underfunded_float() {
     let mut f = Fixture { p, gateway };
 
     let signed = f.p.sign_duty(duty(4));
-    let args = f.p.x402_args(&signed, [0xaa; 32]);
-    let failed = f.settle(args).unwrap_err();
+    let (round_request, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
+    let failed = f.settle(round_request, args).unwrap_err();
     assert_molpha_error(&failed, MolphaError::InsufficientGatewayFloat);
 }
 
@@ -253,9 +280,11 @@ fn settlement_rejects_an_underfunded_float() {
 fn the_bond_escrow_cannot_be_used_as_the_float() {
     let mut f = fixture();
     let signed = f.p.sign_duty(duty(4));
-    let args = f.p.x402_args(&signed, [0xaa; 32]);
+    let (round_request, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
 
-    let mut ix = f.p.settle_x402_round_ix(&f.gateway.pubkey(), args);
+    let mut ix = f
+        .p
+        .settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
     let float = f.float_ata();
     let bond = f.bond_ata();
     for meta in ix.accounts.iter_mut() {
@@ -275,8 +304,10 @@ fn a_third_partys_token_account_cannot_be_used_as_the_float() {
     let stranger_usdc = f.p.fund_usdc(&stranger.pubkey(), 10_000_000_000);
 
     let signed = f.p.sign_duty(duty(4));
-    let args = f.p.x402_args(&signed, [0xaa; 32]);
-    let mut ix = f.p.settle_x402_round_ix(&f.gateway.pubkey(), args);
+    let (round_request, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
+    let mut ix = f
+        .p
+        .settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
     let float = f.float_ata();
     for meta in ix.accounts.iter_mut() {
         if meta.pubkey == float {
@@ -293,11 +324,13 @@ fn settlement_requires_the_named_gateway_to_sign() {
     let mut f = fixture();
     let other_gateway = f.p.register_gateway(FLOAT);
     let signed = f.p.sign_duty(duty(4));
-    let args = f.p.x402_args(&signed, [0xaa; 32]);
+    let (round_request, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
 
     // Everything names the registered gateway (including the record PDA, which is seeded by it);
     // only the signing authority is swapped for a different gateway operator.
-    let mut ix = f.p.settle_x402_round_ix(&f.gateway.pubkey(), args);
+    let mut ix = f
+        .p
+        .settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
     let registered_authority = f.gateway.pubkey();
     for meta in ix.accounts.iter_mut() {
         if meta.pubkey == registered_authority {
@@ -313,8 +346,8 @@ fn settlement_rejects_a_quorum_below_the_protocol_minimum() {
     let mut f = fixture();
     assert_eq!(f.p.args.min_signers, 3);
     let signed = f.p.sign_duty(duty(2));
-    let args = f.p.x402_args(&signed, [0xaa; 32]);
-    let failed = f.settle(args).unwrap_err();
+    let (round_request, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
+    let failed = f.settle(round_request, args).unwrap_err();
     assert_molpha_error(&failed, MolphaError::SignaturesBelowMinSigners);
 }
 
@@ -331,8 +364,8 @@ fn settlement_rejects_signers_outside_the_derived_selection() {
     bits.sort_unstable();
 
     let signed = f.p.sign_duty_with_bits(duty, &bits, None);
-    let args = f.p.x402_args(&signed, [0xaa; 32]);
-    let failed = f.settle(args).unwrap_err();
+    let (round_request, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
+    let failed = f.settle(round_request, args).unwrap_err();
     assert_molpha_error(&failed, MolphaError::SignersNotSubsetOfSelection);
 }
 
@@ -342,8 +375,8 @@ fn settlement_rejects_a_quorum_below_signatures_required() {
     let duty = duty(4);
     let selected = f.p.selection_bits(&duty);
     let signed = f.p.sign_duty_with_bits(duty, &selected[..3], None);
-    let args = f.p.x402_args(&signed, [0xaa; 32]);
-    let failed = f.settle(args).unwrap_err();
+    let (round_request, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
+    let failed = f.settle(round_request, args).unwrap_err();
     assert_molpha_error(&failed, MolphaError::QuorumBelowThreshold);
 }
 
@@ -351,7 +384,7 @@ fn settlement_rejects_a_quorum_below_signatures_required() {
 fn settlement_rejects_a_registry_after_its_grace_period() {
     let mut f = fixture();
     let signed = f.p.sign_duty(duty(4));
-    let args = f.p.x402_args(&signed, [0xaa; 32]);
+    let (round_request, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
 
     let authority = f.p.authority.insecure_clone();
     let next = f.p.current_version() + 1;
@@ -362,7 +395,7 @@ fn settlement_rejects_a_registry_after_its_grace_period() {
     f.p.env
         .advance_seconds(f.p.args.max_settlement_delay_seconds as i64 + 1);
 
-    let failed = f.settle(args).unwrap_err();
+    let failed = f.settle(round_request, args).unwrap_err();
     assert_molpha_error(&failed, MolphaError::RegistryNotActive);
 }
 
@@ -370,6 +403,7 @@ fn settlement_rejects_a_registry_after_its_grace_period() {
 fn settlement_accepts_a_superseded_registry_during_grace() {
     let mut f = fixture();
     let signed = f.p.sign_duty(duty(4));
+    let round_request = signed.round_request();
     let args = f.p.x402_args(&signed, [0xaa; 32]);
 
     let authority = f.p.authority.insecure_clone();
@@ -377,7 +411,7 @@ fn settlement_accepts_a_superseded_registry_during_grace() {
     let ix = f.p.update_registry_policy_ix(&authority.pubkey(), next, 4);
     f.p.env.send_ok(&[ix], &[&authority]);
 
-    f.settle(args).expect("settles during grace");
+    f.settle(round_request, args).expect("settles during grace");
 }
 
 #[test]
@@ -385,8 +419,9 @@ fn a_settlement_leaves_the_gateway_bond_and_status_untouched() {
     let mut f = fixture();
     let bond_before = f.p.env.token_balance(&f.bond_ata());
     let signed = f.p.sign_duty(duty(4));
+    let round_request = signed.round_request();
     let args = f.p.x402_args(&signed, [0xaa; 32]);
-    f.settle(args).expect("settles");
+    f.settle(round_request, args).expect("settles");
 
     let after: Gateway = f.p.env.get(&f.gateway_pda());
     assert_eq!(f.p.env.token_balance(&f.bond_ata()), bond_before);
@@ -404,15 +439,17 @@ fn settlement_rejects_a_stale_canonical_timestamp() {
     // the freshness window is what bounds the selection grind.
     let stale = duty(4).at(now - window - 1);
     let signed = f.p.sign_duty(stale);
+    let round_request = signed.round_request();
     let args = f.p.x402_args(&signed, [0xaa; 32]);
-    let failed = f.settle(args).unwrap_err();
+    let failed = f.settle(round_request, args).unwrap_err();
     assert_molpha_error(&failed, MolphaError::AttestationTooStale);
 
     // The window is inclusive.
     let boundary = duty(4).at(now - window);
     let signed = f.p.sign_duty(boundary);
+    let round_request = signed.round_request();
     let args = f.p.x402_args(&signed, [0xab; 32]);
-    f.settle(args).expect("boundary settles");
+    f.settle(round_request, args).expect("boundary settles");
 }
 
 #[test]
@@ -422,7 +459,8 @@ fn settlement_rejects_a_future_canonical_timestamp() {
 
     let future = duty(4).at(now + MAX_FUTURE_DRIFT_SECONDS + 1);
     let signed = f.p.sign_duty(future);
+    let round_request = signed.round_request();
     let args = f.p.x402_args(&signed, [0xaa; 32]);
-    let failed = f.settle(args).unwrap_err();
+    let failed = f.settle(round_request, args).unwrap_err();
     assert_molpha_error(&failed, MolphaError::AttestationInFuture);
 }

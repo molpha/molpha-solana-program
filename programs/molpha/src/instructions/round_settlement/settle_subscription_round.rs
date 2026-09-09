@@ -2,29 +2,26 @@ use crate::{
     error::MolphaError,
     events::RoundSettled,
     state::{
-        hash_request_auth_fields, Delegate, Gateway, GatewayStatus, ProtocolConfig, Registry,
+        hash_request_auth_fields, AggregatedSig, Delegate, Gateway, GatewayStatus, ProtocolConfig, Registry,
         RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
     },
     utils::{
         ed25519::verify_ed25519_signature,
-        settlement::{validate_settlement_attestation, SettlementAttestationInput},
+        settlement::{validate_settlement_attestation, RoundRequest},
     },
 };
 use anchor_lang::prelude::*;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SettleRoundArgs {
-    pub canonical_timestamp: u64,
-    pub source_id: [u8; 32],
-    pub signatures_required: u8,
-    pub registry_version: u32,
-    pub agg_sig: crate::state::AggregatedSig,
+    pub agg_sig: AggregatedSig,
     pub value: [u8; 32],
     pub consumer_authority: Pubkey,
 }
 
 pub fn settle_subscription_round<'info>(
     ctx: Context<SettleSubscriptionRound<'info>>,
+    round_request: RoundRequest,
     args: SettleRoundArgs,
 ) -> Result<()> {
     let clock = Clock::get()?;
@@ -43,14 +40,12 @@ pub fn settle_subscription_round<'info>(
         subscription,
         &mut ctx.accounts.consumer_delegate,
         args.consumer_authority,
-        args.signatures_required,
+        round_request.signatures_required,
     )?;
 
     let request_auth_hash = hash_request_auth_fields(
         &gateway.key(),
-        &args.source_id,
-        args.signatures_required,
-        args.canonical_timestamp,
+        &round_request,
     );
     require!(
         verify_ed25519_signature(
@@ -64,14 +59,9 @@ pub fn settle_subscription_round<'info>(
     let validated = validate_settlement_attestation(
         &registry,
         &config,
-        SettlementAttestationInput {
-            source_id: &args.source_id,
-            canonical_timestamp: args.canonical_timestamp,
-            signatures_required: args.signatures_required,
-            registry_version: args.registry_version,
-            value: &args.value,
-            agg_sig: &args.agg_sig,
-        },
+        &round_request,
+        &args.agg_sig,
+        args.value,
         clock.unix_timestamp,
     )?;
 
@@ -85,7 +75,7 @@ pub fn settle_subscription_round<'info>(
         agg_sig: args.agg_sig,
         attestation_message_hash: validated.attestation_message_hash,
         gateway: gateway.key(),
-        registry_version: args.registry_version,
+        registry_version: round_request.registry_version,
         reward_per_signature,
         recorded_slot: now_slot,
         kind: RoundRecordKind::Subscription,
@@ -94,8 +84,8 @@ pub fn settle_subscription_round<'info>(
 
     emit!(RoundSettled {
         gateway: gateway.key(),
-        source_id: args.source_id,
-        canonical_timestamp: args.canonical_timestamp,
+        source_id: round_request.source_id,
+        canonical_timestamp: round_request.canonical_timestamp,
         credited_count: validated.credited_count,
         reward_per_signature,
         recorded_slot: now_slot,
@@ -140,7 +130,7 @@ fn authorize_consumer(
 }
 
 #[derive(Accounts)]
-#[instruction(args: SettleRoundArgs)]
+#[instruction(round_request: RoundRequest, args: SettleRoundArgs)]
 pub struct SettleSubscriptionRound<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -152,7 +142,7 @@ pub struct SettleSubscriptionRound<'info> {
     pub protocol_config: Account<'info, ProtocolConfig>,
 
     #[account(
-        seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, round_request.registry_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub registry: AccountLoader<'info, Registry>,
@@ -182,9 +172,9 @@ pub struct SettleSubscriptionRound<'info> {
             RoundReceiptRecord::SEED_PREFIX,
             subscription.owner.as_ref(),
             gateway.key().as_ref(),
-            args.source_id.as_ref(),
-            args.signatures_required.to_le_bytes().as_ref(),
-            args.canonical_timestamp.to_le_bytes().as_ref(),
+            round_request.source_id.as_ref(),
+            round_request.signatures_required.to_le_bytes().as_ref(),
+            round_request.canonical_timestamp.to_le_bytes().as_ref(),
         ],
         bump
     )]

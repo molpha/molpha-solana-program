@@ -59,10 +59,6 @@ pub(crate) fn credit_round_rewards<'info>(
     let missed = bitmap_load(&record.selection_bitmap) & !credited;
     let missed_count = missed.count_ones();
     require!(
-        remaining_accounts.len() >= credited_count as usize,
-        MolphaError::InvalidCreditNodeAccount
-    );
-    require!(
         remaining_accounts.len() == (credited_count + missed_count) as usize,
         MolphaError::InvalidMissedNodeAccount
     );
@@ -82,9 +78,7 @@ pub(crate) fn credit_round_rewards<'info>(
 
     let mut cursor = 0usize;
     for_each_set_bit_u256(credited, |bit_pos| {
-        let node_ai = remaining_accounts
-            .get(cursor)
-            .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
+        let node_ai = &remaining_accounts[cursor];
         cursor += 1;
 
         let mut node: Account<Node> = Account::try_from(node_ai)?;
@@ -109,9 +103,7 @@ pub(crate) fn credit_round_rewards<'info>(
 
     let round_record = record.key();
     for_each_set_bit_u256(missed, |bit_pos| {
-        let node_ai = remaining_accounts
-            .get(cursor)
-            .ok_or(error!(MolphaError::InvalidMissedNodeAccount))?;
+        let node_ai = &remaining_accounts[cursor];
         cursor += 1;
 
         require_keys_eq!(

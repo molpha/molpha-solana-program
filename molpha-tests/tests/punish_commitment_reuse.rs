@@ -75,19 +75,16 @@ fn args_for(
     a: &SignedAttestation,
     b: &SignedAttestation,
 ) -> PunishCommitmentReuseArgs {
-    let registry_version = a.duty.registry_version;
     let evidence_hash = commitment_reuse_evidence_hash(
-        registry_version,
-        &a.signing_context(),
+        &a.round_request(),
         &a.statement(),
-        &b.signing_context(),
+        &b.round_request(),
         &b.statement(),
     );
     PunishCommitmentReuseArgs {
-        registry_version,
-        context_a: a.signing_context(),
+        round_request_a: a.round_request(),
         statement_a: a.statement(),
-        context_b: b.signing_context(),
+        round_request_b: b.round_request(),
         statement_b: b.statement(),
         evidence_hash,
     }

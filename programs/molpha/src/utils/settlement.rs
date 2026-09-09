@@ -9,13 +9,12 @@ use molpha_verifier::{
     compute_message_hash, derive_selection_bitmap, AttestationPayload,
 };
 
-pub struct SettlementAttestationInput<'a> {
-    pub source_id: &'a [u8; 32],
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RoundRequest {
+    pub source_id: [u8; 32],
     pub canonical_timestamp: u64,
     pub signatures_required: u8,
     pub registry_version: u32,
-    pub value: &'a [u8; 32],
-    pub agg_sig: &'a AggregatedSig,
 }
 
 pub struct ValidatedSettlementAttestation {
@@ -28,57 +27,59 @@ pub struct ValidatedSettlementAttestation {
 pub fn validate_settlement_attestation(
     registry: &Registry,
     config: &ProtocolConfig,
-    input: SettlementAttestationInput<'_>,
+    round_request: &RoundRequest,
+    agg_sig: &AggregatedSig,
+    value: [u8; 32],
     now: i64,
 ) -> Result<ValidatedSettlementAttestation> {
     require!(registry.is_active(now), MolphaError::RegistryNotActive);
 
     require!(
-        input.signatures_required >= config.min_signers,
+        round_request.signatures_required >= config.min_signers,
         MolphaError::SignaturesBelowMinSigners
     );
 
     require_fresh_canonical_timestamp(
-        input.canonical_timestamp,
+        round_request.canonical_timestamp,
         now,
         config.max_settlement_delay_seconds,
     )?;
 
     let expected_selection = derive_selection_bitmap(
-        input.source_id,
-        input.registry_version,
-        input.canonical_timestamp,
+        &round_request.source_id,
+        round_request.registry_version,
+        round_request.canonical_timestamp,
         u32::from(registry.node_count),
-        input.signatures_required,
+        round_request.signatures_required,
         registry.redundancy_buffer,
     )
     .map_err(map_attestation_err)?;
 
     require!(
-        bitmap_is_subset(&input.agg_sig.signers_bitmap, &expected_selection),
+        bitmap_is_subset(&agg_sig.signers_bitmap, &expected_selection),
         MolphaError::SignersNotSubsetOfSelection
     );
 
-    let credited_count = bitmap_popcount(&input.agg_sig.signers_bitmap);
+    let credited_count = bitmap_popcount(&agg_sig.signers_bitmap);
     require!(
-        credited_count >= u32::from(input.signatures_required),
+        credited_count >= u32::from(round_request.signatures_required),
         MolphaError::QuorumBelowThreshold
     );
     require!(
         credited_count
-            <= u32::from(input.signatures_required) + u32::from(registry.redundancy_buffer),
+            <= u32::from(round_request.signatures_required) + u32::from(registry.redundancy_buffer),
         MolphaError::CreditedExceedsSelection
     );
 
     let attestation_message_hash = compute_message_hash(
         &AttestationPayload {
-            value: *input.value,
-            source_id: *input.source_id,
-            signatures_required: input.signatures_required,
-            canonical_timestamp: input.canonical_timestamp,
-            registry_version: input.registry_version,
+            value,
+            source_id: round_request.source_id,
+            signatures_required: round_request.signatures_required,
+            canonical_timestamp: round_request.canonical_timestamp,
+            registry_version: round_request.registry_version,
         },
-        input.agg_sig.signers_bitmap,
+        agg_sig.signers_bitmap,
     );
 
     Ok(ValidatedSettlementAttestation {

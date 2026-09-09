@@ -246,7 +246,11 @@ fn deactivating_a_gateway_disables_both_settlement_paths() {
     let deactivate = p.deactivate_gateway_ix(&protocol_authority.pubkey(), &gateway.pubkey());
     p.env.send_ok(&[deactivate], &[&protocol_authority]);
 
-    let x402 = p.settle_x402_round_ix(&gateway.pubkey(), p.x402_args(&signed, [0x71; 32]));
+    let x402 = p.settle_x402_round_ix(
+        &gateway.pubkey(),
+        signed.round_request(),
+        p.x402_args(&signed, [0x71; 32]),
+    );
     let failed = p.env.send_err(&[x402], &[&gateway_key]);
     assert_molpha_error(&failed, MolphaError::GatewayNotActive);
 
