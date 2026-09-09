@@ -46,15 +46,18 @@ impl Fixture {
     /// Settle an x402 round. `signed` may carry a signature that does not verify — settlement is
     /// optimistic and only checks the round's *shape*.
     fn settle_x402(&mut self, signed: &SignedAttestation, payer_id: [u8; 32]) -> Pubkey {
+        let round_request = signed.round_request();
         let args = self.p.x402_args(signed, payer_id);
         let record = pda::x402_round(
             &args.payer_id,
             &self.gateway_pda(),
-            &args.source_id,
-            args.signatures_required,
-            args.canonical_timestamp,
+            &round_request.source_id,
+            round_request.signatures_required,
+            round_request.canonical_timestamp,
         );
-        let ix = self.p.settle_x402_round_ix(&self.gateway.pubkey(), args);
+        let ix = self
+            .p
+            .settle_x402_round_ix(&self.gateway.pubkey(), round_request, args);
         let gateway = self.gateway.insecure_clone();
         self.p.env.send_ok(&[ix], &[&gateway]);
         record
@@ -240,7 +243,7 @@ fn finalize_rejects_a_credited_account_list_that_does_not_match_the_bitmap() {
     let ix =
         f.p.finalize_round_ix(&caller.pubkey(), &record, &credited[..credited.len() - 1]);
     let failed = f.p.env.send_err(&[ix], &[&caller]);
-    assert_molpha_error(&failed, MolphaError::InvalidCreditNodeAccount);
+    assert_molpha_error(&failed, MolphaError::InvalidMissedNodeAccount);
 
     // Right count, wrong order.
     let mut shuffled = credited.clone();
@@ -631,8 +634,10 @@ fn a_slashed_gateway_can_no_longer_settle() {
     f.p.env.send_ok(&[ix], &[&challenger]);
 
     let signed = f.p.sign_duty(duty().at(1_700_000_999));
+    let round_request = signed.round_request();
     let args = f.p.x402_args(&signed, [0xbb; 32]);
-    let ix = f.p.settle_x402_round_ix(&f.gateway.pubkey(), args);
+    let ix =
+        f.p.settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
     let gateway = f.gateway.insecure_clone();
     let failed = f.p.env.send_err(&[ix], &[&gateway]);
     assert_molpha_error(&failed, MolphaError::GatewayNotActive);

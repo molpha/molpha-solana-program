@@ -44,20 +44,9 @@ fn case() -> Case {
 }
 
 fn args_for(_case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> PunishEquivocationArgs {
-    let duty = a.duty;
-    let evidence_hash = equivocation_evidence_hash(
-        &duty.source_id,
-        duty.registry_version,
-        duty.signatures_required,
-        duty.canonical_timestamp,
-        &a.statement(),
-        &b.statement(),
-    );
+    let round_request = a.round_request();
+    let evidence_hash = equivocation_evidence_hash(&round_request, &a.statement(), &b.statement());
     PunishEquivocationArgs {
-        source_id: duty.source_id,
-        registry_version: duty.registry_version,
-        signatures_required: duty.signatures_required,
-        canonical_timestamp: duty.canonical_timestamp,
         statement_a: a.statement(),
         statement_b: b.statement(),
         evidence_hash,
@@ -92,9 +81,9 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
 
     let reporter = case.reporter.insecure_clone();
     let new_version = case.p.current_version() + 1;
-    let ix = case
-        .p
-        .punish_equivocation_ix(&reporter.pubkey(), args.clone());
+    let ix =
+        case.p
+            .punish_equivocation_ix(&reporter.pubkey(), case.a.round_request(), args.clone());
     let meta = case.p.env.send_ok(&[ix], &[&reporter]);
 
     // Guilty nodes: fully slashed and tombstoned.
@@ -207,22 +196,23 @@ fn the_same_evidence_cannot_be_filed_twice_in_either_order() {
     let mut case = case();
     let reporter = case.reporter.insecure_clone();
     let args = args_for(&case, &case.a, &case.b);
-    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let ix = case
+        .p
+        .punish_equivocation_ix(&reporter.pubkey(), case.a.round_request(), args);
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     // Swapping the statements yields the same evidence hash, so the case PDA already exists.
     let swapped = args_for(&case, &case.b, &case.a);
     let first_hash = equivocation_evidence_hash(
-        &case.a.duty.source_id,
-        case.a.duty.registry_version,
-        SIGS,
-        case.a.duty.canonical_timestamp,
+        &case.a.round_request(),
         &case.a.statement(),
         &case.b.statement(),
     );
     assert_eq!(swapped.evidence_hash, first_hash);
 
-    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), swapped);
+    let ix = case
+        .p
+        .punish_equivocation_ix(&reporter.pubkey(), case.a.round_request(), swapped);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert!(
         failed
@@ -256,7 +246,9 @@ fn two_statements_with_the_same_value_are_not_equivocation() {
 
     let mut case = case;
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let ix = case
+        .p
+        .punish_equivocation_ix(&reporter.pubkey(), case.a.round_request(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::EquivocationSameStatement);
 }
@@ -284,7 +276,9 @@ fn disjoint_coalitions_leave_nobody_to_punish() {
 
     let mut case = case;
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let ix = case
+        .p
+        .punish_equivocation_ix(&reporter.pubkey(), case.a.round_request(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::GuiltySetEmpty);
 }
@@ -296,7 +290,9 @@ fn an_evidence_hash_that_does_not_match_the_statements_is_refused() {
     let mut args = args_for(&case, &case.a, &case.b);
     args.evidence_hash[0] ^= 0xff;
 
-    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let ix = case
+        .p
+        .punish_equivocation_ix(&reporter.pubkey(), case.a.round_request(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::EvidenceHashMismatch);
 }
@@ -308,7 +304,9 @@ fn a_statement_whose_signature_does_not_verify_proves_nothing() {
     let tampered = case.a.with_tampered_signature();
     let args = args_for(&case, &tampered, &case.b);
 
-    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let ix = case
+        .p
+        .punish_equivocation_ix(&reporter.pubkey(), case.a.round_request(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::InvalidAggregateSignature);
 
@@ -344,7 +342,9 @@ fn a_coalition_outside_the_derived_selection_is_refused() {
 
     let mut case = case;
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let ix = case
+        .p
+        .punish_equivocation_ix(&reporter.pubkey(), case.a.round_request(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::SignersNotSubsetOfSelection);
 }
@@ -356,6 +356,7 @@ fn filing_requires_the_next_registry_version() {
     let skipped = case.p.current_version() + 2;
     let ix = case.p.punish_equivocation_ix_with_registry(
         &reporter.pubkey(),
+        case.a.round_request(),
         args_for(&case, &case.a, &case.b),
         skipped,
     );
@@ -370,7 +371,9 @@ fn a_punished_node_stops_being_selected_for_later_rounds() {
     let guilty = guilty_pdas(&case);
     let args = args_for(&case, &case.a, &case.b);
     let new_version = case.p.current_version() + 1;
-    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let ix = case
+        .p
+        .punish_equivocation_ix(&reporter.pubkey(), case.a.round_request(), args);
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     // A fresh duty against the successor registry can only draw from the survivors.
@@ -386,29 +389,15 @@ fn a_punished_node_stops_being_selected_for_later_rounds() {
 fn the_evidence_hash_is_order_independent_but_field_sensitive() {
     let case = case();
     let duty = case.a.duty;
-    let forward = equivocation_evidence_hash(
-        &duty.source_id,
-        duty.registry_version,
-        SIGS,
-        duty.canonical_timestamp,
-        &case.a.statement(),
-        &case.b.statement(),
-    );
-    let backward = equivocation_evidence_hash(
-        &duty.source_id,
-        duty.registry_version,
-        SIGS,
-        duty.canonical_timestamp,
-        &case.b.statement(),
-        &case.a.statement(),
-    );
+    let round_request = duty.round_request();
+    let forward =
+        equivocation_evidence_hash(&round_request, &case.a.statement(), &case.b.statement());
+    let backward =
+        equivocation_evidence_hash(&round_request, &case.b.statement(), &case.a.statement());
     assert_eq!(forward, backward);
 
     let other_timestamp = equivocation_evidence_hash(
-        &duty.source_id,
-        duty.registry_version,
-        SIGS,
-        duty.canonical_timestamp + 1,
+        &duty.at(duty.canonical_timestamp + 1).round_request(),
         &case.a.statement(),
         &case.b.statement(),
     );
@@ -440,7 +429,9 @@ fn a_punishment_takes_only_the_guilty_nodes_deposits() {
     assert_eq!(before, NODE_COUNT as u64 * locked_each);
 
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let ix = case
+        .p
+        .punish_equivocation_ix(&reporter.pubkey(), case.a.round_request(), args);
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     assert_eq!(
@@ -486,7 +477,9 @@ fn a_node_can_be_punished_again_after_surviving_an_earlier_punishment() {
     let locked_each = case.p.args.minimum_node_deposit;
 
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let ix = case
+        .p
+        .punish_equivocation_ix(&reporter.pubkey(), case.a.round_request(), args);
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     // Half the deposit survives a partial slash. Stand in for one, since no shipped offence
@@ -518,7 +511,9 @@ fn a_node_can_be_punished_again_after_surviving_an_earlier_punishment() {
     );
 
     if guilty_2.contains(&victim) {
-        let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args_2);
+        let ix = case
+            .p
+            .punish_equivocation_ix(&reporter.pubkey(), second.round_request(), args_2);
         case.p.env.send_ok(&[ix], &[&reporter]);
         assert_eq!(case.p.env.get::<Node>(&victim).locked_amount, 0);
         assert!(case.p.node_deposit_balance() < vault_before);
@@ -535,15 +530,18 @@ fn punishment_releases_the_reward_liability_it_cancels() {
     // A settled and finalized round leaves every selected node with a reward credit.
     let round_duty = duty().source_id([0x77; 32]).at(1_700_000_500);
     let signed = case.p.sign_duty(round_duty);
+    let round_request = signed.round_request();
     let x402 = case.p.x402_args(&signed, [0xaa; 32]);
     let record = pda::x402_round(
         &x402.payer_id,
         &pda::gateway(&gateway.pubkey()),
-        &x402.source_id,
-        x402.signatures_required,
-        x402.canonical_timestamp,
+        &round_request.source_id,
+        round_request.signatures_required,
+        round_request.canonical_timestamp,
     );
-    let settle = case.p.settle_x402_round_ix(&gateway.pubkey(), x402);
+    let settle = case
+        .p
+        .settle_x402_round_ix(&gateway.pubkey(), round_request, x402);
     let gateway_kp = gateway.insecure_clone();
     case.p.env.send_ok(&[settle], &[&gateway_kp]);
 
@@ -570,7 +568,9 @@ fn punishment_releases_the_reward_liability_it_cancels() {
     assert!(credited_guilty > 0, "the guilty were paid for this round");
 
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_equivocation_ix(&reporter.pubkey(), args);
+    let ix = case
+        .p
+        .punish_equivocation_ix(&reporter.pubkey(), case.a.round_request(), args);
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     assert_eq!(

@@ -7,24 +7,24 @@ use anchor_spl::token::{Token, TokenAccount};
 use molpha_verifier::bitmap::{bitmap_bit_set, bitmap_is_subset, bitmap_load, bitmap_store};
 
 use crate::{
-    error::{map_attestation_err, MolphaError},
+    error::MolphaError,
     events::CommitmentReuseProven,
     state::{
         commitment_reuse_evidence_hash, resolve_registry_signers_indexed, OffenceKind,
-        ProtocolConfig, PunishmentCase, Registry, RegistryState, SignedStatement, SigningContext,
+        ProtocolConfig, PunishmentCase, Registry, RegistryState, SignedStatement,
     },
     utils::{
-        slash::{slash_nodes, SlashAccounts, SlashInput},
+        settlement::RoundRequest,
+        slash::{derive_selection_bitmap, slash_nodes, SlashAccounts, SlashInput},
         statement_message_hash, verify_statement,
     },
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct PunishCommitmentReuseArgs {
-    pub registry_version: u32,
-    pub context_a: SigningContext,
+    pub round_request_a: RoundRequest,
     pub statement_a: SignedStatement,
-    pub context_b: SigningContext,
+    pub round_request_b: RoundRequest,
     pub statement_b: SignedStatement,
     /// Must match `nonce_reuse_evidence_hash(..)`; used as the `PunishmentCase` PDA seed.
     pub evidence_hash: [u8; 32],
@@ -39,36 +39,29 @@ pub fn punish_commitment_reuse<'info>(
         MolphaError::NonceCommitmentMismatch
     );
 
-    let message_hash_a = statement_message_hash(
-        &args.context_a.source_id,
-        args.registry_version,
-        args.context_a.signatures_required,
-        args.context_a.canonical_timestamp,
-        &args.statement_a,
+    require!(
+        args.round_request_a.registry_version == args.round_request_b.registry_version,
+        MolphaError::RegistryVersionMismatch
     );
-    let message_hash_b = statement_message_hash(
-        &args.context_b.source_id,
-        args.registry_version,
-        args.context_b.signatures_required,
-        args.context_b.canonical_timestamp,
-        &args.statement_b,
-    );
+
+    let message_hash_a = statement_message_hash(&args.round_request_a, &args.statement_a);
+    let message_hash_b = statement_message_hash(&args.round_request_b, &args.statement_b);
     require!(
         message_hash_a != message_hash_b,
         MolphaError::NonceReuseSameMessage
     );
 
     require!(
-        !(args.context_a == args.context_b && args.statement_a.value != args.statement_b.value),
+        !(args.round_request_a == args.round_request_b
+            && args.statement_a.value != args.statement_b.value),
         MolphaError::PreferEquivocation
     );
 
     require!(
         commitment_reuse_evidence_hash(
-            args.registry_version,
-            &args.context_a,
+            &args.round_request_a,
             &args.statement_a,
-            &args.context_b,
+            &args.round_request_b,
             &args.statement_b,
         ) == args.evidence_hash,
         MolphaError::EvidenceHashMismatch
@@ -86,19 +79,15 @@ pub fn punish_commitment_reuse<'info>(
         let evidence_registry = ctx.accounts.evidence_registry.load()?;
         let node_count = u32::from(evidence_registry.node_count);
 
-        for (context, statement) in [
-            (&args.context_a, &args.statement_a),
-            (&args.context_b, &args.statement_b),
+        for (round_request, statement) in [
+            (&args.round_request_a, &args.statement_a),
+            (&args.round_request_b, &args.statement_b),
         ] {
-            let selection = molpha_verifier::derive_selection_bitmap(
-                &context.source_id,
-                args.registry_version,
-                context.canonical_timestamp,
+            let selection = derive_selection_bitmap(
+                round_request,
                 node_count,
-                context.signatures_required,
                 evidence_registry.redundancy_buffer,
-            )
-            .map_err(map_attestation_err)?;
+            )?;
             require!(
                 bitmap_is_subset(&statement.signers_bitmap, &selection),
                 MolphaError::SignersNotSubsetOfSelection
@@ -124,22 +113,8 @@ pub fn punish_commitment_reuse<'info>(
         }
     }
 
-    verify_statement(
-        &args.context_a.source_id,
-        args.registry_version,
-        args.context_a.signatures_required,
-        args.context_a.canonical_timestamp,
-        &args.statement_a,
-        &ordered_a,
-    )?;
-    verify_statement(
-        &args.context_b.source_id,
-        args.registry_version,
-        args.context_b.signatures_required,
-        args.context_b.canonical_timestamp,
-        &args.statement_b,
-        &ordered_b,
-    )?;
+    verify_statement(&args.round_request_a, &args.statement_a, &ordered_a)?;
+    verify_statement(&args.round_request_b, &args.statement_b, &ordered_b)?;
 
     let reporter = ctx.accounts.reporter.key();
     let outcome = slash_nodes(
@@ -164,21 +139,21 @@ pub fn punish_commitment_reuse<'info>(
             guilty_bitmap,
             guilty_count,
             offence: OffenceKind::CommitmentReuse,
-            registry_version: args.registry_version,
+            registry_version: args.round_request_a.registry_version,
             evidence_hash: args.evidence_hash,
         },
     )?;
 
     emit!(CommitmentReuseProven {
-        registry_version: args.registry_version,
+        registry_version: args.round_request_a.registry_version,
         commitment_addr: args.statement_a.commitment_addr,
-        source_id_a: args.context_a.source_id,
-        signatures_required_a: args.context_a.signatures_required,
-        canonical_timestamp_a: args.context_a.canonical_timestamp,
+        source_id_a: args.round_request_a.source_id,
+        signatures_required_a: args.round_request_a.signatures_required,
+        canonical_timestamp_a: args.round_request_a.canonical_timestamp,
         signers_bitmap_a: args.statement_a.signers_bitmap,
-        source_id_b: args.context_b.source_id,
-        signatures_required_b: args.context_b.signatures_required,
-        canonical_timestamp_b: args.context_b.canonical_timestamp,
+        source_id_b: args.round_request_b.source_id,
+        signatures_required_b: args.round_request_b.signatures_required,
+        canonical_timestamp_b: args.round_request_b.canonical_timestamp,
         signers_bitmap_b: args.statement_b.signers_bitmap,
         guilty_bitmap,
         guilty_count,
@@ -212,7 +187,7 @@ pub struct PunishCommitmentReuse<'info> {
     pub registry_state: Box<Account<'info, RegistryState>>,
 
     #[account(
-        seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, args.round_request_a.registry_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub evidence_registry: AccountLoader<'info, Registry>,

@@ -8,18 +8,16 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-molpha = "MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh"
+molpha = "MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3"
 
 [programs.localnet]
-molpha = "MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh"
+molpha = "MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3"
 
 [provider]
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-# `anchor test` builds the program, then runs the Rust + LiteSVM suite.
-# LiteSVM needs no validator: run `anchor test --skip-local-validator`, or just `cargo test`.
 test = "cargo test --workspace"
 
 [hooks]

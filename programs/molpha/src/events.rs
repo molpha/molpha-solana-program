@@ -127,6 +127,7 @@ pub struct Subscribed {
     pub plan_type: u8,
     pub prepaid_usdc: u64,
     pub price_snapshot: u64,
+    pub subscribed_at: i64,
     pub valid_until: i64,
 }
 
@@ -134,7 +135,7 @@ pub struct Subscribed {
 pub struct SubscriptionExtended {
     pub owner: Pubkey,
     pub plan_type: u8,
-    pub prepaid_usdc: u64,
+    pub extended_at: i64,
     pub valid_until: i64,
 }
 
@@ -167,7 +168,6 @@ pub struct GatewayBondWithdrawn {
 pub struct DelegateAdded {
     pub owner: Pubkey,
     pub delegate: Pubkey,
-    pub max_signers: u8,
     pub delegate_count: u32,
     pub added_at: i64,
 }

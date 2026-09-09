@@ -10,7 +10,6 @@ use crate::{
 pub struct AddDelegateArgs {
     pub delegate: Pubkey,
     pub max_data_requests: u64,
-    pub max_signers: u8,
 }
 
 pub fn add_delegate(ctx: Context<AddDelegate>, args: AddDelegateArgs) -> Result<()> {
@@ -24,27 +23,19 @@ pub fn add_delegate(ctx: Context<AddDelegate>, args: AddDelegateArgs) -> Result<
     );
 
     let subscription = &mut ctx.accounts.subscription;
-
-    require!(subscription.is_active(), MolphaError::SubscriptionNotActive);
-    require!(
-        args.max_signers > 0 && args.max_signers <= subscription.max_signers,
-        MolphaError::SignaturesExceedSubscriptionMax
-    );
-    subscription.try_add_delegate()?;
-
     let delegate_account = &mut ctx.accounts.delegate_account;
+
+    subscription.try_add_delegate()?;
     delegate_account.init(
         ctx.accounts.owner.key(),
         args.delegate,
         args.max_data_requests,
-        args.max_signers,
         ctx.bumps.delegate_account,
     );
 
     emit!(DelegateAdded {
         owner: ctx.accounts.owner.key(),
         delegate: args.delegate,
-        max_signers: args.max_signers,
         delegate_count: subscription.delegate_count,
         added_at: Clock::get()?.unix_timestamp,
     });
@@ -60,6 +51,7 @@ pub struct AddDelegate<'info> {
 
     #[account(
         mut,
+        constraint = subscription.is_active() @ MolphaError::SubscriptionNotActive,
         seeds = [Subscription::SEED_PREFIX, owner.key().as_ref()],
         bump = subscription.bump,
     )]

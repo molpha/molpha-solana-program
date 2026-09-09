@@ -16,6 +16,7 @@ use molpha::instructions::{
     UpdatePlanArgs,
 };
 use molpha::state::{AggregatedSig, PlanType, RegistryState};
+use molpha::utils::settlement::RoundRequest;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 
@@ -67,6 +68,15 @@ impl Duty {
     pub fn value(mut self, value: [u8; 32]) -> Self {
         self.value = value;
         self
+    }
+
+    pub fn round_request(&self) -> RoundRequest {
+        RoundRequest {
+            source_id: self.source_id,
+            canonical_timestamp: self.canonical_timestamp,
+            signatures_required: self.signatures_required,
+            registry_version: self.registry_version,
+        }
     }
 
     pub fn payload(&self, signers_bitmap: [u8; 32]) -> [u8; 32] {
@@ -132,12 +142,8 @@ impl SignedAttestation {
         }
     }
 
-    pub fn signing_context(&self) -> molpha::state::SigningContext {
-        molpha::state::SigningContext {
-            source_id: self.duty.source_id,
-            signatures_required: self.duty.signatures_required,
-            canonical_timestamp: self.duty.canonical_timestamp,
-        }
+    pub fn round_request(&self) -> RoundRequest {
+        self.duty.round_request()
     }
 }
 
@@ -672,17 +678,10 @@ impl Protocol {
         }
     }
 
-    pub fn add_delegate(
-        &mut self,
-        owner: &Keypair,
-        delegate: &Pubkey,
-        max_data_requests: u64,
-        max_signers: u8,
-    ) {
+    pub fn add_delegate(&mut self, owner: &Keypair, delegate: &Pubkey, max_data_requests: u64) {
         let args = AddDelegateArgs {
             delegate: *delegate,
             max_data_requests,
-            max_signers,
         };
         let ix = self.add_delegate_ix(&owner.pubkey(), &args);
         let owner = owner.insecure_clone();
@@ -695,18 +694,19 @@ impl Protocol {
 
     pub fn register_gateway_ix(
         &self,
-        authority: &Pubkey,
+        gateway_authority: &Pubkey,
         args: &RegisterGatewayArgs,
     ) -> Instruction {
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::RegisterGateway {
-                gateway_authority: *authority,
+                authority: self.authority.pubkey(),
+                gateway_authority: *gateway_authority,
                 protocol_config: pda::protocol_config(),
-                gateway: pda::gateway(authority),
+                gateway: pda::gateway(gateway_authority),
                 usdc_mint: self.usdc_mint,
-                authority_usdc: pda::ata(authority, &self.usdc_mint),
-                gateway_bond: pda::ata(&pda::gateway(authority), &self.usdc_mint),
+                authority_usdc: pda::ata(&self.authority.pubkey(), &self.usdc_mint),
+                gateway_bond: pda::ata(&pda::gateway(gateway_authority), &self.usdc_mint),
                 system_program: anchor_lang::solana_program::system_program::ID,
                 token_program: pda::TOKEN_PROGRAM_ID,
                 associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -718,17 +718,19 @@ impl Protocol {
 
     /// A bonded gateway whose authority also holds a USDC float for x402 settlement.
     pub fn register_gateway(&mut self, float: u64) -> Keypair {
-        let authority = self.env.keypair();
+        let gateway_authority = self.env.keypair();
         let bond = self.args.gateway_bond_min;
-        self.fund_usdc(&authority.pubkey(), bond + float);
+        self.fund_usdc(&self.authority.pubkey(), bond);
+        self.fund_usdc(&gateway_authority.pubkey(), float);
         let args = RegisterGatewayArgs {
             ip: [10, 0, 0, 7],
             port: 9_000,
             bond_amount: bond,
         };
-        let ix = self.register_gateway_ix(&authority.pubkey(), &args);
-        self.env.send_ok(&[ix], &[&authority]);
-        authority
+        let ix = self.register_gateway_ix(&gateway_authority.pubkey(), &args);
+        let protocol_authority = self.authority.insecure_clone();
+        self.env.send_ok(&[ix], &[&protocol_authority]);
+        gateway_authority
     }
 
     pub fn deactivate_gateway_ix(
@@ -866,11 +868,8 @@ impl Protocol {
         attestation: &SignedAttestation,
     ) -> Instruction {
         let duty = attestation.duty;
+        let round_request = duty.round_request();
         let args = SettleRoundArgs {
-            canonical_timestamp: duty.canonical_timestamp,
-            source_id: duty.source_id,
-            signatures_required: duty.signatures_required,
-            registry_version: duty.registry_version,
             agg_sig: attestation.aggregated_sig(),
             value: duty.value,
             consumer_authority: *consumer_authority,
@@ -896,7 +895,11 @@ impl Protocol {
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
-            data: molpha::instruction::SettleSubscriptionRound { args }.data(),
+            data: molpha::instruction::SettleSubscriptionRound {
+                round_request,
+                args,
+            }
+            .data(),
         }
     }
 
@@ -912,9 +915,7 @@ impl Protocol {
     ) -> Instruction {
         let request_auth_hash = molpha::state::hash_request_auth_fields(
             &pda::gateway(gateway_authority),
-            &duty.source_id,
-            duty.signatures_required,
-            duty.canonical_timestamp,
+            &duty.round_request(),
         );
         crate::ed25519::sign_ed25519(consumer, &request_auth_hash)
     }
@@ -922,6 +923,7 @@ impl Protocol {
     pub fn settle_x402_round_ix(
         &self,
         gateway_authority: &Pubkey,
+        round_request: RoundRequest,
         args: SettleX402RoundArgs,
     ) -> Instruction {
         let gateway = pda::gateway(gateway_authority);
@@ -930,7 +932,7 @@ impl Protocol {
             accounts: molpha::accounts::SettleX402Round {
                 authority: *gateway_authority,
                 protocol_config: pda::protocol_config(),
-                registry: pda::registry(args.registry_version),
+                registry: pda::registry(round_request.registry_version),
                 gateway,
                 gateway_usdc: pda::ata(gateway_authority, &self.usdc_mint),
                 treasury: self.treasury(),
@@ -938,14 +940,18 @@ impl Protocol {
                 round_record: pda::x402_round(
                     &args.payer_id,
                     &gateway,
-                    &args.source_id,
-                    args.signatures_required,
-                    args.canonical_timestamp,
+                    &round_request.source_id,
+                    round_request.signatures_required,
+                    round_request.canonical_timestamp,
                 ),
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
-            data: molpha::instruction::SettleX402Round { args }.data(),
+            data: molpha::instruction::SettleX402Round {
+                round_request,
+                args,
+            }
+            .data(),
         }
     }
 
@@ -962,10 +968,6 @@ impl Protocol {
         SettleX402RoundArgs {
             payer_id,
             amount: price,
-            source_id: duty.source_id,
-            canonical_timestamp: duty.canonical_timestamp,
-            signatures_required: duty.signatures_required,
-            registry_version: duty.registry_version,
             agg_sig: attestation.aggregated_sig(),
             value: duty.value,
             payment_rail: 1,
@@ -1130,23 +1132,6 @@ impl Protocol {
         }
     }
 
-    pub fn set_delegate_paused_ix(
-        &self,
-        owner: &Pubkey,
-        delegate: &Pubkey,
-        paused: bool,
-    ) -> Instruction {
-        Instruction {
-            program_id: molpha::ID,
-            accounts: molpha::accounts::SetDelegatePaused {
-                owner: *owner,
-                delegate_account: pda::delegate(owner, delegate),
-            }
-            .to_account_metas(None),
-            data: molpha::instruction::SetDelegatePaused { paused }.data(),
-        }
-    }
-
     pub fn update_node_endpoint_ix(
         &self,
         node_owner: &Pubkey,
@@ -1250,14 +1235,21 @@ impl Protocol {
     pub fn punish_equivocation_ix(
         &self,
         reporter: &Pubkey,
+        round_request: RoundRequest,
         args: PunishEquivocationArgs,
     ) -> Instruction {
-        self.punish_equivocation_ix_with_registry(reporter, args, self.current_version() + 1)
+        self.punish_equivocation_ix_with_registry(
+            reporter,
+            round_request,
+            args,
+            self.current_version() + 1,
+        )
     }
 
     pub fn punish_equivocation_ix_with_registry(
         &self,
         reporter: &Pubkey,
+        round_request: RoundRequest,
         args: PunishEquivocationArgs,
         new_registry_version: u32,
     ) -> Instruction {
@@ -1265,12 +1257,12 @@ impl Protocol {
             &args.statement_a.signers_bitmap,
             &args.statement_b.signers_bitmap,
         );
-        let accused = self.node_pdas_for_bitmap(args.registry_version, &union);
+        let accused = self.node_pdas_for_bitmap(round_request.registry_version, &union);
         let mut accounts = molpha::accounts::PunishEquivocation {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
             registry_state: pda::registry_state(),
-            evidence_registry: pda::registry(args.registry_version),
+            evidence_registry: pda::registry(round_request.registry_version),
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
@@ -1285,31 +1277,44 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts,
-            data: molpha::instruction::PunishEquivocation { args }.data(),
+            data: molpha::instruction::PunishEquivocation {
+                round_request,
+                args,
+            }
+            .data(),
         }
     }
 
     pub fn punish_unsolicited_signing_ix(
         &self,
         reporter: &Pubkey,
+        round_request: RoundRequest,
         args: PunishUnsolicitedSigningArgs,
     ) -> Instruction {
-        self.punish_unsolicited_signing_ix_with_registry(reporter, args, self.current_version() + 1)
+        self.punish_unsolicited_signing_ix_with_registry(
+            reporter,
+            round_request,
+            args,
+            self.current_version() + 1,
+        )
     }
 
     pub fn punish_unsolicited_signing_ix_with_registry(
         &self,
         reporter: &Pubkey,
+        round_request: RoundRequest,
         args: PunishUnsolicitedSigningArgs,
         new_registry_version: u32,
     ) -> Instruction {
-        let accused =
-            self.node_pdas_for_bitmap(args.registry_version, &args.statement.signers_bitmap);
+        let accused = self.node_pdas_for_bitmap(
+            round_request.registry_version,
+            &args.statement.signers_bitmap,
+        );
         let mut accounts = molpha::accounts::PunishUnsolicitedSigning {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
             registry_state: pda::registry_state(),
-            evidence_registry: pda::registry(args.registry_version),
+            evidence_registry: pda::registry(round_request.registry_version),
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
@@ -1324,7 +1329,11 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts,
-            data: molpha::instruction::PunishUnsolicitedSigning { args }.data(),
+            data: molpha::instruction::PunishUnsolicitedSigning {
+                round_request,
+                args,
+            }
+            .data(),
         }
     }
 
@@ -1346,12 +1355,13 @@ impl Protocol {
             &args.statement_a.signers_bitmap,
             &args.statement_b.signers_bitmap,
         );
-        let accused = self.node_pdas_for_bitmap(args.registry_version, &union);
+        let registry_version = args.round_request_a.registry_version;
+        let accused = self.node_pdas_for_bitmap(registry_version, &union);
         let mut accounts = molpha::accounts::PunishCommitmentReuse {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
             registry_state: pda::registry_state(),
-            evidence_registry: pda::registry(args.registry_version),
+            evidence_registry: pda::registry(registry_version),
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
@@ -1411,20 +1421,24 @@ impl Protocol {
 }
 
 /// The guilty set of an unsolicited-signing filing: signers outside the derived selection.
-pub fn unsolicited_guilty_bitmap(p: &Protocol, args: &PunishUnsolicitedSigningArgs) -> [u8; 32] {
-    let registry = p.env.registry(args.registry_version);
+pub fn unsolicited_guilty_bitmap(
+    p: &Protocol,
+    round_request: &RoundRequest,
+    statement_bitmap: &[u8; 32],
+) -> [u8; 32] {
+    let registry = p.env.registry(round_request.registry_version);
     let selection = molpha_verifier::derive_selection_bitmap(
-        &args.source_id,
-        args.registry_version,
-        args.canonical_timestamp,
+        &round_request.source_id,
+        round_request.registry_version,
+        round_request.canonical_timestamp,
         u32::from(registry.node_count),
-        args.signatures_required,
+        round_request.signatures_required,
         registry.redundancy_buffer,
     )
     .expect("selection derives");
     let mut out = [0u8; 32];
     for i in 0..32 {
-        out[i] = args.statement.signers_bitmap[i] & !selection[i];
+        out[i] = statement_bitmap[i] & !selection[i];
     }
     out
 }

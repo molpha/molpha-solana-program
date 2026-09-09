@@ -7,24 +7,21 @@ use anchor_spl::token::{Token, TokenAccount};
 use molpha_verifier::bitmap::{bitmap_bit_set, bitmap_is_subset, bitmap_load, bitmap_store};
 
 use crate::{
-    error::{map_attestation_err, MolphaError},
+    error::MolphaError,
     events::EquivocationProven,
     state::{
         equivocation_evidence_hash, resolve_registry_signers_indexed, OffenceKind, ProtocolConfig,
         PunishmentCase, Registry, RegistryState, SignedStatement,
     },
     utils::{
-        slash::{slash_nodes, SlashAccounts, SlashInput},
+        settlement::RoundRequest,
+        slash::{derive_selection_bitmap, slash_nodes, SlashAccounts, SlashInput},
         verify_statement,
     },
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct PunishEquivocationArgs {
-    pub source_id: [u8; 32],
-    pub registry_version: u32,
-    pub signatures_required: u8,
-    pub canonical_timestamp: u64,
     pub statement_a: SignedStatement,
     pub statement_b: SignedStatement,
     /// Must match `equivocation_evidence_hash(..)`; used as the `PunishmentCase` PDA seed.
@@ -33,6 +30,7 @@ pub struct PunishEquivocationArgs {
 
 pub fn punish_equivocation<'info>(
     ctx: Context<'info, PunishEquivocation<'info>>,
+    round_request: RoundRequest,
     args: PunishEquivocationArgs,
 ) -> Result<()> {
     require!(
@@ -40,14 +38,8 @@ pub fn punish_equivocation<'info>(
         MolphaError::EquivocationSameStatement
     );
     require!(
-        equivocation_evidence_hash(
-            &args.source_id,
-            args.registry_version,
-            args.signatures_required,
-            args.canonical_timestamp,
-            &args.statement_a,
-            &args.statement_b,
-        ) == args.evidence_hash,
+        equivocation_evidence_hash(&round_request, &args.statement_a, &args.statement_b,)
+            == args.evidence_hash,
         MolphaError::EvidenceHashMismatch
     );
 
@@ -63,21 +55,14 @@ pub fn punish_equivocation<'info>(
         let evidence_registry = ctx.accounts.evidence_registry.load()?;
 
         let node_count = u32::from(evidence_registry.node_count);
-        let selection = molpha_verifier::derive_selection_bitmap(
-            &args.source_id,
-            args.registry_version,
-            args.canonical_timestamp,
+        let selection = derive_selection_bitmap(
+            &round_request,
             node_count,
-            args.signatures_required,
             evidence_registry.redundancy_buffer,
-        )
-        .map_err(map_attestation_err)?;
+        )?;
         require!(
-            bitmap_is_subset(&args.statement_a.signers_bitmap, &selection),
-            MolphaError::SignersNotSubsetOfSelection
-        );
-        require!(
-            bitmap_is_subset(&args.statement_b.signers_bitmap, &selection),
+            bitmap_is_subset(&args.statement_a.signers_bitmap, &selection)
+                && bitmap_is_subset(&args.statement_b.signers_bitmap, &selection),
             MolphaError::SignersNotSubsetOfSelection
         );
 
@@ -100,22 +85,8 @@ pub fn punish_equivocation<'info>(
         }
     }
 
-    verify_statement(
-        &args.source_id,
-        args.registry_version,
-        args.signatures_required,
-        args.canonical_timestamp,
-        &args.statement_a,
-        &ordered_a,
-    )?;
-    verify_statement(
-        &args.source_id,
-        args.registry_version,
-        args.signatures_required,
-        args.canonical_timestamp,
-        &args.statement_b,
-        &ordered_b,
-    )?;
+    verify_statement(&round_request, &args.statement_a, &ordered_a)?;
+    verify_statement(&round_request, &args.statement_b, &ordered_b)?;
 
     let reporter = ctx.accounts.reporter.key();
     let outcome = slash_nodes(
@@ -140,16 +111,16 @@ pub fn punish_equivocation<'info>(
             guilty_bitmap,
             guilty_count,
             offence: OffenceKind::Equivocation,
-            registry_version: args.registry_version,
+            registry_version: round_request.registry_version,
             evidence_hash: args.evidence_hash,
         },
     )?;
 
     emit!(EquivocationProven {
-        source_id: args.source_id,
-        registry_version: args.registry_version,
-        signatures_required: args.signatures_required,
-        canonical_timestamp: args.canonical_timestamp,
+        source_id: round_request.source_id,
+        registry_version: round_request.registry_version,
+        signatures_required: round_request.signatures_required,
+        canonical_timestamp: round_request.canonical_timestamp,
         guilty_bitmap,
         guilty_count,
         evidence_hash: args.evidence_hash,
@@ -162,7 +133,7 @@ pub fn punish_equivocation<'info>(
 }
 
 #[derive(Accounts)]
-#[instruction(args: PunishEquivocationArgs)]
+#[instruction(round_request: RoundRequest, args: PunishEquivocationArgs)]
 pub struct PunishEquivocation<'info> {
     #[account(mut)]
     pub reporter: Signer<'info>,
@@ -182,7 +153,7 @@ pub struct PunishEquivocation<'info> {
     pub registry_state: Box<Account<'info, RegistryState>>,
 
     #[account(
-        seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, round_request.registry_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub evidence_registry: AccountLoader<'info, Registry>,

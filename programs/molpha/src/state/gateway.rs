@@ -3,12 +3,11 @@ use anchor_lang::prelude::*;
 /// Bonded, Ed25519-signing gateway (v0.2 spec `gateway.authority`).
 ///
 /// Holds endpoint metadata, bond, and reward accounting. Keyed by the gateway's Solana
-/// authority key. `index` is the `gateway_index` referenced by `GatewayReceipt`.
+/// authority key.
 #[account]
 #[derive(InitSpace)]
 pub struct Gateway {
     pub authority: Pubkey,
-    pub index: u32,
     pub ip: [u8; 4],
     pub port: u16,
     pub status: GatewayStatus,

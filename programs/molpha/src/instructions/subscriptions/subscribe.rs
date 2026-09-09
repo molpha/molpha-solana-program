@@ -4,7 +4,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::{
     error::MolphaError,
     events::Subscribed,
-    state::{Plan, PlanType, ProtocolConfig, Subscription, SubscriptionInitArgs},
+    state::{Plan, PlanType, ProtocolConfig, Subscription},
 };
 
 pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
@@ -23,22 +23,16 @@ pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
         plan.subscription_price,
     )?;
 
-    ctx.accounts.subscription.init(SubscriptionInitArgs {
-        owner: ctx.accounts.owner.key(),
-        plan_type,
-        monthly_price: plan.subscription_price,
-        max_delegates: plan.max_delegates,
-        max_signers: plan.max_signers,
-        max_rounds: plan.max_rounds,
-        now,
-        bump: ctx.bumps.subscription,
-    });
+    ctx.accounts
+        .subscription
+        .init(ctx.accounts.owner.key(), plan, now, ctx.bumps.subscription);
 
     emit!(Subscribed {
         owner: ctx.accounts.owner.key(),
         plan_type: plan_type as u8,
         prepaid_usdc: plan.subscription_price,
         price_snapshot: plan.subscription_price,
+        subscribed_at: now,
         valid_until: ctx.accounts.subscription.valid_until,
     });
 

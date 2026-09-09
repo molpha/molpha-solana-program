@@ -11,8 +11,9 @@ pub mod utils;
 
 use instructions::*;
 use state::PlanType;
+use utils::settlement::RoundRequest;
 
-declare_id!("MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh");
+declare_id!("MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3");
 
 #[program]
 pub mod molpha {
@@ -79,10 +80,6 @@ pub mod molpha {
         instructions::remove_delegate(ctx, args)
     }
 
-    pub fn set_delegate_paused(ctx: Context<SetDelegatePaused>, paused: bool) -> Result<()> {
-        instructions::set_delegate_paused(ctx, paused)
-    }
-
     pub fn submit_attestation(
         ctx: Context<SubmitAttestation>,
         args: SubmitAttestationArgs,
@@ -99,9 +96,10 @@ pub mod molpha {
 
     pub fn settle_subscription_round<'info>(
         ctx: Context<SettleSubscriptionRound<'info>>,
+        round_request: RoundRequest,
         args: SettleRoundArgs,
     ) -> Result<()> {
-        instructions::settle_subscription_round(ctx, args)
+        instructions::settle_subscription_round(ctx, round_request, args)
     }
 
     pub fn finalize_round<'info>(ctx: Context<'info, FinalizeRound<'info>>) -> Result<()> {
@@ -130,23 +128,26 @@ pub mod molpha {
 
     pub fn settle_x402_round<'info>(
         ctx: Context<SettleX402Round<'info>>,
+        round_request: RoundRequest,
         args: SettleX402RoundArgs,
     ) -> Result<()> {
-        instructions::settle_x402_round(ctx, args)
+        instructions::settle_x402_round(ctx, round_request, args)
     }
 
     pub fn punish_equivocation<'info>(
         ctx: Context<'info, PunishEquivocation<'info>>,
+        round_request: RoundRequest,
         args: PunishEquivocationArgs,
     ) -> Result<()> {
-        instructions::punish_equivocation(ctx, args)
+        instructions::punish_equivocation(ctx, round_request, args)
     }
 
     pub fn punish_unsolicited_signing<'info>(
         ctx: Context<'info, PunishUnsolicitedSigning<'info>>,
+        round_request: RoundRequest,
         args: PunishUnsolicitedSigningArgs,
     ) -> Result<()> {
-        instructions::punish_unsolicited_signing(ctx, args)
+        instructions::punish_unsolicited_signing(ctx, round_request, args)
     }
 
     pub fn punish_commitment_reuse<'info>(

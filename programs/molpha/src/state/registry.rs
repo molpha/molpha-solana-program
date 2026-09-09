@@ -25,12 +25,9 @@ impl Registry {
     pub const SPACE: usize = 8 + core::mem::size_of::<Self>();
 
     pub fn init_genesis(&mut self, redundancy_buffer: u8, bump: u8) {
-        self.version = 0;
-        self.node_count = 0;
         self.redundancy_buffer = redundancy_buffer;
         self.bump = bump;
         self.nodes = [[0u8; 32]; MAX_REGISTRY_NODES];
-        self.grace_active_until = 0;
     }
 
     pub fn node(&self, index: usize) -> Result<Pubkey> {

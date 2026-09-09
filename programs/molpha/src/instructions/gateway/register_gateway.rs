@@ -34,7 +34,7 @@ pub fn register_gateway(ctx: Context<RegisterGateway>, args: RegisterGatewayArgs
             Transfer {
                 from: ctx.accounts.authority_usdc.to_account_info(),
                 to: ctx.accounts.gateway_bond.to_account_info(),
-                authority: ctx.accounts.gateway_authority.to_account_info(),
+                authority: ctx.accounts.authority.to_account_info(),
             },
         ),
         args.bond_amount,
@@ -64,10 +64,14 @@ pub fn register_gateway(ctx: Context<RegisterGateway>, args: RegisterGatewayArgs
 #[derive(Accounts)]
 pub struct RegisterGateway<'info> {
     #[account(mut)]
-    pub gateway_authority: Signer<'info>,
+    pub authority: Signer<'info>,
+
+    /// CHECK: Stored as `gateway.authority`; registration is gated by protocol authority.
+    pub gateway_authority: UncheckedAccount<'info>,
 
     #[account(
         mut,
+        has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]
@@ -75,7 +79,7 @@ pub struct RegisterGateway<'info> {
 
     #[account(
         init,
-        payer = gateway_authority,
+        payer = authority,
         space = Gateway::SPACE,
         seeds = [Gateway::SEED_PREFIX, gateway_authority.key().as_ref()],
         bump
@@ -90,14 +94,14 @@ pub struct RegisterGateway<'info> {
     #[account(
         mut,
         associated_token::mint = usdc_mint,
-        associated_token::authority = gateway_authority,
+        associated_token::authority = authority,
         associated_token::token_program = token_program,
     )]
     pub authority_usdc: Account<'info, TokenAccount>,
 
     #[account(
         init,
-        payer = gateway_authority,
+        payer = authority,
         associated_token::mint = usdc_mint,
         associated_token::authority = gateway,
         associated_token::token_program = token_program,

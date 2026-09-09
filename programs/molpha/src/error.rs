@@ -9,8 +9,6 @@ pub enum MolphaError {
     InvalidTimestamp,
     #[msg("invalid usdc mint")]
     InvalidMint,
-    #[msg("registry version counter overflow")]
-    RegistryVersionOverflow,
     #[msg("Signer index outside node_count(version)")]
     InvalidNodeIndex,
     #[msg("Node account does not match expected index/owner")]
@@ -35,20 +33,12 @@ pub enum MolphaError {
     RegistryPolicyUnchanged,
     #[msg("redundancy buffer must be between 1 and 8")]
     InvalidRedundancyBuffer,
-    #[msg("Caller is not ProtocolConfig.authority")]
-    UnauthorisedAuthority,
     #[msg("Gateway endpoint is invalid")]
     InvalidGatewayEndpoint,
     #[msg("Node endpoint is invalid")]
     InvalidNodeEndpoint,
-    #[msg("treasury token account mismatch")]
-    InvalidTreasury,
     #[msg("owner_usdc token account mismatch")]
     InvalidOwnerUsdc,
-    #[msg("treasury must be owned by protocol_config")]
-    InvalidTreasuryOwner,
-    #[msg("withdraw destination token account mismatch")]
-    InvalidWithdrawDestination,
     #[msg("Invalid aggregate signature")]
     InvalidSignature,
     #[msg("Could not derive group bitmap")]
@@ -69,10 +59,6 @@ pub enum MolphaError {
     UnexpectedDelegateAccount,
     #[msg("delegate data_requests_used >= max_data_requests")]
     DelegateDataRequestLimitReached,
-    #[msg("delegate is paused")]
-    DelegateNotActive,
-    #[msg("signatures_required exceeds delegate.max_signers")]
-    SignaturesExceedDelegateMax,
     #[msg("subscription delegate_count >= plan.max_delegates")]
     DelegateCapReached,
     #[msg("registration_salt must not be zero")]
@@ -108,8 +94,6 @@ pub enum MolphaError {
     UnauthorizedGatewayAuthority,
     #[msg("subscription inactive or round quota exhausted")]
     SubscriptionInactiveOrExhausted,
-    #[msg("dispute failed: the committed signature verifies (no fraud)")]
-    DisputeSignatureValid,
     #[msg("gateway_index does not match the bonded gateway")]
     GatewayIndexMismatch,
     #[msg("bond amount below gateway_bond_min")]
@@ -128,8 +112,6 @@ pub enum MolphaError {
     WithdrawalCooldownActive,
     #[msg("gateway bond is still inside its dispute window")]
     GatewayDisputeWindowActive,
-    #[msg("round dispute window has elapsed")]
-    DisputeWindowElapsed,
     #[msg("withdrawal deadline arithmetic overflow")]
     WithdrawalArithmeticOverflow,
     #[msg("withdrawal cooldown must be non-negative")]
@@ -178,6 +160,8 @@ pub enum MolphaError {
     NothingToPunish,
     #[msg("statements do not share an aggregate nonce commitment")]
     NonceCommitmentMismatch,
+    #[msg("round requests have different registry versions")]
+    RegistryVersionMismatch,
     #[msg("statements commit to the same message hash")]
     NonceReuseSameMessage,
     #[msg("same duty with different values is equivocation - file it as one")]
@@ -192,8 +176,6 @@ pub enum MolphaError {
     TreasuryInsolvent,
     #[msg("challenger_bounty_bps must not exceed 10000")]
     InvalidChallengerBounty,
-    #[msg("invalid liveliness configuration")]
-    InvalidLivelinessConfig,
     #[msg("reward liability underflow")]
     RewardLiabilityUnderflow,
     #[msg("node deposit vault does not cover the recorded total deposits")]

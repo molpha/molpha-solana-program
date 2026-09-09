@@ -9,6 +9,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, TokenAccount, Transfer};
 use molpha_verifier::bitmap::bitmap_bit_set;
 
+use crate::utils::settlement::RoundRequest;
 use crate::{
     error::{map_attestation_err, MolphaError},
     events::NodePunished,
@@ -318,21 +319,34 @@ pub fn slash_nodes<'a, 'b, 'info>(
     })
 }
 
+pub fn derive_selection_bitmap(
+    round_request: &RoundRequest,
+    node_count: u32,
+    redundancy_buffer: u8,
+) -> Result<[u8; 32]> {
+    molpha_verifier::derive_selection_bitmap(
+        &round_request.source_id,
+        round_request.registry_version,
+        round_request.canonical_timestamp,
+        node_count,
+        round_request.signatures_required,
+        redundancy_buffer,
+    )
+    .map_err(map_attestation_err)
+}
+
 /// Message hash a statement aggregate must verify over.
 pub(crate) fn statement_message_hash(
-    source_id: &[u8; 32],
-    registry_version: u32,
-    signatures_required: u8,
-    canonical_timestamp: u64,
+    round_request: &RoundRequest,
     statement: &SignedStatement,
 ) -> [u8; 32] {
     molpha_verifier::compute_message_hash(
         &molpha_verifier::AttestationPayload {
-            source_id: *source_id,
-            registry_version,
+            source_id: round_request.source_id,
+            registry_version: round_request.registry_version,
             value: statement.value,
-            canonical_timestamp,
-            signatures_required,
+            canonical_timestamp: round_request.canonical_timestamp,
+            signatures_required: round_request.signatures_required,
         },
         statement.signers_bitmap,
     )
@@ -340,20 +354,11 @@ pub(crate) fn statement_message_hash(
 
 /// Verify one signed statement against its resolved signers.
 pub(crate) fn verify_statement(
-    source_id: &[u8; 32],
-    registry_version: u32,
-    signatures_required: u8,
-    canonical_timestamp: u64,
+    round_request: &RoundRequest,
     statement: &SignedStatement,
     ordered_signers: &[molpha_verifier::SignerXy],
 ) -> Result<()> {
-    let message_hash = statement_message_hash(
-        source_id,
-        registry_version,
-        signatures_required,
-        canonical_timestamp,
-        statement,
-    );
+    let message_hash = statement_message_hash(round_request, statement);
     let is_valid = molpha_verifier::verify_aggregate_over_hash(
         ordered_signers,
         &statement.agg_sig_s,

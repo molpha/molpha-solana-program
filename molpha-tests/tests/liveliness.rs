@@ -35,16 +35,19 @@ fn duty() -> Duty {
 
 impl Fixture {
     fn settle_x402(&mut self, signed: &SignedAttestation, payer_id: [u8; 32]) -> Pubkey {
+        let round_request = signed.round_request();
         let args = self.p.x402_args(signed, payer_id);
         let gateway_pda = pda::gateway(&self.gateway.pubkey());
         let record = pda::x402_round(
             &args.payer_id,
             &gateway_pda,
-            &args.source_id,
-            args.signatures_required,
-            args.canonical_timestamp,
+            &round_request.source_id,
+            round_request.signatures_required,
+            round_request.canonical_timestamp,
         );
-        let ix = self.p.settle_x402_round_ix(&self.gateway.pubkey(), args);
+        let ix = self
+            .p
+            .settle_x402_round_ix(&self.gateway.pubkey(), round_request, args);
         let gateway = self.gateway.insecure_clone();
         self.p.env.send_ok(&[ix], &[&gateway]);
         record

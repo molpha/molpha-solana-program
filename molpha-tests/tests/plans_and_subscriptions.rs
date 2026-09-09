@@ -180,8 +180,6 @@ fn subscribe_charges_the_plan_price_and_snapshots_its_limits() {
     let subscription: Subscription = p.env.get(&pda::subscription(&owner.pubkey()));
     assert_eq!(subscription.owner, owner.pubkey());
     assert_eq!(subscription.plan_type, PlanType::Professional);
-    assert_eq!(subscription.prepaid_usdc, plan.subscription_price);
-    assert_eq!(subscription.price, plan.subscription_price);
     assert_eq!(subscription.used_rounds, 0);
     assert_eq!(subscription.max_rounds, plan.max_rounds);
     assert_eq!(subscription.delegate_count, 0);
@@ -204,6 +202,7 @@ fn subscribe_charges_the_plan_price_and_snapshots_its_limits() {
     let event: Subscribed = only_event(&meta);
     assert_eq!(event.owner, owner.pubkey());
     assert_eq!(event.prepaid_usdc, plan.subscription_price);
+    assert_eq!(event.subscribed_at, now);
     assert_eq!(event.valid_until, subscription.valid_until);
 }
 
@@ -283,7 +282,7 @@ fn subscribe_rejects_an_owner_who_cannot_pay() {
 #[test]
 fn extend_adds_a_month_to_a_still_valid_subscription() {
     let mut p = Protocol::start();
-    let plan = p.add_default_plan(PlanType::Basic);
+    let _plan = p.add_default_plan(PlanType::Basic);
     let owner = p.subscribe(PlanType::Basic);
     let before: Subscription = p.env.get(&pda::subscription(&owner.pubkey()));
 
@@ -297,16 +296,11 @@ fn extend_adds_a_month_to_a_still_valid_subscription() {
         before.valid_until + Subscription::SECONDS_PER_MONTH,
         "an active subscription extends from its own expiry, not from now"
     );
-    assert_eq!(
-        after.prepaid_usdc,
-        before.prepaid_usdc + plan.subscription_price
-    );
-    assert_eq!(after.price, plan.subscription_price);
     assert_eq!(after.used_rounds, before.used_rounds);
 
     let event: SubscriptionExtended = only_event(&meta);
+    assert_eq!(event.extended_at, p.env.unix_timestamp());
     assert_eq!(event.valid_until, after.valid_until);
-    assert_eq!(event.prepaid_usdc, after.prepaid_usdc);
 }
 
 #[test]
@@ -351,8 +345,6 @@ fn extend_charges_the_current_plan_price_not_the_snapshot() {
     p.env.send_ok(&[ix], &[&owner]);
 
     assert_eq!(p.env.token_balance(&owner_usdc), before_owner - 7_000_000);
-    let after: Subscription = p.env.get(&pda::subscription(&owner.pubkey()));
-    assert_eq!(after.price, 7_000_000);
 }
 
 #[test]
