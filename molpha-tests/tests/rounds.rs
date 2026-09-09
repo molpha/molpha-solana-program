@@ -636,9 +636,8 @@ fn a_slashed_gateway_can_no_longer_settle() {
     let signed = f.p.sign_duty(duty().at(1_700_000_999));
     let round_request = signed.round_request();
     let args = f.p.x402_args(&signed, [0xbb; 32]);
-    let ix = f
-        .p
-        .settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
+    let ix =
+        f.p.settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
     let gateway = f.gateway.insecure_clone();
     let failed = f.p.env.send_err(&[ix], &[&gateway]);
     assert_molpha_error(&failed, MolphaError::GatewayNotActive);

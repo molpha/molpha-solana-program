@@ -109,11 +109,7 @@ fn equivocation_args(a: &SignedAttestation, b: &SignedAttestation) -> PunishEqui
     PunishEquivocationArgs {
         statement_a: a.statement(),
         statement_b: b.statement(),
-        evidence_hash: equivocation_evidence_hash(
-            &round_request,
-            &a.statement(),
-            &b.statement(),
-        ),
+        evidence_hash: equivocation_evidence_hash(&round_request, &a.statement(), &b.statement()),
     }
 }
 

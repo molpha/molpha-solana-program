@@ -7,15 +7,15 @@ use anchor_spl::token::{Token, TokenAccount};
 use molpha_verifier::bitmap::{bitmap_bit_set, bitmap_is_subset, bitmap_load, bitmap_store};
 
 use crate::{
-    error::{map_attestation_err, MolphaError},
+    error::MolphaError,
     events::EquivocationProven,
     state::{
         equivocation_evidence_hash, resolve_registry_signers_indexed, OffenceKind, ProtocolConfig,
         PunishmentCase, Registry, RegistryState, SignedStatement,
     },
     utils::{
-        slash::{derive_selection_bitmap, slash_nodes, SlashAccounts, SlashInput},
         settlement::RoundRequest,
+        slash::{derive_selection_bitmap, slash_nodes, SlashAccounts, SlashInput},
         verify_statement,
     },
 };
@@ -38,11 +38,8 @@ pub fn punish_equivocation<'info>(
         MolphaError::EquivocationSameStatement
     );
     require!(
-        equivocation_evidence_hash(
-            &round_request,
-            &args.statement_a,
-            &args.statement_b,
-        ) == args.evidence_hash,
+        equivocation_evidence_hash(&round_request, &args.statement_a, &args.statement_b,)
+            == args.evidence_hash,
         MolphaError::EvidenceHashMismatch
     );
 
@@ -88,16 +85,8 @@ pub fn punish_equivocation<'info>(
         }
     }
 
-    verify_statement(
-        &round_request,
-        &args.statement_a,
-        &ordered_a,
-    )?;
-    verify_statement(
-        &round_request,
-        &args.statement_b,
-        &ordered_b,
-    )?;
+    verify_statement(&round_request, &args.statement_a, &ordered_a)?;
+    verify_statement(&round_request, &args.statement_b, &ordered_b)?;
 
     let reporter = ctx.accounts.reporter.key();
     let outcome = slash_nodes(

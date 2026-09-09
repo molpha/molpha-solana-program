@@ -202,7 +202,7 @@ fn subscribe_charges_the_plan_price_and_snapshots_its_limits() {
     let event: Subscribed = only_event(&meta);
     assert_eq!(event.owner, owner.pubkey());
     assert_eq!(event.prepaid_usdc, plan.subscription_price);
-    assert_eq!(event.subcribed_at, now);
+    assert_eq!(event.subscribed_at, now);
     assert_eq!(event.valid_until, subscription.valid_until);
 }
 
@@ -282,7 +282,7 @@ fn subscribe_rejects_an_owner_who_cannot_pay() {
 #[test]
 fn extend_adds_a_month_to_a_still_valid_subscription() {
     let mut p = Protocol::start();
-    let plan = p.add_default_plan(PlanType::Basic);
+    let _plan = p.add_default_plan(PlanType::Basic);
     let owner = p.subscribe(PlanType::Basic);
     let before: Subscription = p.env.get(&pda::subscription(&owner.pubkey()));
 

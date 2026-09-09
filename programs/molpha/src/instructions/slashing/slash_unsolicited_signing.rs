@@ -12,8 +12,9 @@ use crate::{
         ProtocolConfig, PunishmentCase, Registry, RegistryState, SignedStatement,
     },
     utils::{
+        settlement::RoundRequest,
         slash::{derive_selection_bitmap, slash_nodes, SlashAccounts, SlashInput},
-        verify_statement, settlement::RoundRequest,
+        verify_statement,
     },
 };
 
@@ -30,10 +31,7 @@ pub fn punish_unsolicited_signing<'info>(
     args: PunishUnsolicitedSigningArgs,
 ) -> Result<()> {
     require!(
-        unsolicited_signing_evidence_hash(
-            &round_request,
-            &args.statement,
-        ) == args.evidence_hash,
+        unsolicited_signing_evidence_hash(&round_request, &args.statement,) == args.evidence_hash,
         MolphaError::EvidenceHashMismatch
     );
 
@@ -65,11 +63,7 @@ pub fn punish_unsolicited_signing<'info>(
     };
     let ordered: Vec<molpha_verifier::SignerXy> = resolved.iter().map(|(_, xy)| *xy).collect();
 
-    verify_statement(
-        &round_request,
-        &args.statement,
-        &ordered,
-    )?;
+    verify_statement(&round_request, &args.statement, &ordered)?;
 
     let reporter = ctx.accounts.reporter.key();
     let outcome = slash_nodes(

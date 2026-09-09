@@ -2,8 +2,8 @@ use crate::{
     error::MolphaError,
     events::RoundSettled,
     state::{
-        hash_request_auth_fields, AggregatedSig, Delegate, Gateway, GatewayStatus, ProtocolConfig, Registry,
-        RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
+        hash_request_auth_fields, AggregatedSig, Delegate, Gateway, GatewayStatus, ProtocolConfig,
+        Registry, RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
     },
     utils::{
         ed25519::verify_ed25519_signature,
@@ -43,10 +43,7 @@ pub fn settle_subscription_round<'info>(
         round_request.signatures_required,
     )?;
 
-    let request_auth_hash = hash_request_auth_fields(
-        &gateway.key(),
-        &round_request,
-    );
+    let request_auth_hash = hash_request_auth_fields(&gateway.key(), &round_request);
     require!(
         verify_ed25519_signature(
             &ctx.accounts.instructions_sysvar,
@@ -58,7 +55,7 @@ pub fn settle_subscription_round<'info>(
 
     let validated = validate_settlement_attestation(
         &registry,
-        &config,
+        config,
         &round_request,
         &args.agg_sig,
         args.value,
@@ -101,12 +98,13 @@ fn authorize_consumer(
     consumer_authority: Pubkey,
     signatures_required: u8,
 ) -> Result<()> {
+    require!(
+        signatures_required <= subscription.max_signers,
+        MolphaError::SignaturesExceedSubscriptionMax
+    );
+
     if consumer_authority == subscription.owner {
         require!(delegate.is_none(), MolphaError::UnexpectedDelegateAccount);
-        require!(
-            signatures_required <= subscription.max_signers,
-            MolphaError::SignaturesExceedSubscriptionMax
-        );
         return Ok(());
     }
 

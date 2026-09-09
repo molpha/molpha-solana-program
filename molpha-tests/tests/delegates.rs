@@ -58,7 +58,6 @@ fn add_delegate_writes_the_grant_and_counts_it_against_the_subscription() {
     assert_eq!(event.delegate_count, 1);
 }
 
-
 #[test]
 fn add_delegate_rejects_a_zero_request_quota() {
     let (mut p, owner) = subscribed(2, 8);

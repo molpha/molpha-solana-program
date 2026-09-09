@@ -90,7 +90,9 @@ fn register_gateway_rejects_a_bond_below_the_minimum() {
     let protocol_authority = p.authority.insecure_clone();
     let failed = p.env.send_err(&[ix], &[&protocol_authority]);
     assert_molpha_error(&failed, MolphaError::InsufficientBond);
-    assert!(!p.env.account_exists(&pda::gateway(&gateway_authority.pubkey())));
+    assert!(!p
+        .env
+        .account_exists(&pda::gateway(&gateway_authority.pubkey())));
 }
 
 #[test]
@@ -186,8 +188,12 @@ fn register_gateway_rejects_a_mint_that_is_not_the_settlement_mint() {
     let gateway_authority = p.env.keypair();
     let bond = p.args.gateway_bond_min;
     let (other_mint, other_authority) = p.env.create_mint(6);
-    p.env
-        .mint_to(&other_mint, &other_authority, &p.authority.pubkey(), bond * 2);
+    p.env.mint_to(
+        &other_mint,
+        &other_authority,
+        &p.authority.pubkey(),
+        bond * 2,
+    );
 
     let gateway_pda = pda::gateway(&gateway_authority.pubkey());
     let ix = anchor_lang::solana_program::instruction::Instruction {
@@ -235,7 +241,9 @@ fn register_gateway_rejects_a_protocol_authority_who_cannot_fund_the_bond() {
         "logs:\n{}",
         failed.meta.logs.join("\n")
     );
-    assert!(!p.env.account_exists(&pda::gateway(&gateway_authority.pubkey())));
+    assert!(!p
+        .env
+        .account_exists(&pda::gateway(&gateway_authority.pubkey())));
 }
 
 #[test]

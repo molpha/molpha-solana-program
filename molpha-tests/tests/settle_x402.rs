@@ -5,10 +5,10 @@ use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::X402RoundSettled;
 use molpha::instructions::SettleX402RoundArgs;
-use molpha::utils::settlement::RoundRequest;
 use molpha::state::{
     Gateway, GatewayStatus, RoundReceiptRecord, RoundRecordKind, RoundRecordStatus,
 };
+use molpha::utils::settlement::RoundRequest;
 use molpha::utils::MAX_FUTURE_DRIFT_SECONDS;
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
@@ -100,9 +100,8 @@ fn settlement_debits_the_gateway_float_and_credits_the_treasury() {
     let bond_before = f.p.env.token_balance(&f.bond_ata());
     let treasury_before = f.p.treasury_balance();
 
-    let ix = f
-        .p
-        .settle_x402_round_ix(&f.gateway.pubkey(), round_request, args.clone());
+    let ix =
+        f.p.settle_x402_round_ix(&f.gateway.pubkey(), round_request, args.clone());
     let gateway = f.gateway.insecure_clone();
     let meta = f.p.env.send_ok(&[ix], &[&gateway]);
 
@@ -221,7 +220,8 @@ fn the_same_round_cannot_be_settled_twice_for_one_payer() {
     let signed = f.p.sign_duty(duty(4));
     let (round_request, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
 
-    f.settle(round_request, args.clone()).expect("first settlement");
+    f.settle(round_request, args.clone())
+        .expect("first settlement");
     let float_after_first = f.p.env.token_balance(&f.float_ata());
 
     let failed = f.settle(round_request, args).unwrap_err();
@@ -252,9 +252,13 @@ fn records_are_scoped_per_payer_so_two_payers_each_pay_in_full() {
 
     let float_before = f.p.env.token_balance(&f.float_ata());
     f.settle(round_request, first.clone()).expect("first payer");
-    f.settle(round_request, second.clone()).expect("second payer");
+    f.settle(round_request, second.clone())
+        .expect("second payer");
 
-    assert_ne!(f.record(&round_request, &first), f.record(&round_request, &second));
+    assert_ne!(
+        f.record(&round_request, &first),
+        f.record(&round_request, &second)
+    );
     assert!(f.p.env.account_exists(&f.record(&round_request, &first)));
     assert!(f.p.env.account_exists(&f.record(&round_request, &second)));
     assert_eq!(
@@ -282,9 +286,8 @@ fn the_bond_escrow_cannot_be_used_as_the_float() {
     let signed = f.p.sign_duty(duty(4));
     let (round_request, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
 
-    let mut ix = f
-        .p
-        .settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
+    let mut ix =
+        f.p.settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
     let float = f.float_ata();
     let bond = f.bond_ata();
     for meta in ix.accounts.iter_mut() {
@@ -305,9 +308,8 @@ fn a_third_partys_token_account_cannot_be_used_as_the_float() {
 
     let signed = f.p.sign_duty(duty(4));
     let (round_request, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
-    let mut ix = f
-        .p
-        .settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
+    let mut ix =
+        f.p.settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
     let float = f.float_ata();
     for meta in ix.accounts.iter_mut() {
         if meta.pubkey == float {
@@ -328,9 +330,8 @@ fn settlement_requires_the_named_gateway_to_sign() {
 
     // Everything names the registered gateway (including the record PDA, which is seeded by it);
     // only the signing authority is swapped for a different gateway operator.
-    let mut ix = f
-        .p
-        .settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
+    let mut ix =
+        f.p.settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
     let registered_authority = f.gateway.pubkey();
     for meta in ix.accounts.iter_mut() {
         if meta.pubkey == registered_authority {

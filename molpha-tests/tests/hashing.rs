@@ -490,14 +490,26 @@ fn nonce_reuse_hash_is_sensitive_to_every_field() {
 
     let mut stmt_a2 = stmt_a.clone();
     stmt_a2.value[0] ^= 0xff;
-    assert_ne!(commitment_reuse_evidence_hash(&req_a, &stmt_a2, &req_b, &stmt_b), base);
+    assert_ne!(
+        commitment_reuse_evidence_hash(&req_a, &stmt_a2, &req_b, &stmt_b),
+        base
+    );
     let mut stmt_a3 = stmt_a.clone();
     stmt_a3.agg_sig_s[0] ^= 0xff;
-    assert_ne!(commitment_reuse_evidence_hash(&req_a, &stmt_a3, &req_b, &stmt_b), base);
+    assert_ne!(
+        commitment_reuse_evidence_hash(&req_a, &stmt_a3, &req_b, &stmt_b),
+        base
+    );
     let mut stmt_a4 = stmt_a.clone();
     stmt_a4.commitment_addr[0] ^= 0xff;
-    assert_ne!(commitment_reuse_evidence_hash(&req_a, &stmt_a4, &req_b, &stmt_b), base);
+    assert_ne!(
+        commitment_reuse_evidence_hash(&req_a, &stmt_a4, &req_b, &stmt_b),
+        base
+    );
     let mut stmt_a5 = stmt_a.clone();
     stmt_a5.signers_bitmap[0] ^= 0xff;
-    assert_ne!(commitment_reuse_evidence_hash(&req_a, &stmt_a5, &req_b, &stmt_b), base);
+    assert_ne!(
+        commitment_reuse_evidence_hash(&req_a, &stmt_a5, &req_b, &stmt_b),
+        base
+    );
 }

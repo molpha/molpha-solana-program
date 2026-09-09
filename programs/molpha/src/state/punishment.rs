@@ -118,10 +118,7 @@ pub fn equivocation_evidence_hash(
     statement_a: &SignedStatement,
     statement_b: &SignedStatement,
 ) -> [u8; 32] {
-    let (lo, hi) = canonical_pair(
-        statement_hash(statement_a),
-        statement_hash(statement_b),
-    );
+    let (lo, hi) = canonical_pair(statement_hash(statement_a), statement_hash(statement_b));
     hashv(&[
         DOMAIN_EQUIVOCATION,
         round_request.source_id.as_slice(),
@@ -173,12 +170,7 @@ pub fn commitment_reuse_evidence_hash(
         context_statement_hash(round_request_a, statement_a),
         context_statement_hash(round_request_b, statement_b),
     );
-    hashv(&[
-        DOMAIN_COMMITMENT_REUSE,
-        lo.as_slice(),
-        hi.as_slice(),
-    ])
-    .to_bytes()
+    hashv(&[DOMAIN_COMMITMENT_REUSE, lo.as_slice(), hi.as_slice()]).to_bytes()
 }
 
 /// One partial-signature transcript: the challenge scalars and the resulting share.

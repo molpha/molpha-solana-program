@@ -37,10 +37,7 @@ pub fn hash_request_auth(request_auth: &RequestAuth) -> [u8; 32] {
 /// `H(RequestAuth)` from the instruction-level `(gateway, source_id, signatures_required,
 /// timestamp)` tuple. `program_id` is always this program's own id, so a signature made for one
 /// deployment never verifies against another.
-pub fn hash_request_auth_fields(
-    gateway: &Pubkey,
-    round_request: &RoundRequest,
-) -> [u8; 32] {
+pub fn hash_request_auth_fields(gateway: &Pubkey, round_request: &RoundRequest) -> [u8; 32] {
     hash_request_auth(&RequestAuth {
         program_id: crate::ID,
         gateway: *gateway,

@@ -23,14 +23,16 @@ pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
         plan.subscription_price,
     )?;
 
-    ctx.accounts.subscription.init(ctx.accounts.owner.key(), plan, now, ctx.bumps.subscription);
+    ctx.accounts
+        .subscription
+        .init(ctx.accounts.owner.key(), plan, now, ctx.bumps.subscription);
 
     emit!(Subscribed {
         owner: ctx.accounts.owner.key(),
         plan_type: plan_type as u8,
         prepaid_usdc: plan.subscription_price,
         price_snapshot: plan.subscription_price,
-        subcribed_at: now,
+        subscribed_at: now,
         valid_until: ctx.accounts.subscription.valid_until,
     });
 

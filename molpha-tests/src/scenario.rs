@@ -678,12 +678,7 @@ impl Protocol {
         }
     }
 
-    pub fn add_delegate(
-        &mut self,
-        owner: &Keypair,
-        delegate: &Pubkey,
-        max_data_requests: u64,
-    ) {
+    pub fn add_delegate(&mut self, owner: &Keypair, delegate: &Pubkey, max_data_requests: u64) {
         let args = AddDelegateArgs {
             delegate: *delegate,
             max_data_requests,

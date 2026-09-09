@@ -9,6 +9,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, TokenAccount, Transfer};
 use molpha_verifier::bitmap::bitmap_bit_set;
 
+use crate::utils::settlement::RoundRequest;
 use crate::{
     error::{map_attestation_err, MolphaError},
     events::NodePunished,
@@ -18,7 +19,6 @@ use crate::{
     },
     utils::registry::with_registry_snapshot,
 };
-use crate::utils::settlement::RoundRequest;
 
 /// Slashed amounts from a single [`apply_penalty`] call.
 #[derive(Clone, Copy, Debug, Default)]
@@ -331,7 +331,8 @@ pub fn derive_selection_bitmap(
         node_count,
         round_request.signatures_required,
         redundancy_buffer,
-    ).map_err(map_attestation_err)
+    )
+    .map_err(map_attestation_err)
 }
 
 /// Message hash a statement aggregate must verify over.
@@ -357,10 +358,7 @@ pub(crate) fn verify_statement(
     statement: &SignedStatement,
     ordered_signers: &[molpha_verifier::SignerXy],
 ) -> Result<()> {
-    let message_hash = statement_message_hash(
-        round_request,
-        statement,
-    );
+    let message_hash = statement_message_hash(round_request, statement);
     let is_valid = molpha_verifier::verify_aggregate_over_hash(
         ordered_signers,
         &statement.agg_sig_s,

@@ -14,8 +14,9 @@ use crate::{
         ProtocolConfig, PunishmentCase, Registry, RegistryState, SignedStatement,
     },
     utils::{
+        settlement::RoundRequest,
         slash::{derive_selection_bitmap, slash_nodes, SlashAccounts, SlashInput},
-        statement_message_hash, verify_statement, settlement::{RoundRequest},
+        statement_message_hash, verify_statement,
     },
 };
 
@@ -43,21 +44,16 @@ pub fn punish_commitment_reuse<'info>(
         MolphaError::RegistryVersionMismatch
     );
 
-    let message_hash_a = statement_message_hash(
-        &args.round_request_a,
-        &args.statement_a,
-    );
-    let message_hash_b = statement_message_hash(
-        &args.round_request_b,
-        &args.statement_b,
-    );
+    let message_hash_a = statement_message_hash(&args.round_request_a, &args.statement_a);
+    let message_hash_b = statement_message_hash(&args.round_request_b, &args.statement_b);
     require!(
         message_hash_a != message_hash_b,
         MolphaError::NonceReuseSameMessage
     );
 
     require!(
-        !(args.round_request_a == args.round_request_b && args.statement_a.value != args.statement_b.value),
+        !(args.round_request_a == args.round_request_b
+            && args.statement_a.value != args.statement_b.value),
         MolphaError::PreferEquivocation
     );
 
@@ -88,7 +84,7 @@ pub fn punish_commitment_reuse<'info>(
             (&args.round_request_b, &args.statement_b),
         ] {
             let selection = derive_selection_bitmap(
-                &round_request,
+                round_request,
                 node_count,
                 evidence_registry.redundancy_buffer,
             )?;
@@ -117,16 +113,8 @@ pub fn punish_commitment_reuse<'info>(
         }
     }
 
-    verify_statement(
-        &args.round_request_a,
-        &args.statement_a,
-        &ordered_a,
-    )?;
-    verify_statement(
-        &args.round_request_b,
-        &args.statement_b,
-        &ordered_b,
-    )?;
+    verify_statement(&args.round_request_a, &args.statement_a, &ordered_a)?;
+    verify_statement(&args.round_request_b, &args.statement_b, &ordered_b)?;
 
     let reporter = ctx.accounts.reporter.key();
     let outcome = slash_nodes(

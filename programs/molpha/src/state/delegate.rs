@@ -25,13 +25,7 @@ impl Delegate {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_delegate";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
-    pub fn init(
-        &mut self,
-        owner: Pubkey,
-        delegate: Pubkey,
-        max_data_requests: u64,
-        bump: u8,
-    ) {
+    pub fn init(&mut self, owner: Pubkey, delegate: Pubkey, max_data_requests: u64, bump: u8) {
         self.owner = owner;
         self.delegate = delegate;
         self.max_data_requests = max_data_requests;

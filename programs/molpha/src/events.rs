@@ -127,7 +127,7 @@ pub struct Subscribed {
     pub plan_type: u8,
     pub prepaid_usdc: u64,
     pub price_snapshot: u64,
-    pub subcribed_at: i64,
+    pub subscribed_at: i64,
     pub valid_until: i64,
 }
 
