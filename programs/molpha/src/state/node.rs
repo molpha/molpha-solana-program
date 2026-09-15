@@ -1,8 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::error::{map_attestation_accounts_err, map_attestation_err};
-
-use super::Registry;
+use crate::error::map_attestation_accounts_err;
 
 pub const LIVELINESS_SCORE_MAX: u16 = 10_000;
 pub const LIVELINESS_PENALTY_PER_MISS: u16 = 500;
@@ -78,38 +76,15 @@ pub enum NodeStatus {
     Tombstoned,
 }
 
-/// Resolve signer accounts against a registry snapshot in ascending bit order.
+/// Resolve signer `(x, y)` pubkeys from remaining `Node` accounts in ascending bitmap bit order.
+///
+/// `registry` is the loaded `Registry` account; accounts must match
+/// [`molpha_verifier::solana::resolve_signers_accounts`].
 pub fn resolve_registry_signers(
     accounts: &[AccountInfo],
-    program_id: &Pubkey,
-    registry: &Registry,
+    registry: &AccountInfo,
     signers_bitmap: &[u8; 32],
 ) -> Result<Vec<molpha_verifier::SignerXy>> {
-    let entries = molpha_verifier::solana::resolve_nodes(accounts, program_id)
-        .map_err(map_attestation_accounts_err)?;
-    molpha_verifier::resolve_registry_signers(
-        &registry.nodes,
-        registry.node_count,
-        signers_bitmap,
-        &entries,
-    )
-    .map_err(map_attestation_err)
-}
-
-/// Like [`resolve_registry_signers`], but also returns each signer's bit position.
-pub fn resolve_registry_signers_indexed(
-    accounts: &[AccountInfo],
-    program_id: &Pubkey,
-    registry: &Registry,
-    signers_bitmap: &[u8; 32],
-) -> Result<Vec<(usize, molpha_verifier::SignerXy)>> {
-    let entries = molpha_verifier::solana::resolve_nodes(accounts, program_id)
-        .map_err(map_attestation_accounts_err)?;
-    molpha_verifier::resolve_registry_signers_indexed(
-        &registry.nodes,
-        registry.node_count,
-        signers_bitmap,
-        &entries,
-    )
-    .map_err(map_attestation_err)
+    molpha_verifier::solana::resolve_signers_accounts(accounts, registry, signers_bitmap)
+    .map_err(map_attestation_accounts_err)
 }

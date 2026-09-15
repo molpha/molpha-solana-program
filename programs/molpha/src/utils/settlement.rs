@@ -5,8 +5,10 @@ use crate::{
 };
 use anchor_lang::prelude::*;
 use molpha_verifier::{
-    bitmap::{bitmap_is_subset, bitmap_popcount},
-    compute_message_hash, derive_selection_bitmap, AttestationPayload,
+    bitmap::Bitmap,
+    compute_message_hash,
+    selection::{derive_selection_bitmap, verify_selection},
+    AttestationPayload,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,26 +47,24 @@ pub fn validate_settlement_attestation(
         config.max_settlement_delay_seconds,
     )?;
 
-    let expected_selection = derive_selection_bitmap(
+    match verify_selection(
         &round_request.source_id,
-        round_request.registry_version,
         round_request.canonical_timestamp,
-        u32::from(registry.node_count),
         round_request.signatures_required,
-        registry.redundancy_buffer,
-    )
-    .map_err(map_attestation_err)?;
+        &registry.view(),
+        &agg_sig.signers_bitmap,
+    ) {
+        Ok(true) => {}
+        Ok(false) => return Err(error!(MolphaError::SignersNotSubsetOfSelection)),
+        Err(err) => return Err(map_attestation_err(err)),
+    }
 
-    require!(
-        bitmap_is_subset(&agg_sig.signers_bitmap, &expected_selection),
-        MolphaError::SignersNotSubsetOfSelection
-    );
-
-    let credited_count = bitmap_popcount(&agg_sig.signers_bitmap);
+    let credited_count = Bitmap::load(&agg_sig.signers_bitmap).popcount() as u32;
     require!(
         credited_count >= u32::from(round_request.signatures_required),
         MolphaError::QuorumBelowThreshold
     );
+
     require!(
         credited_count
             <= u32::from(round_request.signatures_required) + u32::from(registry.redundancy_buffer),
@@ -82,9 +82,19 @@ pub fn validate_settlement_attestation(
         agg_sig.signers_bitmap,
     );
 
+    // Persist the full duty selection, not the credited signer subset (needed for missed-node finalization).
+    let selection_bitmap = derive_selection_bitmap(
+        &round_request.source_id,
+        round_request.canonical_timestamp,
+        round_request.signatures_required,
+        &registry.view(),
+    )
+    .map_err(map_attestation_err)?
+    .to_bytes();
+
     Ok(ValidatedSettlementAttestation {
         credited_count,
-        selection_bitmap: expected_selection,
+        selection_bitmap,
         attestation_message_hash,
     })
 }

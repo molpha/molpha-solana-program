@@ -144,7 +144,6 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
 
     let proven: UnsolicitedSigningProven = only_event(&meta);
     assert_eq!(proven.signers_bitmap, case.statement.signers_bitmap);
-    assert_eq!(proven.guilty_count, guilty.len() as u16);
     assert_eq!(proven.slashed_total, expected_slashed);
     assert_eq!(events::<NodePunished>(&meta).len(), guilty.len());
 }

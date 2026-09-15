@@ -20,14 +20,14 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
-use molpha_verifier::{bitmap::bitmap_set_bit, NonceEquationError};
+use molpha_verifier::{bitmap::Bitmap, NonceEquationError};
 
 use crate::{
-    error::{map_attestation_err, MolphaError},
+    error::{map_attestation_err, MolphaError}, state::Node,
     events::NonceReuseProven,
     state::{
         commitment_batch_message_hash, commitment_leaf_hash, nonce_reuse_evidence_hash,
-        resolve_registry_signers_indexed, verify_commitment_merkle_proof, CommittedNoncePair,
+        verify_commitment_merkle_proof, CommittedNoncePair,
         OffenceKind, PartialTranscript, ProtocolConfig, PunishmentCase, Registry, RegistryState,
         MAX_COMMITMENT_PROOF_DEPTH, MAX_REGISTRY_NODES,
     },
@@ -92,21 +92,14 @@ pub fn punish_nonce_reuse<'info>(
         node_index < MAX_REGISTRY_NODES,
         MolphaError::InvalidNodeIndex
     );
-    let mut guilty_bitmap = [0u8; 32];
-    bitmap_set_bit(&mut guilty_bitmap, node_index);
+    let mut guilty_bitmap = Bitmap::new();
+    guilty_bitmap.set_bit(node_index);
 
-    let resolved = {
-        let evidence_registry = ctx.accounts.evidence_registry.load()?;
-        resolve_registry_signers_indexed(
-            ctx.remaining_accounts,
-            ctx.program_id,
-            &evidence_registry,
-            &guilty_bitmap,
-        )?
-    };
-    let (_, node_key) = *resolved
-        .first()
-        .ok_or(error!(MolphaError::MissingSignerAccount))?;
+
+    require!(ctx.remaining_accounts.len() == 1, MolphaError::InvalidNodeAccount);
+    let node: Account<Node> = Account::try_from(&ctx.remaining_accounts[0])?;
+    let registry = ctx.accounts.evidence_registry.load()?;
+    require!(node.key() == registry.node(node_index)?, MolphaError::InvalidNodeAccount);
 
     let leaf = commitment_leaf_hash(args.slot, &args.nonces);
     require!(
@@ -124,10 +117,10 @@ pub fn punish_nonce_reuse<'info>(
     );
     require!(
         molpha_verifier::verify_aggregate_over_hash(
-            &[node_key],
             &args.batch_sig_s,
             &args.batch_commitment_addr,
             &batch_message,
+            &[(node.secp256k1_pubkey_x, node.secp256k1_pubkey_y)],
         )
         .map_err(map_attestation_err)?,
         MolphaError::InvalidBatchSignature
@@ -138,7 +131,7 @@ pub fn punish_nonce_reuse<'info>(
     for transcript in [&args.transcript_a, &args.transcript_b] {
         require!(
             molpha_verifier::verify_partial_signature_equation(
-                &node_key,
+                &(node.secp256k1_pubkey_x, node.secp256k1_pubkey_y),
                 &r1,
                 &r2,
                 &transcript.b,
@@ -168,10 +161,9 @@ pub fn punish_nonce_reuse<'info>(
         },
         SlashInput {
             signer_accounts: ctx.remaining_accounts,
-            program_id: ctx.program_id,
-            resolved: &resolved,
+            signers_bitmap: guilty_bitmap,
             guilty_bitmap,
-            guilty_count: 1,
+            program_id: ctx.program_id,
             offence: OffenceKind::NonceReuse,
             registry_version: args.registry_version,
             evidence_hash: args.evidence_hash,
@@ -189,7 +181,7 @@ pub fn punish_nonce_reuse<'info>(
         r1_y: args.nonces.r1_y,
         r2_x: args.nonces.r2_x,
         r2_y: args.nonces.r2_y,
-        guilty_bitmap,
+        guilty_bitmap: guilty_bitmap.to_bytes(),
         guilty_count: 1,
         evidence_hash: args.evidence_hash,
         reporter,

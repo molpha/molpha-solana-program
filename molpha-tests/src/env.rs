@@ -766,7 +766,24 @@ impl RegistrySnapshot {
     pub fn index_of(&self, node: &Pubkey) -> Option<u16> {
         self.nodes.iter().position(|n| n == node).map(|i| i as u16)
     }
+
+    /// [`molpha_verifier::RegistryView`] for selection derivation (`nodes` content is unused).
+    pub fn selection_view<'a>(
+        &self,
+        nodes: &'a [[u8; 32]; molpha::state::MAX_REGISTRY_NODES],
+    ) -> molpha_verifier::RegistryView<'a> {
+        molpha_verifier::RegistryView {
+            version: self.version,
+            node_count: self.node_count,
+            redundancy_buffer: self.redundancy_buffer,
+            nodes,
+        }
+    }
 }
+
+/// Placeholder node table for [`RegistrySnapshot::selection_view`].
+pub const EMPTY_REGISTRY_NODES: [[u8; 32]; molpha::state::MAX_REGISTRY_NODES] =
+    [[0u8; 32]; molpha::state::MAX_REGISTRY_NODES];
 
 // ---------------------------------------------------------------------------
 // error assertions

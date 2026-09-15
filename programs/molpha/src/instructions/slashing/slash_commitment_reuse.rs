@@ -4,18 +4,18 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
-use molpha_verifier::bitmap::{bitmap_bit_set, bitmap_is_subset, bitmap_load, bitmap_store};
+use molpha_verifier::solana::resolve_intersected_signers_accounts;
 
 use crate::{
     error::MolphaError,
     events::CommitmentReuseProven,
     state::{
-        commitment_reuse_evidence_hash, resolve_registry_signers_indexed, OffenceKind,
+        commitment_reuse_evidence_hash, OffenceKind,
         ProtocolConfig, PunishmentCase, Registry, RegistryState, SignedStatement,
     },
     utils::{
         settlement::RoundRequest,
-        slash::{derive_selection_bitmap, slash_nodes, SlashAccounts, SlashInput},
+        slash::{slash_nodes, SlashAccounts, SlashInput},
         statement_message_hash, verify_statement,
     },
 };
@@ -67,54 +67,17 @@ pub fn punish_commitment_reuse<'info>(
         MolphaError::EvidenceHashMismatch
     );
 
-    let bitmap_a = bitmap_load(&args.statement_a.signers_bitmap);
-    let bitmap_b = bitmap_load(&args.statement_b.signers_bitmap);
-    let guilty = bitmap_a & bitmap_b;
-    require!(guilty.count_ones() > 0, MolphaError::GuiltySetEmpty);
-    let guilty_bitmap = bitmap_store(guilty);
-    let guilty_count = guilty.count_ones() as u16;
-    let union_bitmap = bitmap_store(bitmap_a | bitmap_b);
+    let resolution = resolve_intersected_signers_accounts(
+        ctx.remaining_accounts,
+        &ctx.accounts.evidence_registry.as_ref(),
+        &args.statement_a.signers_bitmap,
+        &args.statement_b.signers_bitmap,
+    ).map_err(|_| error!(MolphaError::InvalidNodeAccount))?;
+    let guilty_bitmap = resolution.intersected_bitmap;
+    require!(guilty_bitmap.popcount() > 0, MolphaError::GuiltySetEmpty);
 
-    let resolved = {
-        let evidence_registry = ctx.accounts.evidence_registry.load()?;
-        let node_count = u32::from(evidence_registry.node_count);
-
-        for (round_request, statement) in [
-            (&args.round_request_a, &args.statement_a),
-            (&args.round_request_b, &args.statement_b),
-        ] {
-            let selection = derive_selection_bitmap(
-                round_request,
-                node_count,
-                evidence_registry.redundancy_buffer,
-            )?;
-            require!(
-                bitmap_is_subset(&statement.signers_bitmap, &selection),
-                MolphaError::SignersNotSubsetOfSelection
-            );
-        }
-
-        resolve_registry_signers_indexed(
-            ctx.remaining_accounts,
-            ctx.program_id,
-            &evidence_registry,
-            &union_bitmap,
-        )?
-    };
-
-    let mut ordered_a = Vec::new();
-    let mut ordered_b = Vec::new();
-    for (bit_pos, xy) in &resolved {
-        if bitmap_bit_set(&args.statement_a.signers_bitmap, *bit_pos) {
-            ordered_a.push(*xy);
-        }
-        if bitmap_bit_set(&args.statement_b.signers_bitmap, *bit_pos) {
-            ordered_b.push(*xy);
-        }
-    }
-
-    verify_statement(&args.round_request_a, &args.statement_a, &ordered_a)?;
-    verify_statement(&args.round_request_b, &args.statement_b, &ordered_b)?;
+    verify_statement(&args.round_request_a, &args.statement_a, &resolution.signers_a)?;
+    verify_statement(&args.round_request_b, &args.statement_b, &resolution.signers_b)?;
 
     let reporter = ctx.accounts.reporter.key();
     let outcome = slash_nodes(
@@ -134,10 +97,9 @@ pub fn punish_commitment_reuse<'info>(
         },
         SlashInput {
             signer_accounts: ctx.remaining_accounts,
-            program_id: ctx.program_id,
-            resolved: &resolved,
+            signers_bitmap: resolution.unioned_bitmap,
             guilty_bitmap,
-            guilty_count,
+            program_id: ctx.program_id,
             offence: OffenceKind::CommitmentReuse,
             registry_version: args.round_request_a.registry_version,
             evidence_hash: args.evidence_hash,
@@ -155,8 +117,7 @@ pub fn punish_commitment_reuse<'info>(
         signatures_required_b: args.round_request_b.signatures_required,
         canonical_timestamp_b: args.round_request_b.canonical_timestamp,
         signers_bitmap_b: args.statement_b.signers_bitmap,
-        guilty_bitmap,
-        guilty_count,
+        guilty_bitmap: guilty_bitmap.to_bytes(),
         evidence_hash: args.evidence_hash,
         reporter,
         slashed_total: outcome.slashed_total,

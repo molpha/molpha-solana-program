@@ -7,7 +7,7 @@ use crate::{
     utils::require_fresh_canonical_timestamp,
 };
 use molpha_verifier::{
-    solana::verify_attestation_accounts, Attestation, AttestationPayload, SchnorrSignature,
+    Attestation, AttestationPayload, SchnorrSignature, solana::verify_attestation,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -96,11 +96,10 @@ pub fn submit_attestation(
     }
 
     let attestation: Attestation = (&args).into();
-    verify_attestation_accounts(
+    verify_attestation(
         &attestation,
         &ctx.accounts.registry.to_account_info(),
         ctx.remaining_accounts,
-        ctx.program_id,
     )
     .map_err(map_attestation_accounts_err)?;
 

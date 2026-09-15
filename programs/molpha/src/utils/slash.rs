@@ -7,7 +7,7 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, TokenAccount, Transfer};
-use molpha_verifier::bitmap::bitmap_bit_set;
+use molpha_verifier::bitmap::{Bitmap, for_each_set_bit};
 
 use crate::utils::settlement::RoundRequest;
 use crate::{
@@ -89,25 +89,32 @@ impl PunishmentBatch {
 /// skipped: the whole sentence settles in this instruction, so there is no half-settled state a
 /// later offence could collide with, and no way for a node to become temporarily unpunishable.
 fn slash_guilty_nodes<'info>(
-    input: &SlashInput<'_, 'info>,
+    input: &SlashInput<'info>,
     withdrawal_cooldown_slots: u64,
 ) -> Result<PunishmentBatch> {
     let penalty = input.offence.penalty();
     let mut batch = PunishmentBatch::default();
     let clock = Clock::get()?;
 
-    for ((bit_pos, _), account_info) in input.resolved.iter().zip(input.signer_accounts.iter()) {
-        if !bitmap_bit_set(&input.guilty_bitmap, *bit_pos) {
-            continue;
+    let mut cursor = 0usize;
+    for_each_set_bit(input.signers_bitmap, |bit_pos| {
+        let account_info = &input.signer_accounts[cursor];
+        cursor += 1;
+
+        if !input.guilty_bitmap.bit_set(bit_pos) {
+            return Ok(());
         }
+
         require!(
             account_info.owner == input.program_id,
             MolphaError::InvalidCreditNodeAccount
         );
         let mut node: Account<Node> = Account::try_from(account_info)?;
+
         if node.status == NodeStatus::Tombstoned {
-            continue;
+            return Ok(());
         }
+
         let outcome = apply_penalty(&mut node, penalty, clock.unix_timestamp)?;
         if node.status == NodeStatus::Tombstoned {
             node.withdrawable_slot = clock
@@ -122,7 +129,7 @@ fn slash_guilty_nodes<'info>(
             .saturating_add(outcome.slashed_rewards);
 
         emit!(NodePunished {
-            node: account_info.key(),
+            node: node.key(),
             owner: node.owner,
             offence: input.offence,
             slashed_locked: outcome.slashed_locked,
@@ -130,9 +137,11 @@ fn slash_guilty_nodes<'info>(
             new_status: node.status,
             punished_at: clock.unix_timestamp,
         });
-        batch.victims.push(account_info.key());
+        batch.victims.push(node.key());
         node.exit(input.program_id)?;
-    }
+
+        Ok::<(), Error>(())
+    })?;
 
     Ok(batch)
 }
@@ -200,13 +209,12 @@ pub struct SlashAccounts<'a, 'info> {
 }
 
 /// Proof output from an offence-specific handler, fed into [`slash_nodes`].
-pub struct SlashInput<'a, 'info> {
+pub struct SlashInput<'info> {
     /// The signer `Node` accounts the aggregate was verified against, in ascending bit order.
     pub signer_accounts: &'info [AccountInfo<'info>],
+    pub signers_bitmap: Bitmap,
+    pub guilty_bitmap: Bitmap,
     pub program_id: &'info Pubkey,
-    pub resolved: &'a [(usize, molpha_verifier::SignerXy)],
-    pub guilty_bitmap: [u8; 32],
-    pub guilty_count: u16,
     pub offence: OffenceKind,
     pub registry_version: u32,
     pub evidence_hash: [u8; 32],
@@ -221,9 +229,9 @@ pub struct SlashOutcome {
 
 /// Shared sentence: slash guilty nodes, evict them into a successor registry, pay the reporter
 /// bounty, init `PunishmentCase`, and emit `RegistryVersionCreated`.
-pub fn slash_nodes<'a, 'b, 'info>(
+pub fn slash_nodes<'a, 'info>(
     accounts: SlashAccounts<'a, 'info>,
-    input: SlashInput<'b, 'info>,
+    input: SlashInput<'info>,
 ) -> Result<SlashOutcome> {
     let clock = Clock::get()?;
 
@@ -304,8 +312,8 @@ pub fn slash_nodes<'a, 'b, 'info>(
         input.offence,
         accounts.reporter,
         input.registry_version,
-        input.guilty_bitmap,
-        input.guilty_count,
+        input.guilty_bitmap.to_bytes(),
+        input.guilty_bitmap.popcount() as u16,
         slashed_total,
         bounty,
         input.evidence_hash,
@@ -317,22 +325,6 @@ pub fn slash_nodes<'a, 'b, 'info>(
         slashed_total,
         bounty_paid: bounty,
     })
-}
-
-pub fn derive_selection_bitmap(
-    round_request: &RoundRequest,
-    node_count: u32,
-    redundancy_buffer: u8,
-) -> Result<[u8; 32]> {
-    molpha_verifier::derive_selection_bitmap(
-        &round_request.source_id,
-        round_request.registry_version,
-        round_request.canonical_timestamp,
-        node_count,
-        round_request.signatures_required,
-        redundancy_buffer,
-    )
-    .map_err(map_attestation_err)
 }
 
 /// Message hash a statement aggregate must verify over.
@@ -360,10 +352,10 @@ pub(crate) fn verify_statement(
 ) -> Result<()> {
     let message_hash = statement_message_hash(round_request, statement);
     let is_valid = molpha_verifier::verify_aggregate_over_hash(
-        ordered_signers,
         &statement.agg_sig_s,
         &statement.commitment_addr,
         &message_hash,
+        ordered_signers,
     )
     .map_err(map_attestation_err)?;
     require!(is_valid, MolphaError::InvalidAggregateSignature);

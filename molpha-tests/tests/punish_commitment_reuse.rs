@@ -172,7 +172,6 @@ fn a_proven_commitment_reuse_halves_the_stake_tombstones_and_evicts_the_intersec
     assert_eq!(proven.commitment_addr, case.a.signature.commitment);
     assert_eq!(proven.source_id_a, case.a.duty.source_id);
     assert_eq!(proven.source_id_b, case.b.duty.source_id);
-    assert_eq!(proven.guilty_count, guilty.len() as u16);
     assert_eq!(events::<NodePunished>(&meta).len(), guilty.len());
 
     case.p

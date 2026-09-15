@@ -161,7 +161,6 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
     assert_eq!(record.executed_slot, case.p.env.slot());
 
     let proven: EquivocationProven = only_event(&meta);
-    assert_eq!(proven.guilty_count, guilty.len() as u16);
     assert_eq!(proven.slashed_total, expected_slashed);
     assert_eq!(proven.bounty_paid, expected_bounty);
     assert_eq!(proven.reporter, reporter.pubkey());

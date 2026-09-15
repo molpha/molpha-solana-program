@@ -2,18 +2,18 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
-use molpha_verifier::bitmap::{bitmap_is_subset, bitmap_load, bitmap_store};
+use molpha_verifier::{bitmap::Bitmap, derive_selection_bitmap};
 
 use crate::{
     error::MolphaError,
     events::UnsolicitedSigningProven,
     state::{
-        resolve_registry_signers_indexed, unsolicited_signing_evidence_hash, OffenceKind,
+        resolve_registry_signers, unsolicited_signing_evidence_hash, OffenceKind,
         ProtocolConfig, PunishmentCase, Registry, RegistryState, SignedStatement,
     },
     utils::{
         settlement::RoundRequest,
-        slash::{derive_selection_bitmap, slash_nodes, SlashAccounts, SlashInput},
+        slash::{slash_nodes, SlashAccounts, SlashInput},
         verify_statement,
     },
 };
@@ -36,34 +36,29 @@ pub fn punish_unsolicited_signing<'info>(
     );
 
     // Resolve the full submitted bitmap; the aggregate is only verifiable over all contributors.
-    let (resolved, guilty_bitmap, guilty_count) = {
-        let evidence_registry = ctx.accounts.evidence_registry.load()?;
+    let evidence_registry = ctx.accounts.evidence_registry.load()?;
+    let signers_bitmap = Bitmap::load(&args.statement.signers_bitmap);
 
-        let node_count = u32::from(evidence_registry.node_count);
-        let selection = derive_selection_bitmap(
-            &round_request,
-            node_count,
-            evidence_registry.redundancy_buffer,
-        )?;
-        require!(
-            !bitmap_is_subset(&args.statement.signers_bitmap, &selection),
-            MolphaError::SignersFullySelected
-        );
-        let guilty = bitmap_load(&args.statement.signers_bitmap) & !bitmap_load(&selection);
-        let guilty_bitmap = bitmap_store(guilty);
-        let guilty_count = guilty.count_ones() as u16;
+    let selection = derive_selection_bitmap(
+        &round_request.source_id,
+        round_request.canonical_timestamp,
+        round_request.signatures_required,
+        &evidence_registry.view(),
+    ).map_err(|_| error!(MolphaError::InvalidSignersBitmap))?;
+    require!(
+        !signers_bitmap.is_subset(&selection),
+        MolphaError::SignersFullySelected
+    );
 
-        let resolved = resolve_registry_signers_indexed(
-            ctx.remaining_accounts,
-            ctx.program_id,
-            &evidence_registry,
-            &args.statement.signers_bitmap,
-        )?;
-        (resolved, guilty_bitmap, guilty_count)
-    };
-    let ordered: Vec<molpha_verifier::SignerXy> = resolved.iter().map(|(_, xy)| *xy).collect();
+    let guilty_bitmap = signers_bitmap.subtract(&selection);
 
-    verify_statement(&round_request, &args.statement, &ordered)?;
+    let resolved = resolve_registry_signers(
+        ctx.remaining_accounts,
+        &ctx.accounts.evidence_registry.as_ref(),
+        &args.statement.signers_bitmap,
+    )?;
+
+    verify_statement(&round_request, &args.statement, &resolved)?;
 
     let reporter = ctx.accounts.reporter.key();
     let outcome = slash_nodes(
@@ -83,10 +78,9 @@ pub fn punish_unsolicited_signing<'info>(
         },
         SlashInput {
             signer_accounts: ctx.remaining_accounts,
-            program_id: ctx.program_id,
-            resolved: &resolved,
+            signers_bitmap,
             guilty_bitmap,
-            guilty_count,
+            program_id: ctx.program_id,
             offence: OffenceKind::UnsolicitedSigning,
             registry_version: round_request.registry_version,
             evidence_hash: args.evidence_hash,
@@ -99,8 +93,7 @@ pub fn punish_unsolicited_signing<'info>(
         signatures_required: round_request.signatures_required,
         canonical_timestamp: round_request.canonical_timestamp,
         signers_bitmap: args.statement.signers_bitmap,
-        guilty_bitmap,
-        guilty_count,
+        guilty_bitmap: guilty_bitmap.to_bytes(),
         evidence_hash: args.evidence_hash,
         reporter,
         slashed_total: outcome.slashed_total,

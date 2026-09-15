@@ -779,14 +779,12 @@ impl Protocol {
         let registry = self.env.registry(duty.registry_version);
         let bitmap = molpha_verifier::derive_selection_bitmap(
             &duty.source_id,
-            duty.registry_version,
             duty.canonical_timestamp,
-            u32::from(registry.node_count),
             duty.signatures_required,
-            registry.redundancy_buffer,
+            &registry.selection_view(&crate::env::EMPTY_REGISTRY_NODES),
         )
         .expect("selection derives");
-        crypto::bitmap_bits(&bitmap)
+        crypto::bitmap_bits(&bitmap.to_bytes())
     }
 
     /// Sign `duty` with the whole derived selection set.
@@ -1429,18 +1427,14 @@ pub fn unsolicited_guilty_bitmap(
     let registry = p.env.registry(round_request.registry_version);
     let selection = molpha_verifier::derive_selection_bitmap(
         &round_request.source_id,
-        round_request.registry_version,
         round_request.canonical_timestamp,
-        u32::from(registry.node_count),
         round_request.signatures_required,
-        registry.redundancy_buffer,
+        &registry.selection_view(&crate::env::EMPTY_REGISTRY_NODES),
     )
     .expect("selection derives");
-    let mut out = [0u8; 32];
-    for i in 0..32 {
-        out[i] = statement_bitmap[i] & !selection[i];
-    }
-    out
+    molpha_verifier::Bitmap::load(statement_bitmap)
+        .subtract(&selection)
+        .to_bytes()
 }
 
 /// Bitwise union of two 256-bit signer bitmaps.

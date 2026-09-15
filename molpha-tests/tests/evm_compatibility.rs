@@ -14,6 +14,7 @@
 //! live inputs, and pin the current message hash as [`FIXTURE_MESSAGE_HASH`] instead.
 
 use molpha::state::{Feed, Node};
+use molpha_verifier::RegistryView;
 use molpha_tests::crypto::{self, NodeKey};
 use molpha_tests::pda;
 use molpha_tests::scenario::{Duty, Protocol};
@@ -145,18 +146,24 @@ impl Fixture {
 #[test]
 fn the_fixture_coalition_is_exactly_the_selection_the_program_derives() {
     let fixture = load();
+    static NODES: [[u8; 32]; 256] = [[0u8; 32]; 256];
+    let registry = RegistryView {
+        version: fixture.registry_version,
+        node_count: fixture.keys.len() as u16,
+        redundancy_buffer: REDUNDANCY_BUFFER,
+        nodes: &NODES,
+    };
     let derived = molpha_verifier::derive_selection_bitmap(
         &fixture.source_id,
-        fixture.registry_version,
         fixture.canonical_timestamp,
-        fixture.keys.len() as u32,
         fixture.signatures_required,
-        REDUNDANCY_BUFFER,
+        &registry,
     )
     .expect("selection derives");
 
     assert_eq!(
-        derived, fixture.signers_bitmap,
+        derived.to_bytes(),
+        fixture.signers_bitmap,
         "the two chains no longer agree on who a duty selects"
     );
     assert_eq!(
