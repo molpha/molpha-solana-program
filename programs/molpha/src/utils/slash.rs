@@ -7,15 +7,18 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, TokenAccount, Transfer};
-use molpha_verifier::bitmap::{Bitmap, for_each_set_bit};
+use molpha_verifier::bitmap::{for_each_set_bit, Bitmap};
+use molpha_verifier::Attestation;
+use molpha_verifier::{
+    derive_selection_bitmap, verify_aggregate_over_hash, RegistryView, SignerXy,
+};
 
-use crate::utils::settlement::RoundRequest;
 use crate::{
     error::{map_attestation_err, MolphaError},
     events::NodePunished,
     state::{
         MembershipAction, Node, NodeStatus, OffenceKind, Penalty, ProtocolConfig, PunishmentCase,
-        Registry, RegistryState, SignedStatement,
+        Registry, RegistryState,
     },
     utils::registry::with_registry_snapshot,
 };
@@ -35,6 +38,18 @@ impl PenaltyOutcome {
 
 fn bps_of(amount: u64, bps: u16) -> u64 {
     (amount as u128 * bps as u128 / 10_000) as u64
+}
+
+/// Whether two attestations sign different values for one duty — every payload field but `value`
+/// matches.
+pub fn is_equivocation(attestation_a: &Attestation, attestation_b: &Attestation) -> bool {
+    let (a, b) = (&attestation_a.payload, &attestation_b.payload);
+    let same_duty = a.source_id == b.source_id
+        && a.registry_version == b.registry_version
+        && a.signatures_required == b.signatures_required
+        && a.canonical_timestamp == b.canonical_timestamp;
+
+    same_duty && a.value != b.value
 }
 
 /// Apply `penalty` to `node`. Registry eviction is handled separately by the caller.
@@ -327,34 +342,42 @@ pub fn slash_nodes<'a, 'info>(
     })
 }
 
-/// Message hash a statement aggregate must verify over.
-pub(crate) fn statement_message_hash(
-    round_request: &RoundRequest,
-    statement: &SignedStatement,
-) -> [u8; 32] {
-    molpha_verifier::compute_message_hash(
-        &molpha_verifier::AttestationPayload {
-            source_id: round_request.source_id,
-            registry_version: round_request.registry_version,
-            value: statement.value,
-            canonical_timestamp: round_request.canonical_timestamp,
-            signatures_required: round_request.signatures_required,
-        },
-        statement.signers_bitmap,
+/// Require an evidence attestation's signers to sit inside the selection derived for its duty.
+///
+/// Equivocation and commitment reuse punish a selected coalition; signers outside the selection
+/// are unsolicited signing and filed as such. Quorum is not required: signing two conflicting
+/// messages is the offence whether or not either aggregate reached threshold.
+pub(crate) fn require_signers_selected(
+    attestation: &Attestation,
+    registry: &RegistryView,
+) -> Result<()> {
+    let selection = derive_selection_bitmap(
+        &attestation.payload.source_id,
+        attestation.payload.canonical_timestamp,
+        attestation.payload.signatures_required,
+        registry,
     )
+    .map_err(map_attestation_err)?;
+    require!(
+        Bitmap::load(&attestation.signature.signers_bitmap).is_subset(&selection),
+        MolphaError::SignersNotSubsetOfSelection
+    );
+    Ok(())
 }
 
-/// Verify one signed statement against its resolved signers.
-pub(crate) fn verify_statement(
-    round_request: &RoundRequest,
-    statement: &SignedStatement,
-    ordered_signers: &[molpha_verifier::SignerXy],
+/// Verify an evidence attestation's aggregate signature against its resolved signers.
+///
+/// Signature only — unlike `molpha_verifier::verify`, neither selection membership nor quorum is
+/// enforced, since unsolicited-signing evidence breaks the former by definition. Callers that
+/// need membership check it with [`require_signers_selected`].
+pub(crate) fn verify_evidence_signature(
+    attestation: &Attestation,
+    ordered_signers: &[SignerXy],
 ) -> Result<()> {
-    let message_hash = statement_message_hash(round_request, statement);
-    let is_valid = molpha_verifier::verify_aggregate_over_hash(
-        &statement.agg_sig_s,
-        &statement.commitment_addr,
-        &message_hash,
+    let is_valid = verify_aggregate_over_hash(
+        &attestation.signature.agg_sig_s,
+        &attestation.signature.commitment,
+        &attestation.message_hash(),
         ordered_signers,
     )
     .map_err(map_attestation_err)?;

@@ -1,5 +1,5 @@
-//! Encoding pins: instruction argument wire formats, the `Node` account layout, and the feed
-//! stored-value encoding.
+//! Encoding pins: instruction argument wire formats, the `Node` and `Feed` account layouts, and
+//! the attestation mirror of the verifier types.
 //!
 //! Pure unit tests — no VM. Every assertion here guards a shape the CLI, gateway and SDK encode
 //! or decode off-chain, so a failure means a breaking change that should be a deliberate one.
@@ -8,7 +8,7 @@ use anchor_lang::prelude::Pubkey;
 use anchor_lang::{AnchorDeserialize, AnchorSerialize, Discriminator, InstructionData, Space};
 use molpha::instructions::{InitializeArgs, SubmitAttestationArgs, UpdateConfigArgs};
 use molpha::state::{Feed, FeedValueKind, Node, NodeStatus, OffenceKind};
-use solana_keccak_hasher::hashv;
+use molpha_verifier::payload::{Attestation, AttestationPayload, SchnorrSignature};
 
 /// Borsh encoding of `InitializeArgs`, plus the 8-byte Anchor discriminator.
 ///
@@ -20,9 +20,9 @@ const INITIALIZE_IX_DATA_LEN: usize = 102;
 /// Pinned for the same reason as `INITIALIZE_IX_DATA_LEN`: off-chain clients encode this.
 const UPDATE_CONFIG_IX_DATA_LEN: usize = 69;
 
-/// Borsh encoding of `SubmitAttestationArgs`. Every field is fixed-width, so this is a
-/// constant — and a change to it is a breaking change for every off-chain submitter.
-const SUBMIT_ATTESTATION_ARGS_LEN: usize = 161;
+/// Borsh encoding of `SubmitAttestationArgs` without a raw value: the 161-byte attestation plus
+/// the `None` tag. A change to it is a breaking change for every off-chain submitter.
+const SUBMIT_ATTESTATION_ARGS_LEN: usize = 162;
 
 fn initialize_args() -> InitializeArgs {
     InitializeArgs {
@@ -114,34 +114,45 @@ fn update_config_instruction_data_is_stable_and_round_trips() {
     assert_eq!(decoded.min_signers, args.min_signers);
 }
 
-fn submit_attestation_args() -> SubmitAttestationArgs {
-    SubmitAttestationArgs {
-        source_id: [0x11; 32],
-        signatures_required: 3,
-        registry_version: 7,
-        signers_bitmap: [0x33; 32],
-        value: [0x44; 32],
-        canonical_timestamp: 1_700_000_000,
-        agg_sig_s: [0x66; 32],
-        commitment: [0x77; 20],
+fn attestation() -> Attestation {
+    Attestation {
+        payload: AttestationPayload {
+            value: [0x44; 32],
+            source_id: [0x11; 32],
+            registry_version: 7,
+            signatures_required: 3,
+            canonical_timestamp: 1_700_000_000,
+        },
+        signature: SchnorrSignature {
+            agg_sig_s: [0x66; 32],
+            commitment: [0x77; 20],
+            signers_bitmap: [0x33; 32],
+        },
     }
 }
 
 #[test]
 fn submit_attestation_args_are_stable_and_round_trip() {
-    let args = submit_attestation_args();
+    let args = SubmitAttestationArgs {
+        attestation: attestation(),
+        raw_value: None,
+    };
     let bytes = borsh::to_vec(&args).expect("serialize");
     assert_eq!(bytes.len(), SUBMIT_ATTESTATION_ARGS_LEN);
 
     let decoded = borsh::from_slice::<SubmitAttestationArgs>(&bytes).expect("deserialize");
-    assert_eq!(decoded.source_id, args.source_id);
-    assert_eq!(decoded.registry_version, args.registry_version);
-    assert_eq!(decoded.signatures_required, args.signatures_required);
-    assert_eq!(decoded.signers_bitmap, args.signers_bitmap);
-    assert_eq!(decoded.value, args.value);
-    assert_eq!(decoded.canonical_timestamp, args.canonical_timestamp);
-    assert_eq!(decoded.agg_sig_s, args.agg_sig_s);
-    assert_eq!(decoded.commitment, args.commitment);
+    assert_eq!(decoded.attestation, args.attestation);
+    assert_eq!(decoded.raw_value, None);
+
+    let raw = vec![0x5a; 40];
+    let with_raw = SubmitAttestationArgs {
+        attestation: attestation(),
+        raw_value: Some(raw.clone()),
+    };
+    let bytes = borsh::to_vec(&with_raw).expect("serialize");
+    assert_eq!(bytes.len(), SUBMIT_ATTESTATION_ARGS_LEN + 4 + raw.len());
+    let decoded = borsh::from_slice::<SubmitAttestationArgs>(&bytes).expect("deserialize");
+    assert_eq!(decoded.raw_value, Some(raw));
 }
 
 #[test]
@@ -175,30 +186,12 @@ fn permanent_node_roundtrips() {
     assert_eq!(decoded.liveliness_score, account.liveliness_score);
 }
 
-/// The only caller is `submit_attestation`, whose `value` is a fixed `[u8; 32]`.
+/// Off-chain readers decode `Feed` directly; `value` is a fixed 32-byte slot in either kind.
 #[test]
-fn a_full_width_value_is_stored_verbatim() {
-    let raw = [0x11u8; Feed::STORED_VALUE_LEN];
-    let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
-    assert_eq!(kind, FeedValueKind::Value);
-    assert_eq!(stored, raw);
-}
-
-/// Reachable only if a future instruction submits a variable-length payload. The digest is
-/// the same keccak the EVM side computes, so the branch is pinned even while unused.
-#[test]
-fn a_payload_longer_than_the_slot_is_stored_as_its_keccak_digest() {
-    let raw = vec![0x22u8; 64];
-    let (stored, kind) = Feed::encode_stored_value(&raw).unwrap();
-    assert_eq!(kind, FeedValueKind::Hash);
-    assert_eq!(stored.to_vec(), hashv(&[&raw]).to_bytes().to_vec());
-}
-
-#[test]
-fn a_payload_over_the_maximum_is_rejected() {
-    let raw = vec![0u8; Feed::MAX_VALUE_LEN + 1];
-    assert!(Feed::encode_stored_value(&raw).is_err());
-    assert!(Feed::encode_stored_value(&vec![0u8; Feed::MAX_VALUE_LEN]).is_ok());
+fn feed_layout_is_pinned() {
+    assert_eq!(Feed::INIT_SPACE, 32 + 32 + 1 + 8 + 1 + 32 + 4 + 1);
+    assert_eq!(borsh::to_vec(&FeedValueKind::Value).unwrap(), vec![0]);
+    assert_eq!(borsh::to_vec(&FeedValueKind::Hash).unwrap(), vec![1]);
 }
 
 #[test]

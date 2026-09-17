@@ -28,8 +28,8 @@ stale `.so` silently tests the old binary.
 
 One test file per instruction group: `protocol_config`, `plans_and_subscriptions`, `delegates`,
 `node_registry`, `reinstate_node`, `gateway`, `attestation`, `settle_subscription`, `settle_x402`,
-`rounds`, `punish_equivocation`, `punish_unsolicited_signing`, `punish_nonce_reuse`, plus
-`evm_compatibility` and `limits`.
+`rounds`, `punish_equivocation`, `punish_unsolicited_signing`, `punish_commitment_reuse`,
+`punish_nonce_reuse`, plus `evm_compatibility` and `limits`.
 
 Four files hold the program's pure unit tests — no VM, no `.so`, they exercise the `molpha` crate
 as a library. They live here rather than in `#[cfg(test)]` modules so the whole suite is in one
@@ -37,7 +37,7 @@ place:
 
 | File                    | What it pins                                                      |
 | ----------------------- | ----------------------------------------------------------------- |
-| `encoding.rs`           | instruction argument wire formats, `Node` layout, feed values      |
+| `encoding.rs`           | argument wire formats, `Attestation` mirror, `Node`/`Feed` layouts |
 | `hashing.rs`            | request-auth and punishment evidence hashes, domain separation     |
 | `registry_snapshot.rs`  | version succession, snapshot copy / `swap_remove`, `evict_nodes`   |
 | `penalties.rs`          | the fixed penalty table and `apply_penalty` arithmetic             |
@@ -55,7 +55,9 @@ p.env.send_ok(&[ix], &[&submitter]);    // panics with program logs on failure
 
 `ProtocolBuilder` varies anything in `InitializeArgs` (`Protocol::builder().min_signers(5).start()`).
 `sign_duty_with_bits` picks the coalition by hand, which is how quorum, selection-subset and
-guilt-set cases are built. Failures assert a specific error:
+guilt-set cases are built. `submit_attestation_ix_with_args` takes caller-built
+`SubmitAttestationArgs`, for `raw_value` and tampered-payload cases. Failures assert a specific
+error:
 
 ```rust
 let failed = p.env.send_err(&[ix], &[&submitter]);

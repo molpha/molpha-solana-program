@@ -106,6 +106,12 @@ yarn molpha attestation submit \
   --signer-seed molpha-cli-e2e-signers
 ```
 
+`--value` is the 32-byte signed value and the feed stores it as `value_kind = Value`. For a longer
+value pass `--raw-value <hex>` (<= 256 bytes) instead: the CLI signs `keccak256(raw)` as the value,
+submits the preimage as `raw_value`, and the feed stores the hash as `value_kind = Hash`.
+`attestation submit --args <path>` takes the `SubmitAttestationArgs` JSON that `attestation sign`
+prints under `submitArgs` (`{ attestation: { payload, signature }, rawValue }`).
+
 Node PoP is generated off chain over
 `keccak256("MOLPHA_NODE_POP_V1" || program_id || node_id)`. The CLI accepts only the
 resulting signature — never the secp256k1 private key.

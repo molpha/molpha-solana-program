@@ -510,7 +510,7 @@ fn an_evidence_hash_that_does_not_cover_the_filing_is_rejected() {
     assert_molpha_error(&err, MolphaError::EvidenceHashMismatch);
 }
 
-/// A bit past `node_count` names no registry entry, so resolution refuses it. Built by hand: the
+/// An index past `node_count` names no registry entry, so the lookup refuses it. Built by hand: the
 /// scenario builder derives its accounts from the registry and cannot address a slot that is empty.
 #[test]
 fn a_node_index_outside_the_registry_is_rejected() {
@@ -545,7 +545,7 @@ fn a_node_index_outside_the_registry_is_rejected() {
         data: molpha::instruction::PunishNonceReuse { args }.data(),
     };
     let err = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&err, MolphaError::InvalidSignersBitmap);
+    assert_molpha_error(&err, MolphaError::InvalidNodeIndex);
 }
 
 /// The batch signature binds `node_index`, so pointing a real batch at a different node fails.

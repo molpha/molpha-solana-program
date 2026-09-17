@@ -1,4 +1,4 @@
-import { BN } from "@coral-xyz/anchor";
+import { keccak_256 } from "@noble/hashes/sha3.js";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { ComputeBudgetProgram } from "@solana/web3.js";
 import { Command } from "commander";
@@ -7,12 +7,15 @@ import { getCliContext, getGlobalOptions } from "../lib/client";
 import { resolveCliOptions } from "../lib/config";
 import { findFeedPda, findRegistryPda } from "../lib/pdas";
 import {
+  buildAttestation,
   buildBitmapFromFlag,
   buildSubmitArgsFromFixture,
   describeSignedPayload,
   generateE2eSignerMaterialFromSeed,
+  rawValueArg,
   signE2eAttestation,
   signerRemainingAccounts,
+  SubmitAttestationArgs,
 } from "../lib/signing/attestation";
 import { loadVerifyFixture } from "../lib/signing/fixtures";
 import {
@@ -23,15 +26,25 @@ import {
   writeJson,
 } from "../lib/utils";
 
+type ByteField = number[] | string;
+
+/** `--args` file: `SubmitAttestationArgs`, as printed under `submitArgs` by `attestation sign`. */
 type SubmitArgsShape = {
-  sourceId?: number[] | string;
-  registryVersion: number | string;
-  signaturesRequired: number | string;
-  signersBitmap: number[] | string;
-  value: number[] | string | Uint8Array;
-  canonicalTimestamp: string | number;
-  aggSigS: number[] | string;
-  commitment: number[] | string;
+  attestation: {
+    payload: {
+      value: ByteField;
+      sourceId: ByteField;
+      registryVersion: number | string;
+      signaturesRequired: number | string;
+      canonicalTimestamp: number | string;
+    };
+    signature: {
+      aggSigS: ByteField;
+      commitment: ByteField;
+      signersBitmap: ByteField;
+    };
+  };
+  rawValue?: ByteField | null;
 };
 
 export function registerAttestationCommands(program: Command): void {
@@ -49,7 +62,11 @@ export function registerAttestationCommands(program: Command): void {
       "--config-hash <hex>",
       "optional 32-byte config hash (fixture metadata)",
     )
-    .option("--value <hex>", "oracle value bytes (hex)")
+    .option("--value <hex>", "32-byte oracle value (hex)")
+    .option(
+      "--raw-value <hex>",
+      "value preimage (hex, <= 256 bytes); signs keccak256(raw) instead of --value",
+    )
     .option("--canonical-timestamp <number>", "unix timestamp")
     .option("--signer-count <number>", "number of signers to include", "8")
     .option("--signers-bitmap <hex>", "explicit 32-byte signers bitmap")
@@ -79,7 +96,11 @@ export function registerAttestationCommands(program: Command): void {
       "--config-hash <hex>",
       "optional 32-byte config hash (fixture metadata)",
     )
-    .option("--value <hex>", "oracle value bytes (hex)")
+    .option("--value <hex>", "32-byte oracle value (hex)")
+    .option(
+      "--raw-value <hex>",
+      "value preimage (hex, <= 256 bytes); signs keccak256(raw) instead of --value",
+    )
     .option("--canonical-timestamp <number>", "unix timestamp")
     .option("--signer-count <number>", "number of signers to include", "8")
     .option("--signers-bitmap <hex>", "explicit 32-byte signers bitmap")
@@ -93,12 +114,14 @@ export function registerAttestationCommands(program: Command): void {
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const submitArgs = resolveSubmitArgs(options, ctx.programId);
-      const [feedPda] = feedPdaFromSubmitArgs(
+      const { payload, signature: schnorrSignature } = submitArgs.attestation;
+      const [feedPda] = findFeedPda(
         ctx.programId,
-        submitArgs,
+        Uint8Array.from(payload.sourceId),
+        payload.signaturesRequired,
         ctx.wallet.publicKey,
       );
-      const registryVersion = Number(submitArgs.registryVersion);
+      const registryVersion = payload.registryVersion;
       const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
       const registry = await fetchAccountOrNull<any>(
         ctx.program,
@@ -108,7 +131,7 @@ export function registerAttestationCommands(program: Command): void {
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const remaining = signerRemainingAccounts(
         registry,
-        submitArgs.signersBitmap,
+        schnorrSignature.signersBitmap,
       );
 
       const signature = await (ctx.program.methods as any)
@@ -143,11 +166,8 @@ function buildSignedPayload(
   if (options.fixture) {
     const fixture = loadVerifyFixture(options.fixture);
     const submitArgs = buildSubmitArgsFromFixture(fixture);
-    const signersBitmap = bytesFromField(
-      submitArgs.signersBitmap,
-      32,
-      "signers bitmap",
-    );
+    const { signature } = submitArgs.attestation;
+    const signersBitmap = Uint8Array.from(signature.signersBitmap);
     const registry = {
       nodeCount: fixture.nodePubkeys.length,
       nodes: fixture.nodePubkeys.map((pubkey) =>
@@ -158,8 +178,8 @@ function buildSignedPayload(
       payload: {
         submitArgs,
         signersBitmap,
-        aggSigS: bytesFromField(submitArgs.aggSigS, 32, "agg sig s"),
-        commitment: bytesFromField(submitArgs.commitment, 20, "commitment"),
+        aggSigS: Uint8Array.from(signature.aggSigS),
+        commitment: Uint8Array.from(signature.commitment),
       },
       remaining: signerRemainingAccounts(registry, signersBitmap),
     };
@@ -173,6 +193,12 @@ function buildSignedPayload(
   );
   const signersBitmap = options.signersBitmap
     ? buildBitmapFromFlag(options.signersBitmap)
+    : undefined;
+  if (options.value && options.rawValue) {
+    throw new Error("Pass either --value or --raw-value, not both");
+  }
+  const rawValue = options.rawValue
+    ? hexToBytes(options.rawValue, undefined, "raw value")
     : undefined;
 
   const payload = signE2eAttestation(
@@ -188,11 +214,14 @@ function buildSignedPayload(
       "source id",
     ),
     {
-      value: hexToBytes(
-        requireValue(options.value, "Missing --value"),
-        undefined,
-        "value",
-      ),
+      value: rawValue
+        ? keccak_256(rawValue)
+        : hexToBytes(
+            requireValue(options.value, "Missing --value or --raw-value"),
+            32,
+            "value",
+          ),
+      rawValue,
       canonicalTimestamp: parseInteger(
         requireValue(
           options.canonicalTimestamp,
@@ -221,7 +250,7 @@ function buildSignedPayload(
 function resolveSubmitArgs(
   options: Record<string, string | undefined>,
   programId: PublicKey,
-) {
+): SubmitAttestationArgs {
   if (options.args) {
     return normalizeSubmitArgs(readJsonFile<SubmitArgsShape>(options.args));
   }
@@ -231,50 +260,42 @@ function resolveSubmitArgs(
   return buildSignedPayload(options, programId).payload.submitArgs;
 }
 
-function feedPdaFromSubmitArgs(
-  programId: PublicKey,
-  submitArgs: { sourceId: number[]; signaturesRequired: number },
-  submitter: PublicKey,
-) {
-  return findFeedPda(
-    programId,
-    bytesFromField(submitArgs.sourceId, 32, "source id"),
-    submitArgs.signaturesRequired,
-    submitter,
-  );
-}
-
-function sourceIdFromArgs(value: SubmitArgsShape): number[] {
-  const raw = value.sourceId;
-  if (raw === undefined) {
-    throw new Error("Missing source id");
+function normalizeSubmitArgs(value: SubmitArgsShape): SubmitAttestationArgs {
+  if (!value.attestation?.payload || !value.attestation.signature) {
+    throw new Error(
+      "args file must contain attestation.payload and .signature",
+    );
   }
-  return Array.from(bytesFromField(raw, 32, "source id"));
-}
-
-function normalizeSubmitArgs(value: SubmitArgsShape) {
-  const valueBytes = bytesFromField(value.value, 32, "value");
-  const canonicalTimestamp =
-    typeof value.canonicalTimestamp === "number"
-      ? value.canonicalTimestamp
-      : parseInteger(value.canonicalTimestamp, "canonical timestamp");
+  const { payload, signature } = value.attestation;
 
   return {
-    sourceId: sourceIdFromArgs(value),
-    registryVersion:
-      typeof value.registryVersion === "number"
-        ? value.registryVersion
-        : parseInteger(value.registryVersion, "registry version"),
-    value: Array.from(valueBytes),
-    canonicalTimestamp: new BN(String(canonicalTimestamp)),
-    signaturesRequired:
-      typeof value.signaturesRequired === "number"
-        ? value.signaturesRequired
-        : parseInteger(value.signaturesRequired, "signatures required"),
-    aggSigS: Array.from(bytesFromField(value.aggSigS, 32, "agg sig s")),
-    commitment: Array.from(bytesFromField(value.commitment, 20, "commitment")),
-    signersBitmap: Array.from(
-      bytesFromField(value.signersBitmap, 32, "signers bitmap"),
+    attestation: buildAttestation({
+      value: bytesFromField(payload.value, 32, "value"),
+      sourceId: bytesFromField(payload.sourceId, 32, "source id"),
+      registryVersion: parseInteger(
+        String(payload.registryVersion),
+        "registry version",
+      ),
+      signaturesRequired: parseInteger(
+        String(payload.signaturesRequired),
+        "signatures required",
+      ),
+      canonicalTimestamp: parseInteger(
+        String(payload.canonicalTimestamp),
+        "canonical timestamp",
+      ),
+      aggSigS: bytesFromField(signature.aggSigS, 32, "agg sig s"),
+      commitment: bytesFromField(signature.commitment, 20, "commitment"),
+      signersBitmap: bytesFromField(
+        signature.signersBitmap,
+        32,
+        "signers bitmap",
+      ),
+    }),
+    rawValue: rawValueArg(
+      value.rawValue
+        ? bytesFromField(value.rawValue, undefined, "raw value")
+        : undefined,
     ),
   };
 }

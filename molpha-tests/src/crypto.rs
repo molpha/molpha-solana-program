@@ -449,9 +449,7 @@ pub fn bitmap_from_bits(bits: &[usize]) -> [u8; 32] {
 
 pub fn bitmap_bits(bitmap: &[u8; 32]) -> Vec<usize> {
     let bitmap = molpha_verifier::Bitmap::load(bitmap);
-    (0..256)
-        .filter(|bit| bitmap.bit_set(*bit))
-        .collect()
+    (0..256).filter(|bit| bitmap.bit_set(*bit)).collect()
 }
 
 #[cfg(test)]

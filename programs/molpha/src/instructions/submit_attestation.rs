@@ -1,53 +1,45 @@
 use anchor_lang::prelude::*;
+use molpha_verifier::solana::verify_attestation;
+use molpha_verifier::Attestation;
+use solana_keccak_hasher::hashv;
 
 use crate::{
     error::{map_attestation_accounts_err, MolphaError},
     events::FeedUpdated,
-    state::{Feed, FeedInitParams, FeedUpdateParams, ProtocolConfig, Registry},
+    state::{Feed, FeedValueKind, ProtocolConfig, Registry},
     utils::require_fresh_canonical_timestamp,
-};
-use molpha_verifier::{
-    Attestation, AttestationPayload, SchnorrSignature, solana::verify_attestation,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SubmitAttestationArgs {
-    pub source_id: [u8; 32],
-    pub registry_version: u32,
-    pub value: [u8; 32],
-    pub canonical_timestamp: u64,
-    pub signatures_required: u8,
-
-    /// Schnorr signature R component
-    pub agg_sig_s: [u8; 32],
-    pub commitment: [u8; 20],
-    pub signers_bitmap: [u8; 32],
-}
-
-impl From<&SubmitAttestationArgs> for Attestation {
-    fn from(args: &SubmitAttestationArgs) -> Self {
-        Attestation {
-            payload: AttestationPayload {
-                source_id: args.source_id,
-                registry_version: args.registry_version,
-                value: args.value,
-                canonical_timestamp: args.canonical_timestamp,
-                signatures_required: args.signatures_required,
-            },
-            signature: SchnorrSignature {
-                agg_sig_s: args.agg_sig_s,
-                commitment: args.commitment,
-                signers_bitmap: args.signers_bitmap,
-            },
-        }
-    }
+    pub attestation: Attestation,
+    /// Preimage of `attestation.payload.value` for values longer than 32 bytes. When present the
+    /// signed value must be `keccak256(raw_value)` and the feed stores it as
+    /// [`FeedValueKind::Hash`].
+    pub raw_value: Option<Vec<u8>>,
 }
 
 pub fn submit_attestation(
     ctx: Context<SubmitAttestation>,
     args: SubmitAttestationArgs,
 ) -> Result<()> {
-    let (stored_value, value_kind) = Feed::encode_stored_value(&args.value)?;
+    let SubmitAttestationArgs {
+        attestation,
+        raw_value,
+    } = args;
+
+    let value_kind = match raw_value {
+        Some(raw_value) => {
+            require!(
+                raw_value.len() <= Feed::MAX_VALUE_LEN
+                    && hashv(&[raw_value.as_slice()]).to_bytes() == attestation.payload.value,
+                MolphaError::InvalidRawValue
+            );
+            FeedValueKind::Hash
+        }
+        None => FeedValueKind::Value,
+    };
+
     let clock = Clock::get()?;
     require!(
         ctx.accounts
@@ -57,47 +49,24 @@ pub fn submit_attestation(
         MolphaError::RegistryNotActive
     );
     require_fresh_canonical_timestamp(
-        args.canonical_timestamp,
+        attestation.payload.canonical_timestamp,
         clock.unix_timestamp,
         ctx.accounts.protocol_config.max_settlement_delay_seconds,
     )?;
     require!(
-        args.signatures_required >= ctx.accounts.protocol_config.min_signers,
+        attestation.payload.signatures_required >= ctx.accounts.protocol_config.min_signers,
         MolphaError::SignaturesBelowMinSigners
     );
 
     let feed = &mut ctx.accounts.feed;
-
     if feed.source_id == [0u8; 32] {
-        require!(args.source_id != [0u8; 32], MolphaError::InvalidSourceId);
-        feed.init(&FeedInitParams {
-            source_id: args.source_id,
-            value: stored_value,
-            value_kind,
-            canonical_timestamp: args.canonical_timestamp,
-            signatures_required: args.signatures_required,
-            registry_version: args.registry_version,
-            signers_bitmap: args.signers_bitmap,
-            bump: ctx.bumps.feed,
-        });
+        feed.init(&attestation, value_kind, ctx.bumps.feed)?;
     } else {
-        require!(
-            args.canonical_timestamp > feed.canonical_timestamp,
-            MolphaError::FeedNotNewer
-        );
-        feed.update(&FeedUpdateParams {
-            value: stored_value,
-            value_kind,
-            canonical_timestamp: args.canonical_timestamp,
-            registry_version: args.registry_version,
-            signers_bitmap: args.signers_bitmap,
-            bump: ctx.bumps.feed,
-        });
+        feed.update(&attestation, value_kind)?;
     }
 
-    let attestation: Attestation = (&args).into();
     verify_attestation(
-        &attestation,
+        &attestation.into(),
         &ctx.accounts.registry.to_account_info(),
         ctx.remaining_accounts,
     )
@@ -105,11 +74,11 @@ pub fn submit_attestation(
 
     emit!(FeedUpdated {
         source_id: feed.source_id,
-        registry_version: args.registry_version,
-        canonical_timestamp: args.canonical_timestamp,
-        value: stored_value,
+        registry_version: feed.registry_version,
+        canonical_timestamp: feed.canonical_timestamp,
+        value: feed.value,
         value_kind,
-        signers_bitmap: args.signers_bitmap,
+        signers_bitmap: feed.signers_bitmap,
         last_updated_slot: clock.slot,
     });
 
@@ -123,7 +92,7 @@ pub struct SubmitAttestation<'info> {
     pub submitter: Signer<'info>,
 
     #[account(
-        seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, args.attestation.payload.registry_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub registry: AccountLoader<'info, Registry>,
@@ -134,8 +103,8 @@ pub struct SubmitAttestation<'info> {
         space = Feed::SPACE,
         seeds = [
             Feed::SEED_PREFIX,
-            args.source_id.as_ref(),
-            args.signatures_required.to_le_bytes().as_ref(),
+            args.attestation.payload.source_id.as_ref(),
+            args.attestation.payload.signatures_required.to_le_bytes().as_ref(),
             submitter.key().as_ref()
         ],
         bump

@@ -1,28 +1,20 @@
+use anchor_lang::prelude::*;
+
 use crate::{
     error::MolphaError,
     events::RoundSettled,
     state::{
-        hash_request_auth_fields, AggregatedSig, Delegate, Gateway, GatewayStatus, ProtocolConfig,
-        Registry, RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
+        hash_request_auth_fields, Delegate, Gateway, GatewayStatus, ProtocolConfig, Registry,
+        RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
     },
-    utils::{
-        ed25519::verify_ed25519_signature,
-        settlement::{validate_settlement_attestation, RoundRequest},
-    },
+    utils::{ed25519::verify_ed25519_signature, settlement::validate_settlement_attestation},
 };
-use anchor_lang::prelude::*;
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct SettleRoundArgs {
-    pub agg_sig: AggregatedSig,
-    pub value: [u8; 32],
-    pub consumer_authority: Pubkey,
-}
+use molpha_verifier::Attestation;
 
 pub fn settle_subscription_round<'info>(
     ctx: Context<SettleSubscriptionRound<'info>>,
-    round_request: RoundRequest,
-    args: SettleRoundArgs,
+    attestation: Attestation,
+    consumer_authority: Pubkey,
 ) -> Result<()> {
     let clock = Clock::get()?;
     let now_slot = clock.slot;
@@ -39,50 +31,45 @@ pub fn settle_subscription_round<'info>(
     authorize_consumer(
         subscription,
         &mut ctx.accounts.consumer_delegate,
-        args.consumer_authority,
-        round_request.signatures_required,
+        consumer_authority,
+        attestation.payload.signatures_required,
     )?;
 
-    let request_auth_hash = hash_request_auth_fields(&gateway.key(), &round_request);
+    let request_auth_hash = hash_request_auth_fields(&gateway.key(), &attestation.payload);
     require!(
         verify_ed25519_signature(
             &ctx.accounts.instructions_sysvar,
-            &args.consumer_authority.to_bytes(),
+            &consumer_authority.to_bytes(),
             &request_auth_hash,
         )?,
         MolphaError::ConsumerSigInvalid
     );
 
-    let validated = validate_settlement_attestation(
-        &registry,
-        config,
-        &round_request,
-        &args.agg_sig,
-        args.value,
-        clock.unix_timestamp,
-    )?;
+    let validated =
+        validate_settlement_attestation(&registry, config, &attestation, clock.unix_timestamp)?;
 
     let reward_per_signature = config.reward_per_signature;
 
     subscription.consume_round()?;
 
-    ctx.accounts.round_record.init(RoundReceiptInitArgs {
-        consumer_id: subscription.owner.to_bytes(),
-        selection_bitmap: validated.selection_bitmap,
-        agg_sig: args.agg_sig,
-        attestation_message_hash: validated.attestation_message_hash,
-        gateway: gateway.key(),
-        registry_version: round_request.registry_version,
-        reward_per_signature,
-        recorded_slot: now_slot,
-        kind: RoundRecordKind::Subscription,
-        bump: ctx.bumps.round_record,
-    });
+    ctx.accounts.round_record.init(
+        &attestation,
+        RoundReceiptInitArgs {
+            consumer_id: subscription.owner.to_bytes(),
+            selection_bitmap: validated.selection_bitmap,
+            attestation_message_hash: validated.attestation_message_hash,
+            gateway: gateway.key(),
+            reward_per_signature,
+            recorded_slot: now_slot,
+            kind: RoundRecordKind::Subscription,
+            bump: ctx.bumps.round_record,
+        },
+    );
 
     emit!(RoundSettled {
         gateway: gateway.key(),
-        source_id: round_request.source_id,
-        canonical_timestamp: round_request.canonical_timestamp,
+        source_id: attestation.payload.source_id,
+        canonical_timestamp: attestation.payload.canonical_timestamp,
         credited_count: validated.credited_count,
         reward_per_signature,
         recorded_slot: now_slot,
@@ -128,7 +115,7 @@ fn authorize_consumer(
 }
 
 #[derive(Accounts)]
-#[instruction(round_request: RoundRequest, args: SettleRoundArgs)]
+#[instruction(attestation: Attestation, consumer_authority: Pubkey)]
 pub struct SettleSubscriptionRound<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -140,7 +127,7 @@ pub struct SettleSubscriptionRound<'info> {
     pub protocol_config: Account<'info, ProtocolConfig>,
 
     #[account(
-        seeds = [Registry::SEED_PREFIX, round_request.registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, attestation.payload.registry_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub registry: AccountLoader<'info, Registry>,
@@ -150,7 +137,7 @@ pub struct SettleSubscriptionRound<'info> {
 
     #[account(
         mut,
-        seeds = [Delegate::SEED_PREFIX, subscription.owner.as_ref(), args.consumer_authority.as_ref()],
+        seeds = [Delegate::SEED_PREFIX, subscription.owner.as_ref(), consumer_authority.as_ref()],
         bump = consumer_delegate.bump,
     )]
     pub consumer_delegate: Option<Account<'info, Delegate>>,
@@ -170,9 +157,9 @@ pub struct SettleSubscriptionRound<'info> {
             RoundReceiptRecord::SEED_PREFIX,
             subscription.owner.as_ref(),
             gateway.key().as_ref(),
-            round_request.source_id.as_ref(),
-            round_request.signatures_required.to_le_bytes().as_ref(),
-            round_request.canonical_timestamp.to_le_bytes().as_ref(),
+            attestation.payload.source_id.as_ref(),
+            attestation.payload.signatures_required.to_le_bytes().as_ref(),
+            attestation.payload.canonical_timestamp.to_le_bytes().as_ref(),
         ],
         bump
     )]

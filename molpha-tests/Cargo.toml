@@ -11,7 +11,7 @@ path = "src/lib.rs"
 
 [dependencies]
 molpha = { path = "../programs/molpha", features = ["no-entrypoint"] }
-molpha-verifier = { path = "../../molpha-verifier", features = ["solana"] }
+molpha-verifier = { path = "../../molpha-verifier", features = ["anchor"] }
 anchor-lang = "1.2.0"
 anchor-spl = { version = "1.2.0", default-features = false, features = [
     "associated_token",

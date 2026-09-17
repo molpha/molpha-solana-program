@@ -2,49 +2,45 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
-use molpha_verifier::{bitmap::Bitmap, derive_selection_bitmap};
+use molpha_verifier::Attestation;
+use molpha_verifier::{bitmap::Bitmap, derive_selection_bitmap, solana::resolve_signers_accounts};
 
 use crate::{
-    error::MolphaError,
+    error::{map_attestation_accounts_err, MolphaError},
     events::UnsolicitedSigningProven,
     state::{
-        resolve_registry_signers, unsolicited_signing_evidence_hash, OffenceKind,
-        ProtocolConfig, PunishmentCase, Registry, RegistryState, SignedStatement,
+        unsolicited_signing_evidence_hash, OffenceKind, ProtocolConfig, PunishmentCase, Registry,
+        RegistryState,
     },
-    utils::{
-        settlement::RoundRequest,
-        slash::{slash_nodes, SlashAccounts, SlashInput},
-        verify_statement,
-    },
+    utils::slash::{slash_nodes, verify_evidence_signature, SlashAccounts, SlashInput},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct PunishUnsolicitedSigningArgs {
-    pub statement: SignedStatement,
+    pub attestation: Attestation,
     /// Must match `unsolicited_signing_evidence_hash(..)`; used as the `PunishmentCase` PDA seed.
     pub evidence_hash: [u8; 32],
 }
 
 pub fn punish_unsolicited_signing<'info>(
     ctx: Context<'info, PunishUnsolicitedSigning<'info>>,
-    round_request: RoundRequest,
     args: PunishUnsolicitedSigningArgs,
 ) -> Result<()> {
+    let attestation = &args.attestation;
+
     require!(
-        unsolicited_signing_evidence_hash(&round_request, &args.statement,) == args.evidence_hash,
+        unsolicited_signing_evidence_hash(attestation) == args.evidence_hash,
         MolphaError::EvidenceHashMismatch
     );
 
-    // Resolve the full submitted bitmap; the aggregate is only verifiable over all contributors.
-    let evidence_registry = ctx.accounts.evidence_registry.load()?;
-    let signers_bitmap = Bitmap::load(&args.statement.signers_bitmap);
-
+    let signers_bitmap = Bitmap::load(&attestation.signature.signers_bitmap);
     let selection = derive_selection_bitmap(
-        &round_request.source_id,
-        round_request.canonical_timestamp,
-        round_request.signatures_required,
-        &evidence_registry.view(),
-    ).map_err(|_| error!(MolphaError::InvalidSignersBitmap))?;
+        &attestation.payload.source_id,
+        attestation.payload.canonical_timestamp,
+        attestation.payload.signatures_required,
+        &ctx.accounts.evidence_registry.load()?.view(),
+    )
+    .map_err(|_| error!(MolphaError::InvalidSignersBitmap))?;
     require!(
         !signers_bitmap.is_subset(&selection),
         MolphaError::SignersFullySelected
@@ -52,13 +48,16 @@ pub fn punish_unsolicited_signing<'info>(
 
     let guilty_bitmap = signers_bitmap.subtract(&selection);
 
-    let resolved = resolve_registry_signers(
+    // Resolve the full submitted bitmap; the aggregate is only verifiable over all contributors.
+    // `molpha_verifier::verify` would reject this evidence outright, since it enforces the very
+    // selection membership the offence breaks.
+    let signers = resolve_signers_accounts(
         ctx.remaining_accounts,
-        &ctx.accounts.evidence_registry.as_ref(),
-        &args.statement.signers_bitmap,
-    )?;
-
-    verify_statement(&round_request, &args.statement, &resolved)?;
+        ctx.accounts.evidence_registry.as_ref(),
+        &attestation.signature.signers_bitmap,
+    )
+    .map_err(map_attestation_accounts_err)?;
+    verify_evidence_signature(attestation, &signers)?;
 
     let reporter = ctx.accounts.reporter.key();
     let outcome = slash_nodes(
@@ -82,17 +81,17 @@ pub fn punish_unsolicited_signing<'info>(
             guilty_bitmap,
             program_id: ctx.program_id,
             offence: OffenceKind::UnsolicitedSigning,
-            registry_version: round_request.registry_version,
+            registry_version: args.attestation.payload.registry_version,
             evidence_hash: args.evidence_hash,
         },
     )?;
 
     emit!(UnsolicitedSigningProven {
-        source_id: round_request.source_id,
-        registry_version: round_request.registry_version,
-        signatures_required: round_request.signatures_required,
-        canonical_timestamp: round_request.canonical_timestamp,
-        signers_bitmap: args.statement.signers_bitmap,
+        source_id: args.attestation.payload.source_id,
+        registry_version: args.attestation.payload.registry_version,
+        signatures_required: args.attestation.payload.signatures_required,
+        canonical_timestamp: args.attestation.payload.canonical_timestamp,
+        signers_bitmap: args.attestation.signature.signers_bitmap,
         guilty_bitmap: guilty_bitmap.to_bytes(),
         evidence_hash: args.evidence_hash,
         reporter,
@@ -104,7 +103,7 @@ pub fn punish_unsolicited_signing<'info>(
 }
 
 #[derive(Accounts)]
-#[instruction(round_request: RoundRequest, args: PunishUnsolicitedSigningArgs)]
+#[instruction(args: PunishUnsolicitedSigningArgs)]
 pub struct PunishUnsolicitedSigning<'info> {
     #[account(mut)]
     pub reporter: Signer<'info>,
@@ -124,7 +123,7 @@ pub struct PunishUnsolicitedSigning<'info> {
     pub registry_state: Box<Account<'info, RegistryState>>,
 
     #[account(
-        seeds = [Registry::SEED_PREFIX, round_request.registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, args.attestation.payload.registry_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub evidence_registry: AccountLoader<'info, Registry>,

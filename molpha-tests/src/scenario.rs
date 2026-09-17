@@ -11,12 +11,11 @@ use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
     AddDelegateArgs, AddPlanArgs, InitializeArgs, PunishCommitmentReuseArgs,
     PunishEquivocationArgs, PunishNonceReuseArgs, PunishUnsolicitedSigningArgs,
-    RegisterGatewayArgs, RegisterNodeArgs, RemoveDelegateArgs, SettleRoundArgs,
-    SettleX402RoundArgs, SubmitAttestationArgs, UpdateConfigArgs, UpdateNodeEndpointArgs,
-    UpdatePlanArgs,
+    RegisterGatewayArgs, RegisterNodeArgs, RemoveDelegateArgs, SettleX402RoundArgs,
+    SubmitAttestationArgs, UpdateConfigArgs, UpdateNodeEndpointArgs, UpdatePlanArgs,
 };
-use molpha::state::{AggregatedSig, PlanType, RegistryState};
-use molpha::utils::settlement::RoundRequest;
+use molpha::state::{PlanType, RegistryState};
+use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 
@@ -70,26 +69,19 @@ impl Duty {
         self
     }
 
-    pub fn round_request(&self) -> RoundRequest {
-        RoundRequest {
+    pub fn payload(&self) -> AttestationPayload {
+        AttestationPayload {
+            value: self.value,
             source_id: self.source_id,
-            canonical_timestamp: self.canonical_timestamp,
-            signatures_required: self.signatures_required,
             registry_version: self.registry_version,
+            signatures_required: self.signatures_required,
+            canonical_timestamp: self.canonical_timestamp,
         }
     }
 
-    pub fn payload(&self, signers_bitmap: [u8; 32]) -> [u8; 32] {
-        molpha_verifier::compute_message_hash(
-            &molpha_verifier::AttestationPayload {
-                source_id: self.source_id,
-                registry_version: self.registry_version,
-                value: self.value,
-                canonical_timestamp: self.canonical_timestamp,
-                signatures_required: self.signatures_required,
-            },
-            signers_bitmap,
-        )
+    /// The message a coalition signs for this duty.
+    pub fn message_hash(&self, signers_bitmap: [u8; 32]) -> [u8; 32] {
+        molpha_verifier::compute_message_hash(&self.payload().into(), signers_bitmap)
     }
 }
 
@@ -105,24 +97,22 @@ pub struct SignedAttestation {
 }
 
 impl SignedAttestation {
-    pub fn submit_args(&self) -> SubmitAttestationArgs {
-        SubmitAttestationArgs {
-            source_id: self.duty.source_id,
-            registry_version: self.duty.registry_version,
-            value: self.duty.value,
-            canonical_timestamp: self.duty.canonical_timestamp,
-            signatures_required: self.duty.signatures_required,
-            agg_sig_s: self.signature.agg_sig_s,
-            commitment: self.signature.commitment,
-            signers_bitmap: self.signers_bitmap,
+    /// The instruction-argument form: payload plus aggregate signature.
+    pub fn attestation(&self) -> Attestation {
+        Attestation {
+            payload: self.duty.payload(),
+            signature: SchnorrSignature {
+                agg_sig_s: self.signature.agg_sig_s,
+                commitment: self.signature.commitment,
+                signers_bitmap: self.signers_bitmap,
+            },
         }
     }
 
-    pub fn aggregated_sig(&self) -> AggregatedSig {
-        AggregatedSig {
-            agg_sig_s: self.signature.agg_sig_s,
-            commitment: self.signature.commitment,
-            signers_bitmap: self.signers_bitmap,
+    pub fn submit_args(&self) -> SubmitAttestationArgs {
+        SubmitAttestationArgs {
+            attestation: self.attestation(),
+            raw_value: None,
         }
     }
 
@@ -131,19 +121,6 @@ impl SignedAttestation {
         let mut tampered = self.clone();
         tampered.signature.agg_sig_s[31] ^= 0x01;
         tampered
-    }
-
-    pub fn statement(&self) -> molpha::state::SignedStatement {
-        molpha::state::SignedStatement {
-            value: self.duty.value,
-            agg_sig_s: self.signature.agg_sig_s,
-            commitment_addr: self.signature.commitment,
-            signers_bitmap: self.signers_bitmap,
-        }
-    }
-
-    pub fn round_request(&self) -> RoundRequest {
-        self.duty.round_request()
     }
 }
 
@@ -816,7 +793,7 @@ impl Protocol {
         let signer_pdas = bits.iter().map(|bit| registry.nodes[*bit]).collect();
 
         let signers_bitmap = crypto::bitmap_from_bits(bits);
-        let message_hash = duty.payload(signers_bitmap);
+        let message_hash = duty.message_hash(signers_bitmap);
         let signature = crypto::sign_aggregate(&signer_keys, &message_hash, nonce);
 
         SignedAttestation {
@@ -833,18 +810,30 @@ impl Protocol {
         submitter: &Pubkey,
         attestation: &SignedAttestation,
     ) -> Instruction {
-        let args = attestation.submit_args();
+        self.submit_attestation_ix_with_args(
+            submitter,
+            attestation.submit_args(),
+            &attestation.signer_pdas,
+        )
+    }
+
+    /// `submit_attestation` with caller-built args — for raw values and tampered payloads.
+    pub fn submit_attestation_ix_with_args(
+        &self,
+        submitter: &Pubkey,
+        args: SubmitAttestationArgs,
+        signer_pdas: &[Pubkey],
+    ) -> Instruction {
+        let payload = &args.attestation.payload;
         let mut accounts = molpha::accounts::SubmitAttestation {
             submitter: *submitter,
-            registry: pda::registry(args.registry_version),
-            feed: pda::feed(&args.source_id, args.signatures_required, submitter),
+            registry: pda::registry(payload.registry_version),
+            feed: pda::feed(&payload.source_id, payload.signatures_required, submitter),
             protocol_config: pda::protocol_config(),
             system_program: anchor_lang::solana_program::system_program::ID,
         }
         .to_account_metas(None);
-        accounts.extend(crate::env::readonly_metas(
-            attestation.signer_pdas.iter().copied(),
-        ));
+        accounts.extend(crate::env::readonly_metas(signer_pdas.iter().copied()));
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -866,12 +855,6 @@ impl Protocol {
         attestation: &SignedAttestation,
     ) -> Instruction {
         let duty = attestation.duty;
-        let round_request = duty.round_request();
-        let args = SettleRoundArgs {
-            agg_sig: attestation.aggregated_sig(),
-            value: duty.value,
-            consumer_authority: *consumer_authority,
-        };
         let gateway = pda::gateway(gateway_authority);
         Instruction {
             program_id: molpha::ID,
@@ -894,8 +877,8 @@ impl Protocol {
             }
             .to_account_metas(None),
             data: molpha::instruction::SettleSubscriptionRound {
-                round_request,
-                args,
+                attestation: attestation.attestation(),
+                consumer_authority: *consumer_authority,
             }
             .data(),
         }
@@ -913,7 +896,7 @@ impl Protocol {
     ) -> Instruction {
         let request_auth_hash = molpha::state::hash_request_auth_fields(
             &pda::gateway(gateway_authority),
-            &duty.round_request(),
+            &duty.payload(),
         );
         crate::ed25519::sign_ed25519(consumer, &request_auth_hash)
     }
@@ -921,16 +904,17 @@ impl Protocol {
     pub fn settle_x402_round_ix(
         &self,
         gateway_authority: &Pubkey,
-        round_request: RoundRequest,
+        attestation: &Attestation,
         args: SettleX402RoundArgs,
     ) -> Instruction {
         let gateway = pda::gateway(gateway_authority);
+        let payload = &attestation.payload;
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::SettleX402Round {
                 authority: *gateway_authority,
                 protocol_config: pda::protocol_config(),
-                registry: pda::registry(round_request.registry_version),
+                registry: pda::registry(payload.registry_version),
                 gateway,
                 gateway_usdc: pda::ata(gateway_authority, &self.usdc_mint),
                 treasury: self.treasury(),
@@ -938,15 +922,15 @@ impl Protocol {
                 round_record: pda::x402_round(
                     &args.payer_id,
                     &gateway,
-                    &round_request.source_id,
-                    round_request.signatures_required,
-                    round_request.canonical_timestamp,
+                    &payload.source_id,
+                    payload.signatures_required,
+                    payload.canonical_timestamp,
                 ),
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
             data: molpha::instruction::SettleX402Round {
-                round_request,
+                attestation: attestation.clone(),
                 args,
             }
             .data(),
@@ -966,8 +950,6 @@ impl Protocol {
         SettleX402RoundArgs {
             payer_id,
             amount: price,
-            agg_sig: attestation.aggregated_sig(),
-            value: duty.value,
             payment_rail: 1,
             payment_ref: b"test-payment-ref".to_vec(),
         }
@@ -1233,34 +1215,28 @@ impl Protocol {
     pub fn punish_equivocation_ix(
         &self,
         reporter: &Pubkey,
-        round_request: RoundRequest,
         args: PunishEquivocationArgs,
     ) -> Instruction {
-        self.punish_equivocation_ix_with_registry(
-            reporter,
-            round_request,
-            args,
-            self.current_version() + 1,
-        )
+        self.punish_equivocation_ix_with_registry(reporter, args, self.current_version() + 1)
     }
 
     pub fn punish_equivocation_ix_with_registry(
         &self,
         reporter: &Pubkey,
-        round_request: RoundRequest,
         args: PunishEquivocationArgs,
         new_registry_version: u32,
     ) -> Instruction {
         let union = union_bitmap(
-            &args.statement_a.signers_bitmap,
-            &args.statement_b.signers_bitmap,
+            &args.attestation_a.signature.signers_bitmap,
+            &args.attestation_b.signature.signers_bitmap,
         );
-        let accused = self.node_pdas_for_bitmap(round_request.registry_version, &union);
+        let registry_version = args.attestation_a.payload.registry_version;
+        let accused = self.node_pdas_for_bitmap(registry_version, &union);
         let mut accounts = molpha::accounts::PunishEquivocation {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
             registry_state: pda::registry_state(),
-            evidence_registry: pda::registry(round_request.registry_version),
+            evidence_registry: pda::registry(registry_version),
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
@@ -1275,44 +1251,32 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts,
-            data: molpha::instruction::PunishEquivocation {
-                round_request,
-                args,
-            }
-            .data(),
+            data: molpha::instruction::PunishEquivocation { args }.data(),
         }
     }
 
     pub fn punish_unsolicited_signing_ix(
         &self,
         reporter: &Pubkey,
-        round_request: RoundRequest,
         args: PunishUnsolicitedSigningArgs,
     ) -> Instruction {
-        self.punish_unsolicited_signing_ix_with_registry(
-            reporter,
-            round_request,
-            args,
-            self.current_version() + 1,
-        )
+        self.punish_unsolicited_signing_ix_with_registry(reporter, args, self.current_version() + 1)
     }
 
     pub fn punish_unsolicited_signing_ix_with_registry(
         &self,
         reporter: &Pubkey,
-        round_request: RoundRequest,
         args: PunishUnsolicitedSigningArgs,
         new_registry_version: u32,
     ) -> Instruction {
-        let accused = self.node_pdas_for_bitmap(
-            round_request.registry_version,
-            &args.statement.signers_bitmap,
-        );
+        let registry_version = args.attestation.payload.registry_version;
+        let accused =
+            self.node_pdas_for_bitmap(registry_version, &args.attestation.signature.signers_bitmap);
         let mut accounts = molpha::accounts::PunishUnsolicitedSigning {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
             registry_state: pda::registry_state(),
-            evidence_registry: pda::registry(round_request.registry_version),
+            evidence_registry: pda::registry(registry_version),
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
             punishment_case: pda::punishment_case(&args.evidence_hash),
@@ -1327,11 +1291,7 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts,
-            data: molpha::instruction::PunishUnsolicitedSigning {
-                round_request,
-                args,
-            }
-            .data(),
+            data: molpha::instruction::PunishUnsolicitedSigning { args }.data(),
         }
     }
 
@@ -1350,10 +1310,10 @@ impl Protocol {
         new_registry_version: u32,
     ) -> Instruction {
         let union = union_bitmap(
-            &args.statement_a.signers_bitmap,
-            &args.statement_b.signers_bitmap,
+            &args.attestation_a.signature.signers_bitmap,
+            &args.attestation_b.signature.signers_bitmap,
         );
-        let registry_version = args.round_request_a.registry_version;
+        let registry_version = args.attestation_a.payload.registry_version;
         let accused = self.node_pdas_for_bitmap(registry_version, &union);
         let mut accounts = molpha::accounts::PunishCommitmentReuse {
             reporter: *reporter,
@@ -1419,20 +1379,17 @@ impl Protocol {
 }
 
 /// The guilty set of an unsolicited-signing filing: signers outside the derived selection.
-pub fn unsolicited_guilty_bitmap(
-    p: &Protocol,
-    round_request: &RoundRequest,
-    statement_bitmap: &[u8; 32],
-) -> [u8; 32] {
-    let registry = p.env.registry(round_request.registry_version);
+pub fn unsolicited_guilty_bitmap(p: &Protocol, attestation: &Attestation) -> [u8; 32] {
+    let payload = &attestation.payload;
+    let registry = p.env.registry(payload.registry_version);
     let selection = molpha_verifier::derive_selection_bitmap(
-        &round_request.source_id,
-        round_request.canonical_timestamp,
-        round_request.signatures_required,
+        &payload.source_id,
+        payload.canonical_timestamp,
+        payload.signatures_required,
         &registry.selection_view(&crate::env::EMPTY_REGISTRY_NODES),
     )
     .expect("selection derives");
-    molpha_verifier::Bitmap::load(statement_bitmap)
+    molpha_verifier::Bitmap::load(&attestation.signature.signers_bitmap)
         .subtract(&selection)
         .to_bytes()
 }

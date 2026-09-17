@@ -4,7 +4,7 @@ use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
 use crate::state::CommittedNoncePair;
-use crate::utils::settlement::RoundRequest;
+use molpha_verifier::Attestation;
 
 pub const DOMAIN_EQUIVOCATION: &[u8] = b"MOLPHA_EQUIVOCATION_V1";
 pub const DOMAIN_UNSOLICITED_SIGNING: &[u8] = b"MOLPHA_UNSOLICITED_SIGNING_V1";
@@ -32,7 +32,7 @@ pub struct Penalty {
 /// Node-fault offence types. Each carries a fixed [`Penalty`] — see [`OffenceKind::penalty`].
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
 pub enum OffenceKind {
-    /// Two valid Molpha attestations for the same execution duty with different statements.
+    /// Two valid Molpha attestations for the same execution duty with different values.
     Equivocation,
     /// A valid Molpha attestation whose signer bitmap contains a node outside the duty's
     /// deterministic selection set.
@@ -79,28 +79,8 @@ impl OffenceKind {
     }
 }
 
-/// Signed statement submitted as punishment evidence.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
-pub struct SignedStatement {
-    pub value: [u8; 32],
-    /// Aggregate Schnorr scalar `s`.
-    pub agg_sig_s: [u8; 32],
-    /// Ethereum-style commitment address of the aggregate nonce `R`.
-    pub commitment_addr: [u8; 20],
-    pub signers_bitmap: [u8; 32],
-}
-
-fn statement_hash(statement: &SignedStatement) -> [u8; 32] {
-    hashv(&[
-        statement.value.as_slice(),
-        statement.agg_sig_s.as_slice(),
-        statement.commitment_addr.as_slice(),
-        statement.signers_bitmap.as_slice(),
-    ])
-    .to_bytes()
-}
-
-/// Lexicographically order two 32-byte digests so pair-wise evidence is statement-order independent.
+/// Lexicographically order two 32-byte digests so pair-wise evidence is attestation-order
+/// independent.
 fn canonical_pair(hash_a: [u8; 32], hash_b: [u8; 32]) -> ([u8; 32], [u8; 32]) {
     if hash_a <= hash_b {
         (hash_a, hash_b)
@@ -109,66 +89,54 @@ fn canonical_pair(hash_a: [u8; 32], hash_b: [u8; 32]) -> ([u8; 32], [u8; 32]) {
     }
 }
 
-/// Evidence hash for equivocation; also the `PunishmentCase` PDA seed.
-///
-/// Statement hashes are order-normalized so swapping the two attestations cannot open a second
-/// case over one offence.
-pub fn equivocation_evidence_hash(
-    round_request: &RoundRequest,
-    statement_a: &SignedStatement,
-    statement_b: &SignedStatement,
-) -> [u8; 32] {
-    let (lo, hi) = canonical_pair(statement_hash(statement_a), statement_hash(statement_b));
+/// Hash every payload and signature field of one attestation (integers big-endian).
+pub fn attestation_hash(attestation: &Attestation) -> [u8; 32] {
+    let (payload, signature) = (&attestation.payload, &attestation.signature);
     hashv(&[
-        DOMAIN_EQUIVOCATION,
-        round_request.source_id.as_slice(),
-        round_request.registry_version.to_be_bytes().as_slice(),
-        round_request.signatures_required.to_be_bytes().as_slice(),
-        round_request.canonical_timestamp.to_be_bytes().as_slice(),
-        lo.as_slice(),
-        hi.as_slice(),
+        payload.value.as_slice(),
+        payload.source_id.as_slice(),
+        payload.registry_version.to_be_bytes().as_slice(),
+        payload.signatures_required.to_be_bytes().as_slice(),
+        payload.canonical_timestamp.to_be_bytes().as_slice(),
+        signature.agg_sig_s.as_slice(),
+        signature.commitment.as_slice(),
+        signature.signers_bitmap.as_slice(),
     ])
     .to_bytes()
+}
+
+/// Evidence hash for equivocation; also the `PunishmentCase` PDA seed.
+///
+/// Attestation hashes are order-normalized so swapping the two attestations cannot open a second
+/// case over one offence.
+pub fn equivocation_evidence_hash(
+    attestation_a: &Attestation,
+    attestation_b: &Attestation,
+) -> [u8; 32] {
+    let (lo, hi) = canonical_pair(
+        attestation_hash(attestation_a),
+        attestation_hash(attestation_b),
+    );
+    hashv(&[DOMAIN_EQUIVOCATION, lo.as_slice(), hi.as_slice()]).to_bytes()
 }
 
 /// Evidence hash for unsolicited signing; also the `PunishmentCase` PDA seed.
-pub fn unsolicited_signing_evidence_hash(
-    round_request: &RoundRequest,
-    statement: &SignedStatement,
-) -> [u8; 32] {
+pub fn unsolicited_signing_evidence_hash(attestation: &Attestation) -> [u8; 32] {
     hashv(&[
         DOMAIN_UNSOLICITED_SIGNING,
-        round_request.source_id.as_slice(),
-        round_request.registry_version.to_be_bytes().as_slice(),
-        round_request.signatures_required.to_be_bytes().as_slice(),
-        round_request.canonical_timestamp.to_be_bytes().as_slice(),
-        statement_hash(statement).as_slice(),
-    ])
-    .to_bytes()
-}
-
-/// Hash one bound `(context, statement)` pair.
-fn context_statement_hash(round_request: &RoundRequest, statement: &SignedStatement) -> [u8; 32] {
-    hashv(&[
-        round_request.source_id.as_slice(),
-        round_request.registry_version.to_be_bytes().as_slice(),
-        round_request.signatures_required.to_be_bytes().as_slice(),
-        round_request.canonical_timestamp.to_be_bytes().as_slice(),
-        statement_hash(statement).as_slice(),
+        attestation_hash(attestation).as_slice(),
     ])
     .to_bytes()
 }
 
 /// Evidence hash for commitment reuse; also the `PunishmentCase` PDA seed.
 pub fn commitment_reuse_evidence_hash(
-    round_request_a: &RoundRequest,
-    statement_a: &SignedStatement,
-    round_request_b: &RoundRequest,
-    statement_b: &SignedStatement,
+    attestation_a: &Attestation,
+    attestation_b: &Attestation,
 ) -> [u8; 32] {
     let (lo, hi) = canonical_pair(
-        context_statement_hash(round_request_a, statement_a),
-        context_statement_hash(round_request_b, statement_b),
+        attestation_hash(attestation_a),
+        attestation_hash(attestation_b),
     );
     hashv(&[DOMAIN_COMMITMENT_REUSE, lo.as_slice(), hi.as_slice()]).to_bytes()
 }

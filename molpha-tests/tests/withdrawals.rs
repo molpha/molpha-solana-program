@@ -248,7 +248,7 @@ fn deactivating_a_gateway_disables_both_settlement_paths() {
 
     let x402 = p.settle_x402_round_ix(
         &gateway.pubkey(),
-        signed.round_request(),
+        &signed.attestation(),
         p.x402_args(&signed, [0x71; 32]),
     );
     let failed = p.env.send_err(&[x402], &[&gateway_key]);

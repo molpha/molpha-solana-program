@@ -4,7 +4,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::TokenAccount;
 
-use molpha_verifier::bitmap::{Bitmap, for_each_set_bit};
 use crate::{
     error::MolphaError,
     events::{NodeLivelinessPenalized, RoundFinalized},
@@ -14,6 +13,7 @@ use crate::{
         LIVELINESS_SCORE_MAX,
     },
 };
+use molpha_verifier::bitmap::{for_each_set_bit, Bitmap};
 
 pub fn finalize_round<'info>(ctx: Context<'info, FinalizeRound<'info>>) -> Result<()> {
     let config = &ctx.accounts.protocol_config;

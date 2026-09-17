@@ -15,7 +15,7 @@ use solana_signer::Signer;
 
 const NODE_COUNT: usize = 8;
 const SIGS: u8 = 4;
-/// The nonce both statements are signed under — reusing it is the whole offence.
+/// The nonce both attestations are signed under — reusing it is the whole offence.
 const SHARED_NONCE: [u8; 32] = [0x5c; 32];
 
 struct Case {
@@ -75,18 +75,11 @@ fn args_for(
     a: &SignedAttestation,
     b: &SignedAttestation,
 ) -> PunishCommitmentReuseArgs {
-    let evidence_hash = commitment_reuse_evidence_hash(
-        &a.round_request(),
-        &a.statement(),
-        &b.round_request(),
-        &b.statement(),
-    );
+    let (attestation_a, attestation_b) = (a.attestation(), b.attestation());
     PunishCommitmentReuseArgs {
-        round_request_a: a.round_request(),
-        statement_a: a.statement(),
-        round_request_b: b.round_request(),
-        statement_b: b.statement(),
-        evidence_hash,
+        evidence_hash: commitment_reuse_evidence_hash(&attestation_a, &attestation_b),
+        attestation_a,
+        attestation_b,
     }
 }
 
@@ -197,7 +190,7 @@ fn a_proven_commitment_reuse_halves_the_stake_tombstones_and_evicts_the_intersec
 }
 
 #[test]
-fn statements_that_do_not_share_a_commitment_are_not_commitment_reuse() {
+fn attestations_that_do_not_share_a_commitment_are_not_commitment_reuse() {
     let mut p = Protocol::start();
     p.register_nodes("nonce-independent", NODE_COUNT);
     let reporter = p.reporter();
@@ -224,7 +217,7 @@ fn statements_that_do_not_share_a_commitment_are_not_commitment_reuse() {
 }
 
 #[test]
-fn one_statement_filed_against_itself_is_not_commitment_reuse() {
+fn one_attestation_filed_against_itself_is_not_commitment_reuse() {
     let mut case = case();
     let reporter = case.reporter.insecure_clone();
     let args = args_for(&case, &case.a, &case.a);
@@ -294,6 +287,50 @@ fn the_same_duty_with_the_same_value_but_different_coalitions_is_commitment_reus
     assert_eq!(record.guilty_count, 3);
 }
 
+/// Both aggregates verify against one evidence registry, so they must name the same version.
+#[test]
+fn attestations_from_different_registry_versions_are_refused() {
+    let mut case = case();
+    let reporter = case.reporter.insecure_clone();
+    let mut args = args_for(&case, &case.a, &case.b);
+    args.attestation_b.payload.registry_version += 1;
+    args.evidence_hash = commitment_reuse_evidence_hash(&args.attestation_a, &args.attestation_b);
+
+    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
+    let failed = case.p.env.send_err(&[ix], &[&reporter]);
+    assert_molpha_error(&failed, MolphaError::RegistryVersionMismatch);
+}
+
+/// Reusing a nonce is the offence; neither aggregate has to reach `signatures_required`.
+#[test]
+fn a_coalition_below_quorum_is_still_punishable() {
+    let mut p = Protocol::start();
+    p.register_nodes("nonce-below-quorum", NODE_COUNT);
+    let reporter = p.reporter();
+    let (a_duty, b_duty) = (duty_a(), duty_b());
+    let bits = shared_bits(&p, &a_duty, &b_duty, SIGS as usize - 1);
+
+    let a = p.sign_duty_with_bits(a_duty, &bits, Some(SHARED_NONCE));
+    let b = p.sign_duty_with_bits(b_duty, &bits, Some(SHARED_NONCE));
+    let case = Case {
+        p,
+        reporter,
+        a: a.clone(),
+        b: b.clone(),
+    };
+    let args = args_for(&case, &a, &b);
+
+    let mut case = case;
+    let reporter = case.reporter.insecure_clone();
+    let ix = case
+        .p
+        .punish_commitment_reuse_ix(&reporter.pubkey(), args.clone());
+    case.p.env.send_ok(&[ix], &[&reporter]);
+
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));
+    assert_eq!(record.guilty_count, SIGS as u16 - 1);
+}
+
 #[test]
 fn disjoint_coalitions_leave_nobody_to_punish() {
     let mut p = Protocol::start();
@@ -305,7 +342,7 @@ fn disjoint_coalitions_leave_nobody_to_punish() {
     // Two coalitions drawn from the shared selection that do not overlap.
     let a = p.sign_duty_with_bits(a_duty, &shared[0..2], Some(SHARED_NONCE));
     let b = p.sign_duty_with_bits(b_duty, &shared[2..4], Some(SHARED_NONCE));
-    // The commitment is `address(k*G)` — a function of the nonce alone — so the two statements
+    // The commitment is `address(k*G)` — a function of the nonce alone — so the two attestations
     // still collide on it. Only the guilty set is empty.
     assert_eq!(a.signature.commitment, b.signature.commitment);
 
@@ -335,7 +372,7 @@ fn an_evidence_hash_that_does_not_match_the_pairs_is_refused() {
 }
 
 #[test]
-fn a_statement_whose_signature_does_not_verify_proves_nothing() {
+fn an_attestation_whose_signature_does_not_verify_proves_nothing() {
     let mut case = case();
     let reporter = case.reporter.insecure_clone();
     let tampered = case.b.with_tampered_signature();

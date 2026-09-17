@@ -46,18 +46,18 @@ impl Fixture {
     /// Settle an x402 round. `signed` may carry a signature that does not verify — settlement is
     /// optimistic and only checks the round's *shape*.
     fn settle_x402(&mut self, signed: &SignedAttestation, payer_id: [u8; 32]) -> Pubkey {
-        let round_request = signed.round_request();
+        let attestation = signed.attestation();
         let args = self.p.x402_args(signed, payer_id);
         let record = pda::x402_round(
             &args.payer_id,
             &self.gateway_pda(),
-            &round_request.source_id,
-            round_request.signatures_required,
-            round_request.canonical_timestamp,
+            &attestation.payload.source_id,
+            attestation.payload.signatures_required,
+            attestation.payload.canonical_timestamp,
         );
         let ix = self
             .p
-            .settle_x402_round_ix(&self.gateway.pubkey(), round_request, args);
+            .settle_x402_round_ix(&self.gateway.pubkey(), &attestation, args);
         let gateway = self.gateway.insecure_clone();
         self.p.env.send_ok(&[ix], &[&gateway]);
         record
@@ -634,10 +634,10 @@ fn a_slashed_gateway_can_no_longer_settle() {
     f.p.env.send_ok(&[ix], &[&challenger]);
 
     let signed = f.p.sign_duty(duty().at(1_700_000_999));
-    let round_request = signed.round_request();
+    let attestation = signed.attestation();
     let args = f.p.x402_args(&signed, [0xbb; 32]);
     let ix =
-        f.p.settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
+        f.p.settle_x402_round_ix(&f.gateway.pubkey(), &attestation, args);
     let gateway = f.gateway.insecure_clone();
     let failed = f.p.env.send_err(&[ix], &[&gateway]);
     assert_molpha_error(&failed, MolphaError::GatewayNotActive);

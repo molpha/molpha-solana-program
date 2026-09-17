@@ -75,6 +75,8 @@ pub enum MolphaError {
     InvalidAggregateSignature,
     #[msg("canonical_timestamp <= feed.canonical_timestamp")]
     FeedNotNewer,
+    #[msg("signatures_required does not match feed.signatures_required")]
+    SignaturesRequiredMismatch,
     #[msg("Missing or mis-ordered signer slot version account")]
     MissingSignerAccount,
     #[msg("subscription has expired")]
@@ -133,13 +135,17 @@ pub enum MolphaError {
     PaymentRefTooLong,
     #[msg("credited signer count exceeds signatures_required + redundancy_buffer")]
     CreditedExceedsSelection,
-    #[msg("value exceeds Feed::MAX_VALUE_LEN")]
-    InvalidValueLength,
+    #[msg(
+        "raw value exceeds Feed::MAX_VALUE_LEN or does not match the hash of the attestation value"
+    )]
+    InvalidRawValue,
     #[msg("dispute refund/restore subscription does not match the round")]
     WrongSubscriptionAccount,
 
-    #[msg("equivocation requires two statements with different values")]
+    #[msg("equivocation requires two attestations for one duty with different values")]
     EquivocationSameStatement,
+    #[msg("attestations do not sign different values for one duty")]
+    NotEquivocation,
     #[msg("recomputed evidence hash does not match the supplied evidence_hash")]
     EvidenceHashMismatch,
     #[msg("intersection of the two signer bitmaps is empty")]
@@ -158,11 +164,11 @@ pub enum MolphaError {
     SignersFullySelected,
     #[msg("every guilty node is already tombstoned")]
     NothingToPunish,
-    #[msg("statements do not share an aggregate nonce commitment")]
+    #[msg("attestations do not share an aggregate nonce commitment")]
     NonceCommitmentMismatch,
-    #[msg("round requests have different registry versions")]
+    #[msg("attestations have different registry versions, or one older than the feed's")]
     RegistryVersionMismatch,
-    #[msg("statements commit to the same message hash")]
+    #[msg("attestations sign the same message")]
     NonceReuseSameMessage,
     #[msg("same duty with different values is equivocation - file it as one")]
     PreferEquivocation,

@@ -23,13 +23,13 @@ use anchor_spl::token::{Token, TokenAccount};
 use molpha_verifier::{bitmap::Bitmap, NonceEquationError};
 
 use crate::{
-    error::{map_attestation_err, MolphaError}, state::Node,
+    error::{map_attestation_err, MolphaError},
     events::NonceReuseProven,
     state::{
         commitment_batch_message_hash, commitment_leaf_hash, nonce_reuse_evidence_hash,
-        verify_commitment_merkle_proof, CommittedNoncePair,
-        OffenceKind, PartialTranscript, ProtocolConfig, PunishmentCase, Registry, RegistryState,
-        MAX_COMMITMENT_PROOF_DEPTH, MAX_REGISTRY_NODES,
+        verify_commitment_merkle_proof, CommittedNoncePair, Node, OffenceKind, PartialTranscript,
+        ProtocolConfig, PunishmentCase, Registry, RegistryState, MAX_COMMITMENT_PROOF_DEPTH,
+        MAX_REGISTRY_NODES,
     },
     utils::slash::{slash_nodes, SlashAccounts, SlashInput},
 };
@@ -95,11 +95,18 @@ pub fn punish_nonce_reuse<'info>(
     let mut guilty_bitmap = Bitmap::new();
     guilty_bitmap.set_bit(node_index);
 
-
-    require!(ctx.remaining_accounts.len() == 1, MolphaError::InvalidNodeAccount);
+    require!(
+        ctx.remaining_accounts.len() == 1,
+        MolphaError::InvalidNodeAccount
+    );
     let node: Account<Node> = Account::try_from(&ctx.remaining_accounts[0])?;
-    let registry = ctx.accounts.evidence_registry.load()?;
-    require!(node.key() == registry.node(node_index)?, MolphaError::InvalidNodeAccount);
+    // Scoped: the evidence registry is usually the current one, which `slash_nodes` borrows
+    // mutably to snapshot.
+    let registered_node = ctx.accounts.evidence_registry.load()?.node(node_index)?;
+    require!(
+        node.key() == registered_node,
+        MolphaError::InvalidNodeAccount
+    );
 
     let leaf = commitment_leaf_hash(args.slot, &args.nonces);
     require!(

@@ -4,7 +4,12 @@ import * as crypto from "crypto";
 import * as secp256k1 from "@noble/secp256k1";
 import { Point } from "@noble/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3.js";
-import { bytesToHex, hexToBytes, parseBigIntString } from "../utils";
+import {
+  bytesToHex,
+  fixedBytes,
+  hexToBytes,
+  parseBigIntString,
+} from "../utils";
 import { fixtureSourceId, VerifyAttestationFixture } from "./fixtures";
 
 const MESSAGE_PREFIX = Buffer.from(
@@ -20,6 +25,8 @@ const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
 );
 export const VERIFY_ATTESTATION_RETURN_LEN = 72;
+/** `Feed::MAX_VALUE_LEN` — upper bound on a `raw_value` preimage. */
+export const MAX_RAW_VALUE_LEN = 256;
 
 export type E2eSignerMaterial = {
   privKeys: bigint[];
@@ -29,23 +36,98 @@ export type E2eSignerMaterial = {
 export type E2eAttestationFields = {
   value: Uint8Array;
   canonicalTimestamp: number;
+  /** Preimage of `value`; submitted as `raw_value` so the feed stores `FeedValueKind::Hash`. */
+  rawValue?: Uint8Array;
 };
 
-export type SignedAttestation = {
-  submitArgs: {
+/** Aggregate signature parts as raw bytes (`SchnorrSignature` on chain). */
+export type SchnorrSignatureBytes = {
+  signersBitmap: Uint8Array;
+  aggSigS?: Uint8Array;
+  commitment?: Uint8Array;
+};
+
+/** Anchor `Attestation` instruction argument. */
+export type AttestationArgs = {
+  payload: {
+    value: number[];
     sourceId: number[];
     registryVersion: number;
-    value: Buffer;
-    canonicalTimestamp: BN;
     signaturesRequired: number;
+    canonicalTimestamp: BN;
+  };
+  signature: {
     aggSigS: number[];
     commitment: number[];
     signersBitmap: number[];
   };
+};
+
+/** Anchor `SubmitAttestationArgs`. */
+export type SubmitAttestationArgs = {
+  attestation: AttestationArgs;
+  rawValue: Buffer | null;
+};
+
+export type SignedAttestation = {
+  submitArgs: SubmitAttestationArgs;
   signersBitmap: Uint8Array;
   aggSigS: Uint8Array;
   commitment: Uint8Array;
 };
+
+/**
+ * Build the Anchor `Attestation` arg. Omitted signature parts are zeroed (optimistic settlement
+ * does not verify Schnorr).
+ */
+export function buildAttestation(
+  fields: {
+    value: Uint8Array;
+    sourceId: Uint8Array;
+    registryVersion: number;
+    signaturesRequired: number;
+    canonicalTimestamp: number | BN;
+  } & SchnorrSignatureBytes,
+): AttestationArgs {
+  if (fields.signaturesRequired < 0 || fields.signaturesRequired > 0xff) {
+    throw new Error(
+      `signatures required must fit in u8, got ${fields.signaturesRequired}`,
+    );
+  }
+  return {
+    payload: {
+      value: Array.from(fixedBytes(fields.value, 32, "value")),
+      sourceId: Array.from(fixedBytes(fields.sourceId, 32, "source id")),
+      registryVersion: fields.registryVersion,
+      signaturesRequired: fields.signaturesRequired,
+      canonicalTimestamp: new BN(fields.canonicalTimestamp.toString()),
+    },
+    signature: {
+      aggSigS: Array.from(
+        fixedBytes(fields.aggSigS ?? new Uint8Array(32), 32, "agg sig s"),
+      ),
+      commitment: Array.from(
+        fixedBytes(fields.commitment ?? new Uint8Array(20), 20, "commitment"),
+      ),
+      signersBitmap: Array.from(
+        fixedBytes(fields.signersBitmap, 32, "signers bitmap"),
+      ),
+    },
+  };
+}
+
+/** Anchor `raw_value` arg (`null` when absent). */
+export function rawValueArg(rawValue: Uint8Array | undefined): Buffer | null {
+  if (!rawValue) {
+    return null;
+  }
+  if (rawValue.length > MAX_RAW_VALUE_LEN) {
+    throw new Error(
+      `raw value must be <= ${MAX_RAW_VALUE_LEN} bytes, got ${rawValue.length}`,
+    );
+  }
+  return Buffer.from(rawValue);
+}
 
 function modN(x: bigint): bigint {
   const r = x % SECP256K1_ORDER_N;
@@ -292,6 +374,7 @@ export function generateE2eSignerMaterialFromSeed(
   return { privKeys, compressedPubkeys };
 }
 
+/** Mirrors `molpha_verifier::compute_message_hash`. */
 function computeMessageHash(params: {
   sourceId: Uint8Array;
   registryVersion: number;
@@ -302,12 +385,12 @@ function computeMessageHash(params: {
 }): Uint8Array {
   return keccakConcat([
     MESSAGE_PREFIX,
+    params.value,
     params.sourceId,
     u32be(params.registryVersion),
-    u32be(params.signaturesRequired),
-    params.signersBitmap,
-    params.value,
+    Uint8Array.from([params.signaturesRequired]),
     u64be(params.canonicalTimestamp),
+    params.signersBitmap,
   ]);
 }
 
@@ -392,14 +475,17 @@ export function signE2eAttestation(
 
   return {
     submitArgs: {
-      sourceId: Array.from(sourceId),
-      registryVersion,
-      value: Buffer.from(attestation.value),
-      canonicalTimestamp: new BN(attestation.canonicalTimestamp),
-      signaturesRequired: required,
-      aggSigS: Array.from(s),
-      commitment: Array.from(commitment),
-      signersBitmap: Array.from(signersBitmap),
+      attestation: buildAttestation({
+        value: attestation.value,
+        sourceId,
+        registryVersion,
+        signaturesRequired: required,
+        canonicalTimestamp: attestation.canonicalTimestamp,
+        signersBitmap,
+        aggSigS: s,
+        commitment,
+      }),
+      rawValue: rawValueArg(attestation.rawValue),
     },
     signersBitmap,
     aggSigS: s,
@@ -407,31 +493,30 @@ export function signE2eAttestation(
   };
 }
 
-export function buildSubmitArgsFromFixture(fixture: VerifyAttestationFixture) {
+export function buildSubmitArgsFromFixture(
+  fixture: VerifyAttestationFixture,
+): SubmitAttestationArgs {
   const signersBitmap = uint256BE(
     BigInt(fixture.schnorrSignature.signersBitmap),
   );
   const signaturesRequired =
     fixture.dataUpdate.signaturesRequired ?? bitmapPopcountEvm(signersBitmap);
   return {
-    sourceId: Array.from(hexToBytes(fixtureSourceId(fixture), 32, "source id")),
-    registryVersion: fixture.dataUpdate.registryVersion,
-    value: Buffer.from(
-      hexToBytes(fixture.dataUpdate.value, undefined, "value"),
-    ),
-    canonicalTimestamp: new BN(fixture.dataUpdate.canonicalTimestamp),
-    signaturesRequired,
-    aggSigS: Array.from(
-      hexToBytes(fixture.schnorrSignature.signature, 32, "signature"),
-    ),
-    commitment: Array.from(
-      hexToBytes(
+    attestation: buildAttestation({
+      value: hexToBytes(fixture.dataUpdate.value, 32, "value"),
+      sourceId: hexToBytes(fixtureSourceId(fixture), 32, "source id"),
+      registryVersion: fixture.dataUpdate.registryVersion,
+      signaturesRequired,
+      canonicalTimestamp: fixture.dataUpdate.canonicalTimestamp,
+      signersBitmap,
+      aggSigS: hexToBytes(fixture.schnorrSignature.signature, 32, "signature"),
+      commitment: hexToBytes(
         fixture.schnorrSignature.commitment.toLowerCase(),
         20,
         "commitment",
       ),
-    ),
-    signersBitmap: Array.from(signersBitmap),
+    }),
+    rawValue: null,
   };
 }
 
@@ -500,10 +585,7 @@ export function signerMaterialFromFixture(
 
 export function describeSignedPayload(signed: SignedAttestation) {
   return {
-    submitArgs: {
-      ...signed.submitArgs,
-      canonicalTimestamp: signed.submitArgs.canonicalTimestamp.toString(),
-    },
+    submitArgs: signed.submitArgs,
     signersBitmapHex: bytesToHex(signed.signersBitmap),
     aggSigSHex: bytesToHex(signed.aggSigS),
     commitmentAddrHex: bytesToHex(signed.commitment),

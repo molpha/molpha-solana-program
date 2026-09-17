@@ -1,7 +1,5 @@
 use anchor_lang::prelude::*;
 
-use crate::error::map_attestation_accounts_err;
-
 pub const LIVELINESS_SCORE_MAX: u16 = 10_000;
 pub const LIVELINESS_PENALTY_PER_MISS: u16 = 500;
 pub const LIVELINESS_RECOVERY_PER_SIGN: u16 = 100;
@@ -74,17 +72,4 @@ pub enum NodeStatus {
     Frozen,
     /// Evicted from the registry by a punishment with `MembershipAction::Tombstone`. Terminal.
     Tombstoned,
-}
-
-/// Resolve signer `(x, y)` pubkeys from remaining `Node` accounts in ascending bitmap bit order.
-///
-/// `registry` is the loaded `Registry` account; accounts must match
-/// [`molpha_verifier::solana::resolve_signers_accounts`].
-pub fn resolve_registry_signers(
-    accounts: &[AccountInfo],
-    registry: &AccountInfo,
-    signers_bitmap: &[u8; 32],
-) -> Result<Vec<molpha_verifier::SignerXy>> {
-    molpha_verifier::solana::resolve_signers_accounts(accounts, registry, signers_bitmap)
-    .map_err(map_attestation_accounts_err)
 }

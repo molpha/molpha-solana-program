@@ -2,13 +2,8 @@ import { hexToBytes, parseInteger, readJsonFile } from "./utils";
 import {
   evmBitmapBitSet,
   evmUint256BitmapForFirstN,
+  SchnorrSignatureBytes,
 } from "./signing/attestation";
-
-export type AggregatedSigArgs = {
-  aggSigS: number[];
-  commitment: number[];
-  signersBitmap: number[];
-};
 
 function bytesFromField(
   value: string | number[] | Uint8Array,
@@ -25,21 +20,6 @@ function bytesFromField(
     );
   }
   return bytes;
-}
-
-/** Build an AggregatedSig (happy-path settlement does not verify Schnorr). */
-export function buildAggregatedSig(params: {
-  signersBitmap: Uint8Array;
-  aggSigS?: Uint8Array;
-  /** @deprecated Prefer `aggSigS`. */
-  s?: Uint8Array;
-  commitment?: Uint8Array;
-}): AggregatedSigArgs {
-  return {
-    aggSigS: Array.from(params.aggSigS ?? params.s ?? new Uint8Array(32)),
-    commitment: Array.from(params.commitment ?? new Uint8Array(20)),
-    signersBitmap: Array.from(params.signersBitmap),
-  };
 }
 
 export function bitmapFromBits(bits: number[]): Uint8Array {
@@ -60,25 +40,26 @@ export function creditedBitsFromBitmap(signersBitmap: Uint8Array): number[] {
   return bits;
 }
 
-export function parseAggregatedSigJson(filePath: string): AggregatedSigArgs {
+/** Parse a JSON `SchnorrSignature` file; omitted `aggSigS` / `commitment` stay unset. */
+export function parseSchnorrSignatureJson(
+  filePath: string,
+): SchnorrSignatureBytes {
   const raw = readJsonFile<{
     aggSigS?: string | number[];
+    /** @deprecated Prefer `aggSigS`. */
     s?: string | number[];
     commitment?: string | number[];
     signersBitmap: string | number[];
   }>(filePath);
+  const aggSigS = raw.aggSigS ?? raw.s;
 
-  return buildAggregatedSig({
+  return {
     signersBitmap: bytesFromField(raw.signersBitmap, 32, "signers bitmap"),
-    aggSigS: raw.aggSigS
-      ? bytesFromField(raw.aggSigS, 32, "agg sig s")
-      : raw.s
-        ? bytesFromField(raw.s, 32, "agg sig s")
-        : undefined,
+    aggSigS: aggSigS ? bytesFromField(aggSigS, 32, "agg sig s") : undefined,
     commitment: raw.commitment
       ? bytesFromField(raw.commitment, 20, "commitment")
       : undefined,
-  });
+  };
 }
 
 export function signersBitmapFromOptions(options: {

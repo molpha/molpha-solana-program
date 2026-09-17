@@ -1,8 +1,10 @@
 //! `submit_attestation`.
+#![allow(clippy::result_large_err)] // see the note in `molpha_tests`
 
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::FeedUpdated;
+use molpha::instructions::SubmitAttestationArgs;
 use molpha::state::{Feed, FeedValueKind};
 use molpha::utils::MAX_FUTURE_DRIFT_SECONDS;
 use molpha_tests::crypto;
@@ -50,7 +52,7 @@ fn submit_attestation_creates_the_feed_and_records_the_round() {
         &submitter.pubkey(),
     ));
     assert_eq!(feed.source_id, duty.source_id);
-    assert_eq!(feed.value, duty.value.to_vec());
+    assert_eq!(feed.value, duty.value);
     assert_eq!(feed.value_kind, FeedValueKind::Value);
     assert_eq!(feed.canonical_timestamp, duty.canonical_timestamp);
     assert_eq!(feed.signatures_required, SIGS_REQUIRED);
@@ -81,7 +83,7 @@ fn submit_attestation_overwrites_the_feed_with_a_newer_round() {
         &submitter.pubkey(),
     ));
     assert_eq!(feed.canonical_timestamp, second.canonical_timestamp);
-    assert_eq!(feed.value, second.value.to_vec());
+    assert_eq!(feed.value, second.value);
     assert_eq!(feed.signers_bitmap, signed.signers_bitmap);
 }
 
@@ -106,7 +108,134 @@ fn submit_attestation_refuses_to_move_the_feed_backwards() {
         &submitter.pubkey(),
     ));
     assert_eq!(feed.canonical_timestamp, current.canonical_timestamp);
-    assert_eq!(feed.value, current.value.to_vec());
+    assert_eq!(feed.value, current.value);
+}
+
+/// An attestation still valid under a superseded (grace-period) registry cannot displace a feed
+/// already written under the newer one, even with a newer timestamp.
+#[test]
+fn submit_attestation_refuses_to_move_the_registry_version_backwards() {
+    let mut p = with_nodes("submit-version-ratchet");
+    let submitter = p.env.keypair();
+    let old_version = p.current_version();
+    let authority = p.authority.insecure_clone();
+    let ix = p.update_registry_policy_ix(&authority.pubkey(), old_version + 1, 4);
+    p.env.send_ok(&[ix], &[&authority]);
+
+    let current = Duty::new(old_version + 1, SIGS_REQUIRED).at(1_700_000_500);
+    submit(&mut p, &submitter, current);
+
+    let superseded = Duty::new(old_version, SIGS_REQUIRED)
+        .at(current.canonical_timestamp + 1)
+        .value([0xee; 32]);
+    let signed = p.sign_duty(superseded);
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    let failed = p.env.send_err(&[ix], &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::RegistryVersionMismatch);
+
+    let feed: Feed = p.env.get(&pda::feed(
+        &current.source_id,
+        SIGS_REQUIRED,
+        &submitter.pubkey(),
+    ));
+    assert_eq!(feed.registry_version, current.registry_version);
+    assert_eq!(feed.value, current.value);
+}
+
+// ---------------------------------------------------------------------------
+// hashed values
+// ---------------------------------------------------------------------------
+
+/// Sign `keccak256(raw)` and submit it with `raw` as the preimage.
+fn submit_raw(
+    p: &mut Protocol,
+    submitter: &Keypair,
+    duty: Duty,
+    raw: Vec<u8>,
+) -> litesvm::types::TransactionResult {
+    let signed = p.sign_duty(duty.value(keccak(&raw)));
+    submit_with_raw_value(p, submitter, &signed, raw)
+}
+
+fn submit_with_raw_value(
+    p: &mut Protocol,
+    submitter: &Keypair,
+    signed: &SignedAttestation,
+    raw: Vec<u8>,
+) -> litesvm::types::TransactionResult {
+    let args = SubmitAttestationArgs {
+        attestation: signed.attestation(),
+        raw_value: Some(raw),
+    };
+    let ix = p.submit_attestation_ix_with_args(&submitter.pubkey(), args, &signed.signer_pdas);
+    p.env.send(&[ix], &[submitter])
+}
+
+fn keccak(bytes: &[u8]) -> [u8; 32] {
+    solana_keccak_hasher::hashv(&[bytes]).to_bytes()
+}
+
+#[test]
+fn a_raw_value_is_stored_as_its_signed_hash() {
+    let mut p = with_nodes("submit-raw-value");
+    let submitter = p.env.keypair();
+    let raw = vec![0x5a; Feed::MAX_VALUE_LEN];
+
+    let meta = submit_raw(&mut p, &submitter, duty(), raw.clone()).expect("hashed value submits");
+
+    let feed: Feed = p.env.get(&pda::feed(
+        &duty().source_id,
+        SIGS_REQUIRED,
+        &submitter.pubkey(),
+    ));
+    assert_eq!(feed.value, keccak(&raw));
+    assert_eq!(feed.value_kind, FeedValueKind::Hash);
+
+    let event: FeedUpdated = only_event(&meta);
+    assert_eq!(event.value, keccak(&raw));
+    assert_eq!(event.value_kind, FeedValueKind::Hash);
+}
+
+#[test]
+fn a_raw_value_must_hash_to_the_signed_value() {
+    let mut p = with_nodes("submit-raw-mismatch");
+    let submitter = p.env.keypair();
+    // Signed over the plain value, so no preimage can match.
+    let signed = p.sign_duty(duty());
+
+    let failed =
+        submit_with_raw_value(&mut p, &submitter, &signed, duty().value.to_vec()).unwrap_err();
+    assert_molpha_error(&failed, MolphaError::InvalidRawValue);
+}
+
+#[test]
+fn a_raw_value_longer_than_the_cap_is_rejected() {
+    let mut p = with_nodes("submit-raw-too-long");
+    let submitter = p.env.keypair();
+
+    let failed = submit_raw(
+        &mut p,
+        &submitter,
+        duty(),
+        vec![0x5a; Feed::MAX_VALUE_LEN + 1],
+    )
+    .unwrap_err();
+    assert_molpha_error(&failed, MolphaError::InvalidRawValue);
+}
+
+#[test]
+fn each_update_rewrites_the_value_kind() {
+    let mut p = with_nodes("submit-kind-flip");
+    let submitter = p.env.keypair();
+    let feed = pda::feed(&duty().source_id, SIGS_REQUIRED, &submitter.pubkey());
+
+    submit_raw(&mut p, &submitter, duty(), vec![0x01; 64]).expect("hashed value submits");
+    assert_eq!(p.env.get::<Feed>(&feed).value_kind, FeedValueKind::Hash);
+
+    let plain = duty().at(duty().canonical_timestamp + 1);
+    submit(&mut p, &submitter, plain);
+    assert_eq!(p.env.get::<Feed>(&feed).value_kind, FeedValueKind::Value);
+    assert_eq!(p.env.get::<Feed>(&feed).value, plain.value);
 }
 
 #[test]
@@ -128,9 +257,9 @@ fn feeds_are_scoped_to_submitter_source_and_quorum() {
     let c = pda::feed(&other_source.source_id, SIGS_REQUIRED, &first.pubkey());
     assert_ne!(a, b);
     assert_ne!(a, c);
-    assert_eq!(p.env.get::<Feed>(&a).value, base.value.to_vec());
-    assert_eq!(p.env.get::<Feed>(&b).value, base.value.to_vec());
-    assert_eq!(p.env.get::<Feed>(&c).value, other_source.value.to_vec());
+    assert_eq!(p.env.get::<Feed>(&a).value, base.value);
+    assert_eq!(p.env.get::<Feed>(&b).value, base.value);
+    assert_eq!(p.env.get::<Feed>(&c).value, other_source.value);
 }
 
 #[test]

@@ -14,10 +14,10 @@
 //! live inputs, and pin the current message hash as [`FIXTURE_MESSAGE_HASH`] instead.
 
 use molpha::state::{Feed, Node};
-use molpha_verifier::RegistryView;
 use molpha_tests::crypto::{self, NodeKey};
 use molpha_tests::pda;
 use molpha_tests::scenario::{Duty, Protocol};
+use molpha_verifier::RegistryView;
 use serde_json::Value;
 use solana_signer::Signer;
 
@@ -176,7 +176,7 @@ fn the_fixture_coalition_is_exactly_the_selection_the_program_derives() {
 fn the_message_hash_for_the_fixture_duty_is_pinned() {
     let fixture = load();
     assert_eq!(
-        fixture.duty().payload(fixture.signers_bitmap),
+        fixture.duty().message_hash(fixture.signers_bitmap),
         FIXTURE_MESSAGE_HASH,
         "the attestation message encoding changed; the EVM validator must be updated in step"
     );
@@ -215,7 +215,7 @@ fn the_program_accepts_an_attestation_from_the_fixture_coalition() {
         fixture.signatures_required,
         &submitter.pubkey(),
     ));
-    assert_eq!(feed.value, fixture.value.to_vec());
+    assert_eq!(feed.value, fixture.value);
     assert_eq!(feed.canonical_timestamp, fixture.canonical_timestamp);
     assert_eq!(feed.signers_bitmap, fixture.signers_bitmap);
 }

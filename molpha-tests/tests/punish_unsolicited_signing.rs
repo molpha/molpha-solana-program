@@ -20,7 +20,7 @@ const SIGS: u8 = 4;
 struct Case {
     p: Protocol,
     reporter: Keypair,
-    statement: SignedAttestation,
+    signed: SignedAttestation,
     /// Registry bits that signed without being selected.
     intruders: Vec<usize>,
 }
@@ -29,7 +29,7 @@ fn duty() -> Duty {
     Duty::new(NODE_COUNT as u32, SIGS)
 }
 
-/// A statement from three selected nodes plus one that was never asked.
+/// An attestation from three selected nodes plus one that was never asked.
 fn case() -> Case {
     let mut p = Protocol::start();
     p.register_nodes("unsolicited", NODE_COUNT);
@@ -44,42 +44,38 @@ fn case() -> Case {
     let mut bits = selection[0..3].to_vec();
     bits.push(intruder);
     bits.sort_unstable();
-    let statement = p.sign_duty_with_bits(duty, &bits, None);
+    let signed = p.sign_duty_with_bits(duty, &bits, None);
 
     Case {
         p,
         reporter,
-        statement,
+        signed,
         intruders: vec![intruder],
     }
 }
 
-fn args_for(_case: &Case, statement: &SignedAttestation) -> PunishUnsolicitedSigningArgs {
-    let evidence_hash =
-        unsolicited_signing_evidence_hash(&statement.round_request(), &statement.statement());
+fn args_for(_case: &Case, signed: &SignedAttestation) -> PunishUnsolicitedSigningArgs {
+    let attestation = signed.attestation();
     PunishUnsolicitedSigningArgs {
-        statement: statement.statement(),
-        evidence_hash,
+        evidence_hash: unsolicited_signing_evidence_hash(&attestation),
+        attestation,
     }
 }
 
 fn pda_for_bit(case: &Case, bit: usize) -> Pubkey {
-    case.p
-        .env
-        .registry(case.statement.duty.registry_version)
-        .nodes[bit]
+    case.p.env.registry(case.signed.duty.registry_version).nodes[bit]
 }
 
 #[test]
 fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
     let mut case = case();
-    let args = args_for(&case, &case.statement);
+    let args = args_for(&case, &case.signed);
     let guilty: Vec<Pubkey> = case
         .intruders
         .iter()
         .map(|b| pda_for_bit(&case, *b))
         .collect();
-    let honest_cosigners: Vec<Pubkey> = crypto::bitmap_bits(&case.statement.signers_bitmap)
+    let honest_cosigners: Vec<Pubkey> = crypto::bitmap_bits(&case.signed.signers_bitmap)
         .into_iter()
         .filter(|bit| !case.intruders.contains(bit))
         .map(|bit| pda_for_bit(&case, bit))
@@ -94,11 +90,9 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
 
     let reporter = case.reporter.insecure_clone();
     let new_version = case.p.current_version() + 1;
-    let ix = case.p.punish_unsolicited_signing_ix(
-        &reporter.pubkey(),
-        case.statement.round_request(),
-        args.clone(),
-    );
+    let ix = case
+        .p
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
     let meta = case.p.env.send_ok(&[ix], &[&reporter]);
 
     for node in &guilty {
@@ -143,7 +137,7 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
     );
 
     let proven: UnsolicitedSigningProven = only_event(&meta);
-    assert_eq!(proven.signers_bitmap, case.statement.signers_bitmap);
+    assert_eq!(proven.signers_bitmap, case.signed.signers_bitmap);
     assert_eq!(proven.slashed_total, expected_slashed);
     assert_eq!(events::<NodePunished>(&meta).len(), guilty.len());
 }
@@ -155,37 +149,33 @@ fn a_fully_selected_coalition_is_not_an_offence() {
     let reporter = p.reporter();
     let duty = duty();
     let selection = p.selection_bits(&duty);
-    let statement = p.sign_duty_with_bits(duty, &selection[0..4], None);
+    let signed = p.sign_duty_with_bits(duty, &selection[0..4], None);
 
     let mut case = Case {
         p,
         reporter,
-        statement: statement.clone(),
+        signed: signed.clone(),
         intruders: vec![],
     };
-    let args = args_for(&case, &statement);
+    let args = args_for(&case, &signed);
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_unsolicited_signing_ix(
-        &reporter.pubkey(),
-        case.statement.round_request(),
-        args,
-    );
+    let ix = case
+        .p
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::SignersFullySelected);
 }
 
 #[test]
-fn a_statement_whose_signature_does_not_verify_proves_nothing() {
+fn an_attestation_whose_signature_does_not_verify_proves_nothing() {
     let mut case = case();
-    let tampered = case.statement.with_tampered_signature();
+    let tampered = case.signed.with_tampered_signature();
     let args = args_for(&case, &tampered);
     let reporter = case.reporter.insecure_clone();
 
-    let ix = case.p.punish_unsolicited_signing_ix(
-        &reporter.pubkey(),
-        case.statement.round_request(),
-        args,
-    );
+    let ix = case
+        .p
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::InvalidAggregateSignature);
     for node in case.p.node_pdas() {
@@ -194,17 +184,15 @@ fn a_statement_whose_signature_does_not_verify_proves_nothing() {
 }
 
 #[test]
-fn an_evidence_hash_that_does_not_match_the_statement_is_refused() {
+fn an_evidence_hash_that_does_not_match_the_attestation_is_refused() {
     let mut case = case();
-    let mut args = args_for(&case, &case.statement);
+    let mut args = args_for(&case, &case.signed);
     args.evidence_hash[31] ^= 0x01;
     let reporter = case.reporter.insecure_clone();
 
-    let ix = case.p.punish_unsolicited_signing_ix(
-        &reporter.pubkey(),
-        case.statement.round_request(),
-        args,
-    );
+    let ix = case
+        .p
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::EvidenceHashMismatch);
 }
@@ -213,20 +201,16 @@ fn an_evidence_hash_that_does_not_match_the_statement_is_refused() {
 fn the_same_evidence_cannot_be_filed_twice() {
     let mut case = case();
     let reporter = case.reporter.insecure_clone();
-    let args = args_for(&case, &case.statement);
-    let ix = case.p.punish_unsolicited_signing_ix(
-        &reporter.pubkey(),
-        case.statement.round_request(),
-        args.clone(),
-    );
+    let args = args_for(&case, &case.signed);
+    let ix = case
+        .p
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     // Same evidence, next registry version: the case PDA is seeded by the evidence hash alone.
-    let ix = case.p.punish_unsolicited_signing_ix(
-        &reporter.pubkey(),
-        case.statement.round_request(),
-        args,
-    );
+    let ix = case
+        .p
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert!(
         failed
@@ -246,8 +230,7 @@ fn filing_requires_the_next_registry_version() {
     let skipped = case.p.current_version() + 4;
     let ix = case.p.punish_unsolicited_signing_ix_with_registry(
         &reporter.pubkey(),
-        case.statement.round_request(),
-        args_for(&case, &case.statement),
+        args_for(&case, &case.signed),
         skipped,
     );
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
@@ -260,12 +243,10 @@ fn an_already_tombstoned_intruder_leaves_nothing_to_punish() {
     let reporter = case.reporter.insecure_clone();
 
     // File once: the intruder is tombstoned.
-    let args = args_for(&case, &case.statement);
-    let ix = case.p.punish_unsolicited_signing_ix(
-        &reporter.pubkey(),
-        case.statement.round_request(),
-        args,
-    );
+    let args = args_for(&case, &case.signed);
+    let ix = case
+        .p
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     // A second, distinct offence by the same node (a different timestamp, so different evidence)
@@ -285,21 +266,17 @@ fn an_already_tombstoned_intruder_leaves_nothing_to_punish() {
     bits.push(intruder);
     bits.sort_unstable();
 
-    let statement = case.p.sign_duty_with_bits(duty, &bits, None);
-    let round_request = statement.round_request();
-    let args = PunishUnsolicitedSigningArgs {
-        statement: statement.statement(),
-        evidence_hash: unsolicited_signing_evidence_hash(&round_request, &statement.statement()),
-    };
+    let signed = case.p.sign_duty_with_bits(duty, &bits, None);
+    let args = args_for(&case, &signed);
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), round_request, args);
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::NothingToPunish);
 }
 
 #[test]
-fn two_intruders_in_one_statement_are_both_punished() {
+fn two_intruders_in_one_attestation_are_both_punished() {
     let mut p = Protocol::start();
     // A wider registry so the duty leaves two nodes unselected.
     p.register_nodes("unsolicited-two", 10);
@@ -312,21 +289,19 @@ fn two_intruders_in_one_statement_are_both_punished() {
     let mut bits = selection[0..3].to_vec();
     bits.extend_from_slice(&intruders);
     bits.sort_unstable();
-    let statement = p.sign_duty_with_bits(duty, &bits, None);
+    let signed = p.sign_duty_with_bits(duty, &bits, None);
 
     let mut case = Case {
         p,
         reporter,
-        statement: statement.clone(),
+        signed: signed.clone(),
         intruders: intruders.clone(),
     };
-    let args = args_for(&case, &statement);
+    let args = args_for(&case, &signed);
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_unsolicited_signing_ix(
-        &reporter.pubkey(),
-        case.statement.round_request(),
-        args.clone(),
-    );
+    let ix = case
+        .p
+        .punish_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     for bit in &intruders {
