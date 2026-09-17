@@ -9,7 +9,7 @@ use molpha::utils::apply_penalty;
 
 fn node_fixture(locked: u64, rewards: u64, status: NodeStatus) -> Node {
     Node {
-        owner: Pubkey::new_unique(),
+        authority: Pubkey::new_unique(),
         secp256k1_pubkey_x: [0u8; 32],
         secp256k1_pubkey_y: [0u8; 32],
         status,

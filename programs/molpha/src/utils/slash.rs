@@ -141,7 +141,7 @@ fn slash_guilty_nodes<'info, 'b, T: Evidence>(
 
         emit!(NodePunished {
             node: node.key(),
-            owner: node.owner,
+            authority: node.authority,
             offence: input.evidence.offence_kind(),
             slashed_locked: outcome.slashed_locked,
             slashed_rewards: outcome.slashed_rewards,
@@ -149,7 +149,7 @@ fn slash_guilty_nodes<'info, 'b, T: Evidence>(
             punished_at: clock.unix_timestamp,
         });
         batch.victims.push(node.key());
-        node.exit(input.program_id)?;
+        node.exit(&Node::owner())?;
 
         Ok::<(), Error>(())
     })?;
@@ -191,7 +191,7 @@ pub fn penalize_node<'info>(
 
     emit!(NodePunished {
         node: node.key(),
-        owner: node.owner,
+        authority: node.authority,
         offence,
         slashed_locked: outcome.slashed_locked,
         slashed_rewards: outcome.slashed_rewards,

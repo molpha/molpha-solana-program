@@ -35,7 +35,7 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>, node_owner: Pubkey) -> Resu
 
     emit!(NodeDeactivated {
         node: node.key(),
-        owner: node.owner,
+        node_authority: node.authority,
         new_registry_version: ctx.accounts.registry_state.next_version,
         deactivated_at: clock.unix_timestamp,
     });

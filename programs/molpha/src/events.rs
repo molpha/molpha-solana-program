@@ -43,7 +43,7 @@ pub struct NodeRegistered {
 #[event]
 pub struct NodeEndpointUpdated {
     pub node: Pubkey,
-    pub owner: Pubkey,
+    pub node_authority: Pubkey,
     pub ip: [u8; 4],
     pub port: u16,
     pub updated_at: i64,
@@ -52,7 +52,7 @@ pub struct NodeEndpointUpdated {
 #[event]
 pub struct NodeDeactivated {
     pub node: Pubkey,
-    pub owner: Pubkey,
+    pub node_authority: Pubkey,
     pub new_registry_version: u32,
     pub deactivated_at: i64,
 }
@@ -67,7 +67,7 @@ pub struct NodeLivelinessPenalized {
 #[event]
 pub struct NodeFrozenForInactivity {
     pub node: Pubkey,
-    pub owner: Pubkey,
+    pub node_authority: Pubkey,
     pub score: u16,
     pub frozen_until: i64,
     pub new_registry_version: u32,
@@ -77,7 +77,7 @@ pub struct NodeFrozenForInactivity {
 #[event]
 pub struct NodeDepositWithdrawn {
     pub node: Pubkey,
-    pub owner: Pubkey,
+    pub node_authority: Pubkey,
     pub destination: Pubkey,
     pub amount: u64,
     pub withdrawn_at: i64,
@@ -324,7 +324,7 @@ pub struct NonceReuseProven {
 #[event]
 pub struct NodePunished {
     pub node: Pubkey,
-    pub owner: Pubkey,
+    pub authority: Pubkey,
     pub offence: OffenceKind,
     pub slashed_locked: u64,
     pub slashed_rewards: u64,
@@ -335,7 +335,7 @@ pub struct NodePunished {
 #[event]
 pub struct NodeReinstated {
     pub node: Pubkey,
-    pub owner: Pubkey,
+    pub node_authority: Pubkey,
     pub index: u32,
     pub registry_version: u32,
     pub reinstated_at: i64,

@@ -54,7 +54,7 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
 
     emit!(NodeDepositWithdrawn {
         node: node.key(),
-        owner: node.owner,
+        node_authority: node.authority,
         destination: ctx.accounts.destination.key(),
         amount,
         withdrawn_at: clock.unix_timestamp,
@@ -65,7 +65,7 @@ pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
 #[derive(Accounts)]
 pub struct WithdrawNodeDeposit<'info> {
     #[account(mut)]
-    pub owner: Signer<'info>,
+    pub authority: Signer<'info>,
 
     #[account(
         seeds = [ProtocolConfig::SEED_PREFIX],
@@ -75,9 +75,8 @@ pub struct WithdrawNodeDeposit<'info> {
 
     #[account(
         mut,
-        seeds = [Node::SEED_PREFIX, owner.key().as_ref()],
+        seeds = [Node::SEED_PREFIX, authority.key().as_ref()],
         bump = node.bump,
-        constraint = node.owner == owner.key() @ MolphaError::UnauthorizedNodeAuthority,
     )]
     pub node: Account<'info, Node>,
 
@@ -98,7 +97,7 @@ pub struct WithdrawNodeDeposit<'info> {
     #[account(
         mut,
         associated_token::mint = protocol_config.usdc_mint,
-        associated_token::authority = owner,
+        associated_token::authority = authority,
         associated_token::token_program = token_program,
     )]
     pub destination: Account<'info, TokenAccount>,

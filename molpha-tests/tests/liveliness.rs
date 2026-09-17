@@ -256,7 +256,7 @@ fn a_below_threshold_node_can_be_frozen_permissionlessly_and_evicted() {
 
     let event: NodeFrozenForInactivity = only_event(&meta);
     assert_eq!(event.node, node_pda);
-    assert_eq!(event.owner, owner);
+    assert_eq!(event.node_authority, owner);
     assert_eq!(event.score, score);
     assert_eq!(event.frozen_until, node.frozen_until);
     assert_eq!(event.new_registry_version, new_version);

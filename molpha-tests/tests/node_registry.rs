@@ -64,7 +64,7 @@ fn register_node_writes_identity_takes_the_deposit_and_appends_a_snapshot() {
     let meta = p.env.send_ok(&[ix], &[&authority, &owner]);
 
     let node: Node = p.env.get(&pda::node(&owner.pubkey()));
-    assert_eq!(node.owner, owner.pubkey());
+    assert_eq!(node.authority, owner.pubkey());
     assert_eq!(node.secp256k1_pubkey_x, key.x);
     assert_eq!(node.secp256k1_pubkey_y, key.y);
     assert_eq!(node.status, NodeStatus::Active);

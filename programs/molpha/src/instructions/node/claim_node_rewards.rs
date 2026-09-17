@@ -41,7 +41,7 @@ pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
     )?;
 
     emit!(RewardsClaimed {
-        beneficiary: ctx.accounts.node.owner,
+        beneficiary: ctx.accounts.node.authority,
         amount,
         claimed_at: Clock::get()?.unix_timestamp,
     });
@@ -51,7 +51,7 @@ pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
 #[derive(Accounts)]
 pub struct ClaimNodeRewards<'info> {
     #[account(mut)]
-    pub owner: Signer<'info>,
+    pub authority: Signer<'info>,
 
     #[account(
         mut,
@@ -62,9 +62,9 @@ pub struct ClaimNodeRewards<'info> {
 
     #[account(
         mut,
-        seeds = [Node::SEED_PREFIX, owner.key().as_ref()],
+        has_one = authority,
+        seeds = [Node::SEED_PREFIX, authority.key().as_ref()],
         bump = node.bump,
-        constraint = node.owner == owner.key() @ MolphaError::UnauthorizedNodeAuthority,
     )]
     pub node: Account<'info, Node>,
 
@@ -79,7 +79,7 @@ pub struct ClaimNodeRewards<'info> {
     #[account(
         mut,
         associated_token::mint = protocol_config.usdc_mint,
-        associated_token::authority = owner,
+        associated_token::authority = authority,
         associated_token::token_program = token_program,
     )]
     pub destination: Account<'info, TokenAccount>,

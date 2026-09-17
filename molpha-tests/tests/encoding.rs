@@ -158,7 +158,7 @@ fn submit_attestation_args_are_stable_and_round_trip() {
 #[test]
 fn permanent_node_roundtrips() {
     let account = Node {
-        owner: Pubkey::new_from_array([0xaa; 32]),
+        authority: Pubkey::new_from_array([0xaa; 32]),
         secp256k1_pubkey_x: [0x11; 32],
         secp256k1_pubkey_y: [0x22; 32],
         status: NodeStatus::Active,
@@ -180,7 +180,7 @@ fn permanent_node_roundtrips() {
     data[..8].copy_from_slice(Node::DISCRIMINATOR);
     data[8..].copy_from_slice(&body);
     let decoded = Node::deserialize(&mut &data[8..]).unwrap();
-    assert_eq!(decoded.owner, account.owner);
+    assert_eq!(decoded.authority, account.authority);
     assert_eq!(decoded.secp256k1_pubkey_x, account.secp256k1_pubkey_x);
     assert_eq!(decoded.claimable_rewards, account.claimable_rewards);
     assert_eq!(decoded.liveliness_score, account.liveliness_score);

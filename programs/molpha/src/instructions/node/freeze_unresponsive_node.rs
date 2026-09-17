@@ -36,7 +36,7 @@ pub fn freeze_unresponsive_node(
 
     emit!(NodeFrozenForInactivity {
         node: node.key(),
-        owner: node.owner,
+        node_authority: node.authority,
         score: node.liveliness_score,
         frozen_until: node.frozen_until,
         new_registry_version: ctx.accounts.registry_state.current_version,

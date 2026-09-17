@@ -39,7 +39,7 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
 
     emit!(NodeReinstated {
         node: node_key,
-        owner: node.owner,
+        node_authority: node.authority,
         index,
         registry_version: ctx.accounts.registry_state.next_version,
         reinstated_at: now,
@@ -86,7 +86,7 @@ pub struct ReinstateNode<'info> {
     #[account(
         mut,
         constraint = node.status == NodeStatus::Frozen @ MolphaError::NodeNotFrozen,
-        seeds = [Node::SEED_PREFIX, node.owner.as_ref()],
+        seeds = [Node::SEED_PREFIX, node.authority.as_ref()],
         bump = node.bump,
     )]
     pub node: Box<Account<'info, Node>>,

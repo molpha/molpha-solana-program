@@ -50,7 +50,7 @@ fn a_deactivated_node_withdraws_its_deposit_at_the_exact_cooldown_boundary() {
 
     let event: NodeDepositWithdrawn = only_event(&meta);
     assert_eq!(event.node, node_pda);
-    assert_eq!(event.owner, owner.pubkey());
+    assert_eq!(event.node_authority, owner.pubkey());
     assert_eq!(event.destination, destination);
     assert_eq!(event.amount, deposit);
 

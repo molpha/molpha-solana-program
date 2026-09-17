@@ -1028,7 +1028,7 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::ClaimNodeRewards {
-                owner: *owner,
+                authority: *owner,
                 protocol_config: pda::protocol_config(),
                 node: pda::node(owner),
                 treasury: self.treasury(),
@@ -1046,7 +1046,7 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::WithdrawNodeDeposit {
-                owner: *owner,
+                authority: *owner,
                 protocol_config: pda::protocol_config(),
                 node: pda::node(owner),
                 registry_state: pda::registry_state(),

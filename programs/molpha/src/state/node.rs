@@ -8,7 +8,7 @@ pub const LIVELINESS_RECOVERY_PER_SIGN: u16 = 100;
 #[account]
 #[derive(InitSpace)]
 pub struct Node {
-    pub owner: Pubkey,
+    pub authority: Pubkey,
     pub secp256k1_pubkey_x: [u8; 32],
     pub secp256k1_pubkey_y: [u8; 32],
     pub status: NodeStatus,
@@ -30,7 +30,7 @@ impl Node {
     #[allow(clippy::too_many_arguments)]
     pub fn init(
         &mut self,
-        owner: Pubkey,
+        authority: Pubkey,
         secp256k1_pubkey_x: [u8; 32],
         secp256k1_pubkey_y: [u8; 32],
         ip: [u8; 4],
@@ -39,7 +39,7 @@ impl Node {
         registered_at: i64,
         bump: u8,
     ) {
-        self.owner = owner;
+        self.authority = authority;
         self.secp256k1_pubkey_x = secp256k1_pubkey_x;
         self.secp256k1_pubkey_y = secp256k1_pubkey_y;
         self.status = NodeStatus::Active;
