@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 
 use super::OffenceKind;
+use super::Evidence;
 
 /// Permanent, on-chain record of an executed node punishment.
 ///
@@ -29,25 +30,23 @@ impl PunishmentCase {
     #[allow(clippy::too_many_arguments)]
     pub fn init(
         &mut self,
-        offence: OffenceKind,
+        evidence: &dyn Evidence,
         reporter: Pubkey,
-        registry_version: u32,
         guilty_bitmap: [u8; 32],
         guilty_count: u16,
         slashed_total: u64,
         bounty_paid: u64,
-        evidence_hash: [u8; 32],
         executed_slot: u64,
         bump: u8,
     ) {
-        self.offence = offence;
+        self.offence = evidence.offence_kind();
         self.reporter = reporter;
-        self.registry_version = registry_version;
+        self.registry_version = evidence.registry_version();
         self.guilty_bitmap = guilty_bitmap;
         self.guilty_count = guilty_count;
         self.slashed_total = slashed_total;
         self.bounty_paid = bounty_paid;
-        self.evidence_hash = evidence_hash;
+        self.evidence_hash = evidence.evidence_hash();
         self.executed_slot = executed_slot;
         self.bump = bump;
     }

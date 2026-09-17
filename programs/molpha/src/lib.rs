@@ -11,7 +11,7 @@ pub mod utils;
 
 use instructions::*;
 use molpha_verifier::Attestation;
-use state::PlanType;
+use state::{PlanType, EquivocationEvidence, UnsolicitedSigningEvidence, CommitmentReuseEvidence, NonceReuseEvidence};
 
 declare_id!("MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3");
 
@@ -134,32 +134,32 @@ pub mod molpha {
         instructions::settle_x402_round(ctx, attestation, args)
     }
 
-    pub fn punish_equivocation<'info>(
-        ctx: Context<'info, PunishEquivocation<'info>>,
-        args: PunishEquivocationArgs,
+    pub fn slash_equivocation<'info>(
+        ctx: Context<'info, SlashEquivocation<'info>>,
+        evidence: EquivocationEvidence,
     ) -> Result<()> {
-        instructions::punish_equivocation(ctx, args)
+        instructions::slash_equivocation(ctx, evidence)
     }
 
-    pub fn punish_unsolicited_signing<'info>(
-        ctx: Context<'info, PunishUnsolicitedSigning<'info>>,
-        args: PunishUnsolicitedSigningArgs,
+    pub fn slash_unsolicited_signing<'info>(
+        ctx: Context<'info, SlashUnsolicitedSigning<'info>>,
+        evidence: UnsolicitedSigningEvidence,
     ) -> Result<()> {
-        instructions::punish_unsolicited_signing(ctx, args)
+        instructions::slash_unsolicited_signing(ctx, evidence)
     }
 
-    pub fn punish_commitment_reuse<'info>(
-        ctx: Context<'info, PunishCommitmentReuse<'info>>,
-        args: PunishCommitmentReuseArgs,
+    pub fn slash_commitment_reuse<'info>(
+        ctx: Context<'info, SlashCommitmentReuse<'info>>,
+        evidence: CommitmentReuseEvidence,
     ) -> Result<()> {
-        instructions::punish_commitment_reuse(ctx, args)
+        instructions::slash_commitment_reuse(ctx, evidence)
     }
 
-    pub fn punish_nonce_reuse<'info>(
-        ctx: Context<'info, PunishNonceReuse<'info>>,
-        args: PunishNonceReuseArgs,
+    pub fn slash_nonce_reuse<'info>(
+        ctx: Context<'info, SlashNonceReuse<'info>>,
+        evidence: NonceReuseEvidence,
     ) -> Result<()> {
-        instructions::punish_nonce_reuse(ctx, args)
+        instructions::slash_nonce_reuse(ctx, evidence)
     }
 
     pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {

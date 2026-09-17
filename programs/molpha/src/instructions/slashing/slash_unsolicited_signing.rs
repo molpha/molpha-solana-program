@@ -2,36 +2,25 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
-use molpha_verifier::Attestation;
 use molpha_verifier::{bitmap::Bitmap, derive_selection_bitmap, solana::resolve_signers_accounts};
 
 use crate::{
     error::{map_attestation_accounts_err, MolphaError},
     events::UnsolicitedSigningProven,
     state::{
-        unsolicited_signing_evidence_hash, OffenceKind, ProtocolConfig, PunishmentCase, Registry,
-        RegistryState,
+        UnsolicitedSigningEvidence, ProtocolConfig, PunishmentCase, Registry,
+        RegistryState, Evidence,
     },
     utils::slash::{slash_nodes, verify_evidence_signature, SlashAccounts, SlashInput},
 };
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct PunishUnsolicitedSigningArgs {
-    pub attestation: Attestation,
-    /// Must match `unsolicited_signing_evidence_hash(..)`; used as the `PunishmentCase` PDA seed.
-    pub evidence_hash: [u8; 32],
-}
 
-pub fn punish_unsolicited_signing<'info>(
-    ctx: Context<'info, PunishUnsolicitedSigning<'info>>,
-    args: PunishUnsolicitedSigningArgs,
+
+pub fn slash_unsolicited_signing<'info>(
+    ctx: Context<'info, SlashUnsolicitedSigning<'info>>,
+    evidence: UnsolicitedSigningEvidence,
 ) -> Result<()> {
-    let attestation = &args.attestation;
-
-    require!(
-        unsolicited_signing_evidence_hash(attestation) == args.evidence_hash,
-        MolphaError::EvidenceHashMismatch
-    );
+    let attestation = &evidence.attestation;
 
     let signers_bitmap = Bitmap::load(&attestation.signature.signers_bitmap);
     let selection = derive_selection_bitmap(
@@ -80,20 +69,18 @@ pub fn punish_unsolicited_signing<'info>(
             signers_bitmap,
             guilty_bitmap,
             program_id: ctx.program_id,
-            offence: OffenceKind::UnsolicitedSigning,
-            registry_version: args.attestation.payload.registry_version,
-            evidence_hash: args.evidence_hash,
+            evidence: &evidence,
         },
     )?;
 
     emit!(UnsolicitedSigningProven {
-        source_id: args.attestation.payload.source_id,
-        registry_version: args.attestation.payload.registry_version,
-        signatures_required: args.attestation.payload.signatures_required,
-        canonical_timestamp: args.attestation.payload.canonical_timestamp,
-        signers_bitmap: args.attestation.signature.signers_bitmap,
+        source_id: evidence.attestation.payload.source_id,
+        registry_version: evidence.registry_version(),
+        signatures_required: evidence.attestation.payload.signatures_required,
+        canonical_timestamp: evidence.attestation.payload.canonical_timestamp,
+        signers_bitmap: evidence.attestation.signature.signers_bitmap,
         guilty_bitmap: guilty_bitmap.to_bytes(),
-        evidence_hash: args.evidence_hash,
+        evidence_hash: evidence.evidence_hash(),
         reporter,
         slashed_total: outcome.slashed_total,
         bounty_paid: outcome.bounty_paid,
@@ -103,8 +90,8 @@ pub fn punish_unsolicited_signing<'info>(
 }
 
 #[derive(Accounts)]
-#[instruction(args: PunishUnsolicitedSigningArgs)]
-pub struct PunishUnsolicitedSigning<'info> {
+#[instruction(evidence: UnsolicitedSigningEvidence)]
+pub struct SlashUnsolicitedSigning<'info> {
     #[account(mut)]
     pub reporter: Signer<'info>,
 
@@ -123,7 +110,7 @@ pub struct PunishUnsolicitedSigning<'info> {
     pub registry_state: Box<Account<'info, RegistryState>>,
 
     #[account(
-        seeds = [Registry::SEED_PREFIX, args.attestation.payload.registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, evidence.registry_version().to_le_bytes().as_ref()],
         bump,
     )]
     pub evidence_registry: AccountLoader<'info, Registry>,
@@ -148,7 +135,7 @@ pub struct PunishUnsolicitedSigning<'info> {
         init,
         payer = reporter,
         space = PunishmentCase::SPACE,
-        seeds = [PunishmentCase::SEED_PREFIX, args.evidence_hash.as_ref()],
+        seeds = [PunishmentCase::SEED_PREFIX, evidence.evidence_hash().as_ref()],
         bump,
     )]
     pub punishment_case: Box<Account<'info, PunishmentCase>>,

@@ -8,9 +8,9 @@
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{
     attestation_hash, commitment_batch_message_hash, commitment_leaf_hash,
-    commitment_reuse_evidence_hash, equivocation_evidence_hash, hash_request_auth,
-    hash_request_auth_fields, nonce_reuse_evidence_hash, unsolicited_signing_evidence_hash,
-    verify_commitment_merkle_proof, CommittedNoncePair, PartialTranscript, RequestAuth,
+    hash_request_auth, hash_request_auth_fields, verify_commitment_merkle_proof,
+    CommitmentReuseEvidence, CommittedNoncePair, EquivocationEvidence, Evidence,
+    NonceReuseEvidence, PartialTranscript, RequestAuth, UnsolicitedSigningEvidence,
     COMMITMENT_MERKLE_NODE_PREFIX, DOMAIN_COMMITMENT_BATCH, DOMAIN_COMMITMENT_REUSE,
     DOMAIN_EQUIVOCATION, DOMAIN_NONCE_REUSE, DOMAIN_REQAUTH, DOMAIN_UNSOLICITED_SIGNING,
 };
@@ -39,6 +39,58 @@ fn fixture_authorized_payload(auth: &RequestAuth) -> AttestationPayload {
         signatures_required: auth.signatures_required,
         canonical_timestamp: auth.timestamp,
     }
+}
+
+fn equivocation_evidence_hash(a: &Attestation, b: &Attestation) -> [u8; 32] {
+    EquivocationEvidence {
+        attestation_a: a.clone(),
+        attestation_b: b.clone(),
+    }
+    .evidence_hash()
+}
+
+fn commitment_reuse_evidence_hash(a: &Attestation, b: &Attestation) -> [u8; 32] {
+    CommitmentReuseEvidence {
+        attestation_a: a.clone(),
+        attestation_b: b.clone(),
+    }
+    .evidence_hash()
+}
+
+fn unsolicited_signing_evidence_hash(attestation: &Attestation) -> [u8; 32] {
+    UnsolicitedSigningEvidence {
+        attestation: attestation.clone(),
+    }
+    .evidence_hash()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn nonce_reuse_evidence_hash(
+    registry_version: u32,
+    node_index: u32,
+    epoch: u64,
+    batch_meta: &[u8; 32],
+    batch_root: &[u8; 32],
+    slot: u64,
+    nonces: &CommittedNoncePair,
+    transcript_a: &PartialTranscript,
+    transcript_b: &PartialTranscript,
+) -> [u8; 32] {
+    NonceReuseEvidence {
+        registry_version,
+        node_index,
+        epoch,
+        batch_meta: *batch_meta,
+        batch_root: *batch_root,
+        batch_sig_s: [0u8; 32],
+        batch_commitment_addr: [0u8; 20],
+        slot,
+        nonces: nonces.clone(),
+        merkle_proof: Vec::new(),
+        transcript_a: transcript_a.clone(),
+        transcript_b: transcript_b.clone(),
+    }
+    .evidence_hash()
 }
 
 #[test]

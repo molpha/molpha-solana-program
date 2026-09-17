@@ -1922,6 +1922,7 @@ dependencies = [
 name = "molpha-verifier"
 version = "0.3.0"
 dependencies = [
+ "anchor-lang",
  "borsh",
  "ethnum",
  "libsecp256k1",

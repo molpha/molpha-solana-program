@@ -1,11 +1,10 @@
-//! `punish_nonce_reuse`: two verifying partials against one batch-committed nonce pair.
+//! `slash_nonce_reuse`: two verifying partials against one batch-committed nonce pair.
 
 use molpha::error::MolphaError;
 use molpha::events::{NodePunished, NonceReuseProven};
-use molpha::instructions::PunishNonceReuseArgs;
 use molpha::state::{
-    nonce_reuse_evidence_hash, CommittedNoncePair, MembershipAction, Node, NodeStatus, OffenceKind,
-    PartialTranscript, PunishmentCase, MAX_COMMITMENT_PROOF_DEPTH,
+    CommittedNoncePair, Evidence, MembershipAction, Node, NodeStatus, NonceReuseEvidence,
+    OffenceKind, PartialTranscript, PunishmentCase, MAX_COMMITMENT_PROOF_DEPTH,
 };
 use molpha_tests::crypto::{self, CommitmentBatchTree, CommittedSlot, NodeKey};
 use molpha_tests::env::{assert_molpha_error, events, only_event, PACKET_DATA_SIZE};
@@ -40,7 +39,7 @@ const NONCE_REUSE_CU_CEILING: u64 = 800_000;
 ///
 /// Args are fixed-size apart from the proof, so each level of batch depth costs exactly 32 bytes.
 /// Deeper batches stay filable through a v0 transaction with an address lookup table.
-const MAX_LEGACY_PROOF_DEPTH: usize = 4;
+const MAX_LEGACY_PROOF_DEPTH: usize = 5;
 
 struct Case {
     p: Protocol,
@@ -121,7 +120,7 @@ fn case_with_batch(slots: u64) -> Case {
     }
 }
 
-fn args_for(case: &Case) -> PunishNonceReuseArgs {
+fn args_for(case: &Case) -> NonceReuseEvidence {
     args_with_transcripts(case, case.transcript(B_A, C_A), case.transcript(B_B, C_B))
 }
 
@@ -129,7 +128,7 @@ fn args_with_transcripts(
     case: &Case,
     transcript_a: PartialTranscript,
     transcript_b: PartialTranscript,
-) -> PunishNonceReuseArgs {
+) -> NonceReuseEvidence {
     let batch_root = case.batch.root();
     let signature = crypto::sign_commitment_batch(
         &case.node_key,
@@ -141,18 +140,7 @@ fn args_with_transcripts(
         &batch_root,
     );
     let nonces = case.nonces();
-    let evidence_hash = nonce_reuse_evidence_hash(
-        case.registry_version,
-        case.node_index,
-        EPOCH,
-        &BATCH_META,
-        &batch_root,
-        case.slot().slot,
-        &nonces,
-        &transcript_a,
-        &transcript_b,
-    );
-    PunishNonceReuseArgs {
+    NonceReuseEvidence {
         registry_version: case.registry_version,
         node_index: case.node_index,
         epoch: EPOCH,
@@ -165,39 +153,25 @@ fn args_with_transcripts(
         merkle_proof: case.batch.proof(case.leaf_index),
         transcript_a,
         transcript_b,
-        evidence_hash,
     }
 }
 
-/// Recompute the evidence hash after mutating a field, so a rejection test fails on the reason it
-/// is testing rather than on a stale hash.
-fn resealed(mut args: PunishNonceReuseArgs) -> PunishNonceReuseArgs {
-    args.evidence_hash = nonce_reuse_evidence_hash(
-        args.registry_version,
-        args.node_index,
-        args.epoch,
-        &args.batch_meta,
-        &args.batch_root,
-        args.slot,
-        &args.nonces,
-        &args.transcript_a,
-        &args.transcript_b,
-    );
+fn resealed(args: NonceReuseEvidence) -> NonceReuseEvidence {
     args
 }
 
-fn file(case: &mut Case, args: PunishNonceReuseArgs) -> litesvm::types::TransactionMetadata {
+fn file(case: &mut Case, args: NonceReuseEvidence) -> litesvm::types::TransactionMetadata {
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_nonce_reuse_ix(&reporter.pubkey(), args);
+    let ix = case.p.slash_nonce_reuse_ix(&reporter.pubkey(), args);
     case.p.env.send_ok(&[ix], &[&reporter])
 }
 
 fn file_err(
     case: &mut Case,
-    args: PunishNonceReuseArgs,
+    args: NonceReuseEvidence,
 ) -> litesvm::types::FailedTransactionMetadata {
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_nonce_reuse_ix(&reporter.pubkey(), args);
+    let ix = case.p.slash_nonce_reuse_ix(&reporter.pubkey(), args);
     case.p.env.send_err(&[ix], &[&reporter])
 }
 
@@ -264,7 +238,7 @@ fn a_proven_nonce_reuse_takes_the_whole_deposit_tombstones_and_evicts_the_node()
     );
     case.p.assert_solvent();
 
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash()));
     assert_eq!(record.offence, OffenceKind::NonceReuse);
     assert_eq!(record.guilty_count, 1);
     assert_eq!(record.slashed_total, locked);
@@ -320,7 +294,7 @@ fn transcript_order_does_not_change_the_evidence_hash() {
     let forward = args_for(&case);
     let reversed =
         args_with_transcripts(&case, case.transcript(B_B, C_B), case.transcript(B_A, C_A));
-    assert_eq!(forward.evidence_hash, reversed.evidence_hash);
+    assert_eq!(forward.evidence_hash(), reversed.evidence_hash());
 }
 
 #[test]
@@ -470,10 +444,10 @@ fn a_proof_deeper_than_the_cap_is_refused_before_any_hashing() {
 fn a_batch_signature_that_does_not_cover_the_filed_header_is_rejected() {
     // Every bound header field must break the signature when changed.
     for mutate in [
-        (|args: &mut PunishNonceReuseArgs| args.epoch += 1) as fn(&mut PunishNonceReuseArgs),
-        |args: &mut PunishNonceReuseArgs| args.batch_meta[0] ^= 1,
-        |args: &mut PunishNonceReuseArgs| args.batch_sig_s[31] ^= 1,
-        |args: &mut PunishNonceReuseArgs| args.batch_commitment_addr[0] ^= 1,
+        (|args: &mut NonceReuseEvidence| args.epoch += 1) as fn(&mut NonceReuseEvidence),
+        |args: &mut NonceReuseEvidence| args.batch_meta[0] ^= 1,
+        |args: &mut NonceReuseEvidence| args.batch_sig_s[31] ^= 1,
+        |args: &mut NonceReuseEvidence| args.batch_commitment_addr[0] ^= 1,
     ] {
         let mut case = case();
         let mut args = args_for(&case);
@@ -501,15 +475,6 @@ fn an_unsigned_batch_root_is_rejected() {
     assert_molpha_error(&err, MolphaError::InvalidBatchSignature);
 }
 
-#[test]
-fn an_evidence_hash_that_does_not_cover_the_filing_is_rejected() {
-    let mut case = case();
-    let mut args = args_for(&case);
-    args.evidence_hash[0] ^= 1;
-    let err = file_err(&mut case, args);
-    assert_molpha_error(&err, MolphaError::EvidenceHashMismatch);
-}
-
 /// An index past `node_count` names no registry entry, so the lookup refuses it. Built by hand: the
 /// scenario builder derives its accounts from the registry and cannot address a slot that is empty.
 #[test]
@@ -522,14 +487,14 @@ fn a_node_index_outside_the_registry_is_rejected() {
     let args = resealed(args);
 
     let reporter = case.reporter.insecure_clone();
-    let mut accounts = molpha::accounts::PunishNonceReuse {
+    let mut accounts = molpha::accounts::SlashNonceReuse {
         reporter: reporter.pubkey(),
         protocol_config: pda::protocol_config(),
         registry_state: pda::registry_state(),
         evidence_registry: pda::registry(args.registry_version),
         current_registry: pda::registry(case.p.current_version()),
         new_registry: pda::registry(case.p.current_version() + 1),
-        punishment_case: pda::punishment_case(&args.evidence_hash),
+        punishment_case: pda::punishment_case(&args.evidence_hash()),
         node_deposit_vault: case.p.node_deposit_vault(),
         treasury: case.p.treasury(),
         reporter_usdc: pda::ata(&reporter.pubkey(), &case.p.usdc_mint),
@@ -542,7 +507,7 @@ fn a_node_index_outside_the_registry_is_rejected() {
     let ix = anchor_lang::solana_program::instruction::Instruction {
         program_id: molpha::ID,
         accounts,
-        data: molpha::instruction::PunishNonceReuse { args }.data(),
+        data: molpha::instruction::SlashNonceReuse { evidence: args }.data(),
     };
     let err = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&err, MolphaError::InvalidNodeIndex);
@@ -582,7 +547,7 @@ fn proof_depth_drives_the_wire_size() {
     for depth in 0..=MAX_COMMITMENT_PROOF_DEPTH {
         let mut args = base.clone();
         args.merkle_proof = vec![[0u8; 32]; depth];
-        let ix = case.p.punish_nonce_reuse_ix(&reporter, resealed(args));
+        let ix = case.p.slash_nonce_reuse_ix(&reporter, resealed(args));
         let size = case.p.env.transaction_size_as(&reporter, &[ix]);
         println!("punish_nonce_reuse: proof depth {depth:>2} -> {size} bytes legacy");
         if size <= PACKET_DATA_SIZE {

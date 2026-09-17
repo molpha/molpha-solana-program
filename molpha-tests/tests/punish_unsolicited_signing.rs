@@ -1,11 +1,10 @@
-//! `punish_unsolicited_signing`: a valid attestation carrying a signer the duty never selected.
+//! `slash_unsolicited_signing`: a valid attestation carrying a signer the duty never selected.
 
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::{NodePunished, UnsolicitedSigningProven};
-use molpha::instructions::PunishUnsolicitedSigningArgs;
 use molpha::state::{
-    unsolicited_signing_evidence_hash, Node, NodeStatus, OffenceKind, PunishmentCase,
+    Evidence, Node, NodeStatus, OffenceKind, PunishmentCase, UnsolicitedSigningEvidence,
 };
 use molpha_tests::crypto;
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, events, only_event};
@@ -54,12 +53,9 @@ fn case() -> Case {
     }
 }
 
-fn args_for(_case: &Case, signed: &SignedAttestation) -> PunishUnsolicitedSigningArgs {
+fn args_for(_case: &Case, signed: &SignedAttestation) -> UnsolicitedSigningEvidence {
     let attestation = signed.attestation();
-    PunishUnsolicitedSigningArgs {
-        evidence_hash: unsolicited_signing_evidence_hash(&attestation),
-        attestation,
-    }
+    UnsolicitedSigningEvidence { attestation }
 }
 
 fn pda_for_bit(case: &Case, bit: usize) -> Pubkey {
@@ -92,7 +88,7 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
     let new_version = case.p.current_version() + 1;
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
+        .slash_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
     let meta = case.p.env.send_ok(&[ix], &[&reporter]);
 
     for node in &guilty {
@@ -127,7 +123,7 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
     );
     case.p.assert_solvent();
 
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash()));
     assert_eq!(record.offence, OffenceKind::UnsolicitedSigning);
     assert_eq!(record.guilty_count, guilty.len() as u16);
     assert_eq!(record.slashed_total, expected_slashed);
@@ -161,7 +157,7 @@ fn a_fully_selected_coalition_is_not_an_offence() {
     let reporter = case.reporter.insecure_clone();
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
+        .slash_unsolicited_signing_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::SignersFullySelected);
 }
@@ -175,26 +171,12 @@ fn an_attestation_whose_signature_does_not_verify_proves_nothing() {
 
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
+        .slash_unsolicited_signing_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::InvalidAggregateSignature);
     for node in case.p.node_pdas() {
         assert_eq!(case.p.env.get::<Node>(&node).status, NodeStatus::Active);
     }
-}
-
-#[test]
-fn an_evidence_hash_that_does_not_match_the_attestation_is_refused() {
-    let mut case = case();
-    let mut args = args_for(&case, &case.signed);
-    args.evidence_hash[31] ^= 0x01;
-    let reporter = case.reporter.insecure_clone();
-
-    let ix = case
-        .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::EvidenceHashMismatch);
 }
 
 #[test]
@@ -204,13 +186,13 @@ fn the_same_evidence_cannot_be_filed_twice() {
     let args = args_for(&case, &case.signed);
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
+        .slash_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     // Same evidence, next registry version: the case PDA is seeded by the evidence hash alone.
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
+        .slash_unsolicited_signing_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert!(
         failed
@@ -228,7 +210,7 @@ fn filing_requires_the_next_registry_version() {
     let mut case = case();
     let reporter = case.reporter.insecure_clone();
     let skipped = case.p.current_version() + 4;
-    let ix = case.p.punish_unsolicited_signing_ix_with_registry(
+    let ix = case.p.slash_unsolicited_signing_ix_with_registry(
         &reporter.pubkey(),
         args_for(&case, &case.signed),
         skipped,
@@ -246,7 +228,7 @@ fn an_already_tombstoned_intruder_leaves_nothing_to_punish() {
     let args = args_for(&case, &case.signed);
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
+        .slash_unsolicited_signing_ix(&reporter.pubkey(), args);
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     // A second, distinct offence by the same node (a different timestamp, so different evidence)
@@ -270,7 +252,7 @@ fn an_already_tombstoned_intruder_leaves_nothing_to_punish() {
     let args = args_for(&case, &signed);
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args);
+        .slash_unsolicited_signing_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::NothingToPunish);
 }
@@ -301,14 +283,14 @@ fn two_intruders_in_one_attestation_are_both_punished() {
     let reporter = case.reporter.insecure_clone();
     let ix = case
         .p
-        .punish_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
+        .slash_unsolicited_signing_ix(&reporter.pubkey(), args.clone());
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     for bit in &intruders {
         let node = pda_for_bit(&case, *bit);
         assert_eq!(case.p.env.get::<Node>(&node).status, NodeStatus::Tombstoned);
     }
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash()));
     assert_eq!(record.guilty_count, 2);
     assert_eq!(record.slashed_total, case.p.args.minimum_node_deposit * 2);
 }

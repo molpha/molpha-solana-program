@@ -1,18 +1,17 @@
 //! Two valid attestations share a nonce commitment but sign different messages.
 //!
-//! Same-duty different-value pairs must use `punish_equivocation`. Cross-version reuse is out of scope.
+//! Same-duty different-value pairs must use `slash_equivocation`. Cross-version reuse is out of scope.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
 use molpha_verifier::solana::resolve_intersected_signers_accounts;
-use molpha_verifier::Attestation;
 
 use crate::{
     error::MolphaError,
     events::CommitmentReuseProven,
     state::{
-        commitment_reuse_evidence_hash, OffenceKind, ProtocolConfig, PunishmentCase, Registry,
-        RegistryState,
+        CommitmentReuseEvidence, ProtocolConfig, PunishmentCase, Registry,
+        RegistryState, Evidence,
     },
     utils::slash::{
         is_equivocation, require_signers_selected, slash_nodes, verify_evidence_signature,
@@ -20,19 +19,11 @@ use crate::{
     },
 };
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct PunishCommitmentReuseArgs {
-    pub attestation_a: Attestation,
-    pub attestation_b: Attestation,
-    /// Must match `commitment_reuse_evidence_hash(..)`; used as the `PunishmentCase` PDA seed.
-    pub evidence_hash: [u8; 32],
-}
-
-pub fn punish_commitment_reuse<'info>(
-    ctx: Context<'info, PunishCommitmentReuse<'info>>,
-    args: PunishCommitmentReuseArgs,
+pub fn slash_commitment_reuse<'info>(
+    ctx: Context<'info, SlashCommitmentReuse<'info>>,
+    evidence: CommitmentReuseEvidence,
 ) -> Result<()> {
-    let (attestation_a, attestation_b) = (&args.attestation_a, &args.attestation_b);
+    let (attestation_a, attestation_b) = (&evidence.attestation_a, &evidence.attestation_b);
 
     require!(
         attestation_a.signature.commitment == attestation_b.signature.commitment,
@@ -58,11 +49,6 @@ pub fn punish_commitment_reuse<'info>(
         MolphaError::PreferEquivocation
     );
 
-    require!(
-        commitment_reuse_evidence_hash(attestation_a, attestation_b) == args.evidence_hash,
-        MolphaError::EvidenceHashMismatch
-    );
-
     {
         let evidence_registry = ctx.accounts.evidence_registry.load()?;
         let view = evidence_registry.view();
@@ -80,8 +66,8 @@ pub fn punish_commitment_reuse<'info>(
     let guilty_bitmap = resolution.intersected_bitmap;
     require!(guilty_bitmap.popcount() > 0, MolphaError::GuiltySetEmpty);
 
-    verify_evidence_signature(&args.attestation_a, &resolution.signers_a)?;
-    verify_evidence_signature(&args.attestation_b, &resolution.signers_b)?;
+    verify_evidence_signature(&evidence.attestation_a, &resolution.signers_a)?;
+    verify_evidence_signature(&evidence.attestation_b, &resolution.signers_b)?;
 
     let reporter = ctx.accounts.reporter.key();
     let outcome = slash_nodes(
@@ -104,25 +90,23 @@ pub fn punish_commitment_reuse<'info>(
             signers_bitmap: resolution.unioned_bitmap,
             guilty_bitmap,
             program_id: ctx.program_id,
-            offence: OffenceKind::CommitmentReuse,
-            registry_version: args.attestation_a.payload.registry_version,
-            evidence_hash: args.evidence_hash,
+            evidence: &evidence,
         },
     )?;
 
     emit!(CommitmentReuseProven {
-        registry_version: args.attestation_a.payload.registry_version,
-        commitment_addr: args.attestation_a.signature.commitment,
-        source_id_a: args.attestation_a.payload.source_id,
-        signatures_required_a: args.attestation_a.payload.signatures_required,
-        canonical_timestamp_a: args.attestation_a.payload.canonical_timestamp,
-        signers_bitmap_a: args.attestation_a.signature.signers_bitmap,
-        source_id_b: args.attestation_b.payload.source_id,
-        signatures_required_b: args.attestation_b.payload.signatures_required,
-        canonical_timestamp_b: args.attestation_b.payload.canonical_timestamp,
-        signers_bitmap_b: args.attestation_b.signature.signers_bitmap,
+        registry_version: evidence.registry_version(),
+        commitment_addr: evidence.attestation_a.signature.commitment,
+        source_id_a: evidence.attestation_a.payload.source_id,
+        signatures_required_a: evidence.attestation_a.payload.signatures_required,
+        canonical_timestamp_a: evidence.attestation_a.payload.canonical_timestamp,
+        signers_bitmap_a: evidence.attestation_a.signature.signers_bitmap,
+        source_id_b: evidence.attestation_b.payload.source_id,
+        signatures_required_b: evidence.attestation_b.payload.signatures_required,
+        canonical_timestamp_b: evidence.attestation_b.payload.canonical_timestamp,
+        signers_bitmap_b: evidence.attestation_b.signature.signers_bitmap,
         guilty_bitmap: guilty_bitmap.to_bytes(),
-        evidence_hash: args.evidence_hash,
+        evidence_hash: evidence.evidence_hash(),
         reporter,
         slashed_total: outcome.slashed_total,
         bounty_paid: outcome.bounty_paid,
@@ -132,8 +116,8 @@ pub fn punish_commitment_reuse<'info>(
 }
 
 #[derive(Accounts)]
-#[instruction(args: PunishCommitmentReuseArgs)]
-pub struct PunishCommitmentReuse<'info> {
+#[instruction(evidence: CommitmentReuseEvidence)]
+pub struct SlashCommitmentReuse<'info> {
     #[account(mut)]
     pub reporter: Signer<'info>,
 
@@ -152,7 +136,7 @@ pub struct PunishCommitmentReuse<'info> {
     pub registry_state: Box<Account<'info, RegistryState>>,
 
     #[account(
-        seeds = [Registry::SEED_PREFIX, args.attestation_a.payload.registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, evidence.registry_version().to_le_bytes().as_ref()],
         bump,
     )]
     pub evidence_registry: AccountLoader<'info, Registry>,
@@ -177,7 +161,7 @@ pub struct PunishCommitmentReuse<'info> {
         init,
         payer = reporter,
         space = PunishmentCase::SPACE,
-        seeds = [PunishmentCase::SEED_PREFIX, args.evidence_hash.as_ref()],
+        seeds = [PunishmentCase::SEED_PREFIX, evidence.evidence_hash().as_ref()],
         bump,
     )]
     pub punishment_case: Box<Account<'info, PunishmentCase>>,

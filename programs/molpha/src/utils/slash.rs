@@ -18,7 +18,7 @@ use crate::{
     events::NodePunished,
     state::{
         MembershipAction, Node, NodeStatus, OffenceKind, Penalty, ProtocolConfig, PunishmentCase,
-        Registry, RegistryState,
+        Registry, RegistryState, Evidence,
     },
     utils::registry::with_registry_snapshot,
 };
@@ -103,11 +103,11 @@ impl PunishmentBatch {
 /// Already-tombstoned nodes are skipped so one stale bit cannot block the batch. Nothing else is
 /// skipped: the whole sentence settles in this instruction, so there is no half-settled state a
 /// later offence could collide with, and no way for a node to become temporarily unpunishable.
-fn slash_guilty_nodes<'info>(
-    input: &SlashInput<'info>,
+fn slash_guilty_nodes<'info, 'b, T: Evidence>(
+    input: &SlashInput<'info, 'b, T>,
     withdrawal_cooldown_slots: u64,
 ) -> Result<PunishmentBatch> {
-    let penalty = input.offence.penalty();
+    let penalty = input.evidence.penalty();
     let mut batch = PunishmentBatch::default();
     let clock = Clock::get()?;
 
@@ -120,10 +120,6 @@ fn slash_guilty_nodes<'info>(
             return Ok(());
         }
 
-        require!(
-            account_info.owner == input.program_id,
-            MolphaError::InvalidCreditNodeAccount
-        );
         let mut node: Account<Node> = Account::try_from(account_info)?;
 
         if node.status == NodeStatus::Tombstoned {
@@ -146,7 +142,7 @@ fn slash_guilty_nodes<'info>(
         emit!(NodePunished {
             node: node.key(),
             owner: node.owner,
-            offence: input.offence,
+            offence: input.evidence.offence_kind(),
             slashed_locked: outcome.slashed_locked,
             slashed_rewards: outcome.slashed_rewards,
             new_status: node.status,
@@ -224,15 +220,13 @@ pub struct SlashAccounts<'a, 'info> {
 }
 
 /// Proof output from an offence-specific handler, fed into [`slash_nodes`].
-pub struct SlashInput<'info> {
+pub struct SlashInput<'info, 'b, T: Evidence> {
     /// The signer `Node` accounts the aggregate was verified against, in ascending bit order.
     pub signer_accounts: &'info [AccountInfo<'info>],
     pub signers_bitmap: Bitmap,
     pub guilty_bitmap: Bitmap,
     pub program_id: &'info Pubkey,
-    pub offence: OffenceKind,
-    pub registry_version: u32,
-    pub evidence_hash: [u8; 32],
+    pub evidence: &'b T,
 }
 
 /// Values the offence-specific `*Proven` event needs after the shared sentence runs.
@@ -244,9 +238,9 @@ pub struct SlashOutcome {
 
 /// Shared sentence: slash guilty nodes, evict them into a successor registry, pay the reporter
 /// bounty, init `PunishmentCase`, and emit `RegistryVersionCreated`.
-pub fn slash_nodes<'a, 'info>(
+pub fn slash_nodes<'a, 'info, 'b, T: Evidence>(
     accounts: SlashAccounts<'a, 'info>,
-    input: SlashInput<'info>,
+    input: SlashInput<'info, 'b, T>,
 ) -> Result<SlashOutcome> {
     let clock = Clock::get()?;
 
@@ -324,14 +318,12 @@ pub fn slash_nodes<'a, 'info>(
     }
 
     accounts.punishment_case.init(
-        input.offence,
+        input.evidence,
         accounts.reporter,
-        input.registry_version,
         input.guilty_bitmap.to_bytes(),
         input.guilty_bitmap.popcount() as u16,
         slashed_total,
         bounty,
-        input.evidence_hash,
         clock.slot,
         accounts.punishment_case_bump,
     );

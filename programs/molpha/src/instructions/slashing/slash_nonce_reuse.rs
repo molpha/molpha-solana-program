@@ -26,68 +26,32 @@ use crate::{
     error::{map_attestation_err, MolphaError},
     events::NonceReuseProven,
     state::{
-        commitment_batch_message_hash, commitment_leaf_hash, nonce_reuse_evidence_hash,
-        verify_commitment_merkle_proof, CommittedNoncePair, Node, OffenceKind, PartialTranscript,
+        commitment_batch_message_hash, commitment_leaf_hash, NonceReuseEvidence,
+        verify_commitment_merkle_proof, Node, Evidence,
         ProtocolConfig, PunishmentCase, Registry, RegistryState, MAX_COMMITMENT_PROOF_DEPTH,
         MAX_REGISTRY_NODES,
     },
     utils::slash::{slash_nodes, SlashAccounts, SlashInput},
 };
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct PunishNonceReuseArgs {
-    /// Registry version that `node_index` indexes into; also bound into the batch signature.
-    pub registry_version: u32,
-    pub node_index: u32,
-    pub epoch: u64,
-    /// Opaque batch header bytes, covered by the signature but not interpreted on-chain.
-    pub batch_meta: [u8; 32],
-    pub batch_root: [u8; 32],
-    /// Single-key EVM-Schnorr signature over the batch message.
-    pub batch_sig_s: [u8; 32],
-    pub batch_commitment_addr: [u8; 20],
-    pub slot: u64,
-    pub nonces: CommittedNoncePair,
-    pub merkle_proof: Vec<[u8; 32]>,
-    pub transcript_a: PartialTranscript,
-    pub transcript_b: PartialTranscript,
-    /// Must match `nonce_reuse_evidence_hash(..)`; used as the `PunishmentCase` PDA seed.
-    pub evidence_hash: [u8; 32],
-}
-
-pub fn punish_nonce_reuse<'info>(
-    ctx: Context<'info, PunishNonceReuse<'info>>,
-    args: PunishNonceReuseArgs,
+pub fn slash_nonce_reuse<'info>(
+    ctx: Context<'info, SlashNonceReuse<'info>>,
+    evidence: NonceReuseEvidence,
 ) -> Result<()> {
     require!(
-        args.merkle_proof.len() <= MAX_COMMITMENT_PROOF_DEPTH,
+        evidence.merkle_proof.len() <= MAX_COMMITMENT_PROOF_DEPTH,
         MolphaError::MerkleProofTooDeep
     );
 
     // The equation fixes `s` given `(b, c)`, so differing shares alone prove nothing; the reuse is
     // two distinct challenge pairs consumed against one commitment.
     require!(
-        (args.transcript_a.b, args.transcript_a.c) != (args.transcript_b.b, args.transcript_b.c),
+        (evidence.transcript_a.b, evidence.transcript_a.c) != (evidence.transcript_b.b, evidence.transcript_b.c),
         MolphaError::TranscriptContextsEqual
     );
 
-    require!(
-        nonce_reuse_evidence_hash(
-            args.registry_version,
-            args.node_index,
-            args.epoch,
-            &args.batch_meta,
-            &args.batch_root,
-            args.slot,
-            &args.nonces,
-            &args.transcript_a,
-            &args.transcript_b,
-        ) == args.evidence_hash,
-        MolphaError::EvidenceHashMismatch
-    );
-
     let node_index =
-        usize::try_from(args.node_index).map_err(|_| error!(MolphaError::InvalidNodeIndex))?;
+        usize::try_from(evidence.node_index).map_err(|_| error!(MolphaError::InvalidNodeIndex))?;
     require!(
         node_index < MAX_REGISTRY_NODES,
         MolphaError::InvalidNodeIndex
@@ -108,24 +72,24 @@ pub fn punish_nonce_reuse<'info>(
         MolphaError::InvalidNodeAccount
     );
 
-    let leaf = commitment_leaf_hash(args.slot, &args.nonces);
+    let leaf = commitment_leaf_hash(evidence.slot, &evidence.nonces);
     require!(
-        verify_commitment_merkle_proof(leaf, &args.merkle_proof, &args.batch_root),
+        verify_commitment_merkle_proof(leaf, &evidence.merkle_proof, &evidence.batch_root),
         MolphaError::InvalidMerkleProof
     );
 
     let batch_message = commitment_batch_message_hash(
         ctx.program_id,
-        args.registry_version,
-        args.node_index,
-        args.epoch,
-        &args.batch_meta,
-        &args.batch_root,
+        evidence.registry_version(),
+        evidence.node_index,
+        evidence.epoch,
+        &evidence.batch_meta,
+        &evidence.batch_root,
     );
     require!(
         molpha_verifier::verify_aggregate_over_hash(
-            &args.batch_sig_s,
-            &args.batch_commitment_addr,
+            &evidence.batch_sig_s,
+            &evidence.batch_commitment_addr,
             &batch_message,
             &[(node.secp256k1_pubkey_x, node.secp256k1_pubkey_y)],
         )
@@ -133,9 +97,9 @@ pub fn punish_nonce_reuse<'info>(
         MolphaError::InvalidBatchSignature
     );
 
-    let r1 = (args.nonces.r1_x, args.nonces.r1_y);
-    let r2 = (args.nonces.r2_x, args.nonces.r2_y);
-    for transcript in [&args.transcript_a, &args.transcript_b] {
+    let r1 = (evidence.nonces.r1_x, evidence.nonces.r1_y);
+    let r2 = (evidence.nonces.r2_x, evidence.nonces.r2_y);
+    for transcript in [&evidence.transcript_a, &evidence.transcript_b] {
         require!(
             molpha_verifier::verify_partial_signature_equation(
                 &(node.secp256k1_pubkey_x, node.secp256k1_pubkey_y),
@@ -171,26 +135,24 @@ pub fn punish_nonce_reuse<'info>(
             signers_bitmap: guilty_bitmap,
             guilty_bitmap,
             program_id: ctx.program_id,
-            offence: OffenceKind::NonceReuse,
-            registry_version: args.registry_version,
-            evidence_hash: args.evidence_hash,
+            evidence: &evidence,
         },
     )?;
 
     emit!(NonceReuseProven {
-        registry_version: args.registry_version,
-        node_index: args.node_index,
-        epoch: args.epoch,
-        batch_meta: args.batch_meta,
-        batch_root: args.batch_root,
-        slot: args.slot,
-        r1_x: args.nonces.r1_x,
-        r1_y: args.nonces.r1_y,
-        r2_x: args.nonces.r2_x,
-        r2_y: args.nonces.r2_y,
+        registry_version: evidence.registry_version(),
+        node_index: evidence.node_index,
+        epoch: evidence.epoch,
+        batch_meta: evidence.batch_meta,
+        batch_root: evidence.batch_root,
+        slot: evidence.slot,
+        r1_x: evidence.nonces.r1_x,
+        r1_y: evidence.nonces.r1_y,
+        r2_x: evidence.nonces.r2_x,
+        r2_y: evidence.nonces.r2_y,
         guilty_bitmap: guilty_bitmap.to_bytes(),
         guilty_count: 1,
-        evidence_hash: args.evidence_hash,
+        evidence_hash: evidence.evidence_hash(),
         reporter,
         slashed_total: outcome.slashed_total,
         bounty_paid: outcome.bounty_paid,
@@ -207,8 +169,8 @@ fn map_nonce_equation_err(error: NonceEquationError) -> anchor_lang::error::Erro
 }
 
 #[derive(Accounts)]
-#[instruction(args: PunishNonceReuseArgs)]
-pub struct PunishNonceReuse<'info> {
+#[instruction(evidence: NonceReuseEvidence)]
+pub struct SlashNonceReuse<'info> {
     #[account(mut)]
     pub reporter: Signer<'info>,
 
@@ -227,7 +189,7 @@ pub struct PunishNonceReuse<'info> {
     pub registry_state: Box<Account<'info, RegistryState>>,
 
     #[account(
-        seeds = [Registry::SEED_PREFIX, args.registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, evidence.registry_version().to_le_bytes().as_ref()],
         bump,
     )]
     pub evidence_registry: AccountLoader<'info, Registry>,
@@ -252,7 +214,7 @@ pub struct PunishNonceReuse<'info> {
         init,
         payer = reporter,
         space = PunishmentCase::SPACE,
-        seeds = [PunishmentCase::SEED_PREFIX, args.evidence_hash.as_ref()],
+        seeds = [PunishmentCase::SEED_PREFIX, evidence.evidence_hash().as_ref()],
         bump,
     )]
     pub punishment_case: Box<Account<'info, PunishmentCase>>,

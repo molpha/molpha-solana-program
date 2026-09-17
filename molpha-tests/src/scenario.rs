@@ -9,12 +9,15 @@ use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::{InstructionData, ToAccountMetas};
 use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
-    AddDelegateArgs, AddPlanArgs, InitializeArgs, PunishCommitmentReuseArgs,
-    PunishEquivocationArgs, PunishNonceReuseArgs, PunishUnsolicitedSigningArgs,
-    RegisterGatewayArgs, RegisterNodeArgs, RemoveDelegateArgs, SettleX402RoundArgs,
-    SubmitAttestationArgs, UpdateConfigArgs, UpdateNodeEndpointArgs, UpdatePlanArgs,
+    AddDelegateArgs, AddPlanArgs, InitializeArgs, RegisterGatewayArgs, RegisterNodeArgs,
+    RemoveDelegateArgs, SettleX402RoundArgs, SubmitAttestationArgs, UpdateConfigArgs,
+    UpdateNodeEndpointArgs, UpdatePlanArgs,
 };
-use molpha::state::{PlanType, RegistryState};
+use molpha::state::{
+    CommitmentReuseEvidence, EquivocationEvidence, NonceReuseEvidence, PlanType,
+    RegistryState, UnsolicitedSigningEvidence,
+};
+use molpha::state::Evidence;
 use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
@@ -1212,34 +1215,34 @@ impl Protocol {
             .collect()
     }
 
-    pub fn punish_equivocation_ix(
+    pub fn slash_equivocation_ix(
         &self,
         reporter: &Pubkey,
-        args: PunishEquivocationArgs,
+        evidence: EquivocationEvidence,
     ) -> Instruction {
-        self.punish_equivocation_ix_with_registry(reporter, args, self.current_version() + 1)
+        self.slash_equivocation_ix_with_registry(reporter, evidence, self.current_version() + 1)
     }
 
-    pub fn punish_equivocation_ix_with_registry(
+    pub fn slash_equivocation_ix_with_registry(
         &self,
         reporter: &Pubkey,
-        args: PunishEquivocationArgs,
+        evidence: EquivocationEvidence,
         new_registry_version: u32,
     ) -> Instruction {
         let union = union_bitmap(
-            &args.attestation_a.signature.signers_bitmap,
-            &args.attestation_b.signature.signers_bitmap,
+            &evidence.attestation_a.signature.signers_bitmap,
+            &evidence.attestation_b.signature.signers_bitmap,
         );
-        let registry_version = args.attestation_a.payload.registry_version;
+        let registry_version = evidence.attestation_a.payload.registry_version;
         let accused = self.node_pdas_for_bitmap(registry_version, &union);
-        let mut accounts = molpha::accounts::PunishEquivocation {
+        let mut accounts = molpha::accounts::SlashEquivocation {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
             registry_state: pda::registry_state(),
             evidence_registry: pda::registry(registry_version),
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
-            punishment_case: pda::punishment_case(&args.evidence_hash),
+            punishment_case: pda::punishment_case(&evidence.evidence_hash()),
             node_deposit_vault: self.node_deposit_vault(),
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
@@ -1251,35 +1254,41 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts,
-            data: molpha::instruction::PunishEquivocation { args }.data(),
+            data: molpha::instruction::SlashEquivocation { evidence }.data(),
         }
     }
 
-    pub fn punish_unsolicited_signing_ix(
+    pub fn slash_unsolicited_signing_ix(
         &self,
         reporter: &Pubkey,
-        args: PunishUnsolicitedSigningArgs,
+        evidence: UnsolicitedSigningEvidence,
     ) -> Instruction {
-        self.punish_unsolicited_signing_ix_with_registry(reporter, args, self.current_version() + 1)
+        self.slash_unsolicited_signing_ix_with_registry(
+            reporter,
+            evidence,
+            self.current_version() + 1,
+        )
     }
 
-    pub fn punish_unsolicited_signing_ix_with_registry(
+    pub fn slash_unsolicited_signing_ix_with_registry(
         &self,
         reporter: &Pubkey,
-        args: PunishUnsolicitedSigningArgs,
+        evidence: UnsolicitedSigningEvidence,
         new_registry_version: u32,
     ) -> Instruction {
-        let registry_version = args.attestation.payload.registry_version;
-        let accused =
-            self.node_pdas_for_bitmap(registry_version, &args.attestation.signature.signers_bitmap);
-        let mut accounts = molpha::accounts::PunishUnsolicitedSigning {
+        let registry_version = evidence.registry_version();
+        let accused = self.node_pdas_for_bitmap(
+            registry_version,
+            &evidence.attestation.signature.signers_bitmap,
+        );
+        let mut accounts = molpha::accounts::SlashUnsolicitedSigning {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
             registry_state: pda::registry_state(),
             evidence_registry: pda::registry(registry_version),
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
-            punishment_case: pda::punishment_case(&args.evidence_hash),
+            punishment_case: pda::punishment_case(&evidence.evidence_hash()),
             node_deposit_vault: self.node_deposit_vault(),
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
@@ -1291,38 +1300,42 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts,
-            data: molpha::instruction::PunishUnsolicitedSigning { args }.data(),
+            data: molpha::instruction::SlashUnsolicitedSigning { evidence }.data(),
         }
     }
 
-    pub fn punish_commitment_reuse_ix(
+    pub fn slash_commitment_reuse_ix(
         &self,
         reporter: &Pubkey,
-        args: PunishCommitmentReuseArgs,
+        evidence: CommitmentReuseEvidence,
     ) -> Instruction {
-        self.punish_commitment_reuse_ix_with_registry(reporter, args, self.current_version() + 1)
+        self.slash_commitment_reuse_ix_with_registry(
+            reporter,
+            evidence,
+            self.current_version() + 1,
+        )
     }
 
-    pub fn punish_commitment_reuse_ix_with_registry(
+    pub fn slash_commitment_reuse_ix_with_registry(
         &self,
         reporter: &Pubkey,
-        args: PunishCommitmentReuseArgs,
+        evidence: CommitmentReuseEvidence,
         new_registry_version: u32,
     ) -> Instruction {
         let union = union_bitmap(
-            &args.attestation_a.signature.signers_bitmap,
-            &args.attestation_b.signature.signers_bitmap,
+            &evidence.attestation_a.signature.signers_bitmap,
+            &evidence.attestation_b.signature.signers_bitmap,
         );
-        let registry_version = args.attestation_a.payload.registry_version;
+        let registry_version = evidence.attestation_a.payload.registry_version;
         let accused = self.node_pdas_for_bitmap(registry_version, &union);
-        let mut accounts = molpha::accounts::PunishCommitmentReuse {
+        let mut accounts = molpha::accounts::SlashCommitmentReuse {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
             registry_state: pda::registry_state(),
             evidence_registry: pda::registry(registry_version),
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
-            punishment_case: pda::punishment_case(&args.evidence_hash),
+            punishment_case: pda::punishment_case(&evidence.evidence_hash()),
             node_deposit_vault: self.node_deposit_vault(),
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
@@ -1334,34 +1347,34 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts,
-            data: molpha::instruction::PunishCommitmentReuse { args }.data(),
+            data: molpha::instruction::SlashCommitmentReuse { evidence }.data(),
         }
     }
 
-    pub fn punish_nonce_reuse_ix(
+    pub fn slash_nonce_reuse_ix(
         &self,
         reporter: &Pubkey,
-        args: PunishNonceReuseArgs,
+        evidence: NonceReuseEvidence,
     ) -> Instruction {
-        self.punish_nonce_reuse_ix_with_registry(reporter, args, self.current_version() + 1)
+        self.slash_nonce_reuse_ix_with_registry(reporter, evidence, self.current_version() + 1)
     }
 
-    pub fn punish_nonce_reuse_ix_with_registry(
+    pub fn slash_nonce_reuse_ix_with_registry(
         &self,
         reporter: &Pubkey,
-        args: PunishNonceReuseArgs,
+        evidence: NonceReuseEvidence,
         new_registry_version: u32,
     ) -> Instruction {
-        let guilty = crypto::bitmap_from_bits(&[args.node_index as usize]);
-        let accused = self.node_pdas_for_bitmap(args.registry_version, &guilty);
-        let mut accounts = molpha::accounts::PunishNonceReuse {
+        let guilty = crypto::bitmap_from_bits(&[evidence.node_index as usize]);
+        let accused = self.node_pdas_for_bitmap(evidence.registry_version, &guilty);
+        let mut accounts = molpha::accounts::SlashNonceReuse {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
             registry_state: pda::registry_state(),
-            evidence_registry: pda::registry(args.registry_version),
+            evidence_registry: pda::registry(evidence.registry_version),
             current_registry: pda::registry(self.current_version()),
             new_registry: pda::registry(new_registry_version),
-            punishment_case: pda::punishment_case(&args.evidence_hash),
+            punishment_case: pda::punishment_case(&evidence.evidence_hash()),
             node_deposit_vault: self.node_deposit_vault(),
             treasury: self.treasury(),
             reporter_usdc: pda::ata(reporter, &self.usdc_mint),
@@ -1373,7 +1386,7 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts,
-            data: molpha::instruction::PunishNonceReuse { args }.data(),
+            data: molpha::instruction::SlashNonceReuse { evidence }.data(),
         }
     }
 }

@@ -47,6 +47,164 @@ pub enum OffenceKind {
     Inactivity,
 }
 
+pub trait Evidence {
+    fn evidence_hash(&self) -> [u8; 32];
+    fn offence_kind(&self) -> OffenceKind;
+    fn penalty(&self) -> Penalty;
+    fn registry_version(&self) -> u32;
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct EquivocationEvidence {
+    pub attestation_a: Attestation,
+    pub attestation_b: Attestation,
+}
+
+impl Evidence for EquivocationEvidence {
+    #[inline]
+    fn evidence_hash(&self) -> [u8; 32] {
+        let (lo, hi) = canonical_pair(
+            attestation_hash(&self.attestation_a),
+            attestation_hash(&self.attestation_b),
+        );
+        hashv(&[DOMAIN_EQUIVOCATION, lo.as_slice(), hi.as_slice()]).to_bytes()
+    }
+
+    fn offence_kind(&self) -> OffenceKind {
+        OffenceKind::Equivocation
+    }
+
+    fn penalty(&self) -> Penalty {
+        self.offence_kind().penalty()
+    }
+
+    fn registry_version(&self) -> u32 {
+        // Pair offences validate version equality in the handler; account resolution uses the
+        // first attestation's version so a mismatched filing fails with `RegistryVersionMismatch`
+        // instead of aborting during constraint evaluation.
+        self.attestation_a.payload.registry_version
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct CommitmentReuseEvidence {
+    pub attestation_a: Attestation,
+    pub attestation_b: Attestation,
+}
+
+impl Evidence for CommitmentReuseEvidence {
+    #[inline]
+    fn evidence_hash(&self) -> [u8; 32] {
+        let (lo, hi) = canonical_pair(
+            attestation_hash(&self.attestation_a),
+            attestation_hash(&self.attestation_b),
+        );
+        hashv(&[DOMAIN_COMMITMENT_REUSE, lo.as_slice(), hi.as_slice()]).to_bytes()
+    }
+
+    fn offence_kind(&self) -> OffenceKind {
+        OffenceKind::CommitmentReuse
+    }
+
+    fn penalty(&self) -> Penalty {
+        self.offence_kind().penalty()
+    }
+
+    fn registry_version(&self) -> u32 {
+        self.attestation_a.payload.registry_version
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct NonceReuseEvidence {
+    /// Registry version that `node_index` indexes into; also bound into the batch signature.
+    pub registry_version: u32,
+    pub node_index: u32,
+    pub epoch: u64,
+    /// Opaque batch header bytes, covered by the signature but not interpreted on-chain.
+    pub batch_meta: [u8; 32],
+    pub batch_root: [u8; 32],
+    /// Single-key EVM-Schnorr signature over the batch message.
+    pub batch_sig_s: [u8; 32],
+    pub batch_commitment_addr: [u8; 20],
+    pub slot: u64,
+    pub nonces: CommittedNoncePair,
+    pub merkle_proof: Vec<[u8; 32]>,
+    pub transcript_a: PartialTranscript,
+    pub transcript_b: PartialTranscript,
+}
+
+impl Evidence for NonceReuseEvidence {
+    /// Evidence hash for nonce-slot reuse; also the `PunishmentCase` PDA seed.
+    ///
+    /// Covers the offence identity only: which node, under which registry version, reused which
+    /// committed slot, with which two transcripts. The merkle path and batch signature are
+    /// verification witnesses rather than identity, so they are excluded — a given leaf under a signed
+    /// root has exactly one path anyway. Transcript hashes are order-normalized so that swapping the
+    /// two transcripts cannot open a second case over one offence.
+    fn evidence_hash(&self) -> [u8; 32] {
+        let (lo, hi) = canonical_pair(
+            partial_transcript_hash(&self.transcript_a),
+            partial_transcript_hash(&self.transcript_b),
+        );
+        hashv(&[
+            DOMAIN_NONCE_REUSE,
+            self.registry_version.to_be_bytes().as_slice(),
+            self.node_index.to_be_bytes().as_slice(),
+            self.epoch.to_be_bytes().as_slice(),
+            self.batch_meta.as_slice(),
+            self.batch_root.as_slice(),
+            self.slot.to_be_bytes().as_slice(),
+            self.nonces.r1_x.as_slice(),
+            self.nonces.r1_y.as_slice(),
+            self.nonces.r2_x.as_slice(),
+            self.nonces.r2_y.as_slice(),
+            lo.as_slice(),
+            hi.as_slice(),
+        ])
+        .to_bytes()
+    }
+
+    fn offence_kind(&self) -> OffenceKind {
+        OffenceKind::NonceReuse
+    }
+
+    fn penalty(&self) -> Penalty {
+        self.offence_kind().penalty()
+    }
+
+    fn registry_version(&self) -> u32 {
+        self.registry_version
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct UnsolicitedSigningEvidence {
+    pub attestation: Attestation,
+}
+
+impl Evidence for UnsolicitedSigningEvidence {
+    fn evidence_hash(&self) -> [u8; 32] {
+        hashv(&[
+            DOMAIN_UNSOLICITED_SIGNING,
+            attestation_hash(&self.attestation).as_slice(),
+        ])
+        .to_bytes()
+    }
+
+    fn offence_kind(&self) -> OffenceKind {
+        OffenceKind::UnsolicitedSigning
+    }
+
+    fn penalty(&self) -> Penalty {
+        self.offence_kind().penalty()
+    }
+
+    fn registry_version(&self) -> u32 {
+        self.attestation.payload.registry_version
+    }
+}
+
 impl OffenceKind {
     pub const fn penalty(self) -> Penalty {
         match self {
@@ -105,42 +263,6 @@ pub fn attestation_hash(attestation: &Attestation) -> [u8; 32] {
     .to_bytes()
 }
 
-/// Evidence hash for equivocation; also the `PunishmentCase` PDA seed.
-///
-/// Attestation hashes are order-normalized so swapping the two attestations cannot open a second
-/// case over one offence.
-pub fn equivocation_evidence_hash(
-    attestation_a: &Attestation,
-    attestation_b: &Attestation,
-) -> [u8; 32] {
-    let (lo, hi) = canonical_pair(
-        attestation_hash(attestation_a),
-        attestation_hash(attestation_b),
-    );
-    hashv(&[DOMAIN_EQUIVOCATION, lo.as_slice(), hi.as_slice()]).to_bytes()
-}
-
-/// Evidence hash for unsolicited signing; also the `PunishmentCase` PDA seed.
-pub fn unsolicited_signing_evidence_hash(attestation: &Attestation) -> [u8; 32] {
-    hashv(&[
-        DOMAIN_UNSOLICITED_SIGNING,
-        attestation_hash(attestation).as_slice(),
-    ])
-    .to_bytes()
-}
-
-/// Evidence hash for commitment reuse; also the `PunishmentCase` PDA seed.
-pub fn commitment_reuse_evidence_hash(
-    attestation_a: &Attestation,
-    attestation_b: &Attestation,
-) -> [u8; 32] {
-    let (lo, hi) = canonical_pair(
-        attestation_hash(attestation_a),
-        attestation_hash(attestation_b),
-    );
-    hashv(&[DOMAIN_COMMITMENT_REUSE, lo.as_slice(), hi.as_slice()]).to_bytes()
-}
-
 /// One partial-signature transcript: the challenge scalars and the resulting share.
 ///
 /// The program never recomputes `b` or `c` from a signing context — the offence is defined purely
@@ -161,47 +283,6 @@ fn partial_transcript_hash(transcript: &PartialTranscript) -> [u8; 32] {
         transcript.b.as_slice(),
         transcript.c.as_slice(),
         transcript.s.as_slice(),
-    ])
-    .to_bytes()
-}
-
-/// Evidence hash for nonce-slot reuse; also the `PunishmentCase` PDA seed.
-///
-/// Covers the offence identity only: which node, under which registry version, reused which
-/// committed slot, with which two transcripts. The merkle path and batch signature are
-/// verification witnesses rather than identity, so they are excluded — a given leaf under a signed
-/// root has exactly one path anyway. Transcript hashes are order-normalized so that swapping the
-/// two transcripts cannot open a second case over one offence.
-#[allow(clippy::too_many_arguments)]
-pub fn nonce_reuse_evidence_hash(
-    registry_version: u32,
-    node_index: u32,
-    epoch: u64,
-    batch_meta: &[u8; 32],
-    batch_root: &[u8; 32],
-    slot: u64,
-    nonces: &CommittedNoncePair,
-    transcript_a: &PartialTranscript,
-    transcript_b: &PartialTranscript,
-) -> [u8; 32] {
-    let (lo, hi) = canonical_pair(
-        partial_transcript_hash(transcript_a),
-        partial_transcript_hash(transcript_b),
-    );
-    hashv(&[
-        DOMAIN_NONCE_REUSE,
-        registry_version.to_be_bytes().as_slice(),
-        node_index.to_be_bytes().as_slice(),
-        epoch.to_be_bytes().as_slice(),
-        batch_meta.as_slice(),
-        batch_root.as_slice(),
-        slot.to_be_bytes().as_slice(),
-        nonces.r1_x.as_slice(),
-        nonces.r1_y.as_slice(),
-        nonces.r2_x.as_slice(),
-        nonces.r2_y.as_slice(),
-        lo.as_slice(),
-        hi.as_slice(),
     ])
     .to_bytes()
 }

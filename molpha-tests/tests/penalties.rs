@@ -1,7 +1,7 @@
 //! The fixed penalty table and the arithmetic `apply_penalty` runs on a single node.
 //!
-//! Pure unit tests — no VM. `punish_equivocation`, `punish_unsolicited_signing` and
-//! `punish_commitment_reuse` cover the same penalties end-to-end against the VM.
+//! Pure unit tests — no VM. `slash_equivocation`, `slash_unsolicited_signing` and
+//! `slash_commitment_reuse` cover the same penalties end-to-end against the VM.
 
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{MembershipAction, Node, NodeStatus, OffenceKind, Penalty};

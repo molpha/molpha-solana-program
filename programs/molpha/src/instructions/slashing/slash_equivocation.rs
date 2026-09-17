@@ -5,53 +5,41 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
 use molpha_verifier::{
-    solana::resolve_intersected_signers_accounts, Attestation
+    solana::resolve_intersected_signers_accounts
 };
 
 use crate::{
     error::MolphaError,
     events::EquivocationProven,
     state::{
-        equivocation_evidence_hash, OffenceKind, ProtocolConfig, PunishmentCase, Registry,
-        RegistryState,
+        EquivocationEvidence, ProtocolConfig, PunishmentCase, Registry,
+        RegistryState, Evidence,
     },
     utils::slash::{is_equivocation, slash_nodes, SlashAccounts, SlashInput, verify_evidence_signature},
 };
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct PunishEquivocationArgs {
-    pub attestation_a: Attestation,
-    pub attestation_b: Attestation,
-    /// Must match `equivocation_evidence_hash(..)`; used as the `PunishmentCase` PDA seed.
-    pub evidence_hash: [u8; 32],
-}
-
-pub fn punish_equivocation<'info>(
-    ctx: Context<'info, PunishEquivocation<'info>>,
-    args: PunishEquivocationArgs,
+pub fn slash_equivocation<'info>(
+    ctx: Context<'info, SlashEquivocation<'info>>,
+    evidence: EquivocationEvidence,
 ) -> Result<()> {
     require!(
-        is_equivocation(&args.attestation_a, &args.attestation_b),
+        is_equivocation(&evidence.attestation_a, &evidence.attestation_b),
         MolphaError::NotEquivocation
-    );
-    require!(
-        equivocation_evidence_hash(&args.attestation_a, &args.attestation_b) == args.evidence_hash,
-        MolphaError::EvidenceHashMismatch
     );
 
     let resolution = resolve_intersected_signers_accounts(
         ctx.remaining_accounts,
         &ctx.accounts.evidence_registry.as_ref(),
-        &args.attestation_a.signature.signers_bitmap,
-        &args.attestation_b.signature.signers_bitmap,
+        &evidence.attestation_a.signature.signers_bitmap,
+        &evidence.attestation_b.signature.signers_bitmap,
     )
     .map_err(|_| error!(MolphaError::InvalidNodeAccount))?;
     require!(
         resolution.intersected_bitmap.popcount() > 0,
         MolphaError::GuiltySetEmpty
     );
-    verify_evidence_signature(&args.attestation_a, &resolution.signers_a)?;
-    verify_evidence_signature(&args.attestation_b, &resolution.signers_b)?;
+    verify_evidence_signature(&evidence.attestation_a, &resolution.signers_a)?;
+    verify_evidence_signature(&evidence.attestation_b, &resolution.signers_b)?;
 
     let reporter = ctx.accounts.reporter.key();
     let outcome = slash_nodes(
@@ -74,19 +62,17 @@ pub fn punish_equivocation<'info>(
             signers_bitmap: resolution.unioned_bitmap,
             guilty_bitmap: resolution.intersected_bitmap,
             program_id: ctx.program_id,
-            offence: OffenceKind::Equivocation,
-            registry_version: args.attestation_a.payload.registry_version,
-            evidence_hash: args.evidence_hash,
+            evidence: &evidence,
         },
     )?;
 
     emit!(EquivocationProven {
-        source_id: args.attestation_a.payload.source_id,
-        registry_version: args.attestation_a.payload.registry_version,
-        signatures_required: args.attestation_a.payload.signatures_required,
-        canonical_timestamp: args.attestation_a.payload.canonical_timestamp,
+        source_id: evidence.attestation_a.payload.source_id,
+        registry_version: evidence.registry_version(),
+        signatures_required: evidence.attestation_a.payload.signatures_required,
+        canonical_timestamp: evidence.attestation_a.payload.canonical_timestamp,
         guilty_bitmap: resolution.intersected_bitmap.to_bytes(),
-        evidence_hash: args.evidence_hash,
+        evidence_hash: evidence.evidence_hash(),
         reporter,
         slashed_total: outcome.slashed_total,
         bounty_paid: outcome.bounty_paid,
@@ -96,8 +82,8 @@ pub fn punish_equivocation<'info>(
 }
 
 #[derive(Accounts)]
-#[instruction(args: PunishEquivocationArgs)]
-pub struct PunishEquivocation<'info> {
+#[instruction(evidence: EquivocationEvidence)]
+pub struct SlashEquivocation<'info> {
     #[account(mut)]
     pub reporter: Signer<'info>,
 
@@ -116,7 +102,7 @@ pub struct PunishEquivocation<'info> {
     pub registry_state: Box<Account<'info, RegistryState>>,
 
     #[account(
-        seeds = [Registry::SEED_PREFIX, args.attestation_a.payload.registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, evidence.registry_version().to_le_bytes().as_ref()],
         bump,
     )]
     pub evidence_registry: AccountLoader<'info, Registry>,
@@ -141,7 +127,7 @@ pub struct PunishEquivocation<'info> {
         init,
         payer = reporter,
         space = PunishmentCase::SPACE,
-        seeds = [PunishmentCase::SEED_PREFIX, args.evidence_hash.as_ref()],
+        seeds = [PunishmentCase::SEED_PREFIX, evidence.evidence_hash().as_ref()],
         bump,
     )]
     pub punishment_case: Box<Account<'info, PunishmentCase>>,
