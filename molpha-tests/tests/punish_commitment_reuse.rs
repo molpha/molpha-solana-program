@@ -1,7 +1,7 @@
-//! `slash_commitment_reuse`: one aggregate nonce commitment reused across two signed messages.
+//! `slash_offence` commitment reuse: one aggregate nonce commitment reused across two signed messages.
 
 use molpha::error::MolphaError;
-use molpha::events::{CommitmentReuseProven, NodePunished};
+use molpha::events::{NodePunished, OffenceProven};
 use molpha::state::{
     CommitmentReuseEvidence, Evidence, MembershipAction, Node, NodeStatus, OffenceKind,
     PunishmentCase,
@@ -153,17 +153,17 @@ fn a_proven_commitment_reuse_halves_the_stake_tombstones_and_evicts_the_intersec
     );
     case.p.assert_solvent();
 
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash()));
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.hash()));
     assert_eq!(record.offence, OffenceKind::CommitmentReuse);
     assert_eq!(record.guilty_bitmap, guilty_bitmap);
     assert_eq!(record.guilty_count, guilty.len() as u16);
     assert_eq!(record.slashed_total, expected_slashed);
     assert_eq!(record.bounty_paid, expected_bounty);
 
-    let proven: CommitmentReuseProven = only_event(&meta);
-    assert_eq!(proven.commitment_addr, case.a.signature.commitment);
-    assert_eq!(proven.source_id_a, case.a.duty.source_id);
-    assert_eq!(proven.source_id_b, case.b.duty.source_id);
+    let proven: OffenceProven = only_event(&meta);
+    assert_eq!(proven.offence, OffenceKind::CommitmentReuse);
+    assert_eq!(proven.evidence_hash, args.hash());
+    assert_eq!(proven.slashed_total, expected_slashed);
     assert_eq!(events::<NodePunished>(&meta).len(), guilty.len());
 
     case.p
@@ -281,7 +281,7 @@ fn the_same_duty_with_the_same_value_but_different_coalitions_is_commitment_reus
         .slash_commitment_reuse_ix(&reporter.pubkey(), args.clone());
     case.p.env.send_ok(&[ix], &[&reporter]);
 
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash()));
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.hash()));
     assert_eq!(record.guilty_bitmap, expected_guilty);
     assert_eq!(record.guilty_count, 3);
 }
@@ -325,7 +325,7 @@ fn a_coalition_below_quorum_is_still_punishable() {
         .slash_commitment_reuse_ix(&reporter.pubkey(), args.clone());
     case.p.env.send_ok(&[ix], &[&reporter]);
 
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash()));
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.hash()));
     assert_eq!(record.guilty_count, SIGS as u16 - 1);
 }
 

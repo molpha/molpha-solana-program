@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
 
-use super::OffenceKind;
-use super::Evidence;
+use super::{Offence, OffenceKind};
 
 /// Permanent, on-chain record of an executed node punishment.
 ///
@@ -30,7 +29,7 @@ impl PunishmentCase {
     #[allow(clippy::too_many_arguments)]
     pub fn init(
         &mut self,
-        evidence: &dyn Evidence,
+        offence: &Offence,
         reporter: Pubkey,
         guilty_bitmap: [u8; 32],
         guilty_count: u16,
@@ -39,20 +38,20 @@ impl PunishmentCase {
         executed_slot: u64,
         bump: u8,
     ) {
-        self.offence = evidence.offence_kind();
+        self.offence = offence.kind();
         self.reporter = reporter;
-        self.registry_version = evidence.registry_version();
+        self.registry_version = offence.registry_version();
         self.guilty_bitmap = guilty_bitmap;
         self.guilty_count = guilty_count;
         self.slashed_total = slashed_total;
         self.bounty_paid = bounty_paid;
-        self.evidence_hash = evidence.evidence_hash();
+        self.evidence_hash = offence.evidence_hash();
         self.executed_slot = executed_slot;
         self.bump = bump;
     }
 }
 
-// `OffenceKind` is a fieldless enum, so appending a variant (e.g. `NonceReuse`) never changes its
-// `InitSpace` — this pins that invariant so a future offence with data fails loudly here instead
-// of silently resizing every `PunishmentCase` account.
+// `OffenceKind` is fieldless, so appending another unit variant never changes `InitSpace`. This
+// pins that invariant so a future offence-kind with data fails loudly here instead of silently
+// resizing every `PunishmentCase` account.
 const _: () = assert!(PunishmentCase::SPACE == 136);

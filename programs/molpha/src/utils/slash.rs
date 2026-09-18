@@ -1,4 +1,4 @@
-//! Shared node punishment: apply penalties, evict victims, and run the common sentence tail.
+//! Shared node punishment: apply penalties and verify evidence signatures.
 //!
 //! A filing settles in one instruction. Because every node's principal sits in one shared vault,
 //! the batch sweeps its whole forfeiture with a single transfer and funds the reporter's bounty
@@ -6,7 +6,8 @@
 //! node.
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, TokenAccount, Transfer};
+use solana_keccak_hasher::hashv;
+
 use molpha_verifier::bitmap::{for_each_set_bit, Bitmap};
 use molpha_verifier::Attestation;
 use molpha_verifier::{
@@ -16,29 +17,8 @@ use molpha_verifier::{
 use crate::{
     error::{map_attestation_err, MolphaError},
     events::NodePunished,
-    state::{
-        MembershipAction, Node, NodeStatus, OffenceKind, Penalty, ProtocolConfig, PunishmentCase,
-        Registry, RegistryState, Evidence,
-    },
-    utils::registry::with_registry_snapshot,
+    state::{Node, NodeStatus, Offence},
 };
-
-/// Slashed amounts from a single [`apply_penalty`] call.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct PenaltyOutcome {
-    pub slashed_locked: u64,
-    pub slashed_rewards: u64,
-}
-
-impl PenaltyOutcome {
-    pub fn total(&self) -> u64 {
-        self.slashed_locked.saturating_add(self.slashed_rewards)
-    }
-}
-
-fn bps_of(amount: u64, bps: u16) -> u64 {
-    (amount as u128 * bps as u128 / 10_000) as u64
-}
 
 /// Whether two attestations sign different values for one duty — every payload field but `value`
 /// matches.
@@ -52,33 +32,29 @@ pub fn is_equivocation(attestation_a: &Attestation, attestation_b: &Attestation)
     same_duty && a.value != b.value
 }
 
-/// Apply `penalty` to `node`. Registry eviction is handled separately by the caller.
-pub fn apply_penalty(node: &mut Node, penalty: Penalty, now: i64) -> Result<PenaltyOutcome> {
-    require!(
-        node.status != NodeStatus::Tombstoned,
-        MolphaError::NodeTombstoned
-    );
+pub fn attestation_hash(attestation: &Attestation) -> [u8; 32] {
+    let (payload, signature) = (&attestation.payload, &attestation.signature);
+    hashv(&[
+        payload.value.as_slice(),
+        payload.source_id.as_slice(),
+        payload.registry_version.to_be_bytes().as_slice(),
+        payload.signatures_required.to_be_bytes().as_slice(),
+        payload.canonical_timestamp.to_be_bytes().as_slice(),
+        signature.agg_sig_s.as_slice(),
+        signature.commitment.as_slice(),
+        signature.signers_bitmap.as_slice(),
+    ])
+    .to_bytes()
+}
 
-    let slashed_locked = bps_of(node.locked_amount, penalty.slash_bps);
-    let slashed_rewards = bps_of(node.claimable_rewards, penalty.slash_bps);
-    node.locked_amount = node.locked_amount.saturating_sub(slashed_locked);
-    node.claimable_rewards = node.claimable_rewards.saturating_sub(slashed_rewards);
-
-    match penalty.membership {
-        MembershipAction::None => {}
-        MembershipAction::Freeze => {
-            node.status = NodeStatus::Frozen;
-            node.frozen_until = now.saturating_add(penalty.freeze_secs);
-        }
-        MembershipAction::Tombstone => {
-            node.status = NodeStatus::Tombstoned;
-        }
+/// Lexicographically order two 32-byte digests so pair-wise evidence is attestation-order
+/// independent.
+pub fn canonical_pair(hash_a: [u8; 32], hash_b: [u8; 32]) -> ([u8; 32], [u8; 32]) {
+    if hash_a <= hash_b {
+        (hash_a, hash_b)
+    } else {
+        (hash_b, hash_a)
     }
-
-    Ok(PenaltyOutcome {
-        slashed_locked,
-        slashed_rewards,
-    })
 }
 
 /// Outcome of a [`slash_guilty_nodes`] batch.
@@ -103,13 +79,13 @@ impl PunishmentBatch {
 /// Already-tombstoned nodes are skipped so one stale bit cannot block the batch. Nothing else is
 /// skipped: the whole sentence settles in this instruction, so there is no half-settled state a
 /// later offence could collide with, and no way for a node to become temporarily unpunishable.
-fn slash_guilty_nodes<'info, 'b, T: Evidence>(
-    input: &SlashInput<'info, 'b, T>,
+pub(crate) fn slash_guilty_nodes<'info>(
+    input: &SlashInput<'info, '_>,
     withdrawal_cooldown_slots: u64,
 ) -> Result<PunishmentBatch> {
-    let penalty = input.evidence.penalty();
     let mut batch = PunishmentBatch::default();
     let clock = Clock::get()?;
+    let kind = input.offence.kind();
 
     let mut cursor = 0usize;
     for_each_set_bit(input.signers_bitmap, |bit_pos| {
@@ -126,7 +102,10 @@ fn slash_guilty_nodes<'info, 'b, T: Evidence>(
             return Ok(());
         }
 
-        let outcome = apply_penalty(&mut node, penalty, clock.unix_timestamp)?;
+        let outcome = input
+            .offence
+            .penalty()
+            .apply(&mut node, clock.unix_timestamp)?;
         if node.status == NodeStatus::Tombstoned {
             node.withdrawable_slot = clock
                 .slot
@@ -142,7 +121,7 @@ fn slash_guilty_nodes<'info, 'b, T: Evidence>(
         emit!(NodePunished {
             node: node.key(),
             authority: node.authority,
-            offence: input.evidence.offence_kind(),
+            offence: kind,
             slashed_locked: outcome.slashed_locked,
             slashed_rewards: outcome.slashed_rewards,
             new_status: node.status,
@@ -157,188 +136,20 @@ fn slash_guilty_nodes<'info, 'b, T: Evidence>(
     Ok(batch)
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn penalize_node<'info>(
-    current_registry: &mut AccountLoader<'info, Registry>,
-    new_registry: &mut AccountLoader<'info, Registry>,
-    registry_state: &mut Account<'info, RegistryState>,
-    node: &mut Account<'info, Node>,
-    offence: OffenceKind,
-    withdrawal_cooldown_slots: u64,
-    grace_active_until: i64,
-    new_registry_bump: u8,
-    clock: &Clock,
-) -> Result<PenaltyOutcome> {
-    let outcome = apply_penalty(node, offence.penalty(), clock.unix_timestamp)?;
-    if node.status == NodeStatus::Tombstoned {
-        node.withdrawable_slot = clock
-            .slot
-            .checked_add(withdrawal_cooldown_slots)
-            .ok_or(MolphaError::WithdrawalArithmeticOverflow)?;
-    }
-
-    with_registry_snapshot(
-        registry_state,
-        current_registry,
-        new_registry,
-        grace_active_until,
-        new_registry_bump,
-        |_current, next| {
-            next.swap_remove_node(node.key())?;
-            Ok(())
-        },
-    )?;
-
-    emit!(NodePunished {
-        node: node.key(),
-        authority: node.authority,
-        offence,
-        slashed_locked: outcome.slashed_locked,
-        slashed_rewards: outcome.slashed_rewards,
-        new_status: node.status,
-        punished_at: clock.unix_timestamp,
-    });
-    Ok(outcome)
-}
-
-/// Mutable accounts shared by every node-punishment sentence.
-///
-/// The token accounts are a fixed cost: one shared deposit vault however many nodes are guilty.
-pub struct SlashAccounts<'a, 'info> {
-    pub registry_state: &'a mut Account<'info, RegistryState>,
-    pub current_registry: &'a AccountLoader<'info, Registry>,
-    pub new_registry: &'a AccountLoader<'info, Registry>,
-    pub new_registry_bump: u8,
-    pub protocol_config: &'a mut Account<'info, ProtocolConfig>,
-    pub punishment_case: &'a mut Account<'info, PunishmentCase>,
-    pub punishment_case_bump: u8,
-    pub reporter: Pubkey,
-    pub node_deposit_vault: &'a mut Account<'info, TokenAccount>,
-    pub treasury: &'a mut Account<'info, TokenAccount>,
-    pub reporter_usdc: &'a Account<'info, TokenAccount>,
-    pub token_program: Pubkey,
-}
-
-/// Proof output from an offence-specific handler, fed into [`slash_nodes`].
-pub struct SlashInput<'info, 'b, T: Evidence> {
+/// Proof output from an offence handler, fed into [`slash_guilty_nodes`].
+pub struct SlashInput<'info, 'a> {
     /// The signer `Node` accounts the aggregate was verified against, in ascending bit order.
     pub signer_accounts: &'info [AccountInfo<'info>],
     pub signers_bitmap: Bitmap,
     pub guilty_bitmap: Bitmap,
-    pub program_id: &'info Pubkey,
-    pub evidence: &'b T,
-}
-
-/// Values the offence-specific `*Proven` event needs after the shared sentence runs.
-#[derive(Clone, Copy, Debug)]
-pub struct SlashOutcome {
-    pub slashed_total: u64,
-    pub bounty_paid: u64,
-}
-
-/// Shared sentence: slash guilty nodes, evict them into a successor registry, pay the reporter
-/// bounty, init `PunishmentCase`, and emit `RegistryVersionCreated`.
-pub fn slash_nodes<'a, 'info, 'b, T: Evidence>(
-    accounts: SlashAccounts<'a, 'info>,
-    input: SlashInput<'info, 'b, T>,
-) -> Result<SlashOutcome> {
-    let clock = Clock::get()?;
-
-    let batch = slash_guilty_nodes(&input, accounts.protocol_config.withdrawal_cooldown_slots)?;
-    require!(!batch.victims.is_empty(), MolphaError::NothingToPunish);
-    let slashed_total = batch.slashed_total();
-    let grace_active_until = accounts.protocol_config.get_grace_active_until();
-    with_registry_snapshot(
-        accounts.registry_state,
-        accounts.current_registry,
-        accounts.new_registry,
-        grace_active_until,
-        accounts.new_registry_bump,
-        |_current, next| {
-            next.swap_remove_nodes(&batch.victims)?;
-            Ok(())
-        },
-    )?;
-
-    // Cancelled reward credits stop being a claim on the treasury.
-    accounts.protocol_config.reward_liability = accounts
-        .protocol_config
-        .reward_liability
-        .checked_sub(batch.slashed_rewards)
-        .ok_or(MolphaError::RewardLiabilityUnderflow)?;
-
-    // Sweep the forfeited principal out of the deposit vault in one transfer, whatever the size
-    // of the guilty set. The amount comes directly from the guilty nodes' locked balances.
-    if batch.slashed_locked > 0 {
-        require!(
-            accounts.node_deposit_vault.amount >= batch.slashed_locked,
-            MolphaError::DepositVaultUnderfunded
-        );
-
-        token::transfer(
-            CpiContext::new_with_signer(
-                accounts.token_program,
-                Transfer {
-                    from: accounts.node_deposit_vault.to_account_info(),
-                    to: accounts.treasury.to_account_info(),
-                    authority: accounts.registry_state.to_account_info(),
-                },
-                &[&accounts.registry_state.seeds()],
-            ),
-            batch.slashed_locked,
-        )?;
-    }
-
-    // The bounty is funded by what this punishment just recovered: the principal swept in above,
-    // plus the reward credits released from `reward_liability`. `challenger_bounty_bps` is capped
-    // at 100% of their sum, so it can never be paid out of another party's money.
-    let bounty = bps_of(
-        slashed_total,
-        accounts.protocol_config.challenger_bounty_bps,
-    );
-    if bounty > 0 {
-        token::transfer(
-            CpiContext::new_with_signer(
-                accounts.token_program,
-                Transfer {
-                    from: accounts.treasury.to_account_info(),
-                    to: accounts.reporter_usdc.to_account_info(),
-                    authority: accounts.protocol_config.to_account_info(),
-                },
-                &[&accounts.protocol_config.seeds()],
-            ),
-            bounty,
-        )?;
-
-        accounts.treasury.reload()?;
-        require!(
-            accounts.treasury.amount >= accounts.protocol_config.reward_liability,
-            MolphaError::TreasuryInsolvent
-        );
-    }
-
-    accounts.punishment_case.init(
-        input.evidence,
-        accounts.reporter,
-        input.guilty_bitmap.to_bytes(),
-        input.guilty_bitmap.popcount() as u16,
-        slashed_total,
-        bounty,
-        clock.slot,
-        accounts.punishment_case_bump,
-    );
-
-    Ok(SlashOutcome {
-        slashed_total,
-        bounty_paid: bounty,
-    })
+    pub offence: &'a Offence,
 }
 
 /// Require an evidence attestation's signers to sit inside the selection derived for its duty.
 ///
-/// Equivocation and commitment reuse punish a selected coalition; signers outside the selection
-/// are unsolicited signing and filed as such. Quorum is not required: signing two conflicting
-/// messages is the offence whether or not either aggregate reached threshold.
+/// Commitment reuse uses this so a selected coalition cannot be punished for an unsolicited
+/// signer's `R`. Equivocation does not: its gate is the two verifying aggregates, and unsolicited
+/// bits in that pair are filed separately. Quorum is not required.
 pub(crate) fn require_signers_selected(
     attestation: &Attestation,
     registry: &RegistryView,

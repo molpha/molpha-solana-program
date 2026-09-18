@@ -27,9 +27,9 @@ stale `.so` silently tests the old binary.
 | `fixtures/`         | the cross-chain golden vector shared with the EVM validator             |
 
 One test file per instruction group: `protocol_config`, `plans_and_subscriptions`, `delegates`,
-`node_registry`, `reinstate_node`, `gateway`, `attestation`, `settle_subscription`, `settle_x402`,
-`rounds`, `slash_equivocation`, `slash_unsolicited_signing`, `slash_commitment_reuse`,
-`slash_nonce_reuse`, plus `evm_compatibility` and `limits`.
+`node_registry`, `reinstate_node`, `liveliness`, `gateway`, `attestation`, `settle_subscription`, `settle_x402`,
+`rounds`, `punish_equivocation`, `punish_unsolicited_signing`, `punish_commitment_reuse`,
+`punish_nonce_reuse`, `slash_offence`, plus `evm_compatibility` and `limits`.
 
 Four files hold the program's pure unit tests — no VM, no `.so`, they exercise the `molpha` crate
 as a library. They live here rather than in `#[cfg(test)]` modules so the whole suite is in one
@@ -40,7 +40,7 @@ place:
 | `encoding.rs`           | argument wire formats, `Attestation` mirror, `Node`/`Feed` layouts |
 | `hashing.rs`            | request-auth and punishment evidence hashes, domain separation     |
 | `registry_snapshot.rs`  | version succession, snapshot copy / `swap_remove`, `evict_nodes`   |
-| `penalties.rs`          | the fixed penalty table and `apply_penalty` arithmetic             |
+| `penalties.rs`          | the fixed penalty table and `Penalty::apply` arithmetic            |
 
 ## Writing a test
 

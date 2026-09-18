@@ -65,16 +65,6 @@ pub struct NodeLivelinessPenalized {
 }
 
 #[event]
-pub struct NodeFrozenForInactivity {
-    pub node: Pubkey,
-    pub node_authority: Pubkey,
-    pub score: u16,
-    pub frozen_until: i64,
-    pub new_registry_version: u32,
-    pub frozen_at: i64,
-}
-
-#[event]
 pub struct NodeDepositWithdrawn {
     pub node: Pubkey,
     pub node_authority: Pubkey,
@@ -256,69 +246,14 @@ pub struct X402RoundSettled {
 }
 
 #[event]
-pub struct EquivocationProven {
-    pub source_id: [u8; 32],
-    pub registry_version: u32,
-    pub signatures_required: u8,
-    pub canonical_timestamp: u64,
+pub struct OffenceProven {
+    pub offence: OffenceKind,
     pub guilty_bitmap: [u8; 32],
     pub evidence_hash: [u8; 32],
     pub reporter: Pubkey,
     pub slashed_total: u64,
     pub bounty_paid: u64,
-}
-
-#[event]
-pub struct UnsolicitedSigningProven {
-    pub source_id: [u8; 32],
-    pub registry_version: u32,
-    pub signatures_required: u8,
-    pub canonical_timestamp: u64,
-    pub signers_bitmap: [u8; 32],
-    pub guilty_bitmap: [u8; 32],
-    pub evidence_hash: [u8; 32],
-    pub reporter: Pubkey,
-    pub slashed_total: u64,
-    pub bounty_paid: u64,
-}
-
-#[event]
-pub struct CommitmentReuseProven {
-    pub registry_version: u32,
-    pub commitment_addr: [u8; 20],
-    pub source_id_a: [u8; 32],
-    pub signatures_required_a: u8,
-    pub canonical_timestamp_a: u64,
-    pub signers_bitmap_a: [u8; 32],
-    pub source_id_b: [u8; 32],
-    pub signatures_required_b: u8,
-    pub canonical_timestamp_b: u64,
-    pub signers_bitmap_b: [u8; 32],
-    pub guilty_bitmap: [u8; 32],
-    pub evidence_hash: [u8; 32],
-    pub reporter: Pubkey,
-    pub slashed_total: u64,
-    pub bounty_paid: u64,
-}
-
-#[event]
-pub struct NonceReuseProven {
-    pub registry_version: u32,
-    pub node_index: u32,
-    pub epoch: u64,
-    pub batch_meta: [u8; 32],
-    pub batch_root: [u8; 32],
-    pub slot: u64,
-    pub r1_x: [u8; 32],
-    pub r1_y: [u8; 32],
-    pub r2_x: [u8; 32],
-    pub r2_y: [u8; 32],
-    pub guilty_bitmap: [u8; 32],
-    pub guilty_count: u16,
-    pub evidence_hash: [u8; 32],
-    pub reporter: Pubkey,
-    pub slashed_total: u64,
-    pub bounty_paid: u64,
+    pub proven_at: i64,
 }
 
 #[event]

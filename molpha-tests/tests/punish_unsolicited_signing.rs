@@ -1,8 +1,8 @@
-//! `slash_unsolicited_signing`: a valid attestation carrying a signer the duty never selected.
+//! `slash_offence` unsolicited signing: a valid attestation carrying a signer the duty never selected.
 
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
-use molpha::events::{NodePunished, UnsolicitedSigningProven};
+use molpha::events::{NodePunished, OffenceProven};
 use molpha::state::{
     Evidence, Node, NodeStatus, OffenceKind, PunishmentCase, UnsolicitedSigningEvidence,
 };
@@ -123,7 +123,7 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
     );
     case.p.assert_solvent();
 
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash()));
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.hash()));
     assert_eq!(record.offence, OffenceKind::UnsolicitedSigning);
     assert_eq!(record.guilty_count, guilty.len() as u16);
     assert_eq!(record.slashed_total, expected_slashed);
@@ -132,8 +132,9 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
         crypto::bitmap_from_bits(&case.intruders)
     );
 
-    let proven: UnsolicitedSigningProven = only_event(&meta);
-    assert_eq!(proven.signers_bitmap, case.signed.signers_bitmap);
+    let proven: OffenceProven = only_event(&meta);
+    assert_eq!(proven.offence, OffenceKind::UnsolicitedSigning);
+    assert_eq!(proven.evidence_hash, args.hash());
     assert_eq!(proven.slashed_total, expected_slashed);
     assert_eq!(events::<NodePunished>(&meta).len(), guilty.len());
 }
@@ -290,7 +291,7 @@ fn two_intruders_in_one_attestation_are_both_punished() {
         let node = pda_for_bit(&case, *bit);
         assert_eq!(case.p.env.get::<Node>(&node).status, NodeStatus::Tombstoned);
     }
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash()));
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.hash()));
     assert_eq!(record.guilty_count, 2);
     assert_eq!(record.slashed_total, case.p.args.minimum_node_deposit * 2);
 }

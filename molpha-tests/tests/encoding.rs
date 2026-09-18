@@ -7,7 +7,9 @@
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::{AnchorDeserialize, AnchorSerialize, Discriminator, InstructionData, Space};
 use molpha::instructions::{InitializeArgs, SubmitAttestationArgs, UpdateConfigArgs};
-use molpha::state::{Feed, FeedValueKind, Node, NodeStatus, OffenceKind};
+use molpha::state::{
+    Feed, FeedValueKind, InactivityEvidence, Node, NodeStatus, Offence, OffenceKind,
+};
 use molpha_verifier::payload::{Attestation, AttestationPayload, SchnorrSignature};
 
 /// Borsh encoding of `InitializeArgs`, plus the 8-byte Anchor discriminator.
@@ -195,7 +197,7 @@ fn feed_layout_is_pinned() {
 }
 
 #[test]
-fn offence_kind_discriminants_are_stable() {
+fn offence_discriminants_are_stable() {
     assert_eq!(borsh::to_vec(&OffenceKind::Equivocation).unwrap(), vec![0]);
     assert_eq!(
         borsh::to_vec(&OffenceKind::UnsolicitedSigning).unwrap(),
@@ -206,4 +208,31 @@ fn offence_kind_discriminants_are_stable() {
         vec![2]
     );
     assert_eq!(borsh::to_vec(&OffenceKind::NonceReuse).unwrap(), vec![3]);
+    assert_eq!(borsh::to_vec(&OffenceKind::Inactivity).unwrap(), vec![4]);
+}
+
+/// `slash_offence` inactivity is the smallest `Offence` variant: one tag byte and two `u32`s.
+/// Pair and nonce variants are larger; pinning this one guards the enum tag and the CLI's
+/// inactivity encoder against an accidental reshuffle.
+#[test]
+fn slash_offence_inactivity_instruction_data_is_stable_and_round_trips() {
+    let offence = Offence::Inactivity(InactivityEvidence {
+        registry_version: 7,
+        node_index: 3,
+    });
+    let data = molpha::instruction::SlashOffence {
+        offence: offence.clone(),
+    }
+    .data();
+    assert_eq!(data.len(), 8 + 1 + 4 + 4);
+
+    let decoded = borsh::from_slice::<Offence>(&data[8..]).expect("deserialize offence");
+    match decoded {
+        Offence::Inactivity(evidence) => {
+            assert_eq!(evidence.registry_version, 7);
+            assert_eq!(evidence.node_index, 3);
+        }
+        other => panic!("unexpected variant {other:?}"),
+    }
+    assert_eq!(borsh::to_vec(&offence).unwrap()[0], 4);
 }

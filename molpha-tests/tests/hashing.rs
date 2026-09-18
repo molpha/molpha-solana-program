@@ -1,4 +1,4 @@
-//! Domain-separated hashes: the consumer request authorization and the three punishment evidence
+//! Domain-separated hashes: the consumer request authorization and the punishment evidence
 //! hashes, which double as `PunishmentCase` PDA seeds.
 //!
 //! Pure unit tests — no VM. Each hash is asserted sensitive to every field it commits to, and
@@ -7,12 +7,12 @@
 
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{
-    attestation_hash, commitment_batch_message_hash, commitment_leaf_hash,
-    hash_request_auth, hash_request_auth_fields, verify_commitment_merkle_proof,
-    CommitmentReuseEvidence, CommittedNoncePair, EquivocationEvidence, Evidence,
-    NonceReuseEvidence, PartialTranscript, RequestAuth, UnsolicitedSigningEvidence,
-    COMMITMENT_MERKLE_NODE_PREFIX, DOMAIN_COMMITMENT_BATCH, DOMAIN_COMMITMENT_REUSE,
-    DOMAIN_EQUIVOCATION, DOMAIN_NONCE_REUSE, DOMAIN_REQAUTH, DOMAIN_UNSOLICITED_SIGNING,
+    attestation_hash, commitment_batch_message_hash, commitment_leaf_hash, hash_request_auth,
+    hash_request_auth_fields, verify_commitment_merkle_proof, CommitmentReuseEvidence,
+    CommittedNoncePair, EquivocationEvidence, Evidence, InactivityEvidence, NonceReuseEvidence,
+    PartialTranscript, RequestAuth, UnsolicitedSigningEvidence, COMMITMENT_MERKLE_NODE_PREFIX,
+    DOMAIN_COMMITMENT_BATCH, DOMAIN_COMMITMENT_REUSE, DOMAIN_EQUIVOCATION, DOMAIN_INACTIVITY,
+    DOMAIN_NONCE_REUSE, DOMAIN_REQAUTH, DOMAIN_UNSOLICITED_SIGNING,
 };
 use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
 use solana_keccak_hasher::hashv;
@@ -46,7 +46,7 @@ fn equivocation_evidence_hash(a: &Attestation, b: &Attestation) -> [u8; 32] {
         attestation_a: a.clone(),
         attestation_b: b.clone(),
     }
-    .evidence_hash()
+    .hash()
 }
 
 fn commitment_reuse_evidence_hash(a: &Attestation, b: &Attestation) -> [u8; 32] {
@@ -54,14 +54,14 @@ fn commitment_reuse_evidence_hash(a: &Attestation, b: &Attestation) -> [u8; 32] 
         attestation_a: a.clone(),
         attestation_b: b.clone(),
     }
-    .evidence_hash()
+    .hash()
 }
 
 fn unsolicited_signing_evidence_hash(attestation: &Attestation) -> [u8; 32] {
     UnsolicitedSigningEvidence {
         attestation: attestation.clone(),
     }
-    .evidence_hash()
+    .hash()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -90,7 +90,7 @@ fn nonce_reuse_evidence_hash(
         transcript_a: transcript_a.clone(),
         transcript_b: transcript_b.clone(),
     }
-    .evidence_hash()
+    .hash()
 }
 
 #[test]
@@ -276,6 +276,29 @@ fn offence_evidence_domains_do_not_collide() {
     assert_ne!(commitment_reuse, nonce_reuse);
     assert_ne!(DOMAIN_NONCE_REUSE, DOMAIN_COMMITMENT_REUSE);
     assert_ne!(DOMAIN_NONCE_REUSE, DOMAIN_COMMITMENT_BATCH);
+    assert_ne!(DOMAIN_INACTIVITY, DOMAIN_EQUIVOCATION);
+    assert_ne!(DOMAIN_INACTIVITY, DOMAIN_NONCE_REUSE);
+
+    let inactivity = inactivity_evidence_hash(4, 1);
+    assert_ne!(equivocation, inactivity);
+    assert_ne!(unsolicited, inactivity);
+    assert_ne!(commitment_reuse, inactivity);
+    assert_ne!(nonce_reuse, inactivity);
+}
+
+fn inactivity_evidence_hash(registry_version: u32, node_index: u32) -> [u8; 32] {
+    InactivityEvidence {
+        registry_version,
+        node_index,
+    }
+    .hash()
+}
+
+#[test]
+fn inactivity_hash_commits_to_the_registry_version_and_node_index() {
+    let base = inactivity_evidence_hash(4, 1);
+    assert_ne!(inactivity_evidence_hash(5, 1), base, "registry_version");
+    assert_ne!(inactivity_evidence_hash(4, 2), base, "node_index");
 }
 
 fn fixture_nonces() -> CommittedNoncePair {

@@ -341,4 +341,52 @@ export function registerRegistryCommands(program: Command): void {
         redundancyBuffer: value,
       });
     });
+
+  registry
+    .command("reinstate")
+    .description(
+      "Restore a frozen node to the current registry after its freeze window (or earlier as protocol authority)",
+    )
+    .option(
+      "--node-owner <pubkey>",
+      "target owner (defaults to signer; protocol authority may target another owner)",
+    )
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const [protocolConfig] = findProtocolConfigPda(ctx.programId);
+      const [registryState] = findRegistryStatePda(ctx.programId);
+      const state = await fetchAccountOrNull<any>(
+        ctx.program,
+        "registryState",
+        registryState,
+      );
+      if (!state) throw new Error("Registry state is not initialized");
+      const currentVersion = Number(state.currentVersion);
+      const newRegistryVersion = currentVersion + 1;
+      const [currentRegistry] = findRegistryPda(ctx.programId, currentVersion);
+      const [newRegistry] = findRegistryPda(ctx.programId, newRegistryVersion);
+      const nodeOwner = options.nodeOwner
+        ? parsePublicKey(options.nodeOwner, "node owner")
+        : ctx.wallet.publicKey;
+      const [node] = findNodePda(ctx.programId, nodeOwner);
+
+      const signature = await (ctx.program.methods as any)
+        .reinstateNode()
+        .accountsPartial({
+          caller: ctx.wallet.publicKey,
+          protocolConfig,
+          registryState,
+          currentRegistry,
+          newRegistry,
+          node,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      writeJson({
+        signature,
+        nodeOwner: nodeOwner.toBase58(),
+        node: node.toBase58(),
+        registryVersion: newRegistryVersion,
+      });
+    });
 }

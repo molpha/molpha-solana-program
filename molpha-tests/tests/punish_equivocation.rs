@@ -1,8 +1,8 @@
-//! `slash_equivocation`: two valid attestations for one duty with different values.
+//! `slash_offence` equivocation: two valid attestations for one duty with different values.
 
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
-use molpha::events::{EquivocationProven, NodePunished};
+use molpha::events::{NodePunished, OffenceProven};
 use molpha::state::{
     EquivocationEvidence, Evidence, MembershipAction, Node, NodeStatus, OffenceKind,
     PunishmentCase,
@@ -57,7 +57,7 @@ fn equivocation_evidence_hash(a: &Attestation, b: &Attestation) -> [u8; 32] {
         attestation_a: a.clone(),
         attestation_b: b.clone(),
     }
-    .evidence_hash()
+    .hash()
 }
 
 fn guilty_pdas(case: &Case) -> Vec<Pubkey> {
@@ -153,7 +153,7 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
 
     // The case is recorded permanently.
 
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash()));
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.hash()));
     assert_eq!(record.offence, OffenceKind::Equivocation);
     assert_eq!(record.reporter, reporter.pubkey());
     assert_eq!(record.registry_version, evidence_version);
@@ -164,10 +164,12 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
     assert_eq!(record.guilty_count, guilty.len() as u16);
     assert_eq!(record.slashed_total, expected_slashed);
     assert_eq!(record.bounty_paid, expected_bounty);
-    assert_eq!(record.evidence_hash, args.evidence_hash());
+    assert_eq!(record.evidence_hash, args.hash());
     assert_eq!(record.executed_slot, case.p.env.slot());
 
-    let proven: EquivocationProven = only_event(&meta);
+    let proven: OffenceProven = only_event(&meta);
+    assert_eq!(proven.offence, OffenceKind::Equivocation);
+    assert_eq!(proven.evidence_hash, args.hash());
     assert_eq!(proven.slashed_total, expected_slashed);
     assert_eq!(proven.bounty_paid, expected_bounty);
     assert_eq!(proven.reporter, reporter.pubkey());
@@ -208,7 +210,7 @@ fn the_same_evidence_cannot_be_filed_twice_in_either_order() {
     // Swapping the attestations yields the same evidence hash, so the case PDA already exists.
     let swapped = args_for(&case, &case.b, &case.a);
     let first_hash = equivocation_evidence_hash(&case.a.attestation(), &case.b.attestation());
-    assert_eq!(swapped.evidence_hash(), first_hash);
+    assert_eq!(swapped.hash(), first_hash);
 
     let ix = case.p.slash_equivocation_ix(&reporter.pubkey(), swapped);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);

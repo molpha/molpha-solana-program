@@ -1,7 +1,7 @@
-//! `slash_nonce_reuse`: two verifying partials against one batch-committed nonce pair.
+//! `slash_offence` nonce reuse: two verifying partials against one batch-committed nonce pair.
 
 use molpha::error::MolphaError;
-use molpha::events::{NodePunished, NonceReuseProven};
+use molpha::events::{NodePunished, OffenceProven};
 use molpha::state::{
     CommittedNoncePair, Evidence, MembershipAction, Node, NodeStatus, NonceReuseEvidence,
     OffenceKind, PartialTranscript, PunishmentCase, MAX_COMMITMENT_PROOF_DEPTH,
@@ -238,20 +238,16 @@ fn a_proven_nonce_reuse_takes_the_whole_deposit_tombstones_and_evicts_the_node()
     );
     case.p.assert_solvent();
 
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash()));
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.hash()));
     assert_eq!(record.offence, OffenceKind::NonceReuse);
     assert_eq!(record.guilty_count, 1);
     assert_eq!(record.slashed_total, locked);
     assert_eq!(record.bounty_paid, expected_bounty);
     assert_eq!(record.registry_version, case.registry_version);
 
-    let proven: NonceReuseProven = only_event(&meta);
-    assert_eq!(proven.node_index, case.node_index);
-    assert_eq!(proven.epoch, EPOCH);
-    assert_eq!(proven.slot, case.slot().slot);
-    assert_eq!(proven.batch_root, args.batch_root);
-    assert_eq!(proven.r1_x, args.nonces.r1_x);
-    assert_eq!(proven.guilty_count, 1);
+    let proven: OffenceProven = only_event(&meta);
+    assert_eq!(proven.offence, OffenceKind::NonceReuse);
+    assert_eq!(proven.evidence_hash, args.hash());
     assert_eq!(proven.slashed_total, locked);
     assert_eq!(events::<NodePunished>(&meta).len(), 1);
 }
@@ -294,7 +290,7 @@ fn transcript_order_does_not_change_the_evidence_hash() {
     let forward = args_for(&case);
     let reversed =
         args_with_transcripts(&case, case.transcript(B_B, C_B), case.transcript(B_A, C_A));
-    assert_eq!(forward.evidence_hash(), reversed.evidence_hash());
+    assert_eq!(forward.hash(), reversed.hash());
 }
 
 #[test]
@@ -487,14 +483,14 @@ fn a_node_index_outside_the_registry_is_rejected() {
     let args = resealed(args);
 
     let reporter = case.reporter.insecure_clone();
-    let mut accounts = molpha::accounts::SlashNonceReuse {
+    let mut accounts = molpha::accounts::SlashOffence {
         reporter: reporter.pubkey(),
         protocol_config: pda::protocol_config(),
         registry_state: pda::registry_state(),
         evidence_registry: pda::registry(args.registry_version),
         current_registry: pda::registry(case.p.current_version()),
         new_registry: pda::registry(case.p.current_version() + 1),
-        punishment_case: pda::punishment_case(&args.evidence_hash()),
+        punishment_case: pda::punishment_case(&args.hash()),
         node_deposit_vault: case.p.node_deposit_vault(),
         treasury: case.p.treasury(),
         reporter_usdc: pda::ata(&reporter.pubkey(), &case.p.usdc_mint),
@@ -507,7 +503,10 @@ fn a_node_index_outside_the_registry_is_rejected() {
     let ix = anchor_lang::solana_program::instruction::Instruction {
         program_id: molpha::ID,
         accounts,
-        data: molpha::instruction::SlashNonceReuse { evidence: args }.data(),
+        data: molpha::instruction::SlashOffence {
+            offence: molpha::state::Offence::NonceReuse(args),
+        }
+        .data(),
     };
     let err = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&err, MolphaError::InvalidNodeIndex);

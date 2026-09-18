@@ -28,8 +28,9 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
   derived node identity; verifier hot paths rely on this registration invariant
 - `update_registry_policy` snapshots redundancy-policy changes without changing membership
 - **Liveliness scoring** — each `Node` carries a score (max 10,000). Round finalization penalizes
-  missed selections and rewards participation; `freeze_unresponsive_node` evicts nodes whose score
-  drops below `liveliness_freeze_threshold`, and `reinstate_node` restores them after cooldown
+  missed selections and rewards participation; `slash_offence` with `Offence::Inactivity` evicts
+  nodes whose score drops below `liveliness_freeze_threshold`, and `reinstate_node` restores them
+  after cooldown
 - Node security deposits are held in a **shared USDC vault** (the canonical ATA of `registry_state`),
   separate from the protocol treasury; per-node `locked_amount` tracks each node's share
 
@@ -43,7 +44,15 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 
 - Coalition **Schnorr** verification with on-chain bitmap re-derivation (matches EVM `NodeGroupBitmapLib`); selection seed and message hash bind `source_id`
 - Optional **verify-only** path (`verify_attestation`) against any retained historical registry
-- Off-chain signing helpers in the CLI (`yarn molpha data sign` / `submit`)
+- Off-chain signing helpers in the CLI (`yarn molpha attestation sign` / `submit`)
+
+### Node slashing
+
+- One permissionless instruction, `slash_offence`, takes an `Offence` enum: equivocation,
+  unsolicited signing, commitment reuse, nonce reuse, or inactivity. Proven evidence writes a
+  `PunishmentCase` PDA (seeded by the evidence hash, so the same filing cannot replay), slashes
+  the guilty set, and evicts them into a successor registry. Inactivity freezes without taking
+  principal; the other offences tombstone.
 
 ### Rounds
 
@@ -64,7 +73,7 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 
 ### Tooling
 
-- TypeScript **CLI** (`yarn molpha`) for init, registry, plans, delegates, feeds, rounds, and data flows
+- TypeScript **CLI** (`yarn molpha`) for init, registry, plans, delegates, feeds, rounds, slashing, and data flows
 - Scripts for node generation and end-to-end feed submission
 
 ## Program structure
@@ -80,7 +89,7 @@ programs/
 │       │   ├── gateway/             # register_gateway.rs, claim_gateway_rewards.rs
 │       │   ├── subscriptions/       # subscribe.rs, extend_subscription.rs
 │       │   ├── round_settlement/    # settle_*_round.rs, validate_round.rs, finalize_round.rs
-│       │   ├── slashing/            # slash_*.rs
+│       │   ├── slashing/            # slash_offence.rs
 │       │   ├── submit_attestation.rs / verify_attestation.rs
 │       ├── state/
 │       │   ├── attestation.rs       # Attestation / AttestationPayload / SchnorrSignature (instruction args)
@@ -89,7 +98,8 @@ programs/
 │       │   ├── plan.rs / subscription.rs / delegate.rs
 │       │   ├── feed.rs
 │       │   ├── gateway.rs
-│       │   └── round_receipt.rs / receipt.rs
+│       │   ├── offence/             # Offence enum, evidence, penalties
+│       │   └── round_receipt.rs / receipt.rs / punishment_case.rs
 │       ├── utils/
 │       │   ├── ed25519.rs
 │       │   ├── settlement.rs      # Attestation shape checks shared by both settlement paths

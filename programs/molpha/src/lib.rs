@@ -11,7 +11,7 @@ pub mod utils;
 
 use instructions::*;
 use molpha_verifier::Attestation;
-use state::{PlanType, EquivocationEvidence, UnsolicitedSigningEvidence, CommitmentReuseEvidence, NonceReuseEvidence};
+use state::PlanType;
 
 declare_id!("MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3");
 
@@ -33,13 +33,6 @@ pub mod molpha {
 
     pub fn deactivate_node(ctx: Context<DeactivateNode>, node_owner: Pubkey) -> Result<()> {
         instructions::deactivate_node(ctx, node_owner)
-    }
-
-    pub fn freeze_unresponsive_node(
-        ctx: Context<FreezeUnresponsiveNode>,
-        node_owner: Pubkey,
-    ) -> Result<()> {
-        instructions::freeze_unresponsive_node(ctx, node_owner)
     }
 
     pub fn update_node_endpoint(
@@ -134,32 +127,11 @@ pub mod molpha {
         instructions::settle_x402_round(ctx, attestation, args)
     }
 
-    pub fn slash_equivocation<'info>(
-        ctx: Context<'info, SlashEquivocation<'info>>,
-        evidence: EquivocationEvidence,
+    pub fn slash_offence<'info>(
+        ctx: Context<'info, SlashOffence<'info>>,
+        offence: state::Offence,
     ) -> Result<()> {
-        instructions::slash_equivocation(ctx, evidence)
-    }
-
-    pub fn slash_unsolicited_signing<'info>(
-        ctx: Context<'info, SlashUnsolicitedSigning<'info>>,
-        evidence: UnsolicitedSigningEvidence,
-    ) -> Result<()> {
-        instructions::slash_unsolicited_signing(ctx, evidence)
-    }
-
-    pub fn slash_commitment_reuse<'info>(
-        ctx: Context<'info, SlashCommitmentReuse<'info>>,
-        evidence: CommitmentReuseEvidence,
-    ) -> Result<()> {
-        instructions::slash_commitment_reuse(ctx, evidence)
-    }
-
-    pub fn slash_nonce_reuse<'info>(
-        ctx: Context<'info, SlashNonceReuse<'info>>,
-        evidence: NonceReuseEvidence,
-    ) -> Result<()> {
-        instructions::slash_nonce_reuse(ctx, evidence)
+        instructions::slash_offence(ctx, offence)
     }
 
     pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {

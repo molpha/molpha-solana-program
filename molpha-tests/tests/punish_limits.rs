@@ -38,21 +38,24 @@ const ROUND_SIGNER_COUNT: usize = SIGS_REQUIRED as usize + REDUNDANCY_BUFFER as 
 
 /// Intruders punishable in one unsolicited filing alongside a 20-signer round attestation.
 ///
-/// Fixed accounts (11) + accused signers (20 + N) + guilty vaults (N) must stay within runtime
-/// account-lock limits in LiteSVM as well as the 64-account wire cap.
+/// Fixed accounts plus remaining `Node` accounts for the full submitted bitmap (20 round signers
+/// + N intruders) must stay within runtime account-lock limits in LiteSVM as well as the
+/// 64-account wire cap.
 const MAX_UNSOLICITED_INTRUDERS: usize = 8;
 const UNSOLICITED_REGISTRY_NODES: usize = ROUND_SIGNER_COUNT + MAX_UNSOLICITED_INTRUDERS;
 
-/// Largest fully-overlapping coalition whose `slash_equivocation` filing fits a legacy packet.
+/// Largest fully-overlapping coalition whose `slash_offence` (equivocation) filing fits a legacy
+/// packet.
 ///
 /// Asserted exactly. A filing costs one account per signer plus a fixed set of token accounts,
 /// so every account added to the punishment context costs a signer directly, and going back to a
 /// vault per guilty node would halve this number. Both attestations carry their own duty fields,
-/// so the args are as large as `slash_commitment_reuse`'s and the limit matches it.
+/// so the args are as large as commitment reuse and the limit matches it.
 const MAX_LEGACY_EQUIVOCATION: usize = 10;
 
-/// Same, for `slash_commitment_reuse`, whose two full attestations make its args the largest.
-const MAX_LEGACY_NONCE_REUSE: usize = 10;
+/// Same ceiling for `slash_offence` (commitment reuse), whose two full attestations make its args
+/// the largest pair-offence encoding.
+const MAX_LEGACY_COMMITMENT_REUSE: usize = 10;
 
 /// Solana's per-transaction maximum, which the harness requests for every transaction.
 const MAX_COMPUTE_UNITS: u64 = 1_400_000;
@@ -129,10 +132,7 @@ fn commitment_reuse_round_pair(p: &Protocol) -> (SignedAttestation, SignedAttest
     (a, b)
 }
 
-fn commitment_reuse_args(
-    a: &SignedAttestation,
-    b: &SignedAttestation,
-) -> CommitmentReuseEvidence {
+fn commitment_reuse_args(a: &SignedAttestation, b: &SignedAttestation) -> CommitmentReuseEvidence {
     let (attestation_a, attestation_b) = (a.attestation(), b.attestation());
     CommitmentReuseEvidence {
         attestation_a,
@@ -250,7 +250,7 @@ fn a_fully_overlapping_commitment_reuse_fits_a_legacy_packet_up_to_the_pinned_co
         println!("slash_commitment_reuse: {coalition:>2} signers, all guilty -> {size} bytes");
     }
     assert_eq!(
-        largest_fitting, MAX_LEGACY_NONCE_REUSE,
+        largest_fitting, MAX_LEGACY_COMMITMENT_REUSE,
         "the guilty set a legacy commitment-reuse filing can carry changed"
     );
 }
