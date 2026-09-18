@@ -9,13 +9,13 @@ use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::{InstructionData, ToAccountMetas};
 use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
-    AddDelegateArgs, AddPlanArgs, InitializeArgs, RegisterGatewayArgs, RegisterNodeArgs,
+    AddDelegateArgs, InitializeArgs, RegisterGatewayArgs, RegisterNodeArgs,
     RemoveDelegateArgs, SettleX402RoundArgs, SubmitAttestationArgs, UpdateConfigArgs,
-    UpdateNodeEndpointArgs, UpdatePlanArgs,
+    UpdateNodeEndpointArgs,
 };
 use molpha::state::{
     CommitmentReuseEvidence, EquivocationEvidence, InactivityEvidence, NonceReuseEvidence, Offence,
-    PlanType, RegistryState, UnsolicitedSigningEvidence,
+    PlanConfig, PlanType, RegistryState, UnsolicitedSigningEvidence,
 };
 use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
 use solana_keypair::Keypair;
@@ -581,39 +581,39 @@ impl Protocol {
     // plans, subscriptions, delegates
     // -----------------------------------------------------------------------
 
-    pub fn add_plan(&mut self, args: AddPlanArgs) -> TransactionMetadata {
+    pub fn add_plan(&mut self, config: PlanConfig) -> TransactionMetadata {
         let authority = self.authority.insecure_clone();
-        let ix = self.add_plan_ix(&args, &authority.pubkey());
+        let ix = self.add_plan_ix(&config, &authority.pubkey());
         self.env.send_ok(&[ix], &[&authority])
     }
 
-    pub fn add_plan_ix(&self, args: &AddPlanArgs, authority: &Pubkey) -> Instruction {
+    pub fn add_plan_ix(&self, config: &PlanConfig, authority: &Pubkey) -> Instruction {
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::AddPlan {
                 protocol_config: pda::protocol_config(),
-                plan: pda::plan(args.plan_type),
+                plan: pda::plan(config.plan_type),
                 authority: *authority,
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
-            data: molpha::instruction::AddPlan { args: args.clone() }.data(),
+            data: molpha::instruction::AddPlan { config: config.clone() }.data(),
         }
     }
 
     /// A plan with generous limits, for tests that are not about plan limits.
-    pub fn add_default_plan(&mut self, plan_type: PlanType) -> AddPlanArgs {
-        let args = AddPlanArgs {
+    pub fn add_default_plan(&mut self, plan_type: PlanType) -> PlanConfig {
+        let config = PlanConfig {
             plan_type,
             subscription_price: 50_000_000,
             max_signers: 16,
             max_delegates: 4,
             max_rounds: 100,
             private_api_enabled: true,
-            is_active: true,
+            is_active: true,   
         };
-        self.add_plan(args.clone());
-        args
+        self.add_plan(config.clone());
+        config
     }
 
     pub fn subscribe_ix(&self, owner: &Pubkey, plan_type: PlanType) -> Instruction {
@@ -1066,16 +1066,16 @@ impl Protocol {
 // ---------------------------------------------------------------------------
 
 impl Protocol {
-    pub fn update_plan_ix(&self, authority: &Pubkey, args: &UpdatePlanArgs) -> Instruction {
+    pub fn update_plan_ix(&self, authority: &Pubkey, config: &PlanConfig) -> Instruction {
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::UpdatePlan {
                 authority: *authority,
                 protocol_config: pda::protocol_config(),
-                plan: pda::plan(args.plan_type),
+                plan: pda::plan(config.plan_type),
             }
             .to_account_metas(None),
-            data: molpha::instruction::UpdatePlan { args: args.clone() }.data(),
+            data: molpha::instruction::UpdatePlan { config: config.clone() }.data(),
         }
     }
 

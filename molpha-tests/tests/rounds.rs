@@ -3,9 +3,8 @@
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::{GatewaySlashed, RewardsClaimed, RoundFinalized, RoundVoided};
-use molpha::instructions::AddPlanArgs;
 use molpha::state::{
-    Gateway, GatewayStatus, Node, NodeStatus, PlanType, RoundReceiptRecord, RoundRecordStatus,
+    Gateway, GatewayStatus, Node, NodeStatus, PlanConfig, PlanType, RoundReceiptRecord, RoundRecordStatus,
     Subscription,
 };
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
@@ -65,7 +64,7 @@ impl Fixture {
 
     /// A subscriber with a plan generous enough for the tests below.
     fn subscribe(&mut self) -> Keypair {
-        self.p.add_plan(AddPlanArgs {
+        self.p.add_plan(PlanConfig {
             plan_type: PlanType::Professional,
             subscription_price: 10_000_000,
             max_signers: 8,
@@ -819,7 +818,7 @@ fn underfunded_fixture() -> (Fixture, Keypair) {
     p.register_nodes("insolvent", NODE_COUNT);
     let gateway = p.register_gateway(FLOAT);
     let mut f = Fixture { p, gateway };
-    f.p.add_plan(AddPlanArgs {
+    f.p.add_plan(PlanConfig {
         plan_type: PlanType::Professional,
         subscription_price: RICH_REWARD,
         max_signers: 8,

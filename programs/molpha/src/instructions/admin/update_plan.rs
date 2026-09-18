@@ -2,43 +2,26 @@ use anchor_lang::prelude::*;
 
 use crate::{
     events::PlanUpdated,
-    state::{Plan, PlanType, ProtocolConfig, UpdatePlanParams},
+    state::{Plan, PlanConfig, ProtocolConfig},
 };
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct UpdatePlanArgs {
-    pub plan_type: PlanType,
-    pub subscription_price: u64,
-    pub max_signers: u8,
-    pub max_delegates: u32,
-    pub max_rounds: u64,
-    pub private_api_enabled: bool,
-    pub is_active: bool,
-}
-
-pub fn update_plan(ctx: Context<UpdatePlan>, args: UpdatePlanArgs) -> Result<()> {
-    ctx.accounts.plan.update(&UpdatePlanParams {
-        subscription_price: args.subscription_price,
-        max_signers: args.max_signers,
-        max_delegates: args.max_delegates,
-        max_rounds: args.max_rounds,
-        private_api_enabled: args.private_api_enabled,
-        is_active: args.is_active,
-    });
+pub fn update_plan(ctx: Context<UpdatePlan>, config: PlanConfig) -> Result<()> {
+    ctx.accounts.plan.update(&config);
 
     emit!(PlanUpdated {
-        plan_type: args.plan_type as u8,
-        subscription_price: args.subscription_price,
-        max_signers: args.max_signers,
-        max_delegates: args.max_delegates,
-        private_api_enabled: args.private_api_enabled,
-        is_active: args.is_active,
+        plan_type: ctx.accounts.plan.plan_type as u8,
+        subscription_price: config.subscription_price,
+        max_signers: config.max_signers,
+        max_delegates: config.max_delegates,
+        private_api_enabled: config.private_api_enabled,
+        is_active: config.is_active,
     });
 
     Ok(())
 }
 
 #[derive(Accounts)]
+#[instruction(config: PlanConfig)]
 pub struct UpdatePlan<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -52,7 +35,7 @@ pub struct UpdatePlan<'info> {
 
     #[account(
         mut,
-        seeds = [Plan::SEED_PREFIX, &[plan.plan_type as u8]],
+        seeds = [Plan::SEED_PREFIX, &[config.plan_type as u8]],
         bump = plan.bump,
     )]
     pub plan: Account<'info, Plan>,

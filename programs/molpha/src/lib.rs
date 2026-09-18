@@ -11,7 +11,7 @@ pub mod utils;
 
 use instructions::*;
 use molpha_verifier::Attestation;
-use state::PlanType;
+use state::{PlanConfig, PlanType};
 
 declare_id!("MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3");
 
@@ -49,12 +49,12 @@ pub mod molpha {
         instructions::update_registry_policy(ctx, redundancy_buffer)
     }
 
-    pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
-        instructions::add_plan(ctx, args)
+    pub fn add_plan(ctx: Context<AddPlan>, config: PlanConfig) -> Result<()> {
+        instructions::add_plan(ctx, config)
     }
 
-    pub fn update_plan(ctx: Context<UpdatePlan>, args: UpdatePlanArgs) -> Result<()> {
-        instructions::update_plan(ctx, args)
+    pub fn update_plan(ctx: Context<UpdatePlan>, config: PlanConfig) -> Result<()> {
+        instructions::update_plan(ctx, config)
     }
 
     pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
