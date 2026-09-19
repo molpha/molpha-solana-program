@@ -85,10 +85,10 @@ fn nonce_reuse_evidence_hash(
         batch_sig_s: [0u8; 32],
         batch_commitment_addr: [0u8; 20],
         slot,
-        nonces: nonces.clone(),
+        nonces: *nonces,
         merkle_proof: Vec::new(),
-        transcript_a: transcript_a.clone(),
-        transcript_b: transcript_b.clone(),
+        transcript_a: *transcript_a,
+        transcript_b: *transcript_b,
     }
     .hash()
 }

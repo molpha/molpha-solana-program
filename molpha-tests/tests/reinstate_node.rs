@@ -11,7 +11,10 @@ use solana_signer::Signer;
 
 const NODE_COUNT: usize = 4;
 
-const INACTIVITY_FREEZE_SECS: i64 = OffenceKind::Inactivity.penalty().freeze_secs.expect("freeze_secs is Some");
+const INACTIVITY_FREEZE_SECS: i64 = OffenceKind::Inactivity
+    .penalty()
+    .freeze_secs
+    .expect("freeze_secs is Some");
 
 fn frozen_protocol() -> (Protocol, usize) {
     let mut p = Protocol::start();

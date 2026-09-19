@@ -24,9 +24,12 @@ impl Evidence for InactivityEvidence {
         );
         require!(ctx.remaining.len() == 1, MolphaError::InvalidNodeAccount);
 
-        let node_index = usize::try_from(self.node_index)
-            .map_err(|_| error!(MolphaError::InvalidNodeIndex))?;
-        require!(node_index < MAX_REGISTRY_NODES, MolphaError::InvalidNodeIndex);
+        let node_index =
+            usize::try_from(self.node_index).map_err(|_| error!(MolphaError::InvalidNodeIndex))?;
+        require!(
+            node_index < MAX_REGISTRY_NODES,
+            MolphaError::InvalidNodeIndex
+        );
 
         let node: Account<Node> = Account::try_from(&ctx.remaining[0])?;
         require_keys_eq!(
@@ -34,7 +37,10 @@ impl Evidence for InactivityEvidence {
             ctx.evidence_registry.load()?.node(node_index)?,
             MolphaError::InvalidNodeAccount
         );
-        require!(node.status == NodeStatus::Active, MolphaError::NodeNotActive);
+        require!(
+            node.status == NodeStatus::Active,
+            MolphaError::NodeNotActive
+        );
         require!(
             node.liveliness_score < ctx.protocol_config.liveliness_freeze_threshold,
             MolphaError::LivelinessAboveThreshold

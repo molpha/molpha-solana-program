@@ -40,7 +40,7 @@ const ROUND_SIGNER_COUNT: usize = SIGS_REQUIRED as usize + REDUNDANCY_BUFFER as 
 ///
 /// Fixed accounts plus remaining `Node` accounts for the full submitted bitmap (20 round signers
 /// + N intruders) must stay within runtime account-lock limits in LiteSVM as well as the
-/// 64-account wire cap.
+///   64-account wire cap.
 const MAX_UNSOLICITED_INTRUDERS: usize = 8;
 const UNSOLICITED_REGISTRY_NODES: usize = ROUND_SIGNER_COUNT + MAX_UNSOLICITED_INTRUDERS;
 

@@ -55,9 +55,9 @@ pub(crate) fn credit_round_rewards<'info>(
     program_id: &Pubkey,
 ) -> Result<()> {
     let credited = Bitmap::load(&record.signers_bitmap);
-    let credited_count = credited.popcount() as u32;
+    let credited_count = credited.popcount();
     let missed = Bitmap::load(&record.selection_bitmap).subtract(&credited);
-    let missed_count = missed.popcount() as u32;
+    let missed_count = missed.popcount();
 
     require!(
         remaining_accounts.len() == (credited_count + missed_count) as usize,

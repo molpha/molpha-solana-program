@@ -5,7 +5,9 @@ use molpha_verifier::{solana::resolve_intersected_signers_accounts, Attestation,
 
 use crate::error::{map_attestation_accounts_err, MolphaError};
 use crate::state::{Evidence, EvidenceAccounts};
-use crate::utils::slash::{attestation_hash, canonical_pair, is_equivocation, verify_evidence_signature};
+use crate::utils::slash::{
+    attestation_hash, canonical_pair, is_equivocation, verify_evidence_signature,
+};
 
 pub const DOMAIN_EQUIVOCATION: &[u8] = b"MOLPHA_EQUIVOCATION_V1";
 

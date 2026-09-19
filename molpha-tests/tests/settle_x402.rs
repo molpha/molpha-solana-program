@@ -62,7 +62,7 @@ impl Fixture {
     ) -> litesvm::types::TransactionResult {
         let ix = self
             .p
-            .settle_x402_round_ix(&self.gateway.pubkey(), &attestation, args);
+            .settle_x402_round_ix(&self.gateway.pubkey(), attestation, args);
         let gateway = self.gateway.insecure_clone();
         self.p.env.send(&[ix], &[&gateway])
     }
@@ -202,7 +202,7 @@ fn payment_ref_is_accepted_at_both_length_boundaries_and_rejected_past_it() {
             payment_ref: vec![7u8; len],
             ..f.p.x402_args(&signed, payer)
         };
-        f.settle(&attestation, args).unwrap_or_else(|e| {
+        f.settle(attestation, args).unwrap_or_else(|e| {
             panic!("payment_ref of {len} bytes should be accepted: {:?}", e.err)
         });
     }
@@ -211,7 +211,7 @@ fn payment_ref_is_accepted_at_both_length_boundaries_and_rejected_past_it() {
         payment_ref: vec![7u8; 65],
         ..f.p.x402_args(&signed, [0x03; 32])
     };
-    let failed = f.settle(&attestation, args).unwrap_err();
+    let failed = f.settle(attestation, args).unwrap_err();
     assert_molpha_error(&failed, MolphaError::PaymentRefTooLong);
 }
 

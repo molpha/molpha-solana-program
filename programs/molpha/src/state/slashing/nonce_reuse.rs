@@ -53,16 +53,22 @@ impl Evidence for NonceReuseEvidence {
             MolphaError::TranscriptContextsEqual
         );
 
-        let node_index = usize::try_from(self.node_index)
-            .map_err(|_| error!(MolphaError::InvalidNodeIndex))?;
-        require!(node_index < MAX_REGISTRY_NODES, MolphaError::InvalidNodeIndex);
+        let node_index =
+            usize::try_from(self.node_index).map_err(|_| error!(MolphaError::InvalidNodeIndex))?;
+        require!(
+            node_index < MAX_REGISTRY_NODES,
+            MolphaError::InvalidNodeIndex
+        );
         let mut guilty_bitmap = Bitmap::new();
         guilty_bitmap.set_bit(node_index);
 
         require!(ctx.remaining.len() == 1, MolphaError::InvalidNodeAccount);
         let node: Account<Node> = Account::try_from(&ctx.remaining[0])?;
         let registered_node = ctx.evidence_registry.load()?.node(node_index)?;
-        require!(node.key() == registered_node, MolphaError::InvalidNodeAccount);
+        require!(
+            node.key() == registered_node,
+            MolphaError::InvalidNodeAccount
+        );
 
         let leaf = commitment_leaf_hash(self.slot, &self.nonces);
         require!(

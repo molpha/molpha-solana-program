@@ -5,8 +5,10 @@ use anchor_lang::prelude::*;
 use crate::{
     error::MolphaError,
     events::NodeReinstated,
-    state::{Node, NodeStatus, ProtocolConfig, Registry, RegistryState, LIVELINESS_SCORE_MAX},
-    utils::registry::with_registry_snapshot,
+    state::{
+        Node, NodeStatus, ProtocolConfig, Registry, RegistryState, RegistryTransition,
+        LIVELINESS_SCORE_MAX,
+    },
 };
 
 pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
@@ -21,16 +23,14 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
 
     let node_key = ctx.accounts.node.key();
     let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
-    let index = with_registry_snapshot(
-        &mut ctx.accounts.registry_state,
-        &ctx.accounts.current_registry,
-        &ctx.accounts.new_registry,
-        grace_active_until,
-        ctx.bumps.new_registry,
-        |current, next| {
-            next.append_node(node_key)?;
-            Ok(u32::from(current.node_count))
+    let index: u32 = ctx.accounts.registry_state.append_node(
+        &RegistryTransition {
+            current: &ctx.accounts.current_registry,
+            next: &ctx.accounts.new_registry,
+            grace_active_until,
+            bump: ctx.bumps.new_registry,
         },
+        node_key,
     )?;
 
     let node = &mut ctx.accounts.node;

@@ -70,11 +70,7 @@ fn case() -> Case {
     Case { p, reporter, a, b }
 }
 
-fn args_for(
-    _case: &Case,
-    a: &SignedAttestation,
-    b: &SignedAttestation,
-) -> CommitmentReuseEvidence {
+fn args_for(_case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> CommitmentReuseEvidence {
     let (attestation_a, attestation_b) = (a.attestation(), b.attestation());
     CommitmentReuseEvidence {
         attestation_a,

@@ -6,8 +6,8 @@ use crate::{
     events::OffenceProven,
     state::{
         bps_of, EvidenceAccounts, Offence, ProtocolConfig, PunishmentCase, Registry, RegistryState,
+        RegistryTransition,
     },
-    utils::registry::with_registry_snapshot,
     utils::slash::{slash_guilty_nodes, SlashInput},
 };
 
@@ -40,16 +40,14 @@ pub fn slash_offence<'info>(
 
     let slashed_total = batch.slashed_total();
     let grace_active_until = config.get_grace_active_until();
-    with_registry_snapshot(
-        &mut ctx.accounts.registry_state,
-        &ctx.accounts.current_registry,
-        &ctx.accounts.new_registry,
-        grace_active_until,
-        ctx.bumps.new_registry,
-        |_current, next| {
-            next.swap_remove_nodes(&batch.victims)?;
-            Ok(())
+    ctx.accounts.registry_state.swap_remove_nodes(
+        &RegistryTransition {
+            current: &ctx.accounts.current_registry,
+            next: &ctx.accounts.new_registry,
+            grace_active_until,
+            bump: ctx.bumps.new_registry,
         },
+        &batch.victims,
     )?;
 
     // Cancelled reward credits stop being a claim on the treasury.

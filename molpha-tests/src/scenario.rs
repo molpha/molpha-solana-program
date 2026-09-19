@@ -9,9 +9,8 @@ use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::{InstructionData, ToAccountMetas};
 use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
-    AddDelegateArgs, InitializeArgs, RegisterGatewayArgs, RegisterNodeArgs,
-    RemoveDelegateArgs, SettleX402RoundArgs, SubmitAttestationArgs, UpdateConfigArgs,
-    UpdateNodeEndpointArgs,
+    AddDelegateArgs, InitializeArgs, RegisterGatewayArgs, RegisterNodeArgs, RemoveDelegateArgs,
+    SettleX402RoundArgs, SubmitAttestationArgs, UpdateConfigArgs, UpdateNodeEndpointArgs,
 };
 use molpha::state::{
     CommitmentReuseEvidence, EquivocationEvidence, InactivityEvidence, NonceReuseEvidence, Offence,
@@ -83,7 +82,7 @@ impl Duty {
 
     /// The message a coalition signs for this duty.
     pub fn message_hash(&self, signers_bitmap: [u8; 32]) -> [u8; 32] {
-        molpha_verifier::compute_message_hash(&self.payload().into(), signers_bitmap)
+        molpha_verifier::compute_message_hash(&self.payload(), signers_bitmap)
     }
 }
 
@@ -597,7 +596,10 @@ impl Protocol {
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
-            data: molpha::instruction::AddPlan { config: config.clone() }.data(),
+            data: molpha::instruction::AddPlan {
+                config: config.clone(),
+            }
+            .data(),
         }
     }
 
@@ -610,7 +612,7 @@ impl Protocol {
             max_delegates: 4,
             max_rounds: 100,
             private_api_enabled: true,
-            is_active: true,   
+            is_active: true,
         };
         self.add_plan(config.clone());
         config
@@ -1075,7 +1077,10 @@ impl Protocol {
                 plan: pda::plan(config.plan_type),
             }
             .to_account_metas(None),
-            data: molpha::instruction::UpdatePlan { config: config.clone() }.data(),
+            data: molpha::instruction::UpdatePlan {
+                config: config.clone(),
+            }
+            .data(),
         }
     }
 

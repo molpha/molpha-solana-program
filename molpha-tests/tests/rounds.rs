@@ -4,8 +4,8 @@ use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::{GatewaySlashed, RewardsClaimed, RoundFinalized, RoundVoided};
 use molpha::state::{
-    Gateway, GatewayStatus, Node, NodeStatus, PlanConfig, PlanType, RoundReceiptRecord, RoundRecordStatus,
-    Subscription,
+    Gateway, GatewayStatus, Node, NodeStatus, PlanConfig, PlanType, RoundReceiptRecord,
+    RoundRecordStatus, Subscription,
 };
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;

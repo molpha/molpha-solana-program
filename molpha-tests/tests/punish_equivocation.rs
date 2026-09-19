@@ -4,14 +4,13 @@ use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::{NodePunished, OffenceProven};
 use molpha::state::{
-    EquivocationEvidence, Evidence, MembershipAction, Node, NodeStatus, OffenceKind,
-    PunishmentCase,
+    EquivocationEvidence, Evidence, MembershipAction, Node, NodeStatus, OffenceKind, PunishmentCase,
 };
-use molpha_verifier::Attestation;
 use molpha_tests::crypto;
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, events, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{intersect_bitmap, Duty, Protocol, SignedAttestation};
+use molpha_verifier::Attestation;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 

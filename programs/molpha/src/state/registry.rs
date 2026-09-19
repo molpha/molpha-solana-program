@@ -25,7 +25,7 @@ impl Registry {
     pub const SPACE: usize = 8 + core::mem::size_of::<Self>();
 
     pub fn init_genesis(&mut self, redundancy_buffer: u8, bump: u8) {
-        self.redundancy_buffer = redundancy_buffer;
+        self.set_redundancy_buffer(redundancy_buffer).unwrap();
         self.bump = bump;
         self.nodes = [[0u8; 32]; MAX_REGISTRY_NODES];
     }
@@ -79,8 +79,17 @@ impl Registry {
     }
 
     /// Update the redundancy buffer on a snapshot that was already copied from the previous registry.
-    pub fn set_redundancy_buffer(&mut self, redundancy_buffer: u8) {
+    pub fn set_redundancy_buffer(&mut self, redundancy_buffer: u8) -> Result<()> {
+        require!(
+            redundancy_buffer > 0 && redundancy_buffer <= 8,
+            MolphaError::InvalidRedundancyBuffer
+        );
+        require!(
+            redundancy_buffer != self.redundancy_buffer,
+            MolphaError::RegistryPolicyUnchanged
+        );
         self.redundancy_buffer = redundancy_buffer;
+        Ok(())
     }
 
     /// Remove a node from a snapshot that was already copied from the previous registry.

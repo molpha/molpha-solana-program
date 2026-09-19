@@ -3,7 +3,7 @@
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::{DelegateAdded, DelegateRemoved};
-use molpha::instructions::{AddDelegateArgs};
+use molpha::instructions::AddDelegateArgs;
 use molpha::state::{Delegate, PlanConfig, PlanType, Subscription};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;

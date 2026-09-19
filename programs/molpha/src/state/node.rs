@@ -1,8 +1,10 @@
 use anchor_lang::prelude::*;
+use solana_keccak_hasher::hashv;
 
 pub const LIVELINESS_SCORE_MAX: u16 = 10_000;
 pub const LIVELINESS_PENALTY_PER_MISS: u16 = 500;
 pub const LIVELINESS_RECOVERY_PER_SIGN: u16 = 100;
+pub const NODE_ID_PREFIX: &[u8] = b"MOLPHA_NODE_ID_V1";
 
 /// Permanent node identity and reward account; never closed or re-keyed.
 #[account]
@@ -72,4 +74,18 @@ pub enum NodeStatus {
     Frozen,
     /// Evicted from the registry by a punishment with `MembershipAction::Tombstone`. Terminal.
     Tombstoned,
+}
+
+pub fn derive_node_id(
+    owner: Pubkey,
+    secp256k1_pubkey_compressed: &[u8; 33],
+    registration_salt: &[u8; 32],
+) -> [u8; 32] {
+    hashv(&[
+        NODE_ID_PREFIX,
+        owner.as_ref(),
+        secp256k1_pubkey_compressed.as_ref(),
+        registration_salt.as_ref(),
+    ])
+    .to_bytes()
 }

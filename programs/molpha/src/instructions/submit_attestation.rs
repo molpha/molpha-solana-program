@@ -66,7 +66,7 @@ pub fn submit_attestation(
     }
 
     verify_attestation(
-        &attestation.into(),
+        &attestation,
         &ctx.accounts.registry.to_account_info(),
         ctx.remaining_accounts,
     )

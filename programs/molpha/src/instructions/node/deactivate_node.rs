@@ -3,8 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     error::MolphaError,
     events::NodeDeactivated,
-    state::{Node, NodeStatus, ProtocolConfig, Registry, RegistryState},
-    utils::registry::with_registry_snapshot,
+    state::{Node, NodeStatus, ProtocolConfig, Registry, RegistryState, RegistryTransition},
 };
 
 pub fn deactivate_node(ctx: Context<DeactivateNode>, node_owner: Pubkey) -> Result<()> {
@@ -16,16 +15,14 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>, node_owner: Pubkey) -> Resu
     );
 
     let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
-    with_registry_snapshot(
-        &mut ctx.accounts.registry_state,
-        &ctx.accounts.current_registry,
-        &ctx.accounts.new_registry,
-        grace_active_until,
-        ctx.bumps.new_registry,
-        |_current, next| {
-            next.swap_remove_node(ctx.accounts.node.key())?;
-            Ok(())
+    ctx.accounts.registry_state.swap_remove_node(
+        &RegistryTransition {
+            current: &ctx.accounts.current_registry,
+            next: &ctx.accounts.new_registry,
+            grace_active_until,
+            bump: ctx.bumps.new_registry,
         },
+        ctx.accounts.node.key(),
     )?;
 
     let clock = Clock::get()?;
