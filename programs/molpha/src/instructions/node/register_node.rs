@@ -6,8 +6,10 @@ use solana_keccak_hasher::hashv;
 use crate::{
     error::MolphaError,
     events::NodeRegistered,
-    state::{Node, ProtocolConfig, Registry, RegistryState, Secp256k1KeyClaim},
-    utils::registry::{derive_node_id, with_registry_snapshot},
+    state::{
+        derive_node_id, Node, ProtocolConfig, Registry, RegistryState, RegistryTransition,
+        Secp256k1KeyClaim,
+    },
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -80,16 +82,14 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         .init(ctx.accounts.node.key(), ctx.bumps.secp256k1_key_claim);
 
     let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
-    let index = with_registry_snapshot(
-        &mut ctx.accounts.registry_state,
-        &ctx.accounts.current_registry,
-        &ctx.accounts.new_registry,
-        grace_active_until,
-        ctx.bumps.new_registry,
-        |current, next| {
-            next.append_node(ctx.accounts.node.key())?;
-            Ok(u32::from(current.node_count))
+    let index = ctx.accounts.registry_state.append_node(
+        &RegistryTransition {
+            current: &ctx.accounts.current_registry,
+            next: &ctx.accounts.new_registry,
+            grace_active_until,
+            bump: ctx.bumps.new_registry,
         },
+        ctx.accounts.node.key(),
     )?;
 
     emit!(NodeRegistered {

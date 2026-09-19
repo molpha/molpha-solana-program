@@ -1,15 +1,13 @@
-//! The fixed penalty table and the arithmetic `apply_penalty` runs on a single node.
+//! The fixed penalty table and the arithmetic `Penalty::apply` runs on a single node.
 //!
-//! Pure unit tests — no VM. `punish_equivocation`, `punish_unsolicited_signing` and
-//! `punish_commitment_reuse` cover the same penalties end-to-end against the VM.
+//! Pure unit tests — no VM. `slash_offence` covers the same penalties end-to-end against the VM.
 
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{MembershipAction, Node, NodeStatus, OffenceKind, Penalty};
-use molpha::utils::apply_penalty;
 
 fn node_fixture(locked: u64, rewards: u64, status: NodeStatus) -> Node {
     Node {
-        owner: Pubkey::new_unique(),
+        authority: Pubkey::new_unique(),
         secp256k1_pubkey_x: [0u8; 32],
         secp256k1_pubkey_y: [0u8; 32],
         status,
@@ -30,17 +28,30 @@ fn penalties_are_pinned() {
     let equivocation = OffenceKind::Equivocation.penalty();
     assert_eq!(equivocation.slash_bps, 10_000);
     assert_eq!(equivocation.membership, MembershipAction::Tombstone);
-    assert_eq!(equivocation.freeze_secs, 0);
+    assert_eq!(equivocation.freeze_secs, None);
 
     let unsolicited = OffenceKind::UnsolicitedSigning.penalty();
     assert_eq!(unsolicited.slash_bps, 10_000);
     assert_eq!(unsolicited.membership, MembershipAction::Tombstone);
-    assert_eq!(unsolicited.freeze_secs, 0);
+    assert_eq!(unsolicited.freeze_secs, None);
+
+    let nonce_reuse = OffenceKind::NonceReuse.penalty();
+    assert_eq!(nonce_reuse.slash_bps, 10_000);
+    assert_eq!(nonce_reuse.membership, MembershipAction::Tombstone);
+    assert_eq!(nonce_reuse.freeze_secs, None);
 
     let commitment_reuse = OffenceKind::CommitmentReuse.penalty();
     assert_eq!(commitment_reuse.slash_bps, 5_000);
     assert_eq!(commitment_reuse.membership, MembershipAction::Tombstone);
-    assert_eq!(commitment_reuse.freeze_secs, 0);
+    assert_eq!(commitment_reuse.freeze_secs, None);
+
+    let inactivity = OffenceKind::Inactivity.penalty();
+    assert_eq!(inactivity.slash_bps, 0);
+    assert_eq!(inactivity.membership, MembershipAction::Freeze);
+    assert_eq!(
+        inactivity.freeze_secs,
+        Some(molpha::state::INACTIVITY_FREEZE_SECS)
+    );
 }
 
 #[test]
@@ -49,9 +60,9 @@ fn full_slash_zeroes_balances_and_tombstones() {
     let penalty = Penalty {
         slash_bps: 10_000,
         membership: MembershipAction::Tombstone,
-        freeze_secs: 0,
+        freeze_secs: None,
     };
-    let outcome = apply_penalty(&mut node, penalty, 100).unwrap();
+    let outcome = penalty.apply(&mut node, 100).unwrap();
     assert_eq!(outcome.slashed_locked, 1_000);
     assert_eq!(outcome.slashed_rewards, 42);
     assert_eq!(outcome.total(), 1_042);
@@ -66,9 +77,9 @@ fn partial_slash_rounds_down_and_freezes() {
     let penalty = Penalty {
         slash_bps: 2_500, // 25%
         membership: MembershipAction::Freeze,
-        freeze_secs: 3_600,
+        freeze_secs: Some(3_600),
     };
-    let outcome = apply_penalty(&mut node, penalty, 500).unwrap();
+    let outcome = penalty.apply(&mut node, 500).unwrap();
     assert_eq!(outcome.slashed_locked, 249); // floor(999 * 0.25)
     assert_eq!(node.locked_amount, 750);
     assert_eq!(node.status, NodeStatus::Frozen);
@@ -81,9 +92,9 @@ fn zero_bps_is_a_pure_status_transition() {
     let penalty = Penalty {
         slash_bps: 0,
         membership: MembershipAction::None,
-        freeze_secs: 0,
+        freeze_secs: None,
     };
-    let outcome = apply_penalty(&mut node, penalty, 1).unwrap();
+    let outcome = penalty.apply(&mut node, 1).unwrap();
     assert_eq!(outcome.slashed_locked, 0);
     assert_eq!(outcome.slashed_rewards, 0);
     assert_eq!(node.locked_amount, 1_000);
@@ -94,11 +105,11 @@ fn zero_bps_is_a_pure_status_transition() {
 fn half_slash_tombstones_and_leaves_the_remainder() {
     let mut node = node_fixture(100_000_001, 3, NodeStatus::Active);
     let penalty = Penalty {
-        slash_bps: 5_000, // 50% — OffenceKind::NonceReuse
+        slash_bps: 5_000, // 50% — OffenceKind::CommitmentReuse
         membership: MembershipAction::Tombstone,
-        freeze_secs: 0,
+        freeze_secs: None,
     };
-    let outcome = apply_penalty(&mut node, penalty, 100).unwrap();
+    let outcome = penalty.apply(&mut node, 100).unwrap();
     assert_eq!(outcome.slashed_locked, 50_000_000); // floor(100_000_001 * 0.5)
     assert_eq!(outcome.slashed_rewards, 1); // floor(3 * 0.5)
     assert_eq!(node.locked_amount, 50_000_001);
@@ -113,9 +124,9 @@ fn tombstoned_node_cannot_be_punished_again() {
     let penalty = Penalty {
         slash_bps: 10_000,
         membership: MembershipAction::Tombstone,
-        freeze_secs: 0,
+        freeze_secs: None,
     };
-    assert!(apply_penalty(&mut node, penalty, 1).is_err());
+    assert!(penalty.apply(&mut node, 1).is_err());
 }
 
 /// A node can be punished twice, and the second penalty applies to what the first one left.
@@ -128,9 +139,9 @@ fn a_second_penalty_accumulates_onto_an_uncranked_seizure() {
     let half = Penalty {
         slash_bps: 5_000,
         membership: MembershipAction::Freeze,
-        freeze_secs: 60,
+        freeze_secs: Some(60),
     };
-    let first = apply_penalty(&mut node, half, 100).unwrap();
+    let first = half.apply(&mut node, 100).unwrap();
     assert_eq!(first.slashed_locked, 500);
     assert_eq!(node.locked_amount, 500);
 
@@ -139,9 +150,9 @@ fn a_second_penalty_accumulates_onto_an_uncranked_seizure() {
     let full = Penalty {
         slash_bps: 10_000,
         membership: MembershipAction::Tombstone,
-        freeze_secs: 0,
+        freeze_secs: None,
     };
-    let second = apply_penalty(&mut node, full, 200).unwrap();
+    let second = full.apply(&mut node, 200).unwrap();
 
     assert_eq!(
         second.slashed_locked, 500,

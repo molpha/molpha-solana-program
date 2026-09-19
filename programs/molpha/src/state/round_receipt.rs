@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 
+use molpha_verifier::Attestation;
+
 /// Per-round settlement record written by `settle_subscription_round` or `settle_x402_round`.
 #[account]
 #[derive(InitSpace)]
@@ -38,10 +40,8 @@ pub enum RoundRecordKind {
 pub struct RoundReceiptInitArgs {
     pub consumer_id: [u8; 32],
     pub selection_bitmap: [u8; 32],
-    pub agg_sig: crate::state::AggregatedSig,
     pub attestation_message_hash: [u8; 32],
     pub gateway: Pubkey,
-    pub registry_version: u32,
     pub reward_per_signature: u64,
     pub recorded_slot: u64,
     pub kind: RoundRecordKind,
@@ -53,15 +53,15 @@ impl RoundReceiptRecord {
     pub const X402_SEED_PREFIX: &'static [u8] = b"molpha_x402_round";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
-    pub fn init(&mut self, args: RoundReceiptInitArgs) {
+    pub fn init(&mut self, attestation: &Attestation, args: RoundReceiptInitArgs) {
         self.consumer_id = args.consumer_id;
-        self.signers_bitmap = args.agg_sig.signers_bitmap;
+        self.signers_bitmap = attestation.signature.signers_bitmap;
         self.selection_bitmap = args.selection_bitmap;
-        self.agg_sig_s = args.agg_sig.agg_sig_s;
-        self.commitment = args.agg_sig.commitment;
+        self.agg_sig_s = attestation.signature.agg_sig_s;
+        self.commitment = attestation.signature.commitment;
         self.attestation_message_hash = args.attestation_message_hash;
         self.gateway = args.gateway;
-        self.registry_version = args.registry_version;
+        self.registry_version = attestation.payload.registry_version;
         self.reward_per_signature = args.reward_per_signature;
         self.recorded_slot = args.recorded_slot;
         self.status = RoundRecordStatus::Pending;

@@ -18,12 +18,8 @@
 //! that a full 20-node coalition still lands on-chain (unsolicited signing tests the same round
 //! shape with the maximum intruder count that fits one transaction).
 
-use molpha::instructions::{
-    PunishCommitmentReuseArgs, PunishEquivocationArgs, PunishUnsolicitedSigningArgs,
-};
 use molpha::state::{
-    commitment_reuse_evidence_hash, equivocation_evidence_hash, unsolicited_signing_evidence_hash,
-    Node, NodeStatus,
+    CommitmentReuseEvidence, EquivocationEvidence, Node, NodeStatus, UnsolicitedSigningEvidence,
 };
 use molpha_tests::crypto;
 use molpha_tests::env::{TestEnv, PACKET_DATA_SIZE};
@@ -42,20 +38,24 @@ const ROUND_SIGNER_COUNT: usize = SIGS_REQUIRED as usize + REDUNDANCY_BUFFER as 
 
 /// Intruders punishable in one unsolicited filing alongside a 20-signer round attestation.
 ///
-/// Fixed accounts (11) + accused signers (20 + N) + guilty vaults (N) must stay within runtime
-/// account-lock limits in LiteSVM as well as the 64-account wire cap.
+/// Fixed accounts plus remaining `Node` accounts for the full submitted bitmap (20 round signers
+/// + N intruders) must stay within runtime account-lock limits in LiteSVM as well as the
+///   64-account wire cap.
 const MAX_UNSOLICITED_INTRUDERS: usize = 8;
 const UNSOLICITED_REGISTRY_NODES: usize = ROUND_SIGNER_COUNT + MAX_UNSOLICITED_INTRUDERS;
 
-/// Largest fully-overlapping coalition whose `punish_equivocation` filing fits a legacy packet.
+/// Largest fully-overlapping coalition whose `slash_offence` (equivocation) filing fits a legacy
+/// packet.
 ///
 /// Asserted exactly. A filing costs one account per signer plus a fixed set of token accounts,
 /// so every account added to the punishment context costs a signer directly, and going back to a
-/// vault per guilty node would halve this number.
-const MAX_LEGACY_EQUIVOCATION: usize = 11;
+/// vault per guilty node would halve this number. Both attestations carry their own duty fields,
+/// so the args are as large as commitment reuse and the limit matches it.
+const MAX_LEGACY_EQUIVOCATION: usize = 10;
 
-/// Same, for `punish_commitment_reuse`, whose two `RoundRequest` contexts make its args the largest.
-const MAX_LEGACY_NONCE_REUSE: usize = 9;
+/// Same ceiling for `slash_offence` (commitment reuse), whose two full attestations make its args
+/// the largest pair-offence encoding.
+const MAX_LEGACY_COMMITMENT_REUSE: usize = 10;
 
 /// Solana's per-transaction maximum, which the harness requests for every transaction.
 const MAX_COMPUTE_UNITS: u64 = 1_400_000;
@@ -104,12 +104,11 @@ fn equivocation_pair(
     )
 }
 
-fn equivocation_args(a: &SignedAttestation, b: &SignedAttestation) -> PunishEquivocationArgs {
-    let round_request = a.round_request();
-    PunishEquivocationArgs {
-        statement_a: a.statement(),
-        statement_b: b.statement(),
-        evidence_hash: equivocation_evidence_hash(&round_request, &a.statement(), &b.statement()),
+fn equivocation_args(a: &SignedAttestation, b: &SignedAttestation) -> EquivocationEvidence {
+    let (attestation_a, attestation_b) = (a.attestation(), b.attestation());
+    EquivocationEvidence {
+        attestation_a,
+        attestation_b,
     }
 }
 
@@ -133,25 +132,18 @@ fn commitment_reuse_round_pair(p: &Protocol) -> (SignedAttestation, SignedAttest
     (a, b)
 }
 
-fn commitment_reuse_args(
-    a: &SignedAttestation,
-    b: &SignedAttestation,
-) -> PunishCommitmentReuseArgs {
-    PunishCommitmentReuseArgs {
-        round_request_a: a.round_request(),
-        statement_a: a.statement(),
-        round_request_b: b.round_request(),
-        statement_b: b.statement(),
-        evidence_hash: commitment_reuse_evidence_hash(
-            &a.round_request(),
-            &a.statement(),
-            &b.round_request(),
-            &b.statement(),
-        ),
+fn commitment_reuse_args(a: &SignedAttestation, b: &SignedAttestation) -> CommitmentReuseEvidence {
+    let (attestation_a, attestation_b) = (a.attestation(), b.attestation());
+    CommitmentReuseEvidence {
+        attestation_a,
+        attestation_b,
     }
 }
 
-fn unsolicited_round_statement(p: &Protocol, node_count: usize) -> (SignedAttestation, Vec<usize>) {
+fn unsolicited_round_attestation(
+    p: &Protocol,
+    node_count: usize,
+) -> (SignedAttestation, Vec<usize>) {
     let duty = Duty::new(p.current_version(), SIGS_REQUIRED);
     let selection = p.selection_bits(&duty);
     assert_round_selection(p, &duty);
@@ -161,18 +153,13 @@ fn unsolicited_round_statement(p: &Protocol, node_count: usize) -> (SignedAttest
     let mut bits = selection;
     bits.extend(&intruders);
     bits.sort_unstable();
-    let statement = p.sign_duty_with_bits(duty, &bits, None);
-    (statement, intruders)
+    let signed = p.sign_duty_with_bits(duty, &bits, None);
+    (signed, intruders)
 }
 
-fn unsolicited_args(statement: &SignedAttestation) -> PunishUnsolicitedSigningArgs {
-    PunishUnsolicitedSigningArgs {
-        statement: statement.statement(),
-        evidence_hash: unsolicited_signing_evidence_hash(
-            &statement.round_request(),
-            &statement.statement(),
-        ),
-    }
+fn unsolicited_args(signed: &SignedAttestation) -> UnsolicitedSigningEvidence {
+    let attestation = signed.attestation();
+    UnsolicitedSigningEvidence { attestation }
 }
 
 #[test]
@@ -185,7 +172,7 @@ fn a_fully_overlapping_equivocation_fits_a_legacy_packet_up_to_the_pinned_coalit
     for coalition in 3..=20 {
         let (a, b) = equivocation_pair(&p, coalition, 1_700_100_000 + coalition as u64);
         let args = equivocation_args(&a, &b);
-        let ix = p.punish_equivocation_ix(&reporter, a.round_request(), args);
+        let ix = p.slash_equivocation_ix(&reporter, args);
         let size = p.env.transaction_size_as(&reporter, &[ix]);
         sizes.push((coalition, size));
         if size <= PACKET_DATA_SIZE {
@@ -194,7 +181,7 @@ fn a_fully_overlapping_equivocation_fits_a_legacy_packet_up_to_the_pinned_coalit
     }
 
     for (coalition, size) in &sizes {
-        println!("punish_equivocation: {coalition:>2} signers, all guilty -> {size} bytes");
+        println!("slash_equivocation: {coalition:>2} signers, all guilty -> {size} bytes");
     }
     assert_eq!(
         largest_fitting, MAX_LEGACY_EQUIVOCATION,
@@ -211,7 +198,7 @@ fn the_largest_fitting_equivocation_filing_actually_lands() {
 
     let (a, b) = equivocation_pair(&p, MAX_LEGACY_EQUIVOCATION, 1_700_200_500);
     let args = equivocation_args(&a, &b);
-    let ix = p.punish_equivocation_ix(&reporter.pubkey(), a.round_request(), args);
+    let ix = p.slash_equivocation_ix(&reporter.pubkey(), args);
     assert!(
         p.env
             .transaction_size_as(&reporter.pubkey(), std::slice::from_ref(&ix))
@@ -220,7 +207,7 @@ fn the_largest_fitting_equivocation_filing_actually_lands() {
 
     let meta = p.env.send_ok(&[ix], &[&reporter]);
     println!(
-        "punish_equivocation: {MAX_LEGACY_EQUIVOCATION} signers, all guilty -> {} CU",
+        "slash_equivocation: {MAX_LEGACY_EQUIVOCATION} signers, all guilty -> {} CU",
         meta.compute_units_consumed
     );
     assert!(
@@ -251,7 +238,7 @@ fn a_fully_overlapping_commitment_reuse_fits_a_legacy_packet_up_to_the_pinned_co
         let a = p.sign_duty_with_bits(duty_a, &bits, Some(SHARED_NONCE));
         let b = p.sign_duty_with_bits(duty_b, &bits, Some(SHARED_NONCE));
         let args = commitment_reuse_args(&a, &b);
-        let ix = p.punish_commitment_reuse_ix(&reporter, args);
+        let ix = p.slash_commitment_reuse_ix(&reporter, args);
         let size = p.env.transaction_size_as(&reporter, &[ix]);
         sizes.push((coalition, size));
         if size <= PACKET_DATA_SIZE {
@@ -260,10 +247,10 @@ fn a_fully_overlapping_commitment_reuse_fits_a_legacy_packet_up_to_the_pinned_co
     }
 
     for (coalition, size) in &sizes {
-        println!("punish_commitment_reuse: {coalition:>2} signers, all guilty -> {size} bytes");
+        println!("slash_commitment_reuse: {coalition:>2} signers, all guilty -> {size} bytes");
     }
     assert_eq!(
-        largest_fitting, MAX_LEGACY_NONCE_REUSE,
+        largest_fitting, MAX_LEGACY_COMMITMENT_REUSE,
         "the guilty set a legacy commitment-reuse filing can carry changed"
     );
 }
@@ -280,7 +267,7 @@ fn a_fully_overlapping_equivocation_with_20_round_signers_executes() {
     assert_eq!(crypto::bitmap_bits(&guilty).len(), ROUND_SIGNER_COUNT);
     let guilty_pdas = p.node_pdas_for_bitmap(a.duty.registry_version, &guilty);
 
-    let ix = p.punish_equivocation_ix(&reporter.pubkey(), a.round_request(), args);
+    let ix = p.slash_equivocation_ix(&reporter.pubkey(), args);
     let size = p
         .env
         .transaction_size_as(&reporter.pubkey(), std::slice::from_ref(&ix));
@@ -316,7 +303,7 @@ fn a_fully_overlapping_commitment_reuse_with_20_round_signers_executes() {
     assert_eq!(crypto::bitmap_bits(&guilty).len(), ROUND_SIGNER_COUNT);
     let guilty_pdas = p.node_pdas_for_bitmap(a.duty.registry_version, &guilty);
 
-    let ix = p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
+    let ix = p.slash_commitment_reuse_ix(&reporter.pubkey(), args);
     let size = p
         .env
         .transaction_size_as(&reporter.pubkey(), std::slice::from_ref(&ix));
@@ -346,17 +333,16 @@ fn unsolicited_signing_with_20_round_signers_and_max_intruders_executes() {
     let mut p = round_protocol(UNSOLICITED_REGISTRY_NODES);
     let reporter = p.reporter();
 
-    let (statement, intruders) = unsolicited_round_statement(&p, UNSOLICITED_REGISTRY_NODES);
+    let (signed, intruders) = unsolicited_round_attestation(&p, UNSOLICITED_REGISTRY_NODES);
     assert_eq!(intruders.len(), MAX_UNSOLICITED_INTRUDERS);
-    let args = unsolicited_args(&statement);
-    let round_request = statement.round_request();
-    let guilty = unsolicited_guilty_bitmap(&p, &round_request, &args.statement.signers_bitmap);
+    let args = unsolicited_args(&signed);
+    let guilty = unsolicited_guilty_bitmap(&p, &args.attestation);
     assert_eq!(
         crypto::bitmap_bits(&guilty).len(),
         MAX_UNSOLICITED_INTRUDERS
     );
 
-    let ix = p.punish_unsolicited_signing_ix(&reporter.pubkey(), round_request, args);
+    let ix = p.slash_unsolicited_signing_ix(&reporter.pubkey(), args);
     let size = p
         .env
         .transaction_size_as(&reporter.pubkey(), std::slice::from_ref(&ix));
@@ -371,7 +357,7 @@ fn unsolicited_signing_with_20_round_signers_and_max_intruders_executes() {
         meta.compute_units_consumed
     );
     for bit in &intruders {
-        let node = p.env.registry(statement.duty.registry_version).nodes[*bit];
+        let node = p.env.registry(signed.duty.registry_version).nodes[*bit];
         let account: Node = p.env.get(&node);
         assert_eq!(account.status, NodeStatus::Tombstoned);
     }
@@ -407,7 +393,7 @@ fn a_twenty_signer_equivocation_fits_a_packet_as_a_v0_transaction_and_lands() {
     let guilty_pdas = p.node_pdas_for_bitmap(a.duty.registry_version, &guilty);
     assert_eq!(guilty_pdas.len(), ROUND_SIGNER_COUNT);
 
-    let ix = p.punish_equivocation_ix(&reporter.pubkey(), a.round_request(), args);
+    let ix = p.slash_equivocation_ix(&reporter.pubkey(), args);
     let legacy = p
         .env
         .transaction_size_as(&reporter.pubkey(), std::slice::from_ref(&ix));
@@ -435,7 +421,7 @@ fn a_twenty_signer_equivocation_fits_a_packet_as_a_v0_transaction_and_lands() {
         &signers,
     );
     println!(
-        "punish_equivocation v0+ALT: {ROUND_SIGNER_COUNT} signers, all guilty -> \
+        "slash_equivocation v0+ALT: {ROUND_SIGNER_COUNT} signers, all guilty -> \
          {size} bytes (legacy {legacy})"
     );
     assert!(
@@ -447,7 +433,7 @@ fn a_twenty_signer_equivocation_fits_a_packet_as_a_v0_transaction_and_lands() {
         .env
         .send_v0_ok(&reporter.pubkey(), &[ix], &[table], &signers);
     println!(
-        "punish_equivocation v0+ALT: {} CU",
+        "slash_equivocation v0+ALT: {} CU",
         meta.compute_units_consumed
     );
     assert!(meta.compute_units_consumed < MAX_COMPUTE_UNITS);
@@ -477,7 +463,7 @@ fn a_twenty_signer_commitment_reuse_fits_a_packet_as_a_v0_transaction_and_lands(
     let guilty_pdas = p.node_pdas_for_bitmap(a.duty.registry_version, &guilty);
     assert_eq!(guilty_pdas.len(), ROUND_SIGNER_COUNT);
 
-    let ix = p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
+    let ix = p.slash_commitment_reuse_ix(&reporter.pubkey(), args);
     let lookup = TestEnv::lookup_candidates(std::slice::from_ref(&ix));
     let table = p.env.plant_lookup_table(&lookup);
     let signers = [&reporter];
@@ -489,7 +475,7 @@ fn a_twenty_signer_commitment_reuse_fits_a_packet_as_a_v0_transaction_and_lands(
         &signers,
     );
     println!(
-        "punish_commitment_reuse v0+ALT: {ROUND_SIGNER_COUNT} signers, all guilty -> {size} bytes"
+        "slash_commitment_reuse v0+ALT: {ROUND_SIGNER_COUNT} signers, all guilty -> {size} bytes"
     );
     assert!(size <= PACKET_DATA_SIZE, "{size} bytes");
 
@@ -497,7 +483,7 @@ fn a_twenty_signer_commitment_reuse_fits_a_packet_as_a_v0_transaction_and_lands(
         .env
         .send_v0_ok(&reporter.pubkey(), &[ix], &[table], &signers);
     println!(
-        "punish_commitment_reuse v0+ALT: {} CU",
+        "slash_commitment_reuse v0+ALT: {} CU",
         meta.compute_units_consumed
     );
 
@@ -519,7 +505,7 @@ fn a_lookup_table_without_the_coalition_does_not_bring_the_filing_under_the_limi
 
     let (a, b) = equivocation_pair(&p, ROUND_SIGNER_COUNT, 1_700_300_000);
     let args = equivocation_args(&a, &b);
-    let ix = p.punish_equivocation_ix(&reporter.pubkey(), a.round_request(), args);
+    let ix = p.slash_equivocation_ix(&reporter.pubkey(), args);
 
     // Everything except the 20 signer `Node` accounts, which sit at the tail.
     let full = TestEnv::lookup_candidates(std::slice::from_ref(&ix));
@@ -533,7 +519,7 @@ fn a_lookup_table_without_the_coalition_does_not_bring_the_filing_under_the_limi
         &[table],
         &signers,
     );
-    println!("punish_equivocation v0, fixed accounts only -> {size} bytes");
+    println!("slash_equivocation v0, fixed accounts only -> {size} bytes");
     assert!(
         size > PACKET_DATA_SIZE,
         "the coalition has to be in the table ({size} bytes)"

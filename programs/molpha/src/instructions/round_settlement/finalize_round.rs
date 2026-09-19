@@ -3,7 +3,6 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::TokenAccount;
-use molpha_verifier::bitmap::{bitmap_load, for_each_set_bit_u256};
 
 use crate::{
     error::MolphaError,
@@ -14,6 +13,7 @@ use crate::{
         LIVELINESS_SCORE_MAX,
     },
 };
+use molpha_verifier::bitmap::{for_each_set_bit, Bitmap};
 
 pub fn finalize_round<'info>(ctx: Context<'info, FinalizeRound<'info>>) -> Result<()> {
     let config = &ctx.accounts.protocol_config;
@@ -54,10 +54,11 @@ pub(crate) fn credit_round_rewards<'info>(
     remaining_accounts: &'info [AccountInfo<'info>],
     program_id: &Pubkey,
 ) -> Result<()> {
-    let credited = bitmap_load(&record.signers_bitmap);
-    let credited_count = credited.count_ones();
-    let missed = bitmap_load(&record.selection_bitmap) & !credited;
-    let missed_count = missed.count_ones();
+    let credited = Bitmap::load(&record.signers_bitmap);
+    let credited_count = credited.popcount();
+    let missed = Bitmap::load(&record.selection_bitmap).subtract(&credited);
+    let missed_count = missed.popcount();
+
     require!(
         remaining_accounts.len() == (credited_count + missed_count) as usize,
         MolphaError::InvalidMissedNodeAccount
@@ -77,7 +78,7 @@ pub(crate) fn credit_round_rewards<'info>(
     );
 
     let mut cursor = 0usize;
-    for_each_set_bit_u256(credited, |bit_pos| {
+    for_each_set_bit(credited, |bit_pos| {
         let node_ai = &remaining_accounts[cursor];
         cursor += 1;
 
@@ -102,7 +103,7 @@ pub(crate) fn credit_round_rewards<'info>(
     })?;
 
     let round_record = record.key();
-    for_each_set_bit_u256(missed, |bit_pos| {
+    for_each_set_bit(missed, |bit_pos| {
         let node_ai = &remaining_accounts[cursor];
         cursor += 1;
 

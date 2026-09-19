@@ -440,17 +440,16 @@ pub fn forge_partial_transcript(
 
 /// 256-bit big-endian bitmap with `bits` set — the on-chain `signers_bitmap` encoding.
 pub fn bitmap_from_bits(bits: &[usize]) -> [u8; 32] {
-    let mut out = [0u8; 32];
+    let mut bitmap = molpha_verifier::Bitmap::new();
     for bit in bits {
-        molpha_verifier::bitmap::bitmap_set_bit(&mut out, *bit);
+        bitmap.set_bit(*bit);
     }
-    out
+    bitmap.to_bytes()
 }
 
 pub fn bitmap_bits(bitmap: &[u8; 32]) -> Vec<usize> {
-    (0..256)
-        .filter(|bit| molpha_verifier::bitmap::bitmap_bit_set(bitmap, *bit))
-        .collect()
+    let bitmap = molpha_verifier::Bitmap::load(bitmap);
+    (0..256).filter(|bit| bitmap.bit_set(*bit)).collect()
 }
 
 #[cfg(test)]
@@ -492,10 +491,10 @@ mod tests {
 
         let signers: Vec<molpha_verifier::SignerXy> = keys.iter().map(|k| (k.x, k.y)).collect();
         assert!(molpha_verifier::verify_aggregate_over_hash(
-            &signers,
             &sig.agg_sig_s,
             &sig.commitment,
             &message_hash,
+            &signers,
         )
         .unwrap());
     }
@@ -508,10 +507,10 @@ mod tests {
 
         let signers: Vec<molpha_verifier::SignerXy> = keys.iter().map(|k| (k.x, k.y)).collect();
         assert!(!molpha_verifier::verify_aggregate_over_hash(
-            &signers,
             &sig.agg_sig_s,
             &sig.commitment,
             &[0x5bu8; 32],
+            &signers,
         )
         .unwrap());
     }

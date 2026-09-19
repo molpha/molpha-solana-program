@@ -3,10 +3,9 @@
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::{GatewaySlashed, RewardsClaimed, RoundFinalized, RoundVoided};
-use molpha::instructions::AddPlanArgs;
 use molpha::state::{
-    Gateway, GatewayStatus, Node, NodeStatus, PlanType, RoundReceiptRecord, RoundRecordStatus,
-    Subscription,
+    Gateway, GatewayStatus, Node, NodeStatus, PlanConfig, PlanType, RoundReceiptRecord,
+    RoundRecordStatus, Subscription,
 };
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
@@ -46,18 +45,18 @@ impl Fixture {
     /// Settle an x402 round. `signed` may carry a signature that does not verify — settlement is
     /// optimistic and only checks the round's *shape*.
     fn settle_x402(&mut self, signed: &SignedAttestation, payer_id: [u8; 32]) -> Pubkey {
-        let round_request = signed.round_request();
+        let attestation = signed.attestation();
         let args = self.p.x402_args(signed, payer_id);
         let record = pda::x402_round(
             &args.payer_id,
             &self.gateway_pda(),
-            &round_request.source_id,
-            round_request.signatures_required,
-            round_request.canonical_timestamp,
+            &attestation.payload.source_id,
+            attestation.payload.signatures_required,
+            attestation.payload.canonical_timestamp,
         );
         let ix = self
             .p
-            .settle_x402_round_ix(&self.gateway.pubkey(), round_request, args);
+            .settle_x402_round_ix(&self.gateway.pubkey(), &attestation, args);
         let gateway = self.gateway.insecure_clone();
         self.p.env.send_ok(&[ix], &[&gateway]);
         record
@@ -65,7 +64,7 @@ impl Fixture {
 
     /// A subscriber with a plan generous enough for the tests below.
     fn subscribe(&mut self) -> Keypair {
-        self.p.add_plan(AddPlanArgs {
+        self.p.add_plan(PlanConfig {
             plan_type: PlanType::Professional,
             subscription_price: 10_000_000,
             max_signers: 8,
@@ -634,10 +633,10 @@ fn a_slashed_gateway_can_no_longer_settle() {
     f.p.env.send_ok(&[ix], &[&challenger]);
 
     let signed = f.p.sign_duty(duty().at(1_700_000_999));
-    let round_request = signed.round_request();
+    let attestation = signed.attestation();
     let args = f.p.x402_args(&signed, [0xbb; 32]);
     let ix =
-        f.p.settle_x402_round_ix(&f.gateway.pubkey(), round_request, args);
+        f.p.settle_x402_round_ix(&f.gateway.pubkey(), &attestation, args);
     let gateway = f.gateway.insecure_clone();
     let failed = f.p.env.send_err(&[ix], &[&gateway]);
     assert_molpha_error(&failed, MolphaError::GatewayNotActive);
@@ -819,7 +818,7 @@ fn underfunded_fixture() -> (Fixture, Keypair) {
     p.register_nodes("insolvent", NODE_COUNT);
     let gateway = p.register_gateway(FLOAT);
     let mut f = Fixture { p, gateway };
-    f.p.add_plan(AddPlanArgs {
+    f.p.add_plan(PlanConfig {
         plan_type: PlanType::Professional,
         subscription_price: RICH_REWARD,
         max_signers: 8,

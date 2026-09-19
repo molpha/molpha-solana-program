@@ -16,6 +16,7 @@ export const DELEGATE_SEED = Buffer.from("molpha_delegate");
 export const GATEWAY_SEED = Buffer.from("molpha_gateway");
 export const X402_ROUND_SEED = Buffer.from("molpha_x402_round");
 export const ROUND_SEED = Buffer.from("molpha_round");
+export const PUNISHMENT_CASE_SEED = Buffer.from("molpha_punishment");
 
 export function findProtocolConfigPda(
   programId: PublicKey,
@@ -186,7 +187,6 @@ export function findSubscriptionRoundPda(
   );
 }
 
-/** x402 round receipt PDA. */
 export function findX402RoundPda(
   programId: PublicKey,
   payerId: Uint8Array | Buffer,
@@ -204,6 +204,19 @@ export function findX402RoundPda(
       Buffer.from([signaturesRequired & 0xff]),
       u64Le(canonicalTimestamp),
     ],
+    programId,
+  );
+}
+
+export function findPunishmentCasePda(
+  programId: PublicKey,
+  evidenceHash: Uint8Array,
+): [PublicKey, number] {
+  if (evidenceHash.length !== 32) {
+    throw new Error("evidence hash must be 32 bytes");
+  }
+  return PublicKey.findProgramAddressSync(
+    [PUNISHMENT_CASE_SEED, Buffer.from(evidenceHash)],
     programId,
   );
 }

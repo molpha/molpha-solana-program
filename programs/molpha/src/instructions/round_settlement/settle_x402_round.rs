@@ -8,10 +8,11 @@ use crate::{
         Gateway, GatewayStatus, ProtocolConfig, Registry, RoundReceiptInitArgs, RoundReceiptRecord,
         RoundRecordKind,
     },
-    utils::settlement::{validate_settlement_attestation, RoundRequest},
+    utils::settlement::validate_settlement_attestation,
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use molpha_verifier::Attestation;
 
 pub const MAX_PAYMENT_REF_LEN: usize = 64;
 
@@ -20,8 +21,6 @@ pub struct SettleX402RoundArgs {
     /// Rail-scoped payer identity for PDA seeds; not derivable on-chain.
     pub payer_id: [u8; 32],
     pub amount: u64,
-    pub agg_sig: crate::state::AggregatedSig,
-    pub value: [u8; 32],
     pub payment_rail: u16,
     /// Attested off-chain payment reference; not verified on-chain.
     pub payment_ref: Vec<u8>,
@@ -52,7 +51,7 @@ pub fn compute_x402_price(
 
 pub fn settle_x402_round<'info>(
     ctx: Context<SettleX402Round<'info>>,
-    round_request: RoundRequest,
+    attestation: Attestation,
     args: SettleX402RoundArgs,
 ) -> Result<()> {
     let config = &ctx.accounts.protocol_config;
@@ -63,7 +62,7 @@ pub fn settle_x402_round<'info>(
 
     let price = compute_x402_price(
         config,
-        round_request.signatures_required,
+        attestation.payload.signatures_required,
         registry.redundancy_buffer,
     )?;
     require!(price == args.amount, MolphaError::AmountMismatch);
@@ -73,14 +72,8 @@ pub fn settle_x402_round<'info>(
         MolphaError::PaymentRefTooLong
     );
 
-    let validated = validate_settlement_attestation(
-        &registry,
-        config,
-        &round_request,
-        &args.agg_sig,
-        args.value,
-        clock.unix_timestamp,
-    )?;
+    let validated =
+        validate_settlement_attestation(&registry, config, &attestation, clock.unix_timestamp)?;
 
     require!(
         ctx.accounts.gateway_usdc.amount >= price,
@@ -101,25 +94,26 @@ pub fn settle_x402_round<'info>(
 
     let reward_per_signature = config.reward_per_signature;
 
-    ctx.accounts.round_record.init(RoundReceiptInitArgs {
-        consumer_id: args.payer_id,
-        selection_bitmap: validated.selection_bitmap,
-        agg_sig: args.agg_sig,
-        attestation_message_hash: validated.attestation_message_hash,
-        gateway: gateway.key(),
-        registry_version: round_request.registry_version,
-        reward_per_signature,
-        recorded_slot: now_slot,
-        kind: RoundRecordKind::X402,
-        bump: ctx.bumps.round_record,
-    });
+    ctx.accounts.round_record.init(
+        &attestation,
+        RoundReceiptInitArgs {
+            consumer_id: args.payer_id,
+            selection_bitmap: validated.selection_bitmap,
+            attestation_message_hash: validated.attestation_message_hash,
+            gateway: gateway.key(),
+            reward_per_signature,
+            recorded_slot: now_slot,
+            kind: RoundRecordKind::X402,
+            bump: ctx.bumps.round_record,
+        },
+    );
 
     emit!(X402RoundSettled {
         payer_id: args.payer_id,
         payment_rail: args.payment_rail,
         price,
-        source_id: round_request.source_id,
-        canonical_timestamp: round_request.canonical_timestamp,
+        source_id: attestation.payload.source_id,
+        canonical_timestamp: attestation.payload.canonical_timestamp,
         gateway: gateway.key(),
         signers_bitmap: ctx.accounts.round_record.signers_bitmap,
         credited_count: validated.credited_count,
@@ -131,7 +125,7 @@ pub fn settle_x402_round<'info>(
 }
 
 #[derive(Accounts)]
-#[instruction(round_request: RoundRequest, args: SettleX402RoundArgs)]
+#[instruction(attestation: Attestation, args: SettleX402RoundArgs)]
 pub struct SettleX402Round<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -143,7 +137,7 @@ pub struct SettleX402Round<'info> {
     pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(
-        seeds = [Registry::SEED_PREFIX, round_request.registry_version.to_le_bytes().as_ref()],
+        seeds = [Registry::SEED_PREFIX, attestation.payload.registry_version.to_le_bytes().as_ref()],
         bump,
     )]
     pub registry: AccountLoader<'info, Registry>,
@@ -181,9 +175,9 @@ pub struct SettleX402Round<'info> {
             RoundReceiptRecord::X402_SEED_PREFIX,
             args.payer_id.as_ref(),
             gateway.key().as_ref(),
-            round_request.source_id.as_ref(),
-            round_request.signatures_required.to_le_bytes().as_ref(),
-            round_request.canonical_timestamp.to_le_bytes().as_ref(),
+            attestation.payload.source_id.as_ref(),
+            attestation.payload.signatures_required.to_le_bytes().as_ref(),
+            attestation.payload.canonical_timestamp.to_le_bytes().as_ref(),
         ],
         bump
     )]

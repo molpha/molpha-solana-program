@@ -1,4 +1,4 @@
-//! Domain-separated hashes: the consumer request authorization and the three punishment evidence
+//! Domain-separated hashes: the consumer request authorization and the punishment evidence
 //! hashes, which double as `PunishmentCase` PDA seeds.
 //!
 //! Pure unit tests — no VM. Each hash is asserted sensitive to every field it commits to, and
@@ -7,14 +7,15 @@
 
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{
-    commitment_batch_message_hash, commitment_leaf_hash, commitment_reuse_evidence_hash,
-    equivocation_evidence_hash, hash_request_auth, hash_request_auth_fields,
-    nonce_reuse_evidence_hash, unsolicited_signing_evidence_hash, verify_commitment_merkle_proof,
-    CommittedNoncePair, PartialTranscript, RequestAuth, SignedStatement,
-    COMMITMENT_MERKLE_NODE_PREFIX, DOMAIN_COMMITMENT_BATCH, DOMAIN_COMMITMENT_REUSE,
-    DOMAIN_EQUIVOCATION, DOMAIN_NONCE_REUSE, DOMAIN_REQAUTH,
+    attestation_hash, commitment_batch_message_hash, commitment_leaf_hash, hash_request_auth,
+    hash_request_auth_fields, verify_commitment_merkle_proof, CommitmentReuseEvidence,
+    CommittedNoncePair, EquivocationEvidence, Evidence, InactivityEvidence, NonceReuseEvidence,
+    PartialTranscript, RequestAuth, UnsolicitedSigningEvidence, COMMITMENT_MERKLE_NODE_PREFIX,
+    DOMAIN_COMMITMENT_BATCH, DOMAIN_COMMITMENT_REUSE, DOMAIN_EQUIVOCATION, DOMAIN_INACTIVITY,
+    DOMAIN_NONCE_REUSE, DOMAIN_REQAUTH, DOMAIN_UNSOLICITED_SIGNING,
 };
-use molpha::utils::settlement::RoundRequest;
+use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
+use solana_keccak_hasher::hashv;
 
 const GATEWAY: Pubkey = Pubkey::new_from_array([0x22; 32]);
 
@@ -28,19 +29,75 @@ fn fixture_request_auth() -> RequestAuth {
     }
 }
 
+/// The attested payload `fixture_request_auth` authorizes. `value` and `registry_version` are
+/// not part of the authorization.
+fn fixture_authorized_payload(auth: &RequestAuth) -> AttestationPayload {
+    AttestationPayload {
+        value: [0x42; 32],
+        source_id: auth.source_id,
+        registry_version: 4,
+        signatures_required: auth.signatures_required,
+        canonical_timestamp: auth.timestamp,
+    }
+}
+
+fn equivocation_evidence_hash(a: &Attestation, b: &Attestation) -> [u8; 32] {
+    EquivocationEvidence {
+        attestation_a: a.clone(),
+        attestation_b: b.clone(),
+    }
+    .hash()
+}
+
+fn commitment_reuse_evidence_hash(a: &Attestation, b: &Attestation) -> [u8; 32] {
+    CommitmentReuseEvidence {
+        attestation_a: a.clone(),
+        attestation_b: b.clone(),
+    }
+    .hash()
+}
+
+fn unsolicited_signing_evidence_hash(attestation: &Attestation) -> [u8; 32] {
+    UnsolicitedSigningEvidence {
+        attestation: attestation.clone(),
+    }
+    .hash()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn nonce_reuse_evidence_hash(
+    registry_version: u32,
+    node_index: u32,
+    epoch: u64,
+    batch_meta: &[u8; 32],
+    batch_root: &[u8; 32],
+    slot: u64,
+    nonces: &CommittedNoncePair,
+    transcript_a: &PartialTranscript,
+    transcript_b: &PartialTranscript,
+) -> [u8; 32] {
+    NonceReuseEvidence {
+        registry_version,
+        node_index,
+        epoch,
+        batch_meta: *batch_meta,
+        batch_root: *batch_root,
+        batch_sig_s: [0u8; 32],
+        batch_commitment_addr: [0u8; 20],
+        slot,
+        nonces: *nonces,
+        merkle_proof: Vec::new(),
+        transcript_a: *transcript_a,
+        transcript_b: *transcript_b,
+    }
+    .hash()
+}
+
 #[test]
 fn hash_request_auth_fields_matches_struct_hash() {
     let auth = fixture_request_auth();
     assert_eq!(
-        hash_request_auth_fields(
-            &auth.gateway,
-            &RoundRequest {
-                source_id: auth.source_id,
-                canonical_timestamp: auth.timestamp,
-                signatures_required: auth.signatures_required,
-                registry_version: 4,
-            },
-        ),
+        hash_request_auth_fields(&auth.gateway, &fixture_authorized_payload(&auth)),
         hash_request_auth(&auth)
     );
 }
@@ -53,15 +110,7 @@ fn hash_request_auth_fields_commits_to_this_program() {
     foreign.program_id = Pubkey::new_from_array([0x99; 32]);
     assert_ne!(
         hash_request_auth(&foreign),
-        hash_request_auth_fields(
-            &foreign.gateway,
-            &RoundRequest {
-                source_id: foreign.source_id,
-                canonical_timestamp: foreign.timestamp,
-                signatures_required: foreign.signatures_required,
-                registry_version: 4,
-            },
-        )
+        hash_request_auth_fields(&foreign.gateway, &fixture_authorized_payload(&foreign))
     );
 }
 
@@ -91,111 +140,131 @@ fn distinct_domains_separate_hashes() {
     assert_ne!(DOMAIN_REQAUTH, DOMAIN_EQUIVOCATION);
 }
 
-fn fixture_statement(value: u8, bitmap_byte: u8) -> SignedStatement {
-    SignedStatement {
-        value: [value; 32],
-        agg_sig_s: [0x11; 32],
-        commitment_addr: [0x22; 20],
-        signers_bitmap: {
-            let mut bm = [0u8; 32];
-            bm[31] = bitmap_byte;
-            bm
+fn fixture_attestation(value: u8, bitmap_byte: u8) -> Attestation {
+    Attestation {
+        payload: AttestationPayload {
+            value: [value; 32],
+            source_id: [0x07; 32],
+            registry_version: 4,
+            signatures_required: 3,
+            canonical_timestamp: 1_700_000_000,
+        },
+        signature: SchnorrSignature {
+            agg_sig_s: [0x11; 32],
+            commitment: [0x22; 20],
+            signers_bitmap: {
+                let mut bm = [0u8; 32];
+                bm[31] = bitmap_byte;
+                bm
+            },
         },
     }
 }
 
-fn fixture_round_request(
-    registry_version: u32,
-    source_byte: u8,
-    signatures_required: u8,
-    ts: u64,
-) -> RoundRequest {
-    RoundRequest {
-        source_id: [source_byte; 32],
-        registry_version,
-        signatures_required,
-        canonical_timestamp: ts,
-    }
+/// One mutation per attestation field, so every evidence hash can be checked against all of them.
+type FieldMutation = (&'static str, fn(&mut Attestation));
+
+const FIELD_MUTATIONS: [FieldMutation; 8] = [
+    ("value", |a| a.payload.value[0] ^= 0xff),
+    ("source_id", |a| a.payload.source_id[0] ^= 0xff),
+    ("registry_version", |a| a.payload.registry_version += 1),
+    ("signatures_required", |a| {
+        a.payload.signatures_required += 1
+    }),
+    ("canonical_timestamp", |a| {
+        a.payload.canonical_timestamp += 1
+    }),
+    ("agg_sig_s", |a| a.signature.agg_sig_s[0] ^= 0xff),
+    ("commitment", |a| a.signature.commitment[0] ^= 0xff),
+    ("signers_bitmap", |a| a.signature.signers_bitmap[0] ^= 0xff),
+];
+
+/// Pinned so off-chain reporters can derive the `PunishmentCase` seed without the program crate.
+#[test]
+fn attestation_hash_is_the_documented_field_concatenation() {
+    let a = fixture_attestation(1, 0b0011);
+    let expected = hashv(&[
+        a.payload.value.as_slice(),
+        a.payload.source_id.as_slice(),
+        a.payload.registry_version.to_be_bytes().as_slice(),
+        a.payload.signatures_required.to_be_bytes().as_slice(),
+        a.payload.canonical_timestamp.to_be_bytes().as_slice(),
+        a.signature.agg_sig_s.as_slice(),
+        a.signature.commitment.as_slice(),
+        a.signature.signers_bitmap.as_slice(),
+    ])
+    .to_bytes();
+    assert_eq!(attestation_hash(&a), expected);
+
+    let b = fixture_attestation(2, 0b0101);
+    let (lo, hi) = {
+        let (ha, hb) = (attestation_hash(&a), attestation_hash(&b));
+        if ha <= hb {
+            (ha, hb)
+        } else {
+            (hb, ha)
+        }
+    };
+    assert_eq!(
+        equivocation_evidence_hash(&a, &b),
+        hashv(&[DOMAIN_EQUIVOCATION, &lo, &hi]).to_bytes()
+    );
+    assert_eq!(
+        commitment_reuse_evidence_hash(&a, &b),
+        hashv(&[DOMAIN_COMMITMENT_REUSE, &lo, &hi]).to_bytes()
+    );
+    assert_eq!(
+        unsolicited_signing_evidence_hash(&a),
+        hashv(&[DOMAIN_UNSOLICITED_SIGNING, &attestation_hash(&a)]).to_bytes()
+    );
 }
 
 #[test]
 fn equivocation_hash_is_order_independent() {
-    let a = fixture_statement(1, 0b0011);
-    let b = fixture_statement(2, 0b0101);
-    let req = fixture_round_request(4, 7, 3, 1_700_000_000);
-    let forward = equivocation_evidence_hash(&req, &a, &b);
-    let backward = equivocation_evidence_hash(&req, &b, &a);
-    assert_eq!(forward, backward);
+    let a = fixture_attestation(1, 0b0011);
+    let b = fixture_attestation(2, 0b0101);
+    assert_eq!(
+        equivocation_evidence_hash(&a, &b),
+        equivocation_evidence_hash(&b, &a)
+    );
 }
 
 #[test]
 fn equivocation_hash_is_sensitive_to_every_field() {
-    let a = fixture_statement(1, 0b0011);
-    let b = fixture_statement(2, 0b0101);
-    let base_req = fixture_round_request(4, 7, 3, 1_700_000_000);
-    let base = equivocation_evidence_hash(&base_req, &a, &b);
+    let a = fixture_attestation(1, 0b0011);
+    let b = fixture_attestation(2, 0b0101);
+    let base = equivocation_evidence_hash(&a, &b);
 
-    assert_ne!(
-        equivocation_evidence_hash(&fixture_round_request(4, 8, 3, 1_700_000_000), &a, &b),
-        base
-    );
-    assert_ne!(
-        equivocation_evidence_hash(&fixture_round_request(5, 7, 3, 1_700_000_000), &a, &b),
-        base
-    );
-    assert_ne!(
-        equivocation_evidence_hash(&fixture_round_request(4, 7, 9, 1_700_000_000), &a, &b),
-        base
-    );
-    assert_ne!(
-        equivocation_evidence_hash(&fixture_round_request(4, 7, 3, 1_700_000_001), &a, &b),
-        base
-    );
-
-    let mut a2 = a.clone();
-    a2.value[0] ^= 0xff;
-    assert_ne!(equivocation_evidence_hash(&base_req, &a2, &b), base);
+    for (field, mutate) in FIELD_MUTATIONS {
+        let (mut a2, mut b2) = (a.clone(), b.clone());
+        mutate(&mut a2);
+        mutate(&mut b2);
+        assert_ne!(equivocation_evidence_hash(&a2, &b), base, "{field} of a");
+        assert_ne!(equivocation_evidence_hash(&a, &b2), base, "{field} of b");
+    }
 }
 
 #[test]
 fn unsolicited_signing_hash_is_sensitive_to_every_field() {
-    let a = fixture_statement(1, 0b0011);
-    let base_req = fixture_round_request(4, 7, 3, 1_700_000_000);
-    let base = unsolicited_signing_evidence_hash(&base_req, &a);
+    let a = fixture_attestation(1, 0b0011);
+    let base = unsolicited_signing_evidence_hash(&a);
 
-    assert_ne!(
-        unsolicited_signing_evidence_hash(&fixture_round_request(4, 8, 3, 1_700_000_000), &a),
-        base
-    );
-    assert_ne!(
-        unsolicited_signing_evidence_hash(&fixture_round_request(5, 7, 3, 1_700_000_000), &a),
-        base
-    );
-    assert_ne!(
-        unsolicited_signing_evidence_hash(&fixture_round_request(4, 7, 9, 1_700_000_000), &a),
-        base
-    );
-    assert_ne!(
-        unsolicited_signing_evidence_hash(&fixture_round_request(4, 7, 3, 1_700_000_001), &a),
-        base
-    );
-
-    let mut a2 = a.clone();
-    a2.value[0] ^= 0xff;
-    assert_ne!(unsolicited_signing_evidence_hash(&base_req, &a2), base);
+    for (field, mutate) in FIELD_MUTATIONS {
+        let mut a2 = a.clone();
+        mutate(&mut a2);
+        assert_ne!(unsolicited_signing_evidence_hash(&a2), base, "{field}");
+    }
 }
 
 #[test]
 fn offence_evidence_domains_do_not_collide() {
-    // Same duty tuple and statements; domain prefix must still separate offence hashes.
-    let a = fixture_statement(1, 0b0011);
-    let b = fixture_statement(2, 0b0101);
-    let req_a = fixture_round_request(4, 7, 3, 1_700_000_000);
-    let req_b = fixture_round_request(4, 7, 3, 1_700_000_000);
+    // Same attestations; the domain prefix must still separate offence hashes.
+    let a = fixture_attestation(1, 0b0011);
+    let b = fixture_attestation(2, 0b0101);
 
-    let equivocation = equivocation_evidence_hash(&req_a, &a, &b);
-    let unsolicited = unsolicited_signing_evidence_hash(&req_a, &a);
-    let commitment_reuse = commitment_reuse_evidence_hash(&req_a, &a, &req_b, &b);
+    let equivocation = equivocation_evidence_hash(&a, &b);
+    let unsolicited = unsolicited_signing_evidence_hash(&a);
+    let commitment_reuse = commitment_reuse_evidence_hash(&a, &b);
 
     assert_ne!(equivocation, unsolicited);
     assert_ne!(equivocation, commitment_reuse);
@@ -207,6 +276,29 @@ fn offence_evidence_domains_do_not_collide() {
     assert_ne!(commitment_reuse, nonce_reuse);
     assert_ne!(DOMAIN_NONCE_REUSE, DOMAIN_COMMITMENT_REUSE);
     assert_ne!(DOMAIN_NONCE_REUSE, DOMAIN_COMMITMENT_BATCH);
+    assert_ne!(DOMAIN_INACTIVITY, DOMAIN_EQUIVOCATION);
+    assert_ne!(DOMAIN_INACTIVITY, DOMAIN_NONCE_REUSE);
+
+    let inactivity = inactivity_evidence_hash(4, 1);
+    assert_ne!(equivocation, inactivity);
+    assert_ne!(unsolicited, inactivity);
+    assert_ne!(commitment_reuse, inactivity);
+    assert_ne!(nonce_reuse, inactivity);
+}
+
+fn inactivity_evidence_hash(registry_version: u32, node_index: u32) -> [u8; 32] {
+    InactivityEvidence {
+        registry_version,
+        node_index,
+    }
+    .hash()
+}
+
+#[test]
+fn inactivity_hash_commits_to_the_registry_version_and_node_index() {
+    let base = inactivity_evidence_hash(4, 1);
+    assert_ne!(inactivity_evidence_hash(5, 1), base, "registry_version");
+    assert_ne!(inactivity_evidence_hash(4, 2), base, "node_index");
 }
 
 fn fixture_nonces() -> CommittedNoncePair {
@@ -392,124 +484,36 @@ fn batch_message_binds_the_deployment_the_registry_version_and_the_node() {
 
 #[test]
 fn commitment_reuse_hash_is_pairwise_order_independent() {
-    let req_a = fixture_round_request(4, 7, 3, 1_700_000_000);
-    let stmt_a = fixture_statement(1, 0b0011);
-    let req_b = fixture_round_request(4, 9, 4, 1_700_000_100);
-    let stmt_b = fixture_statement(2, 0b0101);
+    let mut a = fixture_attestation(1, 0b0011);
+    a.payload.source_id = [0x09; 32];
+    let b = fixture_attestation(2, 0b0101);
 
-    let forward = commitment_reuse_evidence_hash(&req_a, &stmt_a, &req_b, &stmt_b);
-    let backward = commitment_reuse_evidence_hash(&req_b, &stmt_b, &req_a, &stmt_a);
-    assert_eq!(forward, backward);
+    assert_eq!(
+        commitment_reuse_evidence_hash(&a, &b),
+        commitment_reuse_evidence_hash(&b, &a)
+    );
 }
 
 #[test]
-fn nonce_reuse_hash_pairs_each_context_with_its_own_statement() {
-    let req_a = fixture_round_request(4, 7, 3, 1_700_000_000);
-    let stmt_a = fixture_statement(1, 0b0011);
-    let req_b = fixture_round_request(4, 9, 4, 1_700_000_100);
-    let stmt_b = fixture_statement(2, 0b0101);
+fn commitment_reuse_hash_is_sensitive_to_every_field() {
+    let mut a = fixture_attestation(1, 0b0011);
+    a.payload.source_id = [0x09; 32];
+    let b = fixture_attestation(2, 0b0101);
+    let base = commitment_reuse_evidence_hash(&a, &b);
 
-    let paired = commitment_reuse_evidence_hash(&req_a, &stmt_a, &req_b, &stmt_b);
-    let cross_paired = commitment_reuse_evidence_hash(&req_a, &stmt_b, &req_b, &stmt_a);
-    assert_ne!(paired, cross_paired);
-}
-
-#[test]
-fn nonce_reuse_hash_is_sensitive_to_every_field() {
-    let req_a = fixture_round_request(4, 7, 3, 1_700_000_000);
-    let stmt_a = fixture_statement(1, 0b0011);
-    let req_b = fixture_round_request(4, 9, 4, 1_700_000_100);
-    let stmt_b = fixture_statement(2, 0b0101);
-    let base = commitment_reuse_evidence_hash(&req_a, &stmt_a, &req_b, &stmt_b);
-
-    assert_ne!(
-        commitment_reuse_evidence_hash(
-            &fixture_round_request(5, 7, 3, 1_700_000_000),
-            &stmt_a,
-            &req_b,
-            &stmt_b,
-        ),
-        base
-    );
-
-    assert_ne!(
-        commitment_reuse_evidence_hash(
-            &fixture_round_request(4, 8, 3, 1_700_000_000),
-            &stmt_a,
-            &req_b,
-            &stmt_b,
-        ),
-        base
-    );
-    assert_ne!(
-        commitment_reuse_evidence_hash(
-            &fixture_round_request(4, 7, 9, 1_700_000_000),
-            &stmt_a,
-            &req_b,
-            &stmt_b,
-        ),
-        base
-    );
-    assert_ne!(
-        commitment_reuse_evidence_hash(
-            &fixture_round_request(4, 7, 3, 1_700_000_001),
-            &stmt_a,
-            &req_b,
-            &stmt_b,
-        ),
-        base
-    );
-
-    assert_ne!(
-        commitment_reuse_evidence_hash(
-            &req_a,
-            &stmt_a,
-            &fixture_round_request(4, 10, 4, 1_700_000_100),
-            &stmt_b,
-        ),
-        base
-    );
-    assert_ne!(
-        commitment_reuse_evidence_hash(
-            &req_a,
-            &stmt_a,
-            &fixture_round_request(4, 9, 6, 1_700_000_100),
-            &stmt_b,
-        ),
-        base
-    );
-    assert_ne!(
-        commitment_reuse_evidence_hash(
-            &req_a,
-            &stmt_a,
-            &fixture_round_request(4, 9, 4, 1_700_000_101),
-            &stmt_b,
-        ),
-        base
-    );
-
-    let mut stmt_a2 = stmt_a.clone();
-    stmt_a2.value[0] ^= 0xff;
-    assert_ne!(
-        commitment_reuse_evidence_hash(&req_a, &stmt_a2, &req_b, &stmt_b),
-        base
-    );
-    let mut stmt_a3 = stmt_a.clone();
-    stmt_a3.agg_sig_s[0] ^= 0xff;
-    assert_ne!(
-        commitment_reuse_evidence_hash(&req_a, &stmt_a3, &req_b, &stmt_b),
-        base
-    );
-    let mut stmt_a4 = stmt_a.clone();
-    stmt_a4.commitment_addr[0] ^= 0xff;
-    assert_ne!(
-        commitment_reuse_evidence_hash(&req_a, &stmt_a4, &req_b, &stmt_b),
-        base
-    );
-    let mut stmt_a5 = stmt_a.clone();
-    stmt_a5.signers_bitmap[0] ^= 0xff;
-    assert_ne!(
-        commitment_reuse_evidence_hash(&req_a, &stmt_a5, &req_b, &stmt_b),
-        base
-    );
+    for (field, mutate) in FIELD_MUTATIONS {
+        let (mut a2, mut b2) = (a.clone(), b.clone());
+        mutate(&mut a2);
+        mutate(&mut b2);
+        assert_ne!(
+            commitment_reuse_evidence_hash(&a2, &b),
+            base,
+            "{field} of a"
+        );
+        assert_ne!(
+            commitment_reuse_evidence_hash(&a, &b2),
+            base,
+            "{field} of b"
+        );
+    }
 }

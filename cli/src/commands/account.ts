@@ -8,6 +8,7 @@ import {
   findNodePda,
   findPlanPda,
   findProtocolConfigPda,
+  findPunishmentCasePda,
   findRegistryPda,
   findRegistryStatePda,
   findSecp256k1KeyClaimPda,
@@ -236,5 +237,25 @@ export function registerAccountCommands(program: Command): void {
           ),
         )[0].toBase58();
       await printNamedAccount(command, "secp256k1KeyClaim", address);
+    });
+
+  account
+    .command("punishment-case")
+    .description("Fetch a punishment case by evidence hash or address")
+    .option("--address <pubkey>", "punishment case address")
+    .option("--evidence-hash <hex>", "32-byte evidence hash")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const address =
+        options.address ??
+        findPunishmentCasePda(
+          ctx.programId,
+          hexToBytes(
+            requireValue(options.evidenceHash, "Missing --evidence-hash"),
+            32,
+            "evidence hash",
+          ),
+        )[0].toBase58();
+      await printNamedAccount(command, "punishmentCase", address);
     });
 }

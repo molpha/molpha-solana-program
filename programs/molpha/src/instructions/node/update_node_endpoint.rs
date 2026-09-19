@@ -26,7 +26,7 @@ pub fn update_node_endpoint(
 
     emit!(NodeEndpointUpdated {
         node: node.key(),
-        owner: node.owner,
+        node_authority: node.authority,
         ip: args.ip,
         port: args.port,
         updated_at: Clock::get()?.unix_timestamp,

@@ -3,7 +3,7 @@
 use molpha::error::MolphaError;
 use molpha::events::{GatewayBondWithdrawn, GatewayDeactivated, NodeDepositWithdrawn};
 use molpha::instructions::RegisterGatewayArgs;
-use molpha::state::{Gateway, GatewayStatus, Node, NodeStatus, PlanType};
+use molpha::state::{Gateway, GatewayStatus, Node, NodeStatus, PlanConfig, PlanType};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{Duty, Protocol};
@@ -50,7 +50,7 @@ fn a_deactivated_node_withdraws_its_deposit_at_the_exact_cooldown_boundary() {
 
     let event: NodeDepositWithdrawn = only_event(&meta);
     assert_eq!(event.node, node_pda);
-    assert_eq!(event.owner, owner.pubkey());
+    assert_eq!(event.node_authority, owner.pubkey());
     assert_eq!(event.destination, destination);
     assert_eq!(event.amount, deposit);
 
@@ -248,7 +248,7 @@ fn deactivating_a_gateway_disables_both_settlement_paths() {
 
     let x402 = p.settle_x402_round_ix(
         &gateway.pubkey(),
-        signed.round_request(),
+        &signed.attestation(),
         p.x402_args(&signed, [0x71; 32]),
     );
     let failed = p.env.send_err(&[x402], &[&gateway_key]);
@@ -278,7 +278,7 @@ fn node_principal_is_never_available_to_pay_rewards() {
     p.register_nodes("principal", 8);
     let gateway = p.register_gateway(500_000_000);
 
-    p.add_plan(molpha::instructions::AddPlanArgs {
+    p.add_plan(PlanConfig {
         plan_type: PlanType::Professional,
         subscription_price: 1,
         max_signers: 8,

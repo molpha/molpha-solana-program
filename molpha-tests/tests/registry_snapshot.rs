@@ -5,7 +5,7 @@
 //! Pure unit tests — no VM.
 
 use anchor_lang::prelude::Pubkey;
-use molpha::state::{Registry, RegistryState, MAX_REGISTRY_NODES};
+use molpha::state::{Registry, MAX_REGISTRY_NODES};
 
 fn registry_with(nodes: &[Pubkey]) -> Registry {
     let mut nodes_arr = [[0u8; 32]; MAX_REGISTRY_NODES];
@@ -20,18 +20,6 @@ fn registry_with(nodes: &[Pubkey]) -> Registry {
         nodes: nodes_arr,
         grace_active_until: 0,
     }
-}
-
-#[test]
-fn advance_version_moves_current_to_next_and_increments_next() {
-    let mut state = RegistryState {
-        current_version: 41,
-        next_version: 42,
-        bump: 1,
-    };
-    state.advance_version();
-    assert_eq!(state.current_version, 42);
-    assert_eq!(state.next_version, 43);
 }
 
 #[test]

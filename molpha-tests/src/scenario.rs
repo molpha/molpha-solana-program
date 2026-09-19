@@ -9,14 +9,14 @@ use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::{InstructionData, ToAccountMetas};
 use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
-    AddDelegateArgs, AddPlanArgs, InitializeArgs, PunishCommitmentReuseArgs,
-    PunishEquivocationArgs, PunishNonceReuseArgs, PunishUnsolicitedSigningArgs,
-    RegisterGatewayArgs, RegisterNodeArgs, RemoveDelegateArgs, SettleRoundArgs,
+    AddDelegateArgs, InitializeArgs, RegisterGatewayArgs, RegisterNodeArgs, RemoveDelegateArgs,
     SettleX402RoundArgs, SubmitAttestationArgs, UpdateConfigArgs, UpdateNodeEndpointArgs,
-    UpdatePlanArgs,
 };
-use molpha::state::{AggregatedSig, PlanType, RegistryState};
-use molpha::utils::settlement::RoundRequest;
+use molpha::state::{
+    CommitmentReuseEvidence, EquivocationEvidence, InactivityEvidence, NonceReuseEvidence, Offence,
+    PlanConfig, PlanType, RegistryState, UnsolicitedSigningEvidence,
+};
+use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 
@@ -70,26 +70,19 @@ impl Duty {
         self
     }
 
-    pub fn round_request(&self) -> RoundRequest {
-        RoundRequest {
+    pub fn payload(&self) -> AttestationPayload {
+        AttestationPayload {
+            value: self.value,
             source_id: self.source_id,
-            canonical_timestamp: self.canonical_timestamp,
-            signatures_required: self.signatures_required,
             registry_version: self.registry_version,
+            signatures_required: self.signatures_required,
+            canonical_timestamp: self.canonical_timestamp,
         }
     }
 
-    pub fn payload(&self, signers_bitmap: [u8; 32]) -> [u8; 32] {
-        molpha_verifier::compute_message_hash(
-            &molpha_verifier::AttestationPayload {
-                source_id: self.source_id,
-                registry_version: self.registry_version,
-                value: self.value,
-                canonical_timestamp: self.canonical_timestamp,
-                signatures_required: self.signatures_required,
-            },
-            signers_bitmap,
-        )
+    /// The message a coalition signs for this duty.
+    pub fn message_hash(&self, signers_bitmap: [u8; 32]) -> [u8; 32] {
+        molpha_verifier::compute_message_hash(&self.payload(), signers_bitmap)
     }
 }
 
@@ -105,24 +98,22 @@ pub struct SignedAttestation {
 }
 
 impl SignedAttestation {
-    pub fn submit_args(&self) -> SubmitAttestationArgs {
-        SubmitAttestationArgs {
-            source_id: self.duty.source_id,
-            registry_version: self.duty.registry_version,
-            value: self.duty.value,
-            canonical_timestamp: self.duty.canonical_timestamp,
-            signatures_required: self.duty.signatures_required,
-            agg_sig_s: self.signature.agg_sig_s,
-            commitment: self.signature.commitment,
-            signers_bitmap: self.signers_bitmap,
+    /// The instruction-argument form: payload plus aggregate signature.
+    pub fn attestation(&self) -> Attestation {
+        Attestation {
+            payload: self.duty.payload(),
+            signature: SchnorrSignature {
+                agg_sig_s: self.signature.agg_sig_s,
+                commitment: self.signature.commitment,
+                signers_bitmap: self.signers_bitmap,
+            },
         }
     }
 
-    pub fn aggregated_sig(&self) -> AggregatedSig {
-        AggregatedSig {
-            agg_sig_s: self.signature.agg_sig_s,
-            commitment: self.signature.commitment,
-            signers_bitmap: self.signers_bitmap,
+    pub fn submit_args(&self) -> SubmitAttestationArgs {
+        SubmitAttestationArgs {
+            attestation: self.attestation(),
+            raw_value: None,
         }
     }
 
@@ -131,19 +122,6 @@ impl SignedAttestation {
         let mut tampered = self.clone();
         tampered.signature.agg_sig_s[31] ^= 0x01;
         tampered
-    }
-
-    pub fn statement(&self) -> molpha::state::SignedStatement {
-        molpha::state::SignedStatement {
-            value: self.duty.value,
-            agg_sig_s: self.signature.agg_sig_s,
-            commitment_addr: self.signature.commitment,
-            signers_bitmap: self.signers_bitmap,
-        }
-    }
-
-    pub fn round_request(&self) -> RoundRequest {
-        self.duty.round_request()
     }
 }
 
@@ -602,29 +580,32 @@ impl Protocol {
     // plans, subscriptions, delegates
     // -----------------------------------------------------------------------
 
-    pub fn add_plan(&mut self, args: AddPlanArgs) -> TransactionMetadata {
+    pub fn add_plan(&mut self, config: PlanConfig) -> TransactionMetadata {
         let authority = self.authority.insecure_clone();
-        let ix = self.add_plan_ix(&args, &authority.pubkey());
+        let ix = self.add_plan_ix(&config, &authority.pubkey());
         self.env.send_ok(&[ix], &[&authority])
     }
 
-    pub fn add_plan_ix(&self, args: &AddPlanArgs, authority: &Pubkey) -> Instruction {
+    pub fn add_plan_ix(&self, config: &PlanConfig, authority: &Pubkey) -> Instruction {
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::AddPlan {
                 protocol_config: pda::protocol_config(),
-                plan: pda::plan(args.plan_type),
+                plan: pda::plan(config.plan_type),
                 authority: *authority,
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
-            data: molpha::instruction::AddPlan { args: args.clone() }.data(),
+            data: molpha::instruction::AddPlan {
+                config: config.clone(),
+            }
+            .data(),
         }
     }
 
     /// A plan with generous limits, for tests that are not about plan limits.
-    pub fn add_default_plan(&mut self, plan_type: PlanType) -> AddPlanArgs {
-        let args = AddPlanArgs {
+    pub fn add_default_plan(&mut self, plan_type: PlanType) -> PlanConfig {
+        let config = PlanConfig {
             plan_type,
             subscription_price: 50_000_000,
             max_signers: 16,
@@ -633,8 +614,8 @@ impl Protocol {
             private_api_enabled: true,
             is_active: true,
         };
-        self.add_plan(args.clone());
-        args
+        self.add_plan(config.clone());
+        config
     }
 
     pub fn subscribe_ix(&self, owner: &Pubkey, plan_type: PlanType) -> Instruction {
@@ -779,14 +760,12 @@ impl Protocol {
         let registry = self.env.registry(duty.registry_version);
         let bitmap = molpha_verifier::derive_selection_bitmap(
             &duty.source_id,
-            duty.registry_version,
             duty.canonical_timestamp,
-            u32::from(registry.node_count),
             duty.signatures_required,
-            registry.redundancy_buffer,
+            &registry.selection_view(&crate::env::EMPTY_REGISTRY_NODES),
         )
         .expect("selection derives");
-        crypto::bitmap_bits(&bitmap)
+        crypto::bitmap_bits(&bitmap.to_bytes())
     }
 
     /// Sign `duty` with the whole derived selection set.
@@ -818,7 +797,7 @@ impl Protocol {
         let signer_pdas = bits.iter().map(|bit| registry.nodes[*bit]).collect();
 
         let signers_bitmap = crypto::bitmap_from_bits(bits);
-        let message_hash = duty.payload(signers_bitmap);
+        let message_hash = duty.message_hash(signers_bitmap);
         let signature = crypto::sign_aggregate(&signer_keys, &message_hash, nonce);
 
         SignedAttestation {
@@ -835,18 +814,30 @@ impl Protocol {
         submitter: &Pubkey,
         attestation: &SignedAttestation,
     ) -> Instruction {
-        let args = attestation.submit_args();
+        self.submit_attestation_ix_with_args(
+            submitter,
+            attestation.submit_args(),
+            &attestation.signer_pdas,
+        )
+    }
+
+    /// `submit_attestation` with caller-built args — for raw values and tampered payloads.
+    pub fn submit_attestation_ix_with_args(
+        &self,
+        submitter: &Pubkey,
+        args: SubmitAttestationArgs,
+        signer_pdas: &[Pubkey],
+    ) -> Instruction {
+        let payload = &args.attestation.payload;
         let mut accounts = molpha::accounts::SubmitAttestation {
             submitter: *submitter,
-            registry: pda::registry(args.registry_version),
-            feed: pda::feed(&args.source_id, args.signatures_required, submitter),
+            registry: pda::registry(payload.registry_version),
+            feed: pda::feed(&payload.source_id, payload.signatures_required, submitter),
             protocol_config: pda::protocol_config(),
             system_program: anchor_lang::solana_program::system_program::ID,
         }
         .to_account_metas(None);
-        accounts.extend(crate::env::readonly_metas(
-            attestation.signer_pdas.iter().copied(),
-        ));
+        accounts.extend(crate::env::readonly_metas(signer_pdas.iter().copied()));
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -868,12 +859,6 @@ impl Protocol {
         attestation: &SignedAttestation,
     ) -> Instruction {
         let duty = attestation.duty;
-        let round_request = duty.round_request();
-        let args = SettleRoundArgs {
-            agg_sig: attestation.aggregated_sig(),
-            value: duty.value,
-            consumer_authority: *consumer_authority,
-        };
         let gateway = pda::gateway(gateway_authority);
         Instruction {
             program_id: molpha::ID,
@@ -896,8 +881,8 @@ impl Protocol {
             }
             .to_account_metas(None),
             data: molpha::instruction::SettleSubscriptionRound {
-                round_request,
-                args,
+                attestation: attestation.attestation(),
+                consumer_authority: *consumer_authority,
             }
             .data(),
         }
@@ -915,7 +900,7 @@ impl Protocol {
     ) -> Instruction {
         let request_auth_hash = molpha::state::hash_request_auth_fields(
             &pda::gateway(gateway_authority),
-            &duty.round_request(),
+            &duty.payload(),
         );
         crate::ed25519::sign_ed25519(consumer, &request_auth_hash)
     }
@@ -923,16 +908,17 @@ impl Protocol {
     pub fn settle_x402_round_ix(
         &self,
         gateway_authority: &Pubkey,
-        round_request: RoundRequest,
+        attestation: &Attestation,
         args: SettleX402RoundArgs,
     ) -> Instruction {
         let gateway = pda::gateway(gateway_authority);
+        let payload = &attestation.payload;
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::SettleX402Round {
                 authority: *gateway_authority,
                 protocol_config: pda::protocol_config(),
-                registry: pda::registry(round_request.registry_version),
+                registry: pda::registry(payload.registry_version),
                 gateway,
                 gateway_usdc: pda::ata(gateway_authority, &self.usdc_mint),
                 treasury: self.treasury(),
@@ -940,15 +926,15 @@ impl Protocol {
                 round_record: pda::x402_round(
                     &args.payer_id,
                     &gateway,
-                    &round_request.source_id,
-                    round_request.signatures_required,
-                    round_request.canonical_timestamp,
+                    &payload.source_id,
+                    payload.signatures_required,
+                    payload.canonical_timestamp,
                 ),
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
             data: molpha::instruction::SettleX402Round {
-                round_request,
+                attestation: attestation.clone(),
                 args,
             }
             .data(),
@@ -968,8 +954,6 @@ impl Protocol {
         SettleX402RoundArgs {
             payer_id,
             amount: price,
-            agg_sig: attestation.aggregated_sig(),
-            value: duty.value,
             payment_rail: 1,
             payment_ref: b"test-payment-ref".to_vec(),
         }
@@ -1045,7 +1029,7 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::ClaimNodeRewards {
-                owner: *owner,
+                authority: *owner,
                 protocol_config: pda::protocol_config(),
                 node: pda::node(owner),
                 treasury: self.treasury(),
@@ -1063,7 +1047,7 @@ impl Protocol {
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::WithdrawNodeDeposit {
-                owner: *owner,
+                authority: *owner,
                 protocol_config: pda::protocol_config(),
                 node: pda::node(owner),
                 registry_state: pda::registry_state(),
@@ -1084,16 +1068,19 @@ impl Protocol {
 // ---------------------------------------------------------------------------
 
 impl Protocol {
-    pub fn update_plan_ix(&self, authority: &Pubkey, args: &UpdatePlanArgs) -> Instruction {
+    pub fn update_plan_ix(&self, authority: &Pubkey, config: &PlanConfig) -> Instruction {
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::UpdatePlan {
                 authority: *authority,
                 protocol_config: pda::protocol_config(),
-                plan: pda::plan(args.plan_type),
+                plan: pda::plan(config.plan_type),
             }
             .to_account_metas(None),
-            data: molpha::instruction::UpdatePlan { args: args.clone() }.data(),
+            data: molpha::instruction::UpdatePlan {
+                config: config.clone(),
+            }
+            .data(),
         }
     }
 
@@ -1178,27 +1165,6 @@ impl Protocol {
         self.reinstate_node_raw_ix(caller, node_owner, self.current_version() + 1)
     }
 
-    pub fn freeze_unresponsive_node_ix(&self, caller: &Pubkey, node_owner: &Pubkey) -> Instruction {
-        let current_version = self.current_version();
-        Instruction {
-            program_id: molpha::ID,
-            accounts: molpha::accounts::FreezeUnresponsiveNode {
-                caller: *caller,
-                protocol_config: pda::protocol_config(),
-                registry_state: pda::registry_state(),
-                current_registry: pda::registry(current_version),
-                new_registry: pda::registry(current_version + 1),
-                node: pda::node(node_owner),
-                system_program: anchor_lang::solana_program::system_program::ID,
-            }
-            .to_account_metas(None),
-            data: molpha::instruction::FreezeUnresponsiveNode {
-                node_owner: *node_owner,
-            }
-            .data(),
-        }
-    }
-
     /// `reinstate_node` with a caller-chosen target version — for version failure cases.
     pub fn reinstate_node_raw_ix(
         &self,
@@ -1232,215 +1198,163 @@ impl Protocol {
             .collect()
     }
 
-    pub fn punish_equivocation_ix(
+    pub fn slash_offence_ix(&self, reporter: &Pubkey, offence: Offence) -> Instruction {
+        self.slash_offence_ix_with_registry(reporter, offence, self.current_version() + 1)
+    }
+
+    pub fn slash_offence_ix_with_registry(
         &self,
         reporter: &Pubkey,
-        round_request: RoundRequest,
-        args: PunishEquivocationArgs,
+        offence: Offence,
+        new_registry_version: u32,
     ) -> Instruction {
-        self.punish_equivocation_ix_with_registry(
+        let bitmap = match &offence {
+            Offence::Equivocation(e) => union_bitmap(
+                &e.attestation_a.signature.signers_bitmap,
+                &e.attestation_b.signature.signers_bitmap,
+            ),
+            Offence::CommitmentReuse(e) => union_bitmap(
+                &e.attestation_a.signature.signers_bitmap,
+                &e.attestation_b.signature.signers_bitmap,
+            ),
+            Offence::UnsolicitedSigning(e) => e.attestation.signature.signers_bitmap,
+            Offence::NonceReuse(e) => crypto::bitmap_from_bits(&[e.node_index as usize]),
+            Offence::Inactivity(e) => crypto::bitmap_from_bits(&[e.node_index as usize]),
+        };
+        let mut accounts = molpha::accounts::SlashOffence {
+            reporter: *reporter,
+            protocol_config: pda::protocol_config(),
+            registry_state: pda::registry_state(),
+            evidence_registry: pda::registry(offence.registry_version()),
+            current_registry: pda::registry(self.current_version()),
+            new_registry: pda::registry(new_registry_version),
+            punishment_case: pda::punishment_case(&offence.hash()),
+            node_deposit_vault: self.node_deposit_vault(),
+            treasury: self.treasury(),
+            reporter_usdc: pda::ata(reporter, &self.usdc_mint),
+            token_program: pda::TOKEN_PROGRAM_ID,
+            system_program: anchor_lang::solana_program::system_program::ID,
+        }
+        .to_account_metas(None);
+        accounts.extend(crate::env::writable_metas(
+            self.node_pdas_for_bitmap(offence.registry_version(), &bitmap),
+        ));
+        Instruction {
+            program_id: molpha::ID,
+            accounts,
+            data: molpha::instruction::SlashOffence { offence }.data(),
+        }
+    }
+
+    pub fn slash_inactivity_ix(&self, reporter: &Pubkey, node_index: u32) -> Instruction {
+        self.slash_offence_ix(
             reporter,
-            round_request,
-            args,
-            self.current_version() + 1,
+            Offence::Inactivity(InactivityEvidence {
+                registry_version: self.current_version(),
+                node_index,
+            }),
         )
     }
 
-    pub fn punish_equivocation_ix_with_registry(
+    pub fn slash_equivocation_ix(
         &self,
         reporter: &Pubkey,
-        round_request: RoundRequest,
-        args: PunishEquivocationArgs,
-        new_registry_version: u32,
+        evidence: EquivocationEvidence,
     ) -> Instruction {
-        let union = union_bitmap(
-            &args.statement_a.signers_bitmap,
-            &args.statement_b.signers_bitmap,
-        );
-        let accused = self.node_pdas_for_bitmap(round_request.registry_version, &union);
-        let mut accounts = molpha::accounts::PunishEquivocation {
-            reporter: *reporter,
-            protocol_config: pda::protocol_config(),
-            registry_state: pda::registry_state(),
-            evidence_registry: pda::registry(round_request.registry_version),
-            current_registry: pda::registry(self.current_version()),
-            new_registry: pda::registry(new_registry_version),
-            punishment_case: pda::punishment_case(&args.evidence_hash),
-            node_deposit_vault: self.node_deposit_vault(),
-            treasury: self.treasury(),
-            reporter_usdc: pda::ata(reporter, &self.usdc_mint),
-            token_program: pda::TOKEN_PROGRAM_ID,
-            system_program: anchor_lang::solana_program::system_program::ID,
-        }
-        .to_account_metas(None);
-        accounts.extend(crate::env::writable_metas(accused));
-        Instruction {
-            program_id: molpha::ID,
-            accounts,
-            data: molpha::instruction::PunishEquivocation {
-                round_request,
-                args,
-            }
-            .data(),
-        }
+        self.slash_offence_ix(reporter, Offence::Equivocation(evidence))
     }
 
-    pub fn punish_unsolicited_signing_ix(
+    pub fn slash_equivocation_ix_with_registry(
         &self,
         reporter: &Pubkey,
-        round_request: RoundRequest,
-        args: PunishUnsolicitedSigningArgs,
+        evidence: EquivocationEvidence,
+        new_registry_version: u32,
     ) -> Instruction {
-        self.punish_unsolicited_signing_ix_with_registry(
+        self.slash_offence_ix_with_registry(
             reporter,
-            round_request,
-            args,
-            self.current_version() + 1,
+            Offence::Equivocation(evidence),
+            new_registry_version,
         )
     }
 
-    pub fn punish_unsolicited_signing_ix_with_registry(
+    pub fn slash_unsolicited_signing_ix(
         &self,
         reporter: &Pubkey,
-        round_request: RoundRequest,
-        args: PunishUnsolicitedSigningArgs,
+        evidence: UnsolicitedSigningEvidence,
+    ) -> Instruction {
+        self.slash_offence_ix(reporter, Offence::UnsolicitedSigning(evidence))
+    }
+
+    pub fn slash_unsolicited_signing_ix_with_registry(
+        &self,
+        reporter: &Pubkey,
+        evidence: UnsolicitedSigningEvidence,
         new_registry_version: u32,
     ) -> Instruction {
-        let accused = self.node_pdas_for_bitmap(
-            round_request.registry_version,
-            &args.statement.signers_bitmap,
-        );
-        let mut accounts = molpha::accounts::PunishUnsolicitedSigning {
-            reporter: *reporter,
-            protocol_config: pda::protocol_config(),
-            registry_state: pda::registry_state(),
-            evidence_registry: pda::registry(round_request.registry_version),
-            current_registry: pda::registry(self.current_version()),
-            new_registry: pda::registry(new_registry_version),
-            punishment_case: pda::punishment_case(&args.evidence_hash),
-            node_deposit_vault: self.node_deposit_vault(),
-            treasury: self.treasury(),
-            reporter_usdc: pda::ata(reporter, &self.usdc_mint),
-            token_program: pda::TOKEN_PROGRAM_ID,
-            system_program: anchor_lang::solana_program::system_program::ID,
-        }
-        .to_account_metas(None);
-        accounts.extend(crate::env::writable_metas(accused));
-        Instruction {
-            program_id: molpha::ID,
-            accounts,
-            data: molpha::instruction::PunishUnsolicitedSigning {
-                round_request,
-                args,
-            }
-            .data(),
-        }
+        self.slash_offence_ix_with_registry(
+            reporter,
+            Offence::UnsolicitedSigning(evidence),
+            new_registry_version,
+        )
     }
 
-    pub fn punish_commitment_reuse_ix(
+    pub fn slash_commitment_reuse_ix(
         &self,
         reporter: &Pubkey,
-        args: PunishCommitmentReuseArgs,
+        evidence: CommitmentReuseEvidence,
     ) -> Instruction {
-        self.punish_commitment_reuse_ix_with_registry(reporter, args, self.current_version() + 1)
+        self.slash_offence_ix(reporter, Offence::CommitmentReuse(evidence))
     }
 
-    pub fn punish_commitment_reuse_ix_with_registry(
+    pub fn slash_commitment_reuse_ix_with_registry(
         &self,
         reporter: &Pubkey,
-        args: PunishCommitmentReuseArgs,
+        evidence: CommitmentReuseEvidence,
         new_registry_version: u32,
     ) -> Instruction {
-        let union = union_bitmap(
-            &args.statement_a.signers_bitmap,
-            &args.statement_b.signers_bitmap,
-        );
-        let registry_version = args.round_request_a.registry_version;
-        let accused = self.node_pdas_for_bitmap(registry_version, &union);
-        let mut accounts = molpha::accounts::PunishCommitmentReuse {
-            reporter: *reporter,
-            protocol_config: pda::protocol_config(),
-            registry_state: pda::registry_state(),
-            evidence_registry: pda::registry(registry_version),
-            current_registry: pda::registry(self.current_version()),
-            new_registry: pda::registry(new_registry_version),
-            punishment_case: pda::punishment_case(&args.evidence_hash),
-            node_deposit_vault: self.node_deposit_vault(),
-            treasury: self.treasury(),
-            reporter_usdc: pda::ata(reporter, &self.usdc_mint),
-            token_program: pda::TOKEN_PROGRAM_ID,
-            system_program: anchor_lang::solana_program::system_program::ID,
-        }
-        .to_account_metas(None);
-        accounts.extend(crate::env::writable_metas(accused));
-        Instruction {
-            program_id: molpha::ID,
-            accounts,
-            data: molpha::instruction::PunishCommitmentReuse { args }.data(),
-        }
+        self.slash_offence_ix_with_registry(
+            reporter,
+            Offence::CommitmentReuse(evidence),
+            new_registry_version,
+        )
     }
 
-    pub fn punish_nonce_reuse_ix(
+    pub fn slash_nonce_reuse_ix(
         &self,
         reporter: &Pubkey,
-        args: PunishNonceReuseArgs,
+        evidence: NonceReuseEvidence,
     ) -> Instruction {
-        self.punish_nonce_reuse_ix_with_registry(reporter, args, self.current_version() + 1)
+        self.slash_offence_ix(reporter, Offence::NonceReuse(evidence))
     }
 
-    pub fn punish_nonce_reuse_ix_with_registry(
+    pub fn slash_nonce_reuse_ix_with_registry(
         &self,
         reporter: &Pubkey,
-        args: PunishNonceReuseArgs,
+        evidence: NonceReuseEvidence,
         new_registry_version: u32,
     ) -> Instruction {
-        let guilty = crypto::bitmap_from_bits(&[args.node_index as usize]);
-        let accused = self.node_pdas_for_bitmap(args.registry_version, &guilty);
-        let mut accounts = molpha::accounts::PunishNonceReuse {
-            reporter: *reporter,
-            protocol_config: pda::protocol_config(),
-            registry_state: pda::registry_state(),
-            evidence_registry: pda::registry(args.registry_version),
-            current_registry: pda::registry(self.current_version()),
-            new_registry: pda::registry(new_registry_version),
-            punishment_case: pda::punishment_case(&args.evidence_hash),
-            node_deposit_vault: self.node_deposit_vault(),
-            treasury: self.treasury(),
-            reporter_usdc: pda::ata(reporter, &self.usdc_mint),
-            token_program: pda::TOKEN_PROGRAM_ID,
-            system_program: anchor_lang::solana_program::system_program::ID,
-        }
-        .to_account_metas(None);
-        accounts.extend(crate::env::writable_metas(accused));
-        Instruction {
-            program_id: molpha::ID,
-            accounts,
-            data: molpha::instruction::PunishNonceReuse { args }.data(),
-        }
+        self.slash_offence_ix_with_registry(
+            reporter,
+            Offence::NonceReuse(evidence),
+            new_registry_version,
+        )
     }
 }
 
 /// The guilty set of an unsolicited-signing filing: signers outside the derived selection.
-pub fn unsolicited_guilty_bitmap(
-    p: &Protocol,
-    round_request: &RoundRequest,
-    statement_bitmap: &[u8; 32],
-) -> [u8; 32] {
-    let registry = p.env.registry(round_request.registry_version);
+pub fn unsolicited_guilty_bitmap(p: &Protocol, attestation: &Attestation) -> [u8; 32] {
+    let payload = &attestation.payload;
+    let registry = p.env.registry(payload.registry_version);
     let selection = molpha_verifier::derive_selection_bitmap(
-        &round_request.source_id,
-        round_request.registry_version,
-        round_request.canonical_timestamp,
-        u32::from(registry.node_count),
-        round_request.signatures_required,
-        registry.redundancy_buffer,
+        &payload.source_id,
+        payload.canonical_timestamp,
+        payload.signatures_required,
+        &registry.selection_view(&crate::env::EMPTY_REGISTRY_NODES),
     )
     .expect("selection derives");
-    let mut out = [0u8; 32];
-    for i in 0..32 {
-        out[i] = statement_bitmap[i] & !selection[i];
-    }
-    out
+    molpha_verifier::Bitmap::load(&attestation.signature.signers_bitmap)
+        .subtract(&selection)
+        .to_bytes()
 }
 
 /// Bitwise union of two 256-bit signer bitmaps.
@@ -1476,10 +1390,11 @@ impl Protocol {
     /// Use this only to create focused test states that would otherwise require many rounds, such
     /// as a partially depleted liveliness score.
     ///
-    /// Writing `locked_amount`, `claimable_rewards` or `pending_seizure` here desynchronises the
-    /// node from its deposit vault and from `ProtocolConfig.reward_liability`, which the program
-    /// maintains but cannot repair. Fund the vault to match if you move the deposit fields. [`assert_solvent`](Self::assert_solvent) will then fail, and a later claim
-    /// or punishment can underflow the liability. Move money through the instructions instead.
+    /// Writing `locked_amount` or `claimable_rewards` here desynchronises the node from its
+    /// deposit vault and from `ProtocolConfig.reward_liability`, which the program maintains but
+    /// cannot repair. Fund the vault to match if you move the deposit fields.
+    /// [`assert_solvent`](Self::assert_solvent) will then fail, and a later claim or punishment
+    /// can underflow the liability. Move money through the instructions instead.
     pub fn overwrite_node<F: FnOnce(&mut molpha::state::Node)>(
         &mut self,
         node_pda: &Pubkey,

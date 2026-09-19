@@ -1,40 +1,26 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    error::MolphaError,
     events::{RegistryUpdated, RegistryVersionReason},
-    state::{ProtocolConfig, Registry, RegistryState},
-    utils::registry::with_registry_snapshot,
+    state::{ProtocolConfig, Registry, RegistryState, RegistryTransition},
 };
 
 pub fn update_registry_policy(
     ctx: Context<UpdateRegistryPolicy>,
     redundancy_buffer: u8,
 ) -> Result<()> {
-    require!(
-        redundancy_buffer > 0 && redundancy_buffer <= 8,
-        MolphaError::InvalidRedundancyBuffer
-    );
-
-    {
-        let current = ctx.accounts.current_registry.load()?;
-        require!(
-            redundancy_buffer != current.redundancy_buffer,
-            MolphaError::RegistryPolicyUnchanged
-        );
-    }
-
     let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
-    let node_count = with_registry_snapshot(
-        &mut ctx.accounts.registry_state,
-        &ctx.accounts.current_registry,
-        &ctx.accounts.new_registry,
-        grace_active_until,
-        ctx.bumps.new_registry,
-        |_current, new_registry| {
-            new_registry.set_redundancy_buffer(redundancy_buffer);
-            Ok(new_registry.node_count)
+    // Membership is unchanged; read before the transition bumps `registry_state.next_version`,
+    // which would break exit validation on `new_registry`'s version seed.
+    let node_count = ctx.accounts.current_registry.load()?.node_count;
+    ctx.accounts.registry_state.set_redundancy_buffer(
+        &RegistryTransition {
+            current: &ctx.accounts.current_registry,
+            next: &ctx.accounts.new_registry,
+            grace_active_until,
+            bump: ctx.bumps.new_registry,
         },
+        redundancy_buffer,
     )?;
 
     emit!(RegistryUpdated {

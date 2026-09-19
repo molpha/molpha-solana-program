@@ -11,6 +11,7 @@ import { registerPlanCommands } from "./commands/plan";
 import { registerRegistryCommands } from "./commands/registry";
 import { registerRewardsCommands } from "./commands/rewards";
 import { registerRoundCommands } from "./commands/round";
+import { registerSlashCommands } from "./commands/slash";
 import { registerSubscriptionCommands } from "./commands/subscription";
 
 async function main() {
@@ -41,6 +42,7 @@ async function main() {
   registerRoundCommands(program);
   registerRewardsCommands(program);
   registerAttestationCommands(program);
+  registerSlashCommands(program);
   registerAccountCommands(program);
 
   await program.parseAsync(process.argv);

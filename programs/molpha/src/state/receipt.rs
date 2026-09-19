@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
-use crate::utils::settlement::RoundRequest;
+// use crate::state::AttestationPayload;
+use molpha_verifier::AttestationPayload;
 
 pub const DOMAIN_REQAUTH: &[u8] = b"MOLPHA_REQAUTH_V1";
 
@@ -20,29 +21,21 @@ pub struct RequestAuth {
     pub timestamp: u64,
 }
 
-/// Aggregate Schnorr signature committed at settlement; not verified on the happy path.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
-pub struct AggregatedSig {
-    pub agg_sig_s: [u8; 32],
-    pub commitment: [u8; 20],
-    pub signers_bitmap: [u8; 32],
-}
-
 /// `H(RequestAuth)` — domain-separated Keccak256 over the borsh encoding.
 pub fn hash_request_auth(request_auth: &RequestAuth) -> [u8; 32] {
     let body = borsh::to_vec(request_auth).expect("RequestAuth serialization is infallible");
     hashv(&[DOMAIN_REQAUTH, &body]).to_bytes()
 }
 
-/// `H(RequestAuth)` from the instruction-level `(gateway, source_id, signatures_required,
-/// timestamp)` tuple. `program_id` is always this program's own id, so a signature made for one
+/// `H(RequestAuth)` for `gateway` and the attested `(source_id, signatures_required,
+/// canonical_timestamp)`. `program_id` is always this program's own id, so a signature made for one
 /// deployment never verifies against another.
-pub fn hash_request_auth_fields(gateway: &Pubkey, round_request: &RoundRequest) -> [u8; 32] {
+pub fn hash_request_auth_fields(gateway: &Pubkey, payload: &AttestationPayload) -> [u8; 32] {
     hash_request_auth(&RequestAuth {
         program_id: crate::ID,
         gateway: *gateway,
-        source_id: round_request.source_id,
-        signatures_required: round_request.signatures_required,
-        timestamp: round_request.canonical_timestamp,
+        source_id: payload.source_id,
+        signatures_required: payload.signatures_required,
+        timestamp: payload.canonical_timestamp,
     })
 }

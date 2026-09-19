@@ -2,7 +2,7 @@
 
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
-use molpha::events::NodeFrozenForInactivity;
+use molpha::events::{NodePunished, OffenceProven};
 use molpha::state::{
     Node, NodeStatus, OffenceKind, RoundReceiptRecord, RoundRecordStatus,
     LIVELINESS_PENALTY_PER_MISS, LIVELINESS_RECOVERY_PER_SIGN, LIVELINESS_SCORE_MAX,
@@ -35,19 +35,19 @@ fn duty() -> Duty {
 
 impl Fixture {
     fn settle_x402(&mut self, signed: &SignedAttestation, payer_id: [u8; 32]) -> Pubkey {
-        let round_request = signed.round_request();
+        let attestation = signed.attestation();
         let args = self.p.x402_args(signed, payer_id);
         let gateway_pda = pda::gateway(&self.gateway.pubkey());
         let record = pda::x402_round(
             &args.payer_id,
             &gateway_pda,
-            &round_request.source_id,
-            round_request.signatures_required,
-            round_request.canonical_timestamp,
+            &attestation.payload.source_id,
+            attestation.payload.signatures_required,
+            attestation.payload.canonical_timestamp,
         );
         let ix = self
             .p
-            .settle_x402_round_ix(&self.gateway.pubkey(), round_request, args);
+            .settle_x402_round_ix(&self.gateway.pubkey(), &attestation, args);
         let gateway = self.gateway.insecure_clone();
         self.p.env.send_ok(&[ix], &[&gateway]);
         record
@@ -237,29 +237,29 @@ fn a_below_threshold_node_can_be_frozen_permissionlessly_and_evicted() {
     let score = p.args.liveliness_freeze_threshold - 1;
     p.overwrite_node(&node_pda, |node| node.liveliness_score = score);
 
-    let caller = p.env.keypair();
+    let caller = p.reporter();
     let before = p.env.unix_timestamp();
     let new_version = p.current_version() + 1;
-    let ix = p.freeze_unresponsive_node_ix(&caller.pubkey(), &owner);
+    let ix = p.slash_inactivity_ix(&caller.pubkey(), index as u32);
     let meta = p.env.send_ok(&[ix], &[&caller]);
 
     let node: Node = p.env.get(&node_pda);
     assert_eq!(node.status, NodeStatus::Frozen);
     assert_eq!(
         node.frozen_until,
-        before + OffenceKind::Inactivity.penalty().freeze_secs
+        before + OffenceKind::Inactivity.penalty().freeze_secs.unwrap_or(0)
     );
     assert_eq!(p.current_version(), new_version);
     let registry = p.env.registry(new_version);
     assert_eq!(registry.node_count, 3);
     assert!(!registry.nodes.contains(&node_pda));
 
-    let event: NodeFrozenForInactivity = only_event(&meta);
-    assert_eq!(event.node, node_pda);
-    assert_eq!(event.owner, owner);
-    assert_eq!(event.score, score);
-    assert_eq!(event.frozen_until, node.frozen_until);
-    assert_eq!(event.new_registry_version, new_version);
+    let proven: OffenceProven = only_event(&meta);
+    assert_eq!(proven.offence, OffenceKind::Inactivity);
+    let punished: NodePunished = only_event(&meta);
+    assert_eq!(punished.node, node_pda);
+    assert_eq!(punished.authority, owner);
+    assert_eq!(punished.new_status, NodeStatus::Frozen);
 }
 
 #[test]
@@ -267,18 +267,18 @@ fn freeze_requires_a_score_strictly_below_threshold_and_an_active_node() {
     let mut p = Protocol::start();
     p.register_nodes("freeze-guards", 4);
     let node_pda = p.nodes[0].pda;
-    let owner = p.nodes[0].owner.pubkey();
     let threshold = p.args.liveliness_freeze_threshold;
     p.overwrite_node(&node_pda, |node| node.liveliness_score = threshold);
-    let caller = p.env.keypair();
-    let ix = p.freeze_unresponsive_node_ix(&caller.pubkey(), &owner);
+    let caller = p.reporter();
+    let ix = p.slash_inactivity_ix(&caller.pubkey(), 0);
     let failed = p.env.send_err(&[ix], &[&caller]);
     assert_molpha_error(&failed, MolphaError::LivelinessAboveThreshold);
 
-    let node_owner = p.nodes[0].owner.insecure_clone();
-    let ix = p.deactivate_node_ix(0, &node_owner.pubkey());
-    p.env.send_ok(&[ix], &[&node_owner]);
-    let ix = p.freeze_unresponsive_node_ix(&caller.pubkey(), &owner);
+    p.overwrite_node(&node_pda, |node| {
+        node.liveliness_score = threshold - 1;
+        node.status = NodeStatus::Frozen;
+    });
+    let ix = p.slash_inactivity_ix(&caller.pubkey(), 0);
     let failed = p.env.send_err(&[ix], &[&caller]);
     assert_molpha_error(&failed, MolphaError::NodeNotActive);
 }

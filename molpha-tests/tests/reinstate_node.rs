@@ -11,18 +11,20 @@ use solana_signer::Signer;
 
 const NODE_COUNT: usize = 4;
 
-const INACTIVITY_FREEZE_SECS: i64 = OffenceKind::Inactivity.penalty().freeze_secs;
+const INACTIVITY_FREEZE_SECS: i64 = OffenceKind::Inactivity
+    .penalty()
+    .freeze_secs
+    .expect("freeze_secs is Some");
 
 fn frozen_protocol() -> (Protocol, usize) {
     let mut p = Protocol::start();
     p.register_nodes("reinstate", NODE_COUNT);
     let index = 1;
     let node_pda = p.nodes[index].pda;
-    let owner = p.nodes[index].owner.pubkey();
     let score = p.args.liveliness_freeze_threshold - 1;
     p.overwrite_node(&node_pda, |node| node.liveliness_score = score);
-    let caller = p.env.keypair();
-    let ix = p.freeze_unresponsive_node_ix(&caller.pubkey(), &owner);
+    let caller = p.reporter();
+    let ix = p.slash_inactivity_ix(&caller.pubkey(), index as u32);
     p.env.send_ok(&[ix], &[&caller]);
     (p, index)
 }
@@ -54,7 +56,7 @@ fn a_thawed_node_is_reinstated_by_anyone_and_rejoins_the_registry() {
 
     let event: NodeReinstated = only_event(&meta);
     assert_eq!(event.node, node_pda);
-    assert_eq!(event.owner, owner);
+    assert_eq!(event.node_authority, owner);
     assert_eq!(event.registry_version, p.current_version() + 1);
 }
 

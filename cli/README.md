@@ -36,16 +36,17 @@ yarn molpha:dev --help
 | Group | Commands |
 |---|---|
 | `init` | initialize protocol |
-| `registry` | `register` \| `update-endpoint` \| `deactivate` \| `withdraw-deposit` \| `set-buffer` |
+| `registry` | `register` \| `update-endpoint` \| `deactivate` \| `withdraw-deposit` \| `set-buffer` \| `reinstate` |
 | `plan` | `add` \| `update` \| `show` |
 | `subscription` | `subscribe` \| `extend` |
 | `delegate` | `add` \| `remove` \| `pause` |
 | `gateway` | `register` \| `deactivate` \| `withdrawal-status` \| `withdraw-bond` |
 | `round` | `settle-subscription` \| `settle-x402` \| `finalize` \| `dispute` |
 | `rewards` | `claim-node` |
-| `attestation` | `sign` \| `submit` \|
+| `attestation` | `sign` \| `submit` |
+| `slash` | `inactivity` \| `offence` |
 | `admin` | `update-config` |
-| `account` | `protocol-config` \| `registry` \| `registry-version` \| `node` \| `plan` \| `subscription` \| `feed` \| `delegate` \| `gateway` \| `round` \| `secp-key` |
+| `account` | `protocol-config` \| `registry` \| `registry-version` \| `node` \| `plan` \| `subscription` \| `feed` \| `delegate` \| `gateway` \| `round` \| `secp-key` \| `punishment-case` |
 
 ## Example Flow
 
@@ -106,6 +107,12 @@ yarn molpha attestation submit \
   --signer-seed molpha-cli-e2e-signers
 ```
 
+`--value` is the 32-byte signed value and the feed stores it as `value_kind = Value`. For a longer
+value pass `--raw-value <hex>` (<= 256 bytes) instead: the CLI signs `keccak256(raw)` as the value,
+submits the preimage as `raw_value`, and the feed stores the hash as `value_kind = Hash`.
+`attestation submit --args <path>` takes the `SubmitAttestationArgs` JSON that `attestation sign`
+prints under `submitArgs` (`{ attestation: { payload, signature }, rawValue }`).
+
 Node PoP is generated off chain over
 `keccak256("MOLPHA_NODE_POP_V1" || program_id || node_id)`. The CLI accepts only the
 resulting signature — never the secp256k1 private key.
@@ -151,6 +158,18 @@ Node deposits and gateway bonds have separate exit paths:
 # Run after registry deactivate and the node's cooldown.
 yarn molpha registry withdraw-deposit
 
+# Permissionless freeze of a node whose liveliness score is below the threshold.
+yarn molpha slash inactivity --node-index 3
+# or: yarn molpha slash inactivity --node-owner <NODE_OWNER>
+
+# File any offence from IDL-shaped JSON (`{ equivocation | unsolicitedSigning | commitmentReuse | nonceReuse | inactivity }`).
+# The CLI derives the PunishmentCase PDA from the evidence hash; pass --evidence-hash to assert it.
+yarn molpha slash offence --args ./offence.json
+yarn molpha account punishment-case --evidence-hash <32_BYTE_HEX>
+
+# Restore a frozen node after its freeze window (anyone), or earlier as protocol authority.
+yarn molpha registry reinstate --node-owner <NODE_OWNER>
+
 # Protocol authority: deactivate the target gateway and start its slot deadline.
 yarn molpha gateway deactivate --gateway-authority <GATEWAY_AUTHORITY>
 yarn molpha gateway withdrawal-status --gateway-authority <GATEWAY_AUTHORITY>
@@ -191,8 +210,9 @@ yarn molpha round settle-x402 \
 - There is no `Job` account or `create_job` instruction. Feeds are created via
   `init_if_needed` inside `submit_attestation`. `source_id` is a caller-provided
   32-byte identifier.
-- USDC accounts are always canonical ATAs derived by the CLI. Reward, challenger, and reporter
-  ATAs are created by the program when missing; funded source ATAs must already exist.
+- USDC accounts are always canonical ATAs derived by the CLI. Reward ATAs are created by the
+  program when missing; funded source ATAs must already exist. `slash` creates the reporter USDC
+  ATA as a pre-instruction if needed (the program itself does not).
 - Subscription payment uses monthly `subscribe` / `extend` (not per-round top-ups).
 - `round settle-subscription` requires an Ed25519 RequestAuth pre-instruction; provide
   `--consumer-wallet` so the CLI can sign the auth message. The message is bound to the program id

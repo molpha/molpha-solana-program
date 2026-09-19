@@ -4,9 +4,9 @@ use anchor_lang::prelude::Pubkey;
 use anchor_lang::solana_program::instruction::Instruction;
 use molpha::error::MolphaError;
 use molpha::events::RoundSettled;
-use molpha::instructions::AddPlanArgs;
 use molpha::state::{
-    Delegate, PlanType, RoundReceiptRecord, RoundRecordKind, RoundRecordStatus, Subscription,
+    Delegate, PlanConfig, PlanType, RoundReceiptRecord, RoundRecordKind, RoundRecordStatus,
+    Subscription,
 };
 use molpha_tests::env::{
     assert_anchor_error, assert_molpha_error, only_event, set_compute_unit_price,
@@ -34,7 +34,7 @@ fn fixture() -> Fixture {
 fn fixture_with_rounds(max_rounds: u64) -> Fixture {
     let mut p = Protocol::start();
     p.register_nodes("settle-sub", NODE_COUNT);
-    p.add_plan(AddPlanArgs {
+    p.add_plan(PlanConfig {
         plan_type: PlanType::Professional,
         subscription_price: 10_000_000,
         max_signers: PLAN_MAX_SIGNERS,

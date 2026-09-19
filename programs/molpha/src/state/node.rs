@@ -1,18 +1,16 @@
 use anchor_lang::prelude::*;
-
-use crate::error::{map_attestation_accounts_err, map_attestation_err};
-
-use super::Registry;
+use solana_keccak_hasher::hashv;
 
 pub const LIVELINESS_SCORE_MAX: u16 = 10_000;
 pub const LIVELINESS_PENALTY_PER_MISS: u16 = 500;
 pub const LIVELINESS_RECOVERY_PER_SIGN: u16 = 100;
+pub const NODE_ID_PREFIX: &[u8] = b"MOLPHA_NODE_ID_V1";
 
 /// Permanent node identity and reward account; never closed or re-keyed.
 #[account]
 #[derive(InitSpace)]
 pub struct Node {
-    pub owner: Pubkey,
+    pub authority: Pubkey,
     pub secp256k1_pubkey_x: [u8; 32],
     pub secp256k1_pubkey_y: [u8; 32],
     pub status: NodeStatus,
@@ -34,7 +32,7 @@ impl Node {
     #[allow(clippy::too_many_arguments)]
     pub fn init(
         &mut self,
-        owner: Pubkey,
+        authority: Pubkey,
         secp256k1_pubkey_x: [u8; 32],
         secp256k1_pubkey_y: [u8; 32],
         ip: [u8; 4],
@@ -43,7 +41,7 @@ impl Node {
         registered_at: i64,
         bump: u8,
     ) {
-        self.owner = owner;
+        self.authority = authority;
         self.secp256k1_pubkey_x = secp256k1_pubkey_x;
         self.secp256k1_pubkey_y = secp256k1_pubkey_y;
         self.status = NodeStatus::Active;
@@ -78,38 +76,16 @@ pub enum NodeStatus {
     Tombstoned,
 }
 
-/// Resolve signer accounts against a registry snapshot in ascending bit order.
-pub fn resolve_registry_signers(
-    accounts: &[AccountInfo],
-    program_id: &Pubkey,
-    registry: &Registry,
-    signers_bitmap: &[u8; 32],
-) -> Result<Vec<molpha_verifier::SignerXy>> {
-    let entries = molpha_verifier::solana::resolve_nodes(accounts, program_id)
-        .map_err(map_attestation_accounts_err)?;
-    molpha_verifier::resolve_registry_signers(
-        &registry.nodes,
-        registry.node_count,
-        signers_bitmap,
-        &entries,
-    )
-    .map_err(map_attestation_err)
-}
-
-/// Like [`resolve_registry_signers`], but also returns each signer's bit position.
-pub fn resolve_registry_signers_indexed(
-    accounts: &[AccountInfo],
-    program_id: &Pubkey,
-    registry: &Registry,
-    signers_bitmap: &[u8; 32],
-) -> Result<Vec<(usize, molpha_verifier::SignerXy)>> {
-    let entries = molpha_verifier::solana::resolve_nodes(accounts, program_id)
-        .map_err(map_attestation_accounts_err)?;
-    molpha_verifier::resolve_registry_signers_indexed(
-        &registry.nodes,
-        registry.node_count,
-        signers_bitmap,
-        &entries,
-    )
-    .map_err(map_attestation_err)
+pub fn derive_node_id(
+    owner: Pubkey,
+    secp256k1_pubkey_compressed: &[u8; 33],
+    registration_salt: &[u8; 32],
+) -> [u8; 32] {
+    hashv(&[
+        NODE_ID_PREFIX,
+        owner.as_ref(),
+        secp256k1_pubkey_compressed.as_ref(),
+        registration_salt.as_ref(),
+    ])
+    .to_bytes()
 }

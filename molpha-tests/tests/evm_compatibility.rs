@@ -17,6 +17,7 @@ use molpha::state::{Feed, Node};
 use molpha_tests::crypto::{self, NodeKey};
 use molpha_tests::pda;
 use molpha_tests::scenario::{Duty, Protocol};
+use molpha_verifier::RegistryView;
 use serde_json::Value;
 use solana_signer::Signer;
 
@@ -145,18 +146,24 @@ impl Fixture {
 #[test]
 fn the_fixture_coalition_is_exactly_the_selection_the_program_derives() {
     let fixture = load();
+    static NODES: [[u8; 32]; 256] = [[0u8; 32]; 256];
+    let registry = RegistryView {
+        version: fixture.registry_version,
+        node_count: fixture.keys.len() as u16,
+        redundancy_buffer: REDUNDANCY_BUFFER,
+        nodes: &NODES,
+    };
     let derived = molpha_verifier::derive_selection_bitmap(
         &fixture.source_id,
-        fixture.registry_version,
         fixture.canonical_timestamp,
-        fixture.keys.len() as u32,
         fixture.signatures_required,
-        REDUNDANCY_BUFFER,
+        &registry,
     )
     .expect("selection derives");
 
     assert_eq!(
-        derived, fixture.signers_bitmap,
+        derived.to_bytes(),
+        fixture.signers_bitmap,
         "the two chains no longer agree on who a duty selects"
     );
     assert_eq!(
@@ -169,7 +176,7 @@ fn the_fixture_coalition_is_exactly_the_selection_the_program_derives() {
 fn the_message_hash_for_the_fixture_duty_is_pinned() {
     let fixture = load();
     assert_eq!(
-        fixture.duty().payload(fixture.signers_bitmap),
+        fixture.duty().message_hash(fixture.signers_bitmap),
         FIXTURE_MESSAGE_HASH,
         "the attestation message encoding changed; the EVM validator must be updated in step"
     );
@@ -208,7 +215,7 @@ fn the_program_accepts_an_attestation_from_the_fixture_coalition() {
         fixture.signatures_required,
         &submitter.pubkey(),
     ));
-    assert_eq!(feed.value, fixture.value.to_vec());
+    assert_eq!(feed.value, fixture.value);
     assert_eq!(feed.canonical_timestamp, fixture.canonical_timestamp);
     assert_eq!(feed.signers_bitmap, fixture.signers_bitmap);
 }

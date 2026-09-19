@@ -2,15 +2,14 @@
 
 use molpha::error::MolphaError;
 use molpha::events::{PlanAdded, PlanUpdated, Subscribed, SubscriptionExtended};
-use molpha::instructions::{AddPlanArgs, UpdatePlanArgs};
-use molpha::state::{Plan, PlanType, Subscription};
+use molpha::state::{Plan, PlanConfig, PlanType, Subscription};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::Protocol;
 use solana_signer::Signer;
 
-fn plan_args(plan_type: PlanType) -> AddPlanArgs {
-    AddPlanArgs {
+fn plan_args(plan_type: PlanType) -> PlanConfig {
+    PlanConfig {
         plan_type,
         subscription_price: 25_000_000,
         max_signers: 8,
@@ -50,7 +49,7 @@ fn each_plan_type_gets_its_own_account() {
         PlanType::Professional,
         PlanType::Enterprise,
     ] {
-        p.add_plan(AddPlanArgs {
+        p.add_plan(PlanConfig {
             subscription_price: 1_000_000 * (plan_type as u64 + 1),
             ..plan_args(plan_type)
         });
@@ -84,7 +83,7 @@ fn add_plan_cannot_overwrite_an_existing_plan() {
 
     let authority = p.authority.insecure_clone();
     let ix = p.add_plan_ix(
-        &AddPlanArgs {
+        &PlanConfig {
             subscription_price: 1,
             ..plan_args(PlanType::Basic)
         },
@@ -110,7 +109,7 @@ fn update_plan_rewrites_limits_and_can_retire_a_plan() {
     let mut p = Protocol::start();
     p.add_plan(plan_args(PlanType::Standard));
 
-    let args = UpdatePlanArgs {
+    let plan_config = PlanConfig {
         plan_type: PlanType::Standard,
         subscription_price: 99_000_000,
         max_signers: 20,
@@ -120,21 +119,21 @@ fn update_plan_rewrites_limits_and_can_retire_a_plan() {
         is_active: false,
     };
     let authority = p.authority.insecure_clone();
-    let ix = p.update_plan_ix(&authority.pubkey(), &args);
+    let ix = p.update_plan_ix(&authority.pubkey(), &plan_config);
     let meta = p.env.send_ok(&[ix], &[&authority]);
 
     let plan: Plan = p.env.get(&pda::plan(PlanType::Standard));
-    assert_eq!(plan.subscription_price, args.subscription_price);
-    assert_eq!(plan.max_signers, args.max_signers);
-    assert_eq!(plan.max_delegates, args.max_delegates);
-    assert_eq!(plan.max_rounds, args.max_rounds);
+    assert_eq!(plan.subscription_price, plan_config.subscription_price);
+    assert_eq!(plan.max_signers, plan_config.max_signers);
+    assert_eq!(plan.max_delegates, plan_config.max_delegates);
+    assert_eq!(plan.max_rounds, plan_config.max_rounds);
     assert!(!plan.private_api_enabled);
     assert!(!plan.is_active);
     // `plan_type` is the PDA seed and is never rewritten.
     assert_eq!(plan.plan_type, PlanType::Standard);
 
     let event: PlanUpdated = only_event(&meta);
-    assert_eq!(event.subscription_price, args.subscription_price);
+    assert_eq!(event.subscription_price, plan_config.subscription_price);
 }
 
 #[test]
@@ -142,7 +141,7 @@ fn update_plan_rejects_a_caller_that_is_not_the_authority() {
     let mut p = Protocol::start();
     p.add_plan(plan_args(PlanType::Standard));
     let impostor = p.env.keypair();
-    let args = UpdatePlanArgs {
+    let plan_config = PlanConfig {
         plan_type: PlanType::Standard,
         subscription_price: 1,
         max_signers: 1,
@@ -151,7 +150,7 @@ fn update_plan_rejects_a_caller_that_is_not_the_authority() {
         private_api_enabled: false,
         is_active: false,
     };
-    let ix = p.update_plan_ix(&impostor.pubkey(), &args);
+    let ix = p.update_plan_ix(&impostor.pubkey(), &plan_config);
     let failed = p.env.send_err(&[ix], &[&impostor]);
     assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintHasOne);
 
@@ -209,7 +208,7 @@ fn subscribe_charges_the_plan_price_and_snapshots_its_limits() {
 #[test]
 fn subscribe_rejects_an_inactive_plan() {
     let mut p = Protocol::start();
-    p.add_plan(AddPlanArgs {
+    p.add_plan(PlanConfig {
         is_active: false,
         ..plan_args(PlanType::Basic)
     });
@@ -328,7 +327,7 @@ fn extend_charges_the_current_plan_price_not_the_snapshot() {
 
     // Re-price the plan after the owner subscribed.
     let authority = p.authority.insecure_clone();
-    let args = UpdatePlanArgs {
+    let plan_config = PlanConfig {
         plan_type: PlanType::Basic,
         subscription_price: 7_000_000,
         max_signers: 16,
@@ -337,7 +336,7 @@ fn extend_charges_the_current_plan_price_not_the_snapshot() {
         private_api_enabled: true,
         is_active: true,
     };
-    let ix = p.update_plan_ix(&authority.pubkey(), &args);
+    let ix = p.update_plan_ix(&authority.pubkey(), &plan_config);
     p.env.send_ok(&[ix], &[&authority]);
 
     let before_owner = p.env.token_balance(&owner_usdc);
@@ -354,7 +353,7 @@ fn extend_rejects_a_retired_plan() {
     let owner = p.subscribe(PlanType::Basic);
 
     let authority = p.authority.insecure_clone();
-    let args = UpdatePlanArgs {
+    let plan_config = PlanConfig {
         plan_type: PlanType::Basic,
         subscription_price: 50_000_000,
         max_signers: 16,
@@ -363,7 +362,7 @@ fn extend_rejects_a_retired_plan() {
         private_api_enabled: true,
         is_active: false,
     };
-    let ix = p.update_plan_ix(&authority.pubkey(), &args);
+    let ix = p.update_plan_ix(&authority.pubkey(), &plan_config);
     p.env.send_ok(&[ix], &[&authority]);
 
     let ix = p.extend_subscription_ix(&owner.pubkey(), PlanType::Basic);

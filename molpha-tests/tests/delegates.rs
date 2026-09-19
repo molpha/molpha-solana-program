@@ -3,8 +3,8 @@
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::{DelegateAdded, DelegateRemoved};
-use molpha::instructions::{AddDelegateArgs, AddPlanArgs};
-use molpha::state::{Delegate, PlanType, Subscription};
+use molpha::instructions::AddDelegateArgs;
+use molpha::state::{Delegate, PlanConfig, PlanType, Subscription};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::Protocol;
@@ -19,7 +19,7 @@ fn delegate_key() -> Pubkey {
 /// A protocol with one subscriber on a plan that allows `max_delegates` delegates.
 fn subscribed(max_delegates: u32, max_signers: u8) -> (Protocol, Keypair) {
     let mut p = Protocol::start();
-    p.add_plan(AddPlanArgs {
+    p.add_plan(PlanConfig {
         plan_type: PlanType::Standard,
         subscription_price: 10_000_000,
         max_signers,

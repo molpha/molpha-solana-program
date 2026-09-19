@@ -1,10 +1,10 @@
-//! `punish_commitment_reuse`: one aggregate nonce commitment reused across two signed messages.
+//! `slash_offence` commitment reuse: one aggregate nonce commitment reused across two signed messages.
 
 use molpha::error::MolphaError;
-use molpha::events::{CommitmentReuseProven, NodePunished};
-use molpha::instructions::PunishCommitmentReuseArgs;
+use molpha::events::{NodePunished, OffenceProven};
 use molpha::state::{
-    commitment_reuse_evidence_hash, MembershipAction, Node, NodeStatus, OffenceKind, PunishmentCase,
+    CommitmentReuseEvidence, Evidence, MembershipAction, Node, NodeStatus, OffenceKind,
+    PunishmentCase,
 };
 use molpha_tests::crypto;
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, events, only_event};
@@ -15,7 +15,7 @@ use solana_signer::Signer;
 
 const NODE_COUNT: usize = 8;
 const SIGS: u8 = 4;
-/// The nonce both statements are signed under — reusing it is the whole offence.
+/// The nonce both attestations are signed under — reusing it is the whole offence.
 const SHARED_NONCE: [u8; 32] = [0x5c; 32];
 
 struct Case {
@@ -70,23 +70,11 @@ fn case() -> Case {
     Case { p, reporter, a, b }
 }
 
-fn args_for(
-    _case: &Case,
-    a: &SignedAttestation,
-    b: &SignedAttestation,
-) -> PunishCommitmentReuseArgs {
-    let evidence_hash = commitment_reuse_evidence_hash(
-        &a.round_request(),
-        &a.statement(),
-        &b.round_request(),
-        &b.statement(),
-    );
-    PunishCommitmentReuseArgs {
-        round_request_a: a.round_request(),
-        statement_a: a.statement(),
-        round_request_b: b.round_request(),
-        statement_b: b.statement(),
-        evidence_hash,
+fn args_for(_case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> CommitmentReuseEvidence {
+    let (attestation_a, attestation_b) = (a.attestation(), b.attestation());
+    CommitmentReuseEvidence {
+        attestation_a,
+        attestation_b,
     }
 }
 
@@ -114,7 +102,7 @@ fn a_proven_commitment_reuse_halves_the_stake_tombstones_and_evicts_the_intersec
     let new_version = case.p.current_version() + 1;
     let ix = case
         .p
-        .punish_commitment_reuse_ix(&reporter.pubkey(), args.clone());
+        .slash_commitment_reuse_ix(&reporter.pubkey(), args.clone());
     let meta = case.p.env.send_ok(&[ix], &[&reporter]);
 
     for node in &guilty {
@@ -161,18 +149,17 @@ fn a_proven_commitment_reuse_halves_the_stake_tombstones_and_evicts_the_intersec
     );
     case.p.assert_solvent();
 
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.hash()));
     assert_eq!(record.offence, OffenceKind::CommitmentReuse);
     assert_eq!(record.guilty_bitmap, guilty_bitmap);
     assert_eq!(record.guilty_count, guilty.len() as u16);
     assert_eq!(record.slashed_total, expected_slashed);
     assert_eq!(record.bounty_paid, expected_bounty);
 
-    let proven: CommitmentReuseProven = only_event(&meta);
-    assert_eq!(proven.commitment_addr, case.a.signature.commitment);
-    assert_eq!(proven.source_id_a, case.a.duty.source_id);
-    assert_eq!(proven.source_id_b, case.b.duty.source_id);
-    assert_eq!(proven.guilty_count, guilty.len() as u16);
+    let proven: OffenceProven = only_event(&meta);
+    assert_eq!(proven.offence, OffenceKind::CommitmentReuse);
+    assert_eq!(proven.evidence_hash, args.hash());
+    assert_eq!(proven.slashed_total, expected_slashed);
     assert_eq!(events::<NodePunished>(&meta).len(), guilty.len());
 
     case.p
@@ -198,7 +185,7 @@ fn a_proven_commitment_reuse_halves_the_stake_tombstones_and_evicts_the_intersec
 }
 
 #[test]
-fn statements_that_do_not_share_a_commitment_are_not_commitment_reuse() {
+fn attestations_that_do_not_share_a_commitment_are_not_commitment_reuse() {
     let mut p = Protocol::start();
     p.register_nodes("nonce-independent", NODE_COUNT);
     let reporter = p.reporter();
@@ -219,17 +206,17 @@ fn statements_that_do_not_share_a_commitment_are_not_commitment_reuse() {
     let args = args_for(&case, &a, &b);
     let mut case = case;
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
+    let ix = case.p.slash_commitment_reuse_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::NonceCommitmentMismatch);
 }
 
 #[test]
-fn one_statement_filed_against_itself_is_not_commitment_reuse() {
+fn one_attestation_filed_against_itself_is_not_commitment_reuse() {
     let mut case = case();
     let reporter = case.reporter.insecure_clone();
     let args = args_for(&case, &case.a, &case.a);
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
+    let ix = case.p.slash_commitment_reuse_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::NonceReuseSameMessage);
 }
@@ -255,7 +242,7 @@ fn same_duty_with_different_values_must_be_filed_as_equivocation() {
     let args = args_for(&case, &a, &b);
     let mut case = case;
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
+    let ix = case.p.slash_commitment_reuse_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::PreferEquivocation);
 }
@@ -287,12 +274,55 @@ fn the_same_duty_with_the_same_value_but_different_coalitions_is_commitment_reus
     let reporter = case.reporter.insecure_clone();
     let ix = case
         .p
-        .punish_commitment_reuse_ix(&reporter.pubkey(), args.clone());
+        .slash_commitment_reuse_ix(&reporter.pubkey(), args.clone());
     case.p.env.send_ok(&[ix], &[&reporter]);
 
-    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.evidence_hash));
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.hash()));
     assert_eq!(record.guilty_bitmap, expected_guilty);
     assert_eq!(record.guilty_count, 3);
+}
+
+/// Both aggregates verify against one evidence registry, so they must name the same version.
+#[test]
+fn attestations_from_different_registry_versions_are_refused() {
+    let mut case = case();
+    let reporter = case.reporter.insecure_clone();
+    let mut args = args_for(&case, &case.a, &case.b);
+    args.attestation_b.payload.registry_version += 1;
+
+    let ix = case.p.slash_commitment_reuse_ix(&reporter.pubkey(), args);
+    let failed = case.p.env.send_err(&[ix], &[&reporter]);
+    assert_molpha_error(&failed, MolphaError::RegistryVersionMismatch);
+}
+
+/// Reusing a nonce is the offence; neither aggregate has to reach `signatures_required`.
+#[test]
+fn a_coalition_below_quorum_is_still_punishable() {
+    let mut p = Protocol::start();
+    p.register_nodes("nonce-below-quorum", NODE_COUNT);
+    let reporter = p.reporter();
+    let (a_duty, b_duty) = (duty_a(), duty_b());
+    let bits = shared_bits(&p, &a_duty, &b_duty, SIGS as usize - 1);
+
+    let a = p.sign_duty_with_bits(a_duty, &bits, Some(SHARED_NONCE));
+    let b = p.sign_duty_with_bits(b_duty, &bits, Some(SHARED_NONCE));
+    let case = Case {
+        p,
+        reporter,
+        a: a.clone(),
+        b: b.clone(),
+    };
+    let args = args_for(&case, &a, &b);
+
+    let mut case = case;
+    let reporter = case.reporter.insecure_clone();
+    let ix = case
+        .p
+        .slash_commitment_reuse_ix(&reporter.pubkey(), args.clone());
+    case.p.env.send_ok(&[ix], &[&reporter]);
+
+    let record: PunishmentCase = case.p.env.get(&pda::punishment_case(&args.hash()));
+    assert_eq!(record.guilty_count, SIGS as u16 - 1);
 }
 
 #[test]
@@ -306,7 +336,7 @@ fn disjoint_coalitions_leave_nobody_to_punish() {
     // Two coalitions drawn from the shared selection that do not overlap.
     let a = p.sign_duty_with_bits(a_duty, &shared[0..2], Some(SHARED_NONCE));
     let b = p.sign_duty_with_bits(b_duty, &shared[2..4], Some(SHARED_NONCE));
-    // The commitment is `address(k*G)` — a function of the nonce alone — so the two statements
+    // The commitment is `address(k*G)` — a function of the nonce alone — so the two attestations
     // still collide on it. Only the guilty set is empty.
     assert_eq!(a.signature.commitment, b.signature.commitment);
 
@@ -319,29 +349,18 @@ fn disjoint_coalitions_leave_nobody_to_punish() {
     let args = args_for(&case, &a, &b);
     let mut case = case;
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
+    let ix = case.p.slash_commitment_reuse_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::GuiltySetEmpty);
 }
 
 #[test]
-fn an_evidence_hash_that_does_not_match_the_pairs_is_refused() {
-    let mut case = case();
-    let reporter = case.reporter.insecure_clone();
-    let mut args = args_for(&case, &case.a, &case.b);
-    args.evidence_hash[7] ^= 0x80;
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
-    let failed = case.p.env.send_err(&[ix], &[&reporter]);
-    assert_molpha_error(&failed, MolphaError::EvidenceHashMismatch);
-}
-
-#[test]
-fn a_statement_whose_signature_does_not_verify_proves_nothing() {
+fn an_attestation_whose_signature_does_not_verify_proves_nothing() {
     let mut case = case();
     let reporter = case.reporter.insecure_clone();
     let tampered = case.b.with_tampered_signature();
     let args = args_for(&case, &case.a, &tampered);
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
+    let ix = case.p.slash_commitment_reuse_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::InvalidAggregateSignature);
     for node in case.p.node_pdas() {
@@ -377,7 +396,7 @@ fn a_coalition_outside_its_own_duty_selection_is_refused() {
     let args = args_for(&case, &a, &b);
     let mut case = case;
     let reporter = case.reporter.insecure_clone();
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
+    let ix = case.p.slash_commitment_reuse_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::SignersNotSubsetOfSelection);
 }
@@ -387,13 +406,13 @@ fn the_same_evidence_cannot_be_filed_twice_with_the_pairs_swapped() {
     let mut case = case();
     let reporter = case.reporter.insecure_clone();
     let args = args_for(&case, &case.a, &case.b);
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
+    let ix = case.p.slash_commitment_reuse_ix(&reporter.pubkey(), args);
     case.p.env.send_ok(&[ix], &[&reporter]);
 
     let swapped = args_for(&case, &case.b, &case.a);
     let ix = case
         .p
-        .punish_commitment_reuse_ix(&reporter.pubkey(), swapped);
+        .slash_commitment_reuse_ix(&reporter.pubkey(), swapped);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert!(
         failed
@@ -416,7 +435,7 @@ fn a_second_filing_does_not_compound_the_slash_on_an_already_tombstoned_node() {
         .node_pdas_for_bitmap(case.a.duty.registry_version, &guilty_bitmap);
 
     let args = args_for(&case, &case.a, &case.b);
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
+    let ix = case.p.slash_commitment_reuse_ix(&reporter.pubkey(), args);
     case.p.env.send_ok(&[ix], &[&reporter]);
     let balances: Vec<u64> = guilty
         .iter()
@@ -444,7 +463,7 @@ fn a_second_filing_does_not_compound_the_slash_on_an_already_tombstoned_node() {
     let a = case.p.sign_duty_with_bits(a_duty, &bits, Some([0x77; 32]));
     let b = case.p.sign_duty_with_bits(b_duty, &bits, Some([0x77; 32]));
     let args = args_for(&case, &a, &b);
-    let ix = case.p.punish_commitment_reuse_ix(&reporter.pubkey(), args);
+    let ix = case.p.slash_commitment_reuse_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::NothingToPunish);
 
@@ -458,7 +477,7 @@ fn filing_requires_the_next_registry_version() {
     let mut case = case();
     let reporter = case.reporter.insecure_clone();
     let skipped = case.p.current_version() + 3;
-    let ix = case.p.punish_commitment_reuse_ix_with_registry(
+    let ix = case.p.slash_commitment_reuse_ix_with_registry(
         &reporter.pubkey(),
         args_for(&case, &case.a, &case.b),
         skipped,

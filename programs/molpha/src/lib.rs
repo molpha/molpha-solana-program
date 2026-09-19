@@ -10,8 +10,8 @@ pub mod state;
 pub mod utils;
 
 use instructions::*;
-use state::PlanType;
-use utils::settlement::RoundRequest;
+use molpha_verifier::Attestation;
+use state::{PlanConfig, PlanType};
 
 declare_id!("MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3");
 
@@ -35,13 +35,6 @@ pub mod molpha {
         instructions::deactivate_node(ctx, node_owner)
     }
 
-    pub fn freeze_unresponsive_node(
-        ctx: Context<FreezeUnresponsiveNode>,
-        node_owner: Pubkey,
-    ) -> Result<()> {
-        instructions::freeze_unresponsive_node(ctx, node_owner)
-    }
-
     pub fn update_node_endpoint(
         ctx: Context<UpdateNodeEndpoint>,
         args: UpdateNodeEndpointArgs,
@@ -56,12 +49,12 @@ pub mod molpha {
         instructions::update_registry_policy(ctx, redundancy_buffer)
     }
 
-    pub fn add_plan(ctx: Context<AddPlan>, args: AddPlanArgs) -> Result<()> {
-        instructions::add_plan(ctx, args)
+    pub fn add_plan(ctx: Context<AddPlan>, config: PlanConfig) -> Result<()> {
+        instructions::add_plan(ctx, config)
     }
 
-    pub fn update_plan(ctx: Context<UpdatePlan>, args: UpdatePlanArgs) -> Result<()> {
-        instructions::update_plan(ctx, args)
+    pub fn update_plan(ctx: Context<UpdatePlan>, config: PlanConfig) -> Result<()> {
+        instructions::update_plan(ctx, config)
     }
 
     pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
@@ -96,10 +89,10 @@ pub mod molpha {
 
     pub fn settle_subscription_round<'info>(
         ctx: Context<SettleSubscriptionRound<'info>>,
-        round_request: RoundRequest,
-        args: SettleRoundArgs,
+        attestation: Attestation,
+        consumer_authority: Pubkey,
     ) -> Result<()> {
-        instructions::settle_subscription_round(ctx, round_request, args)
+        instructions::settle_subscription_round(ctx, attestation, consumer_authority)
     }
 
     pub fn finalize_round<'info>(ctx: Context<'info, FinalizeRound<'info>>) -> Result<()> {
@@ -128,40 +121,17 @@ pub mod molpha {
 
     pub fn settle_x402_round<'info>(
         ctx: Context<SettleX402Round<'info>>,
-        round_request: RoundRequest,
+        attestation: Attestation,
         args: SettleX402RoundArgs,
     ) -> Result<()> {
-        instructions::settle_x402_round(ctx, round_request, args)
+        instructions::settle_x402_round(ctx, attestation, args)
     }
 
-    pub fn punish_equivocation<'info>(
-        ctx: Context<'info, PunishEquivocation<'info>>,
-        round_request: RoundRequest,
-        args: PunishEquivocationArgs,
+    pub fn slash_offence<'info>(
+        ctx: Context<'info, SlashOffence<'info>>,
+        offence: state::Offence,
     ) -> Result<()> {
-        instructions::punish_equivocation(ctx, round_request, args)
-    }
-
-    pub fn punish_unsolicited_signing<'info>(
-        ctx: Context<'info, PunishUnsolicitedSigning<'info>>,
-        round_request: RoundRequest,
-        args: PunishUnsolicitedSigningArgs,
-    ) -> Result<()> {
-        instructions::punish_unsolicited_signing(ctx, round_request, args)
-    }
-
-    pub fn punish_commitment_reuse<'info>(
-        ctx: Context<'info, PunishCommitmentReuse<'info>>,
-        args: PunishCommitmentReuseArgs,
-    ) -> Result<()> {
-        instructions::punish_commitment_reuse(ctx, args)
-    }
-
-    pub fn punish_nonce_reuse<'info>(
-        ctx: Context<'info, PunishNonceReuse<'info>>,
-        args: PunishNonceReuseArgs,
-    ) -> Result<()> {
-        instructions::punish_nonce_reuse(ctx, args)
+        instructions::slash_offence(ctx, offence)
     }
 
     pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {

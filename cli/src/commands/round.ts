@@ -1,4 +1,3 @@
-import { BN } from "@coral-xyz/anchor";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
@@ -12,14 +11,17 @@ import {
 } from "@solana/web3.js";
 import { Command } from "commander";
 import {
-  buildAggregatedSig,
   creditedBitsFromBitmap,
-  parseAggregatedSigJson,
+  parseSchnorrSignatureJson,
   signersBitmapFromOptions,
 } from "../lib/agg-sig";
 import { hashRequestAuthFields } from "../lib/auth";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
+import {
+  buildAttestation,
+  SchnorrSignatureBytes,
+} from "../lib/signing/attestation";
 import {
   derivePayerId,
   findDelegatePda,
@@ -49,6 +51,18 @@ function registryNode(registry: any, bit: number): PublicKey {
   return new PublicKey(Uint8Array.from(registry.nodes[bit]));
 }
 
+/** `--agg-sig` file, or a zero signature over the bitmap from the credited-signer flags. */
+function schnorrSignatureFromOptions(options: {
+  aggSig?: string;
+  signersBitmap?: string;
+  creditedBits?: string;
+  signerCount?: string;
+}): SchnorrSignatureBytes {
+  return options.aggSig
+    ? parseSchnorrSignatureJson(options.aggSig)
+    : { signersBitmap: signersBitmapFromOptions(options) };
+}
+
 export function registerRoundCommands(program: Command): void {
   const round = program
     .command("round")
@@ -65,13 +79,17 @@ export function registerRoundCommands(program: Command): void {
       "--gateway-authority <pubkey>",
       "gateway authority pubkey (for PDA)",
     )
-    .option("--value <hex>", "oracle value bytes (hex)", "0x" + "00".repeat(32))
+    .option(
+      "--value <hex>",
+      "32-byte oracle value (hex)",
+      "0x" + "00".repeat(32),
+    )
     .option("--subscription-owner <pubkey>", "subscription owner")
     .option(
       "--consumer-wallet <path>",
       "consumer (owner or delegate) keypair that signs RequestAuth",
     )
-    .option("--agg-sig <path>", "JSON AggregatedSig file")
+    .option("--agg-sig <path>", "JSON SchnorrSignature file")
     .option("--signers-bitmap <hex>", "32-byte credited signers bitmap")
     .option("--credited-bits <list>", "comma-separated credited bit indices")
     .option("--signer-count <number>", "first-N bits credited")
@@ -120,14 +138,17 @@ export function registerRoundCommands(program: Command): void {
         registryPda,
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
-      const value = hexToBytes(options.value, undefined, "value");
-      const aggSig = options.aggSig
-        ? parseAggregatedSigJson(options.aggSig)
-        : buildAggregatedSig({
-            signersBitmap: signersBitmapFromOptions(options),
-          });
+      const schnorrSignature = schnorrSignatureFromOptions(options);
+      const attestation = buildAttestation({
+        value: hexToBytes(options.value, 32, "value"),
+        sourceId,
+        registryVersion,
+        signaturesRequired,
+        canonicalTimestamp: timestamp,
+        ...schnorrSignature,
+      });
       const creditedBits = creditedBitsFromBitmap(
-        Uint8Array.from(aggSig.signersBitmap),
+        schnorrSignature.signersBitmap,
       );
       const [roundRecordPda] = findSubscriptionRoundPda(
         ctx.programId,
@@ -154,15 +175,7 @@ export function registerRoundCommands(program: Command): void {
         timestamp,
       );
       const signature = await (ctx.program.methods as any)
-        .settleSubscriptionRound({
-          canonicalTimestamp: new BN(timestamp),
-          sourceId: Array.from(sourceId),
-          signaturesRequired,
-          registryVersion,
-          aggSig,
-          value: Buffer.from(value),
-          consumerAuthority: consumer.publicKey,
-        })
+        .settleSubscriptionRound(attestation, consumer.publicKey)
         .accountsPartial({
           authority: ctx.wallet.publicKey,
           protocolConfig: protocolConfigPda,
@@ -218,8 +231,12 @@ export function registerRoundCommands(program: Command): void {
       "--payment-ref <hex>",
       "opaque payment reference (tx hash / facilitator receipt), <= 64 bytes",
     )
-    .option("--value <hex>", "oracle value bytes (hex)", "0x" + "00".repeat(32))
-    .option("--agg-sig <path>", "JSON AggregatedSig file")
+    .option(
+      "--value <hex>",
+      "32-byte oracle value (hex)",
+      "0x" + "00".repeat(32),
+    )
+    .option("--agg-sig <path>", "JSON SchnorrSignature file")
     .option("--signers-bitmap <hex>", "32-byte credited signers bitmap")
     .option("--credited-bits <list>", "comma-separated credited bit indices")
     .option("--signer-count <number>", "first-N bits credited")
@@ -278,14 +295,17 @@ export function registerRoundCommands(program: Command): void {
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const amount = bn(options.amount, "amount");
-      const value = hexToBytes(options.value, 32, "value");
-      const aggSig = options.aggSig
-        ? parseAggregatedSigJson(options.aggSig)
-        : buildAggregatedSig({
-            signersBitmap: signersBitmapFromOptions(options),
-          });
+      const schnorrSignature = schnorrSignatureFromOptions(options);
+      const attestation = buildAttestation({
+        value: hexToBytes(options.value, 32, "value"),
+        sourceId,
+        registryVersion,
+        signaturesRequired,
+        canonicalTimestamp,
+        ...schnorrSignature,
+      });
       const creditedBits = creditedBitsFromBitmap(
-        Uint8Array.from(aggSig.signersBitmap),
+        schnorrSignature.signersBitmap,
       );
       const [roundRecordPda] = findX402RoundPda(
         ctx.programId,
@@ -302,15 +322,9 @@ export function registerRoundCommands(program: Command): void {
       }
 
       const signature = await (ctx.program.methods as any)
-        .settleX402Round({
+        .settleX402Round(attestation, {
           payerId: Array.from(payerId),
           amount,
-          sourceId: Array.from(sourceId),
-          canonicalTimestamp: new BN(canonicalTimestamp),
-          signaturesRequired,
-          registryVersion,
-          aggSig,
-          value: Array.from(value),
           paymentRail,
           paymentRef: Buffer.from(paymentRef),
         })
