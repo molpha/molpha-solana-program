@@ -9,8 +9,7 @@ use crate::{
     events::{NodeLivelinessPenalized, RoundFinalized},
     state::{
         Gateway, GatewayStatus, Node, ProtocolConfig, Registry, RoundReceiptRecord,
-        RoundRecordStatus, LIVELINESS_PENALTY_PER_MISS, LIVELINESS_RECOVERY_PER_SIGN,
-        LIVELINESS_SCORE_MAX,
+        RoundRecordStatus, LIVELINESS_SCORE_MAX,
     },
 };
 use molpha_verifier::bitmap::{for_each_set_bit, Bitmap};
@@ -95,7 +94,7 @@ pub(crate) fn credit_round_rewards<'info>(
             .ok_or(error!(MolphaError::InvalidCreditNodeAccount))?;
         node.liveliness_score = node
             .liveliness_score
-            .saturating_add(LIVELINESS_RECOVERY_PER_SIGN)
+            .saturating_add(config.liveliness_recovery_per_sign)
             .min(LIVELINESS_SCORE_MAX);
         node.exit(program_id)?;
 
@@ -116,7 +115,7 @@ pub(crate) fn credit_round_rewards<'info>(
 
         node.liveliness_score = node
             .liveliness_score
-            .saturating_sub(LIVELINESS_PENALTY_PER_MISS);
+            .saturating_sub(config.liveliness_penalty_per_miss);
         emit!(NodeLivelinessPenalized {
             node: node.key(),
             round_record,

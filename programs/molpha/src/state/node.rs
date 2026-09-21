@@ -2,8 +2,6 @@ use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
 pub const LIVELINESS_SCORE_MAX: u16 = 10_000;
-pub const LIVELINESS_PENALTY_PER_MISS: u16 = 500;
-pub const LIVELINESS_RECOVERY_PER_SIGN: u16 = 100;
 pub const NODE_ID_PREFIX: &[u8] = b"MOLPHA_NODE_ID_V1";
 
 /// Permanent node identity and reward account; never closed or re-keyed.

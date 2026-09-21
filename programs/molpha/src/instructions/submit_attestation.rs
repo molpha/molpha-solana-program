@@ -60,7 +60,7 @@ pub fn submit_attestation(
 
     let feed = &mut ctx.accounts.feed;
     if feed.source_id == [0u8; 32] {
-        feed.init(&attestation, value_kind, ctx.bumps.feed)?;
+        feed.init(&attestation, value_kind, ctx.accounts.submitter.key(), ctx.bumps.feed)?;
     } else {
         feed.update(&attestation, value_kind)?;
     }

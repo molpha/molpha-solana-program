@@ -3,7 +3,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
 use crate::{
     error::MolphaError,
-    events::OffenceProven,
+    events::{OffenceProven, RegistryUpdated, RegistryVersionReason},
     state::{
         bps_of, EvidenceAccounts, Offence, ProtocolConfig, PunishmentCase, Registry, RegistryState,
         RegistryTransition,
@@ -40,7 +40,11 @@ pub fn slash_offence<'info>(
 
     let slashed_total = batch.slashed_total();
     let grace_active_until = config.get_grace_active_until();
-    ctx.accounts.registry_state.swap_remove_nodes(
+    // Read policy from the current snapshot before the transition bumps
+    // `registry_state.next_version`, which would break exit validation on
+    // `new_registry`'s version seed if we loaded it afterwards.
+    let redundancy_buffer = ctx.accounts.current_registry.load()?.redundancy_buffer;
+    let node_count = ctx.accounts.registry_state.swap_remove_nodes(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
             next: &ctx.accounts.new_registry,
@@ -49,6 +53,14 @@ pub fn slash_offence<'info>(
         },
         &batch.victims,
     )?;
+
+    emit!(RegistryUpdated {
+        new_version: ctx.accounts.registry_state.current_version,
+        node_count,
+        redundancy_buffer,
+        reason: RegistryVersionReason::NodePunished,
+        updated_at: clock.unix_timestamp,
+    });
 
     // Cancelled reward credits stop being a claim on the treasury.
     config.reward_liability = config

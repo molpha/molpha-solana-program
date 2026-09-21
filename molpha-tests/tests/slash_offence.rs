@@ -1,7 +1,7 @@
 //! `slash_offence` inactivity: freeze a live node whose liveliness score is below threshold.
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
-use molpha::events::{NodePunished, OffenceProven};
+use molpha::events::{NodePunished, OffenceProven, RegistryUpdated, RegistryVersionReason};
 use molpha::state::{InactivityEvidence, Node, NodeStatus, Offence, OffenceKind, PunishmentCase};
 use molpha_tests::env::{assert_molpha_error, events, only_event};
 use molpha_tests::{pda, scenario::Protocol};
@@ -67,6 +67,13 @@ fn inactivity_freezes_without_slashing_and_records_a_unique_case() {
     assert_eq!(proven.offence, OffenceKind::Inactivity);
     assert_eq!(proven.evidence_hash, hash);
     assert_eq!(proven.slashed_total, 0);
+    let version: RegistryUpdated = only_event(&meta);
+    assert_eq!(version.new_version, p.current_version());
+    assert_eq!(
+        version.node_count,
+        p.env.registry(p.current_version()).node_count
+    );
+    assert!(matches!(version.reason, RegistryVersionReason::NodePunished));
     let punished = events::<NodePunished>(&meta);
     assert_eq!(punished.len(), 1);
     assert_eq!(punished[0].node, node_pda);

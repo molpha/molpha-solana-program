@@ -4,8 +4,7 @@ use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::{NodePunished, OffenceProven};
 use molpha::state::{
-    Node, NodeStatus, OffenceKind, RoundReceiptRecord, RoundRecordStatus,
-    LIVELINESS_PENALTY_PER_MISS, LIVELINESS_RECOVERY_PER_SIGN, LIVELINESS_SCORE_MAX,
+    Node, NodeStatus, OffenceKind, RoundReceiptRecord, RoundRecordStatus, LIVELINESS_SCORE_MAX,
 };
 use molpha_tests::env::{assert_molpha_error, only_event};
 use molpha_tests::pda;
@@ -23,7 +22,10 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
-    let mut p = Protocol::start();
+    let mut p = Protocol::builder()
+        .liveliness_penalty_per_miss(750)
+        .liveliness_recovery_per_sign(225)
+        .start();
     p.register_nodes("liveliness", NODE_COUNT);
     let gateway = p.register_gateway(FLOAT);
     Fixture { p, gateway }
@@ -97,7 +99,7 @@ fn partial_signing_penalizes_misses_and_recovers_signers_with_a_cap() {
     for missed_node in missed {
         assert_eq!(
             f.p.env.get::<Node>(&missed_node).liveliness_score,
-            LIVELINESS_SCORE_MAX - LIVELINESS_PENALTY_PER_MISS
+            LIVELINESS_SCORE_MAX - f.p.args.liveliness_penalty_per_miss
         );
     }
     for signer in signed.signer_pdas {
@@ -177,7 +179,7 @@ fn validating_a_genuine_partial_round_also_applies_liveliness_changes() {
     for node in missed {
         assert_eq!(
             f.p.env.get::<Node>(&node).liveliness_score,
-            LIVELINESS_SCORE_MAX - LIVELINESS_PENALTY_PER_MISS
+            LIVELINESS_SCORE_MAX - f.p.args.liveliness_penalty_per_miss
         );
     }
     assert_eq!(
@@ -223,7 +225,7 @@ fn a_successful_signature_gradually_recovers_a_low_score() {
 
     assert_eq!(
         f.p.env.get::<Node>(&recovering).liveliness_score,
-        1_000 + LIVELINESS_RECOVERY_PER_SIGN
+        1_000 + f.p.args.liveliness_recovery_per_sign
     );
 }
 
@@ -281,4 +283,54 @@ fn freeze_requires_a_score_strictly_below_threshold_and_an_active_node() {
     let ix = p.slash_inactivity_ix(&caller.pubkey(), 0);
     let failed = p.env.send_err(&[ix], &[&caller]);
     assert_molpha_error(&failed, MolphaError::NodeNotActive);
+}
+
+#[test]
+fn updated_rates_apply_to_pending_rounds_with_saturation_on_both_finalization_paths() {
+    use molpha::instructions::UpdateConfigArgs;
+    use molpha_tests::scenario::update_config_ix;
+    for validate in [false, true] {
+        let mut f = fixture();
+        let (record, signed) = f.partial_round([0x70; 32]);
+        let missed = f.missed_nodes(&record);
+        f.p.overwrite_node(&missed[0], |node| node.liveliness_score = 50);
+        let recovering = signed.signer_pdas[0];
+        f.p.overwrite_node(&recovering, |node| node.liveliness_score = 1000);
+        let a = &f.p.args;
+        let args = UpdateConfigArgs {
+            withdrawal_cooldown_slots: a.withdrawal_cooldown_slots,
+            minimum_node_deposit: a.minimum_node_deposit,
+            reward_per_signature: a.reward_per_signature,
+            max_settlement_delay_seconds: a.max_settlement_delay_seconds,
+            dispute_window_slots: a.dispute_window_slots,
+            gateway_bond_min: a.gateway_bond_min,
+            challenger_bounty_bps: a.challenger_bounty_bps,
+            liveliness_freeze_threshold: a.liveliness_freeze_threshold,
+            liveliness_penalty_per_miss: 1234,
+            liveliness_recovery_per_sign: 432,
+            x402_round_base: a.x402_round_base,
+            min_signers: a.min_signers,
+        };
+        let authority = f.p.authority.insecure_clone();
+        let ix = update_config_ix(&authority.pubkey(), &args);
+        f.p.env.send_ok(&[ix], &[&authority]);
+        if validate {
+            let caller = f.p.env.keypair();
+            let ix =
+                f.p.validate_round_ix(&caller.pubkey(), &record, None, &signed.signer_pdas);
+            f.p.env.send_ok(&[ix], &[&caller]);
+        } else {
+            f.finalize(&record, &signed.signer_pdas);
+        }
+        assert_eq!(f.p.env.get::<Node>(&missed[0]).liveliness_score, 0);
+        assert_eq!(
+            f.p.env.get::<Node>(&missed[1]).liveliness_score,
+            LIVELINESS_SCORE_MAX - 1234
+        );
+        assert_eq!(f.p.env.get::<Node>(&recovering).liveliness_score, 1432);
+        assert_eq!(
+            f.p.env.get::<Node>(&signed.signer_pdas[1]).liveliness_score,
+            LIVELINESS_SCORE_MAX
+        );
+    }
 }

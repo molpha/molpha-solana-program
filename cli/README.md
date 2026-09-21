@@ -129,6 +129,7 @@ Update protocol config (authority only; omitted fields keep current on-chain val
 
 ```bash
 yarn molpha admin update-config --gateway-bond-min 1000000000
+yarn molpha admin update-config --liveliness-penalty-per-miss 750 --liveliness-recovery-per-sign 200
 ```
 
 Gateway + settlement:
@@ -218,3 +219,21 @@ yarn molpha round settle-x402 \
   `--consumer-wallet` so the CLI can sign the auth message. The message is bound to the program id
   and to the `--gateway-authority` gateway PDA, so it is only redeemable by that gateway. `round settle-x402` has no
   on-chain payer authentication — the gateway self-attests and pays from its own float.
+
+Protocol initialization accepts `--liveliness-penalty-per-miss` (default 500) and
+`--liveliness-recovery-per-sign` (default 100). JSON config uses
+`livelinessPenaltyPerMiss` and `livelinessRecoveryPerSign`. Updates preserve omitted values.
+These settings take effect when a round is finalized, including through validation.
+
+Both admin instructions require positive withdrawal cooldown, settlement delay, dispute
+window, node deposit, and gateway bond. Liveliness threshold, penalty, and recovery must
+be 1–10,000; challenger bounty is 0–10,000; minimum signers is 3–255; initialization
+redundancy is 1–8. Zero reward and base price are allowed. Slot/timestamp deadlines and
+the base price plus rewards for 256 signers must not overflow. The CLI checks static
+bounds before sending; the program also checks deadlines against its current clock.
+
+The added config fields change the account layout and instruction encoding. Rebuild the
+program and IDL before using this CLI; existing config accounts require migration or
+reinitialization in a fresh deployment.
+
+Run the CLI config tests with `yarn test:cli`.

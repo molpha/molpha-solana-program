@@ -166,6 +166,8 @@ pub fn default_initialize_args(usdc_mint: Pubkey) -> InitializeArgs {
         gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
         liveliness_freeze_threshold: 5_000,
+        liveliness_penalty_per_miss: 500,
+        liveliness_recovery_per_sign: 100,
         usdc_mint,
         x402_round_base: 1_000_000,
         min_signers: 3,
@@ -253,6 +255,16 @@ impl ProtocolBuilder {
 
     pub fn challenger_bounty_bps(mut self, value: u16) -> Self {
         self.args.challenger_bounty_bps = value;
+        self
+    }
+
+    pub fn liveliness_penalty_per_miss(mut self, value: u16) -> Self {
+        self.args.liveliness_penalty_per_miss = value;
+        self
+    }
+
+    pub fn liveliness_recovery_per_sign(mut self, value: u16) -> Self {
+        self.args.liveliness_recovery_per_sign = value;
         self
     }
 

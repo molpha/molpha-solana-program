@@ -10,6 +10,7 @@
     "build:cli": "tsc -p cli/tsconfig.json",
     "build": "yarn build:cli && yarn build:molpha",
     "test": "anchor build -p molpha && cargo test --workspace",
+    "test:cli": "yarn build:cli && node --test cli/tests/*.cjs",
     "test:anchor": "anchor test --skip-local-validator",
     "molpha": "node cli/dist/index.js",
     "molpha:dev": "ts-node -r tsconfig-paths/register cli/src/index.ts",

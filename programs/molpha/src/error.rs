@@ -116,7 +116,7 @@ pub enum MolphaError {
     GatewayDisputeWindowActive,
     #[msg("withdrawal deadline arithmetic overflow")]
     WithdrawalArithmeticOverflow,
-    #[msg("withdrawal cooldown must be non-negative")]
+    #[msg("withdrawal cooldown must be positive and fit a slot deadline")]
     InvalidWithdrawalCooldown,
     #[msg("instructions sysvar account is invalid")]
     InvalidInstructionsSysvar,
@@ -176,7 +176,7 @@ pub enum MolphaError {
     AttestationTooStale,
     #[msg("canonical_timestamp is further ahead of cluster time than the allowed drift")]
     AttestationInFuture,
-    #[msg("max_settlement_delay_seconds must be greater than zero")]
+    #[msg("max_settlement_delay_seconds must be positive and fit a timestamp deadline")]
     InvalidMaxReceiptDelay,
     #[msg("treasury balance cannot back the protocol's reward liability")]
     TreasuryInsolvent,
@@ -200,6 +200,20 @@ pub enum MolphaError {
     InvalidPartialSignature,
     #[msg("committed nonce is not a valid secp256k1 point")]
     InvalidNoncePoint,
+    #[msg("dispute window must be positive and fit a slot deadline")]
+    InvalidDisputeWindow,
+    #[msg("minimum node deposit must be positive")]
+    InvalidMinimumNodeDeposit,
+    #[msg("minimum gateway bond must be positive")]
+    InvalidGatewayBond,
+    #[msg("liveliness freeze threshold must be between 1 and 10000")]
+    InvalidLivelinessFreezeThreshold,
+    #[msg("liveliness penalty per miss must be between 1 and 10000")]
+    InvalidLivelinessPenalty,
+    #[msg("liveliness recovery per sign must be between 1 and 10000")]
+    InvalidLivelinessRecovery,
+    #[msg("base price plus rewards for the maximum signer count must fit u64")]
+    InvalidRoundPrice,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {

@@ -108,7 +108,7 @@ fn register_node_writes_identity_takes_the_deposit_and_appends_a_snapshot() {
     let registered: NodeRegistered = only_event(&meta);
     assert_eq!(registered.owner, owner.pubkey());
     assert_eq!(registered.index, 0);
-    assert_eq!(registered.registry_version, 2);
+    assert_eq!(registered.registry_version, 1);
     assert_eq!(registered.security_deposit, p.args.minimum_node_deposit);
     assert_eq!(registered.node, pda::node(&owner.pubkey()));
 }
@@ -383,7 +383,7 @@ fn deactivate_node_by_its_owner_removes_it_and_starts_the_withdrawal_cooldown() 
 
     let event: NodeDeactivated = only_event(&meta);
     assert_eq!(event.node, target);
-    assert_eq!(event.new_registry_version, 5);
+    assert_eq!(event.new_registry_version, 4);
 }
 
 #[test]

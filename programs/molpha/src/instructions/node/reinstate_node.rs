@@ -41,7 +41,7 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
         node: node_key,
         node_authority: node.authority,
         index,
-        registry_version: ctx.accounts.registry_state.next_version,
+        registry_version: ctx.accounts.registry_state.current_version,
         reinstated_at: now,
     });
 

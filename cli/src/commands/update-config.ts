@@ -1,3 +1,4 @@
+import { validateProtocolConfig } from "../lib/protocol-config";
 import { Command } from "commander";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
@@ -19,6 +20,8 @@ type UpdateConfigFile = {
   gatewayBondMin?: string;
   challengerBountyBps?: number;
   livelinessFreezeThreshold?: number;
+  livelinessPenaltyPerMiss?: number;
+  livelinessRecoveryPerSign?: number;
   x402RoundBase?: string;
   minSigners?: number;
 };
@@ -34,6 +37,8 @@ type ProtocolConfigAccount = {
   gatewayBondMin: { toString(): string };
   challengerBountyBps: number;
   livelinessFreezeThreshold: number;
+  livelinessPenaltyPerMiss: number;
+  livelinessRecoveryPerSign: number;
   x402RoundBase: { toString(): string };
   minSigners: number;
 };
@@ -59,6 +64,14 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .option(
       "--liveliness-freeze-threshold <score>",
       "liveliness score below which a node may be frozen",
+    )
+    .option(
+      "--liveliness-penalty-per-miss <score>",
+      "score lost per missed round (1-10000)",
+    )
+    .option(
+      "--liveliness-recovery-per-sign <score>",
+      "score regained per signed round (1-10000)",
     )
     .option("--x402-round-base <amount>", "base x402 round settlement price")
     .option(
@@ -98,12 +111,12 @@ export function registerUpdateConfigCommand(admin: Command): void {
     });
 }
 
-function buildUpdateConfigArgs(
+export function buildUpdateConfigArgs(
   options: Record<string, string | number | undefined>,
   config: UpdateConfigFile,
   current: ProtocolConfigAccount,
 ) {
-  return {
+  const args = {
     withdrawalCooldownSlots: bn(
       requireValue(
         optionOrConfig(
@@ -164,16 +177,28 @@ function buildUpdateConfigArgs(
       ),
       "gateway bond minimum",
     ),
-    challengerBountyBps:
+    challengerBountyBps: Number(
+      optionOrConfig(options.challengerBountyBps, config.challengerBountyBps) ??
+        current.challengerBountyBps,
+    ),
+    livelinessFreezeThreshold: Number(
       optionOrConfig(
-        options.challengerBountyBps as number | undefined,
-        config.challengerBountyBps,
-      ) ?? current.challengerBountyBps,
-    livelinessFreezeThreshold:
-      optionOrConfig(
-        options.livelinessFreezeThreshold as number | undefined,
+        options.livelinessFreezeThreshold,
         config.livelinessFreezeThreshold,
       ) ?? current.livelinessFreezeThreshold,
+    ),
+    livelinessPenaltyPerMiss: Number(
+      optionOrConfig(
+        options.livelinessPenaltyPerMiss,
+        config.livelinessPenaltyPerMiss,
+      ) ?? current.livelinessPenaltyPerMiss,
+    ),
+    livelinessRecoveryPerSign: Number(
+      optionOrConfig(
+        options.livelinessRecoveryPerSign,
+        config.livelinessRecoveryPerSign,
+      ) ?? current.livelinessRecoveryPerSign,
+    ),
     x402RoundBase: bn(
       requireValue(
         optionOrConfig(
@@ -184,10 +209,11 @@ function buildUpdateConfigArgs(
       ),
       "x402 round base",
     ),
-    minSigners:
-      optionOrConfig(
-        options.minSigners as number | undefined,
-        config.minSigners,
-      ) ?? current.minSigners,
+    minSigners: Number(
+      optionOrConfig(options.minSigners, config.minSigners) ??
+        current.minSigners,
+    ),
   };
+  validateProtocolConfig(args);
+  return args;
 }

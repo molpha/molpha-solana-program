@@ -12,6 +12,8 @@ pub struct ProtocolConfigUpdated {
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_slots: u64,
     pub liveliness_freeze_threshold: u16,
+    pub liveliness_penalty_per_miss: u16,
+    pub liveliness_recovery_per_sign: u16,
     pub x402_round_base: u64,
     pub min_signers: u8,
 }

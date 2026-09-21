@@ -95,7 +95,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
     emit!(NodeRegistered {
         node: ctx.accounts.node.key(),
         index,
-        registry_version: ctx.accounts.registry_state.next_version,
+        registry_version: ctx.accounts.registry_state.current_version,
         owner,
         ip: args.ip,
         port: args.port,

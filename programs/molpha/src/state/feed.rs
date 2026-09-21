@@ -18,6 +18,7 @@ pub struct Feed {
     pub source_id: [u8; 32],
     pub value: [u8; 32],
     pub value_kind: FeedValueKind,
+    pub submitter: Pubkey,
     pub canonical_timestamp: u64,
     pub signatures_required: u8,
     pub signers_bitmap: [u8; 32],
@@ -31,7 +32,7 @@ impl Feed {
     pub const MAX_VALUE_LEN: usize = 256;
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
-    pub fn init(&mut self, attestation: &Attestation, kind: FeedValueKind, bump: u8) -> Result<()> {
+    pub fn init(&mut self, attestation: &Attestation, kind: FeedValueKind, submitter: Pubkey, bump: u8) -> Result<()> {
         require!(
             attestation.payload.source_id != [0u8; 32],
             MolphaError::InvalidSourceId
@@ -40,6 +41,7 @@ impl Feed {
         self.source_id = attestation.payload.source_id;
         self.value = attestation.payload.value;
         self.value_kind = kind;
+        self.submitter = submitter;
         self.canonical_timestamp = attestation.payload.canonical_timestamp;
         self.signatures_required = attestation.payload.signatures_required;
         self.registry_version = attestation.payload.registry_version;

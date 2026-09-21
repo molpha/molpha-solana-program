@@ -1,3 +1,4 @@
+import { validateProtocolConfig } from "../lib/protocol-config";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
@@ -31,6 +32,8 @@ type InitConfig = {
   gatewayBondMin?: string;
   challengerBountyBps?: number;
   livelinessFreezeThreshold?: number;
+  livelinessPenaltyPerMiss?: number;
+  livelinessRecoveryPerSign?: number;
   usdcMint?: string;
   x402RoundBase?: string;
   minSigners?: number;
@@ -63,6 +66,14 @@ export function registerInitCommand(program: Command): void {
       "liveliness score below which a node may be frozen",
     )
     .option("--usdc-mint <pubkey>", "USDC mint")
+    .option(
+      "--liveliness-penalty-per-miss <score>",
+      "score lost per missed round (1-10000)",
+    )
+    .option(
+      "--liveliness-recovery-per-sign <score>",
+      "score regained per signed round (1-10000)",
+    )
     .option("--x402-round-base <amount>", "base x402 round settlement price")
     .option(
       "--min-signers <count>",
@@ -157,6 +168,18 @@ export function registerInitCommand(program: Command): void {
             "Missing --liveliness-freeze-threshold",
           ),
         ),
+        livelinessPenaltyPerMiss: Number(
+          optionOrConfig(
+            options.livelinessPenaltyPerMiss,
+            config.livelinessPenaltyPerMiss,
+          ) ?? 500,
+        ),
+        livelinessRecoveryPerSign: Number(
+          optionOrConfig(
+            options.livelinessRecoveryPerSign,
+            config.livelinessRecoveryPerSign,
+          ) ?? 100,
+        ),
         usdcMint: parsePubkeyOption(
           optionOrConfig(options.usdcMint, config.usdcMint),
           "usdc mint",
@@ -172,6 +195,7 @@ export function registerInitCommand(program: Command): void {
           optionOrConfig(options.minSigners, config.minSigners) ?? 3,
         ),
       };
+      validateProtocolConfig(args);
       const treasury = getAssociatedTokenAddressSync(
         args.usdcMint,
         protocolConfig,

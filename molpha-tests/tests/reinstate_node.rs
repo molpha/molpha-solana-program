@@ -57,7 +57,8 @@ fn a_thawed_node_is_reinstated_by_anyone_and_rejoins_the_registry() {
     let event: NodeReinstated = only_event(&meta);
     assert_eq!(event.node, node_pda);
     assert_eq!(event.node_authority, owner);
-    assert_eq!(event.registry_version, p.current_version() + 1);
+    assert_eq!(event.registry_version, expected_version);
+    assert_eq!(event.registry_version, p.current_version());
 }
 
 #[test]
