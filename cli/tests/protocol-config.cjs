@@ -15,8 +15,6 @@ function config() {
     minimumNodeDeposit: new BN(100),
     rewardPerSignature: new BN(10),
     maxSettlementDelaySeconds: new BN(256),
-    disputeWindowSlots: new BN(1024),
-    gatewayBondMin: new BN(500),
     challengerBountyBps: 500,
     livelinessFreezeThreshold: 5000,
     livelinessPenaltyPerMiss: 750,
@@ -85,8 +83,6 @@ test("u64 and price overflow checks, and positive required fields", () => {
     "withdrawalCooldownSlots",
     "minimumNodeDeposit",
     "maxSettlementDelaySeconds",
-    "disputeWindowSlots",
-    "gatewayBondMin",
   ]) {
     for (const value of ["0", "-1", "18446744073709551616"]) {
       assert.throws(

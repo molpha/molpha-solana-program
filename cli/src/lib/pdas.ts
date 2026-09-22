@@ -144,14 +144,6 @@ export function findGatewayPda(
   );
 }
 
-/** Gateway-owned USDC ATA that holds the slashable bond. */
-export function findGatewayBondAta(
-  usdcMint: PublicKey,
-  gatewayPda: PublicKey,
-): PublicKey {
-  return getAssociatedTokenAddressSync(usdcMint, gatewayPda, true);
-}
-
 /**
  * Rail-scoped payer identity — `keccak256(rail_id_be ‖ payer_address_bytes)`. `railId` is the
  * payment-rail registry id (0 = none/subscription, 1 = solana, 2 = base).
@@ -165,7 +157,7 @@ export function derivePayerId(
   return keccak_256(Buffer.concat([railIdBe, Buffer.from(addressBytes)]));
 }
 
-/** Subscription / delegate round receipt PDA. */
+/** Subscription / delegate round replay-marker PDA. */
 export function findSubscriptionRoundPda(
   programId: PublicKey,
   subscriptionOwner: PublicKey,

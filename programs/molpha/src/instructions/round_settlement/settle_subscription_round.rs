@@ -1,27 +1,29 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Token, TokenAccount};
 
 use crate::{
     error::MolphaError,
     events::RoundSettled,
     state::{
         hash_request_auth_fields, Delegate, Gateway, GatewayStatus, ProtocolConfig, Registry,
-        RoundReceiptInitArgs, RoundReceiptRecord, RoundRecordKind, Subscription,
+        RoundReplayMarker, Subscription,
     },
-    utils::{ed25519::verify_ed25519_signature, settlement::validate_settlement_attestation},
+    utils::{
+        attestation::validate_attestation, ed25519::verify_ed25519_signature,
+        settlement::credit_round_rewards,
+    },
 };
 use molpha_verifier::Attestation;
 
 pub fn settle_subscription_round<'info>(
-    ctx: Context<SettleSubscriptionRound<'info>>,
+    ctx: Context<'info, SettleSubscriptionRound<'info>>,
     attestation: Attestation,
     consumer_authority: Pubkey,
 ) -> Result<()> {
     let clock = Clock::get()?;
     let now_slot = clock.slot;
     let subscription = &mut ctx.accounts.subscription;
-    let config = &ctx.accounts.protocol_config;
     let gateway = &mut ctx.accounts.gateway;
-    let registry = ctx.accounts.registry.load()?;
 
     require!(
         subscription.is_active_at(clock.unix_timestamp) && subscription.has_round_quota(),
@@ -45,33 +47,32 @@ pub fn settle_subscription_round<'info>(
         MolphaError::ConsumerSigInvalid
     );
 
-    let validated =
-        validate_settlement_attestation(&registry, config, &attestation, clock.unix_timestamp)?;
+    validate_attestation(
+        &ctx.remaining_accounts,
+        &ctx.accounts.registry,
+        &ctx.accounts.config,
+        &attestation,
+        clock.unix_timestamp,
+    )?;
 
-    let reward_per_signature = config.reward_per_signature;
+    credit_round_rewards(
+        &ctx.accounts.registry,
+        &mut ctx.accounts.config,
+        &ctx.accounts.treasury,
+        &ctx.remaining_accounts,
+        &attestation,
+        ctx.accounts.round_replay.key(),
+    )?;
 
     subscription.consume_round()?;
-
-    ctx.accounts.round_record.init(
-        &attestation,
-        RoundReceiptInitArgs {
-            consumer_id: subscription.owner.to_bytes(),
-            selection_bitmap: validated.selection_bitmap,
-            attestation_message_hash: validated.attestation_message_hash,
-            gateway: gateway.key(),
-            reward_per_signature,
-            recorded_slot: now_slot,
-            kind: RoundRecordKind::Subscription,
-            bump: ctx.bumps.round_record,
-        },
-    );
+    ctx.accounts.round_replay.bump = ctx.bumps.round_replay;
 
     emit!(RoundSettled {
         gateway: gateway.key(),
         source_id: attestation.payload.source_id,
         canonical_timestamp: attestation.payload.canonical_timestamp,
-        credited_count: validated.credited_count,
-        reward_per_signature,
+        signers_bitmap: attestation.signature.signers_bitmap,
+        reward_per_signature: ctx.accounts.config.reward_per_signature,
         recorded_slot: now_slot,
         recorded_at: clock.unix_timestamp,
     });
@@ -121,10 +122,11 @@ pub struct SettleSubscriptionRound<'info> {
     pub authority: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [ProtocolConfig::SEED_PREFIX],
-        bump = protocol_config.bump,
+        bump = config.bump,
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub config: Account<'info, ProtocolConfig>,
 
     #[account(
         seeds = [Registry::SEED_PREFIX, attestation.payload.registry_version.to_le_bytes().as_ref()],
@@ -134,6 +136,13 @@ pub struct SettleSubscriptionRound<'info> {
 
     #[account(mut)]
     pub subscription: Account<'info, Subscription>,
+
+    #[account(
+        associated_token::mint = config.usdc_mint,
+        associated_token::authority = config,
+        associated_token::token_program = token_program,
+    )]
+    pub treasury: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -152,18 +161,18 @@ pub struct SettleSubscriptionRound<'info> {
     #[account(
         init,
         payer = authority,
-        space = RoundReceiptRecord::SPACE,
+        space = RoundReplayMarker::SPACE,
         seeds = [
-            RoundReceiptRecord::SEED_PREFIX,
+            RoundReplayMarker::SEED_PREFIX,
             subscription.owner.as_ref(),
             gateway.key().as_ref(),
             attestation.payload.source_id.as_ref(),
             attestation.payload.signatures_required.to_le_bytes().as_ref(),
             attestation.payload.canonical_timestamp.to_le_bytes().as_ref(),
         ],
-        bump
+        bump,
     )]
-    pub round_record: Account<'info, RoundReceiptRecord>,
+    pub round_replay: Account<'info, RoundReplayMarker>,
 
     /// CHECK: validated by address; read via Ed25519 instruction introspection.
     #[account(
@@ -172,4 +181,5 @@ pub struct SettleSubscriptionRound<'info> {
     pub instructions_sysvar: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
 }

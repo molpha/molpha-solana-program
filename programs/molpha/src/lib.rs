@@ -73,8 +73,8 @@ pub mod molpha {
         instructions::remove_delegate(ctx, args)
     }
 
-    pub fn submit_attestation(
-        ctx: Context<SubmitAttestation>,
+    pub fn submit_attestation<'info>(
+        ctx: Context<'info, SubmitAttestation<'info>>,
         args: SubmitAttestationArgs,
     ) -> Result<()> {
         instructions::submit_attestation(ctx, args)
@@ -88,19 +88,11 @@ pub mod molpha {
     }
 
     pub fn settle_subscription_round<'info>(
-        ctx: Context<SettleSubscriptionRound<'info>>,
+        ctx: Context<'info, SettleSubscriptionRound<'info>>,
         attestation: Attestation,
         consumer_authority: Pubkey,
     ) -> Result<()> {
         instructions::settle_subscription_round(ctx, attestation, consumer_authority)
-    }
-
-    pub fn finalize_round<'info>(ctx: Context<'info, FinalizeRound<'info>>) -> Result<()> {
-        instructions::finalize_round(ctx)
-    }
-
-    pub fn validate_round<'info>(ctx: Context<'info, ValidateRound<'info>>) -> Result<()> {
-        instructions::validate_round(ctx)
     }
 
     pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
@@ -115,12 +107,8 @@ pub mod molpha {
         instructions::deactivate_gateway(ctx)
     }
 
-    pub fn withdraw_gateway_bond(ctx: Context<WithdrawGatewayBond>) -> Result<()> {
-        instructions::withdraw_gateway_bond(ctx)
-    }
-
     pub fn settle_x402_round<'info>(
-        ctx: Context<SettleX402Round<'info>>,
+        ctx: Context<'info, SettleX402Round<'info>>,
         attestation: Attestation,
         args: SettleX402RoundArgs,
     ) -> Result<()> {

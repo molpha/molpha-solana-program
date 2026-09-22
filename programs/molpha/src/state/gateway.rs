@@ -1,9 +1,8 @@
 use anchor_lang::prelude::*;
 
-/// Bonded, Ed25519-signing gateway (v0.2 spec `gateway.authority`).
+/// Protocol-authorized gateway identified by its Solana authority.
 ///
-/// Holds endpoint metadata, bond, and reward accounting. Keyed by the gateway's Solana
-/// authority key.
+/// Holds endpoint metadata and activation status. Keyed by the gateway's authority key.
 #[account]
 #[derive(InitSpace)]
 pub struct Gateway {
@@ -12,7 +11,6 @@ pub struct Gateway {
     pub port: u16,
     pub status: GatewayStatus,
     pub registered_at: i64,
-    pub withdrawable_slot: u64,
     pub bump: u8,
 }
 
@@ -20,7 +18,6 @@ pub struct Gateway {
 pub enum GatewayStatus {
     Active,
     Deactivated,
-    Slashed,
 }
 
 impl Gateway {

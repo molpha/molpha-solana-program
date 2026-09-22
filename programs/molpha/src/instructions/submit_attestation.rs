@@ -1,13 +1,13 @@
 use anchor_lang::prelude::*;
-use molpha_verifier::solana::verify_attestation;
-use molpha_verifier::Attestation;
 use solana_keccak_hasher::hashv;
 
+use molpha_verifier::Attestation;
+
 use crate::{
-    error::{map_attestation_accounts_err, MolphaError},
+    error::MolphaError,
     events::FeedUpdated,
     state::{Feed, FeedValueKind, ProtocolConfig, Registry},
-    utils::require_fresh_canonical_timestamp,
+    utils::attestation::validate_attestation,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -19,8 +19,8 @@ pub struct SubmitAttestationArgs {
     pub raw_value: Option<Vec<u8>>,
 }
 
-pub fn submit_attestation(
-    ctx: Context<SubmitAttestation>,
+pub fn submit_attestation<'info>(
+    ctx: Context<'info, SubmitAttestation<'info>>,
     args: SubmitAttestationArgs,
 ) -> Result<()> {
     let SubmitAttestationArgs {
@@ -41,36 +41,26 @@ pub fn submit_attestation(
     };
 
     let clock = Clock::get()?;
-    require!(
-        ctx.accounts
-            .registry
-            .load()?
-            .is_active(clock.unix_timestamp),
-        MolphaError::RegistryNotActive
-    );
-    require_fresh_canonical_timestamp(
-        attestation.payload.canonical_timestamp,
+
+    validate_attestation(
+        &ctx.remaining_accounts,
+        &ctx.accounts.registry,
+        &ctx.accounts.protocol_config,
+        &attestation,
         clock.unix_timestamp,
-        ctx.accounts.protocol_config.max_settlement_delay_seconds,
     )?;
-    require!(
-        attestation.payload.signatures_required >= ctx.accounts.protocol_config.min_signers,
-        MolphaError::SignaturesBelowMinSigners
-    );
 
     let feed = &mut ctx.accounts.feed;
     if feed.source_id == [0u8; 32] {
-        feed.init(&attestation, value_kind, ctx.accounts.submitter.key(), ctx.bumps.feed)?;
+        feed.init(
+            &attestation,
+            value_kind,
+            ctx.accounts.submitter.key(),
+            ctx.bumps.feed,
+        )?;
     } else {
         feed.update(&attestation, value_kind)?;
     }
-
-    verify_attestation(
-        &attestation,
-        &ctx.accounts.registry.to_account_info(),
-        ctx.remaining_accounts,
-    )
-    .map_err(map_attestation_accounts_err)?;
 
     emit!(FeedUpdated {
         source_id: feed.source_id,

@@ -18,7 +18,7 @@ import { parsePublicKey, writeJson } from "../lib/utils";
 export function registerRewardsCommands(program: Command): void {
   const rewards = program
     .command("rewards")
-    .description("Inspect and claim finalized rewards");
+    .description("Inspect and claim settlement rewards");
 
   rewards
     .command("balance")
@@ -42,7 +42,7 @@ export function registerRewardsCommands(program: Command): void {
 
   rewards
     .command("claim-node")
-    .description("Claim finalized rewards from the signer's permanent node")
+    .description("Claim settlement rewards from the signer's permanent node")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);

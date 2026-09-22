@@ -1,9 +1,8 @@
-//! Node-deposit and gateway-bond withdrawal lifecycles.
+//! Node-deposit withdrawal lifecycle and vault isolation.
 
 use molpha::error::MolphaError;
-use molpha::events::{GatewayBondWithdrawn, GatewayDeactivated, NodeDepositWithdrawn};
-use molpha::instructions::RegisterGatewayArgs;
-use molpha::state::{Gateway, GatewayStatus, Node, NodeStatus, PlanConfig, PlanType};
+use molpha::events::NodeDepositWithdrawn;
+use molpha::state::{Node, NodeStatus, PlanConfig, PlanType};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{Duty, Protocol};
@@ -144,95 +143,6 @@ fn a_tombstoned_node_withdraws_after_its_cooldown_slot() {
 }
 
 #[test]
-fn a_gateway_exit_waits_for_the_dispute_window_and_keeps_its_identity_account() {
-    let mut p = Protocol::start();
-    let gateway_authority = p.register_gateway(0);
-    let authority = gateway_authority.insecure_clone();
-    let gateway = pda::gateway(&authority.pubkey());
-    let bond_ata = pda::ata(&gateway, &p.usdc_mint);
-    let bond = p.args.gateway_bond_min;
-
-    let active = p.env.send_err(
-        &[p.withdraw_gateway_bond_ix(&authority.pubkey())],
-        &[&authority],
-    );
-    assert_molpha_error(&active, MolphaError::GatewayNotDeactivated);
-
-    let stranger = p.env.keypair();
-    let unauthorized = p.deactivate_gateway_ix(&stranger.pubkey(), &authority.pubkey());
-    let failed = p.env.send_err(&[unauthorized], &[&stranger]);
-    assert_molpha_error(&failed, MolphaError::UnauthorizedGatewayAuthority);
-
-    p.env.advance_seconds(1);
-    let protocol_authority = p.authority.insecure_clone();
-    let deactivate = p.deactivate_gateway_ix(&protocol_authority.pubkey(), &authority.pubkey());
-    let meta = p.env.send_ok(&[deactivate], &[&protocol_authority]);
-    let gateway_state: Gateway = p.env.get(&gateway);
-    assert_eq!(gateway_state.status, GatewayStatus::Deactivated);
-    assert_eq!(
-        gateway_state.withdrawable_slot,
-        p.env.slot() + p.args.dispute_window_slots + 1
-    );
-    assert_eq!(p.env.token_balance(&bond_ata), bond);
-
-    let event: GatewayDeactivated = only_event(&meta);
-    assert_eq!(event.gateway, gateway);
-    assert_eq!(event.authority, authority.pubkey());
-    assert_eq!(event.withdrawable_slot, gateway_state.withdrawable_slot);
-
-    let mut unauthorized_withdraw = p.withdraw_gateway_bond_ix(&authority.pubkey());
-    unauthorized_withdraw.accounts[0].pubkey = stranger.pubkey();
-    let failed = p.env.send_err(&[unauthorized_withdraw], &[&stranger]);
-    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintSeeds);
-
-    let slot_blocked = p.env.send_err(
-        &[p.withdraw_gateway_bond_ix(&authority.pubkey())],
-        &[&authority],
-    );
-    assert_molpha_error(&slot_blocked, MolphaError::GatewayDisputeWindowActive);
-
-    let remaining_slots = gateway_state.withdrawable_slot - p.env.slot();
-    p.env.advance_slots(remaining_slots);
-    let destination = pda::ata(&authority.pubkey(), &p.usdc_mint);
-    let balance_before = p.env.token_balance(&destination);
-    let lamports_before = p.env.lamports(&authority.pubkey());
-    let meta = p.env.send_ok(
-        &[p.withdraw_gateway_bond_ix(&authority.pubkey())],
-        &[&authority],
-    );
-
-    assert_eq!(p.env.token_balance(&destination), balance_before + bond);
-    assert!(p.env.account_exists(&gateway));
-    assert!(!p.env.account_exists(&bond_ata));
-    assert!(p.env.lamports(&authority.pubkey()) > lamports_before);
-
-    let withdrawn: GatewayBondWithdrawn = only_event(&meta);
-    assert_eq!(withdrawn.gateway, gateway);
-    assert_eq!(withdrawn.amount, bond);
-
-    p.fund_usdc(&p.authority.pubkey(), bond);
-    let register = p.register_gateway_ix(
-        &authority.pubkey(),
-        &RegisterGatewayArgs {
-            ip: [203, 0, 113, 9],
-            port: 9_443,
-            bond_amount: bond,
-        },
-    );
-    let protocol_authority = p.authority.insecure_clone();
-    let failed = p.env.send_err(&[register], &[&protocol_authority]);
-    assert!(
-        failed
-            .meta
-            .logs
-            .iter()
-            .any(|line| line.contains("already in use")),
-        "logs:\n{}",
-        failed.meta.logs.join("\n")
-    );
-}
-
-#[test]
 fn deactivating_a_gateway_disables_both_settlement_paths() {
     let mut p = Protocol::start();
     p.register_nodes("withdraw-gateway-settlement", 8);
@@ -308,22 +218,8 @@ fn node_principal_is_never_available_to_pay_rewards() {
     ];
     let gateway_kp = gateway.insecure_clone();
     let subscriber_kp = subscriber.insecure_clone();
-    p.env.send_ok(&ixs, &[&subscriber_kp, &gateway_kp]);
-
-    let record = pda::subscription_round(
-        &subscriber.pubkey(),
-        &pda::gateway(&gateway.pubkey()),
-        &signed.duty.source_id,
-        signed.duty.signatures_required,
-        signed.duty.canonical_timestamp,
-    );
-    let credited = p.node_pdas_for_bitmap(signed.duty.registry_version, &signed.signers_bitmap);
-    p.env.advance_slots(p.args.dispute_window_slots + 1);
-
-    // Crediting is refused outright rather than reaching for the deposits.
-    let caller = p.env.keypair();
-    let ix = p.finalize_round_ix(&caller.pubkey(), &record, &credited);
-    let failed = p.env.send_err(&[ix], &[&caller]);
+    // Immediate settlement is refused outright rather than reaching for the deposits.
+    let failed = p.env.send_err(&ixs, &[&subscriber_kp, &gateway_kp]);
     assert_molpha_error(&failed, MolphaError::TreasuryInsolvent);
 
     // Every deposit is still whole and still withdrawable in full.

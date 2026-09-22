@@ -16,8 +16,6 @@ type UpdateConfigFile = {
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
   maxSettlementDelaySeconds?: string;
-  disputeWindowSlots?: string;
-  gatewayBondMin?: string;
   challengerBountyBps?: number;
   livelinessFreezeThreshold?: number;
   livelinessPenaltyPerMiss?: number;
@@ -33,8 +31,6 @@ type ProtocolConfigAccount = {
   minimumNodeDeposit: { toString(): string };
   rewardPerSignature: { toString(): string };
   maxSettlementDelaySeconds: { toString(): string };
-  disputeWindowSlots: { toString(): string };
-  gatewayBondMin: { toString(): string };
   challengerBountyBps: number;
   livelinessFreezeThreshold: number;
   livelinessPenaltyPerMiss: number;
@@ -58,8 +54,6 @@ export function registerUpdateConfigCommand(admin: Command): void {
       "--max-settlement-delay-seconds <seconds>",
       "max age of canonical_timestamp at settlement ingress",
     )
-    .option("--dispute-window-slots <slots>", "settled round dispute window")
-    .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
     .option(
       "--liveliness-freeze-threshold <score>",
@@ -156,26 +150,6 @@ export function buildUpdateConfigArgs(
         "max settlement delay",
       ),
       "max settlement delay",
-    ),
-    disputeWindowSlots: bn(
-      requireValue(
-        optionOrConfig(
-          options.disputeWindowSlots as string | undefined,
-          config.disputeWindowSlots,
-        ) ?? current.disputeWindowSlots.toString(),
-        "dispute window",
-      ),
-      "dispute window",
-    ),
-    gatewayBondMin: bn(
-      requireValue(
-        optionOrConfig(
-          options.gatewayBondMin as string | undefined,
-          config.gatewayBondMin,
-        ) ?? current.gatewayBondMin.toString(),
-        "gateway bond minimum",
-      ),
-      "gateway bond minimum",
     ),
     challengerBountyBps: Number(
       optionOrConfig(options.challengerBountyBps, config.challengerBountyBps) ??

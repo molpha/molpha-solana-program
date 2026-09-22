@@ -6,8 +6,6 @@ use crate::state::{FeedValueKind, NodeStatus, OffenceKind};
 pub struct ProtocolConfigUpdated {
     pub reward_per_signature: u64,
     pub max_settlement_delay_seconds: u64,
-    pub dispute_window_slots: u64,
-    pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_slots: u64,
@@ -62,7 +60,7 @@ pub struct NodeDeactivated {
 #[event]
 pub struct NodeLivelinessPenalized {
     pub node: Pubkey,
-    pub round_record: Pubkey,
+    pub round_replay: Pubkey,
     pub score: u16,
 }
 
@@ -136,7 +134,6 @@ pub struct GatewayRegistered {
     pub authority: Pubkey,
     pub ip: [u8; 4],
     pub port: u16,
-    pub bond: u64,
     pub registered_at: i64,
 }
 
@@ -144,16 +141,7 @@ pub struct GatewayRegistered {
 pub struct GatewayDeactivated {
     pub gateway: Pubkey,
     pub authority: Pubkey,
-    pub withdrawable_slot: u64,
     pub deactivated_at: i64,
-}
-
-#[event]
-pub struct GatewayBondWithdrawn {
-    pub gateway: Pubkey,
-    pub amount: u64,
-    pub withdrawn_slot: u64,
-    pub withdrawn_at: i64,
 }
 
 #[event]
@@ -197,33 +185,10 @@ pub struct RoundSettled {
     pub gateway: Pubkey,
     pub source_id: [u8; 32],
     pub canonical_timestamp: u64,
-    pub credited_count: u32,
+    pub signers_bitmap: [u8; 32],
     pub reward_per_signature: u64,
     pub recorded_slot: u64,
     pub recorded_at: i64,
-}
-
-#[event]
-pub struct RoundFinalized {
-    pub round_record: Pubkey,
-    pub finalized_slot: u64,
-    pub finalized_at: i64,
-}
-
-#[event]
-pub struct RoundVoided {
-    pub round_record: Pubkey,
-    pub gateway: Pubkey,
-    pub round_restored: bool,
-    pub voided_at: i64,
-}
-
-#[event]
-pub struct GatewaySlashed {
-    pub gateway: Pubkey,
-    pub slashed_bond: u64,
-    pub challenger_bounty: u64,
-    pub slashed_at: i64,
 }
 
 #[event]
@@ -242,7 +207,6 @@ pub struct X402RoundSettled {
     pub canonical_timestamp: u64,
     pub gateway: Pubkey,
     pub signers_bitmap: [u8; 32],
-    pub credited_count: u32,
     pub recorded_slot: u64,
     pub recorded_at: i64,
 }

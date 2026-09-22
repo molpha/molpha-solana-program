@@ -73,7 +73,10 @@ fn inactivity_freezes_without_slashing_and_records_a_unique_case() {
         version.node_count,
         p.env.registry(p.current_version()).node_count
     );
-    assert!(matches!(version.reason, RegistryVersionReason::NodePunished));
+    assert!(matches!(
+        version.reason,
+        RegistryVersionReason::NodePunished
+    ));
     let punished = events::<NodePunished>(&meta);
     assert_eq!(punished.len(), 1);
     assert_eq!(punished[0].node, node_pda);

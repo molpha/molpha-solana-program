@@ -1,13 +1,10 @@
-//! `settle_subscription_round`: consumer authorization, quotas, and the round record.
+//! `settle_subscription_round`: consumer authorization, quotas, rewards, and replay protection.
 
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::solana_program::instruction::Instruction;
 use molpha::error::MolphaError;
 use molpha::events::RoundSettled;
-use molpha::state::{
-    Delegate, PlanConfig, PlanType, RoundReceiptRecord, RoundRecordKind, RoundRecordStatus,
-    Subscription,
-};
+use molpha::state::{Delegate, Node, PlanConfig, PlanType, Subscription};
 use molpha_tests::env::{
     assert_anchor_error, assert_molpha_error, only_event, set_compute_unit_price,
 };
@@ -20,7 +17,7 @@ const NODE_COUNT: usize = 8;
 const PLAN_MAX_SIGNERS: u8 = 6;
 const PLAN_MAX_ROUNDS: u64 = 3;
 
-/// A protocol with nodes, a bonded gateway and one subscriber.
+/// A protocol with nodes, a registered gateway and one subscriber.
 struct Fixture {
     p: Protocol,
     gateway: Keypair,
@@ -97,36 +94,29 @@ fn owner_direct_settlement_records_the_round_and_consumes_quota() {
     let gateway = f.gateway.insecure_clone();
     let meta = f.p.env.send_ok(&ixs, &[&owner, &gateway]);
 
-    let record: RoundReceiptRecord = f.p.env.get(&round_record(&f, &duty));
-    assert_eq!(record.status, RoundRecordStatus::Pending);
-    assert_eq!(record.kind, RoundRecordKind::Subscription);
-    assert_eq!(record.gateway, pda::gateway(&gateway.pubkey()));
-    assert_eq!(record.registry_version, duty.registry_version);
-    assert_eq!(record.signers_bitmap, signed.signers_bitmap);
-    assert_eq!(record.agg_sig_s, signed.signature.agg_sig_s);
-    assert_eq!(record.commitment, signed.signature.commitment);
-    assert_eq!(record.attestation_message_hash, signed.message_hash);
-    assert_eq!(record.reward_per_signature, f.p.args.reward_per_signature);
-    assert_eq!(record.recorded_slot, f.p.env.slot());
+    assert!(f.p.env.account_exists(&round_record(&f, &duty)));
+    for node in &signed.signer_pdas {
+        assert_eq!(
+            f.p.env.get::<Node>(node).claimable_rewards,
+            f.p.args.reward_per_signature
+        );
+    }
 
     let subscription: Subscription = f.p.env.get(&pda::subscription(&owner.pubkey()));
     assert_eq!(subscription.used_rounds, 1);
 
-    // Settlement is pure accounting; nothing moves until `finalize_round`.
+    // Subscription revenue was prepaid, so settlement only records reward liability.
     assert_eq!(f.p.treasury_balance(), treasury_before);
+    assert_eq!(
+        f.p.reward_liability(),
+        f.p.args.reward_per_signature * signed.signer_pdas.len() as u64
+    );
 
     let event: RoundSettled = only_event(&meta);
     assert_eq!(event.gateway, pda::gateway(&gateway.pubkey()));
     assert_eq!(event.source_id, duty.source_id);
     assert_eq!(event.canonical_timestamp, duty.canonical_timestamp);
-    assert_eq!(
-        event.credited_count,
-        signed
-            .signers_bitmap
-            .iter()
-            .map(|b| b.count_ones())
-            .sum::<u32>()
-    );
+    assert_eq!(event.signers_bitmap, signed.signers_bitmap);
 }
 
 #[test]

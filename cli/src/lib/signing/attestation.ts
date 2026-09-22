@@ -77,8 +77,8 @@ export type SignedAttestation = {
 };
 
 /**
- * Build the Anchor `Attestation` arg. Omitted signature parts are zeroed (optimistic settlement
- * does not verify Schnorr).
+ * Build the Anchor `Attestation` arg. Omitted signature parts are zeroed for callers that only
+ * need to construct or serialize a payload; on-chain verification rejects them.
  */
 export function buildAttestation(
   fields: {
@@ -561,6 +561,53 @@ export function signerRemainingAccounts(
     });
   }
   return remaining;
+}
+
+/** Node accounts required by immediate settlement: verified signers first, then selected misses. */
+export function settlementRemainingAccounts(
+  registry: {
+    version: number;
+    nodeCount: number;
+    redundancyBuffer: number;
+    nodes: Array<number[] | Uint8Array>;
+  },
+  payload: {
+    sourceId: number[] | Uint8Array;
+    registryVersion: number;
+    signaturesRequired: number;
+    canonicalTimestamp: number | BN;
+  },
+  signersBitmap: number[] | Uint8Array,
+) {
+  const selection = deriveSignersBitmap(
+    Uint8Array.from(payload.sourceId),
+    payload.registryVersion,
+    Number(registry.nodeCount),
+    payload.signaturesRequired,
+    Number(registry.redundancyBuffer),
+    Number(payload.canonicalTimestamp.toString()),
+  );
+  const signerBits: number[] = [];
+  const missedBits: number[] = [];
+  for (let bit = 0; bit < Number(registry.nodeCount); bit += 1) {
+    const signed = evmBitmapBitSet(signersBitmap, bit);
+    const selected = evmBitmapBitSet(selection, bit);
+    if (signed && !selected) {
+      throw new Error(`signer bit ${bit} is outside the derived selection`);
+    }
+    if (signed) signerBits.push(bit);
+    else if (selected) missedBits.push(bit);
+  }
+  for (let bit = Number(registry.nodeCount); bit < 256; bit += 1) {
+    if (evmBitmapBitSet(signersBitmap, bit)) {
+      throw new Error(`signer bit ${bit} is outside the registry`);
+    }
+  }
+  return [...signerBits, ...missedBits].map((bit) => ({
+    pubkey: new PublicKey(Uint8Array.from(registry.nodes[bit])),
+    isSigner: false,
+    isWritable: true,
+  }));
 }
 
 export function signerMaterialFromFixture(

@@ -18,8 +18,6 @@ fn tuned_update_args() -> UpdateConfigArgs {
         minimum_node_deposit: 250_000_000,
         reward_per_signature: 11,
         max_settlement_delay_seconds: 512,
-        dispute_window_slots: 4_096,
-        gateway_bond_min: 900_000_000,
         challenger_bounty_bps: 1_250,
         liveliness_freeze_threshold: 4_000,
         liveliness_penalty_per_miss: 700,
@@ -44,8 +42,6 @@ fn initialize_writes_config_registry_state_and_genesis_snapshot() {
         config.max_settlement_delay_seconds,
         args.max_settlement_delay_seconds
     );
-    assert_eq!(config.dispute_window_slots, args.dispute_window_slots);
-    assert_eq!(config.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(config.challenger_bounty_bps, args.challenger_bounty_bps);
     assert_eq!(
         config.liveliness_penalty_per_miss,
@@ -199,8 +195,6 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
         after.max_settlement_delay_seconds,
         args.max_settlement_delay_seconds
     );
-    assert_eq!(after.dispute_window_slots, args.dispute_window_slots);
-    assert_eq!(after.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(after.challenger_bounty_bps, args.challenger_bounty_bps);
     assert_eq!(
         after.liveliness_penalty_per_miss,
@@ -421,18 +415,11 @@ rejects_config!(
     InvalidLivelinessFreezeThreshold
 );
 rejects_config!(
-    zero_dispute_window,
-    dispute_window_slots,
-    0,
-    InvalidDisputeWindow
-);
-rejects_config!(
     zero_deposit,
     minimum_node_deposit,
     0,
     InvalidMinimumNodeDeposit
 );
-rejects_config!(zero_bond, gateway_bond_min, 0, InvalidGatewayBond);
 rejects_config!(
     unrepresentable_delay,
     max_settlement_delay_seconds,
@@ -450,12 +437,6 @@ rejects_config!(
     withdrawal_cooldown_slots,
     u64::MAX,
     InvalidWithdrawalCooldown
-);
-rejects_config!(
-    overflowing_dispute_window,
-    dispute_window_slots,
-    u64::MAX,
-    InvalidDisputeWindow
 );
 rejects_config!(
     overflowing_rewards,

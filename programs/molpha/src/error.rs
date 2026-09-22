@@ -86,24 +86,12 @@ pub enum MolphaError {
     ConsumerSigInvalid,
     #[msg("popcount(signers_bitmap) < signatures_required")]
     QuorumBelowThreshold,
-    #[msg("gateway is slashed")]
-    GatewaySlashed,
-    #[msg("gateway is not deactivated")]
-    GatewayNotDeactivated,
     #[msg("gateway is not active")]
     GatewayNotActive,
     #[msg("caller is not gateway.authority or protocol_config.authority")]
     UnauthorizedGatewayAuthority,
     #[msg("subscription inactive or round quota exhausted")]
     SubscriptionInactiveOrExhausted,
-    #[msg("gateway_index does not match the bonded gateway")]
-    GatewayIndexMismatch,
-    #[msg("bond amount below gateway_bond_min")]
-    InsufficientBond,
-    #[msg("round still inside dispute window; cannot finalize")]
-    RoundNotFinalizable,
-    #[msg("round is not pending")]
-    RoundNotPending,
     #[msg("no claimable rewards")]
     NothingToClaim,
     #[msg("account is not in a state that permits withdrawal")]
@@ -112,8 +100,6 @@ pub enum MolphaError {
     NothingToWithdraw,
     #[msg("withdrawal cooldown has not elapsed")]
     WithdrawalCooldownActive,
-    #[msg("gateway bond is still inside its dispute window")]
-    GatewayDisputeWindowActive,
     #[msg("withdrawal deadline arithmetic overflow")]
     WithdrawalArithmeticOverflow,
     #[msg("withdrawal cooldown must be positive and fit a slot deadline")]
@@ -139,8 +125,6 @@ pub enum MolphaError {
         "raw value exceeds Feed::MAX_VALUE_LEN or does not match the hash of the attestation value"
     )]
     InvalidRawValue,
-    #[msg("dispute refund/restore subscription does not match the round")]
-    WrongSubscriptionAccount,
 
     #[msg("equivocation requires two attestations for one duty with different values")]
     EquivocationSameStatement,
@@ -200,12 +184,8 @@ pub enum MolphaError {
     InvalidPartialSignature,
     #[msg("committed nonce is not a valid secp256k1 point")]
     InvalidNoncePoint,
-    #[msg("dispute window must be positive and fit a slot deadline")]
-    InvalidDisputeWindow,
     #[msg("minimum node deposit must be positive")]
     InvalidMinimumNodeDeposit,
-    #[msg("minimum gateway bond must be positive")]
-    InvalidGatewayBond,
     #[msg("liveliness freeze threshold must be between 1 and 10000")]
     InvalidLivelinessFreezeThreshold,
     #[msg("liveliness penalty per miss must be between 1 and 10000")]

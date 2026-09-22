@@ -32,7 +32,13 @@ impl Feed {
     pub const MAX_VALUE_LEN: usize = 256;
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
-    pub fn init(&mut self, attestation: &Attestation, kind: FeedValueKind, submitter: Pubkey, bump: u8) -> Result<()> {
+    pub fn init(
+        &mut self,
+        attestation: &Attestation,
+        kind: FeedValueKind,
+        submitter: Pubkey,
+        bump: u8,
+    ) -> Result<()> {
         require!(
             attestation.payload.source_id != [0u8; 32],
             MolphaError::InvalidSourceId

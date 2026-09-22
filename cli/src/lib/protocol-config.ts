@@ -5,8 +5,6 @@ type ProtocolConfigArgs = {
   minimumNodeDeposit: BN;
   rewardPerSignature: BN;
   maxSettlementDelaySeconds: BN;
-  disputeWindowSlots: BN;
-  gatewayBondMin: BN;
   challengerBountyBps: number;
   livelinessFreezeThreshold: number;
   livelinessPenaltyPerMiss: number;
@@ -26,8 +24,6 @@ export function validateProtocolConfig(args: ProtocolConfigArgs): void {
     "minimumNodeDeposit",
     "rewardPerSignature",
     "maxSettlementDelaySeconds",
-    "disputeWindowSlots",
-    "gatewayBondMin",
     "x402RoundBase",
   ] as const) {
     const value = args[field];

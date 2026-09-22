@@ -1,40 +1,29 @@
+use anchor_lang::prelude::*;
+use anchor_spl::token::TokenAccount;
+
+use molpha_verifier::{
+    bitmap::{for_each_set_bit, Bitmap},
+    selection::derive_selection_bitmap,
+    Attestation,
+};
+
 use crate::{
     error::{map_attestation_err, MolphaError},
-    state::{ProtocolConfig, Registry},
-    utils::require_fresh_canonical_timestamp,
+    events::NodeLivelinessPenalized,
+    state::{Node, ProtocolConfig, Registry},
 };
-use anchor_lang::prelude::*;
-use molpha_verifier::Attestation;
-use molpha_verifier::{bitmap::Bitmap, selection::derive_selection_bitmap};
 
-pub struct ValidatedSettlementAttestation {
-    pub credited_count: u32,
-    pub selection_bitmap: [u8; 32],
-    pub attestation_message_hash: [u8; 32],
-}
-
-/// Shared optimistic attestation shape checks for subscription and x402 settlement.
-pub fn validate_settlement_attestation(
-    registry: &Registry,
-    config: &ProtocolConfig,
+pub(crate) fn credit_round_rewards<'info>(
+    registry_acc: &AccountLoader<'info, Registry>,
+    config: &mut Account<'info, ProtocolConfig>,
+    treasury: &Account<'info, TokenAccount>,
+    remaining_accounts: &'info [AccountInfo<'info>],
     attestation: &Attestation,
-    now: i64,
-) -> Result<ValidatedSettlementAttestation> {
-    require!(registry.is_active(now), MolphaError::RegistryNotActive);
+    round_replay: Pubkey,
+) -> Result<()> {
+    let registry = registry_acc.load()?;
 
-    require!(
-        attestation.payload.signatures_required >= config.min_signers,
-        MolphaError::SignaturesBelowMinSigners
-    );
-
-    require_fresh_canonical_timestamp(
-        attestation.payload.canonical_timestamp,
-        now,
-        config.max_settlement_delay_seconds,
-    )?;
-
-    // Derived once: it bounds the signers here and is persisted whole (not just the credited
-    // subset) for missed-node finalization.
+    // Derive the complete selection so this instruction can update both signers and misses.
     let selection = derive_selection_bitmap(
         &attestation.payload.source_id,
         attestation.payload.canonical_timestamp,
@@ -43,28 +32,67 @@ pub fn validate_settlement_attestation(
     )
     .map_err(map_attestation_err)?;
 
+    require!(
+        remaining_accounts.len() == selection.popcount() as usize,
+        MolphaError::InvalidMissedNodeAccount
+    );
+
     let signers = Bitmap::load(&attestation.signature.signers_bitmap);
     require!(
         signers.is_subset(&selection),
         MolphaError::SignersNotSubsetOfSelection
     );
 
-    let credited_count = signers.popcount();
+    let signer_count = signers.popcount();
+    config.record_reward_liability(signer_count)?;
     require!(
-        credited_count >= u32::from(attestation.payload.signatures_required),
-        MolphaError::QuorumBelowThreshold
+        treasury.amount >= config.reward_liability,
+        MolphaError::TreasuryInsolvent
     );
 
-    require!(
-        credited_count
-            <= u32::from(attestation.payload.signatures_required)
-                + u32::from(registry.redundancy_buffer),
-        MolphaError::CreditedExceedsSelection
-    );
+    let mut cursor = 0usize;
+    for_each_set_bit(signers, |bit_pos| {
+        let node_ai = &remaining_accounts[cursor];
+        cursor += 1;
 
-    Ok(ValidatedSettlementAttestation {
-        credited_count,
-        selection_bitmap: selection.to_bytes(),
-        attestation_message_hash: attestation.message_hash(),
-    })
+        let mut node: Account<Node> = Account::try_from(node_ai)?;
+        require_keys_eq!(
+            node_ai.key(),
+            registry.node(bit_pos)?,
+            MolphaError::InvalidCreditNodeAccount
+        );
+
+        node.record_round_settlement(config)?;
+        node.exit(&Node::owner())?;
+
+        Ok(())
+    })?;
+
+    let missed = selection.subtract(&signers);
+
+    for_each_set_bit(missed, |bit_pos| {
+        let node_ai = &remaining_accounts[cursor];
+        cursor += 1;
+
+        require_keys_eq!(
+            node_ai.key(),
+            registry.node(bit_pos)?,
+            MolphaError::InvalidMissedNodeAccount
+        );
+        let mut node: Account<Node> = Account::try_from(node_ai)?;
+
+        node.liveliness_score = node
+            .liveliness_score
+            .saturating_sub(config.liveliness_penalty_per_miss);
+        emit!(NodeLivelinessPenalized {
+            node: node.key(),
+            round_replay,
+            score: node.liveliness_score,
+        });
+        node.exit(&Node::owner())?;
+
+        Ok(())
+    })?;
+
+    Ok(())
 }

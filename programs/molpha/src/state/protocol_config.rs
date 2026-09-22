@@ -12,8 +12,6 @@ pub struct ProtocolConfig {
     /// Max age in seconds of `canonical_timestamp` relative to cluster time at
     /// attestation/settlement ingress. Bounds the offline selection-grind space.
     pub max_settlement_delay_seconds: u64,
-    pub dispute_window_slots: u64,
-    pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_slots: u64,
@@ -56,15 +54,9 @@ impl ProtocolConfig {
             MolphaError::InvalidWithdrawalCooldown
         );
         require!(
-            self.dispute_window_slots > 0
-                && now.slot.checked_add(self.dispute_window_slots).is_some(),
-            MolphaError::InvalidDisputeWindow
-        );
-        require!(
             self.minimum_node_deposit > 0,
             MolphaError::InvalidMinimumNodeDeposit
         );
-        require!(self.gateway_bond_min > 0, MolphaError::InvalidGatewayBond);
         require!(
             self.min_signers >= MIN_SIGNERS_FLOOR,
             MolphaError::InvalidMinSigners
@@ -100,6 +92,19 @@ impl ProtocolConfig {
         let now = Clock::get().unwrap().unix_timestamp;
         now.checked_add(self.max_settlement_delay_seconds as i64)
             .unwrap()
+    }
+
+    pub fn record_reward_liability(&mut self, signer_count: u32) -> Result<()> {
+        let total = self
+            .reward_per_signature
+            .checked_mul(u64::from(signer_count))
+            .ok_or(MolphaError::TreasuryInsolvent)?;
+        self.reward_liability = self
+            .reward_liability
+            .checked_add(total)
+            .ok_or(MolphaError::TreasuryInsolvent)?;
+
+        Ok(())
     }
 
     pub fn seeds(&self) -> [&[u8]; 2] {

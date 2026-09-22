@@ -28,8 +28,6 @@ type InitConfig = {
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
   maxSettlementDelaySeconds?: string;
-  disputeWindowSlots?: string;
-  gatewayBondMin?: string;
   challengerBountyBps?: number;
   livelinessFreezeThreshold?: number;
   livelinessPenaltyPerMiss?: number;
@@ -58,8 +56,6 @@ export function registerInitCommand(program: Command): void {
       "--max-settlement-delay-seconds <seconds>",
       "max age of canonical_timestamp at settlement ingress",
     )
-    .option("--dispute-window-slots <slots>", "settled round dispute window")
-    .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
     .option(
       "--liveliness-freeze-threshold <score>",
@@ -132,23 +128,6 @@ export function registerInitCommand(program: Command): void {
             "Missing --max-settlement-delay-seconds",
           ),
           "max settlement delay",
-        ),
-        disputeWindowSlots: bn(
-          requireValue(
-            optionOrConfig(
-              options.disputeWindowSlots,
-              config.disputeWindowSlots,
-            ),
-            "Missing --dispute-window-slots",
-          ),
-          "dispute window",
-        ),
-        gatewayBondMin: bn(
-          requireValue(
-            optionOrConfig(options.gatewayBondMin, config.gatewayBondMin),
-            "Missing --gateway-bond-min",
-          ),
-          "gateway bond minimum",
         ),
         challengerBountyBps: Number(
           requireValue(

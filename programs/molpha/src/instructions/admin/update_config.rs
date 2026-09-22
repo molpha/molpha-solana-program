@@ -8,8 +8,6 @@ pub struct UpdateConfigArgs {
     pub minimum_node_deposit: u64,
     pub reward_per_signature: u64,
     pub max_settlement_delay_seconds: u64,
-    pub dispute_window_slots: u64,
-    pub gateway_bond_min: u64,
     pub challenger_bounty_bps: u16,
     pub liveliness_freeze_threshold: u16,
     pub liveliness_penalty_per_miss: u16,
@@ -22,8 +20,6 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
     let protocol_config = &mut ctx.accounts.protocol_config;
     protocol_config.reward_per_signature = args.reward_per_signature;
     protocol_config.max_settlement_delay_seconds = args.max_settlement_delay_seconds;
-    protocol_config.dispute_window_slots = args.dispute_window_slots;
-    protocol_config.gateway_bond_min = args.gateway_bond_min;
     protocol_config.challenger_bounty_bps = args.challenger_bounty_bps;
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_slots = args.withdrawal_cooldown_slots;
@@ -37,8 +33,6 @@ pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Resu
     emit!(ProtocolConfigUpdated {
         reward_per_signature: args.reward_per_signature,
         max_settlement_delay_seconds: args.max_settlement_delay_seconds,
-        dispute_window_slots: args.dispute_window_slots,
-        gateway_bond_min: args.gateway_bond_min,
         challenger_bounty_bps: args.challenger_bounty_bps,
         minimum_node_deposit: args.minimum_node_deposit,
         withdrawal_cooldown_slots: args.withdrawal_cooldown_slots,

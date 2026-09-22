@@ -16,11 +16,11 @@ use molpha_verifier::payload::{Attestation, AttestationPayload, SchnorrSignature
 ///
 /// Pinned because the CLI, gateway and SDK all build this instruction off-chain: any field
 /// added, removed or retyped here is a breaking wire change and should be a deliberate one.
-const INITIALIZE_IX_DATA_LEN: usize = 106;
+const INITIALIZE_IX_DATA_LEN: usize = 90;
 
 /// Borsh encoding of `UpdateConfigArgs`, plus the 8-byte Anchor discriminator.
 /// Pinned for the same reason as `INITIALIZE_IX_DATA_LEN`: off-chain clients encode this.
-const UPDATE_CONFIG_IX_DATA_LEN: usize = 73;
+const UPDATE_CONFIG_IX_DATA_LEN: usize = 57;
 
 /// Borsh encoding of `SubmitAttestationArgs` without a raw value: the 161-byte attestation plus
 /// the `None` tag. A change to it is a breaking change for every off-chain submitter.
@@ -33,8 +33,6 @@ fn initialize_args() -> InitializeArgs {
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
         max_settlement_delay_seconds: 256,
-        dispute_window_slots: 1024,
-        gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
         liveliness_freeze_threshold: 5_000,
         liveliness_penalty_per_miss: 500,
@@ -63,8 +61,6 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
         decoded.max_settlement_delay_seconds,
         args.max_settlement_delay_seconds
     );
-    assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
-    assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
     assert_eq!(
         decoded.liveliness_penalty_per_miss,
@@ -89,8 +85,6 @@ fn update_config_args() -> UpdateConfigArgs {
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
         max_settlement_delay_seconds: 256,
-        dispute_window_slots: 1024,
-        gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
         liveliness_freeze_threshold: 5_000,
         liveliness_penalty_per_miss: 500,
@@ -117,8 +111,6 @@ fn update_config_instruction_data_is_stable_and_round_trips() {
         decoded.max_settlement_delay_seconds,
         args.max_settlement_delay_seconds
     );
-    assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
-    assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
     assert_eq!(
         decoded.liveliness_penalty_per_miss,
