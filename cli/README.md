@@ -40,13 +40,13 @@ yarn molpha:dev --help
 | `plan` | `add` \| `update` \| `show` |
 | `subscription` | `subscribe` \| `extend` |
 | `delegate` | `add` \| `remove` \| `pause` |
-| `gateway` | `register` \| `deactivate` \| `withdrawal-status` \| `withdraw-bond` |
-| `round` | `settle-subscription` \| `settle-x402` \| `finalize` \| `dispute` |
+| `gateway` | `register` \| `deactivate` |
+| `round` | `settle-subscription` \| `settle-x402` |
 | `rewards` | `claim-node` |
 | `attestation` | `sign` \| `submit` |
 | `slash` | `inactivity` \| `offence` |
 | `admin` | `update-config` |
-| `account` | `protocol-config` \| `registry` \| `registry-version` \| `node` \| `plan` \| `subscription` \| `feed` \| `delegate` \| `gateway` \| `round` \| `secp-key` \| `punishment-case` |
+| `account` | `protocol-config` \| `registry` \| `registry-version` \| `node` \| `plan` \| `subscription` \| `feed` \| `delegate` \| `gateway` \| `round-replay` \| `secp-key` \| `punishment-case` |
 
 ## Example Flow
 
@@ -54,21 +54,15 @@ Initialize protocol state:
 
 ```bash
 yarn molpha init \
-  --withdrawal-cooldown-secs 1 \
-  --max-node-count 8 \
+  --withdrawal-cooldown-slots 432000 \
   --redundancy-buffer 2 \
   --minimum-node-deposit 1000000 \
   --reward-per-signature 10 \
-  --gateway-fee 20 \
-  --receipt-submitter-bonus 5 \
-  --protocol-fee-bps 100 \
   --max-settlement-delay-seconds 256 \
-  --protocol-fee 0 \
-  --dispute-window-slots 256 \
-  --gateway-bond-min 500000000 \
   --challenger-bounty-bps 500 \
+  --liveliness-freeze-threshold 5000 \
   --x402-round-base 1000 \
-  --x402-round-per-sig 15 \
+  --min-signers 3 \
   --usdc-mint <MINT>
 ```
 
@@ -122,37 +116,33 @@ Inspect accounts:
 ```bash
 yarn molpha account feed --source-id <SOURCE_ID_HEX> --signatures-required 1
 yarn molpha account gateway --authority <GATEWAY_AUTHORITY>
-yarn molpha account round --address <ROUND_RECORD>
+yarn molpha account round-replay --address <ROUND_REPLAY_MARKER>
 ```
 
 Update protocol config (authority only; omitted fields keep current on-chain values):
 
 ```bash
-yarn molpha admin update-config --gateway-bond-min 1000000000
+yarn molpha admin update-config --liveliness-penalty-per-miss 750 --liveliness-recovery-per-sign 200
 ```
 
 Gateway + settlement:
 
 ```bash
-yarn molpha gateway register --bond-amount 500000000 --ip 10.0.0.1 --port 8080
+yarn molpha gateway register --gateway-authority <GATEWAY_AUTHORITY> --ip 10.0.0.1 --port 8080
 
 yarn molpha round settle-subscription \
   --source-id <SOURCE_ID_HEX> \
   --timestamp 1700000123 \
-  --signatures-required 1 \
+  --signatures-required 3 \
   --registry-version 1 \
   --gateway-authority <GATEWAY_AUTHORITY> \
-  --credited-bits 0 \
+  --agg-sig ./signature.json \
   --consumer-wallet <CONSUMER_KEYPAIR>
-
-yarn molpha round finalize \
-  --round-record <ROUND_RECORD> \
-  --gateway-authority <GATEWAY_AUTHORITY>
 
 yarn molpha rewards claim-node
 ```
 
-Node deposits and gateway bonds have separate exit paths:
+Node deposits retain their cooldown exit path:
 
 ```bash
 # Run after registry deactivate and the node's cooldown.
@@ -170,19 +160,12 @@ yarn molpha account punishment-case --evidence-hash <32_BYTE_HEX>
 # Restore a frozen node after its freeze window (anyone), or earlier as protocol authority.
 yarn molpha registry reinstate --node-owner <NODE_OWNER>
 
-# Protocol authority: deactivate the target gateway and start its slot deadline.
+# Protocol authority: deactivate the target gateway immediately.
 yarn molpha gateway deactivate --gateway-authority <GATEWAY_AUTHORITY>
-yarn molpha gateway withdrawal-status --gateway-authority <GATEWAY_AUTHORITY>
-
-# Gateway authority: withdraw after the reported slot deadline.
-yarn molpha gateway withdraw-bond --gateway-wallet <GATEWAY_KEYPAIR_PATH>
 ```
 
-Deactivation writes `deactivated_at` and `withdrawable_slot` directly into the Gateway account.
-Settlement stops immediately, while the bond remains slashable through
-`deactivation_slot + dispute_window_slots`. Withdrawal opens at the first slot strictly beyond
-that boundary. A successful dispute blocks withdrawal. A clean withdrawal closes only the bond
-ATA; the deactivated Gateway account remains, so the same authority cannot register again.
+Deactivation stops both settlement paths immediately. Gateway registration no longer transfers or
+tracks a bond.
 
 A gateway-funded x402 round (any payment rail; the gateway pays from its canonical USDC ATA and
 records how it was paid as attested metadata — see the program docs for `settle_x402_round`):
@@ -191,22 +174,21 @@ records how it was paid as attested metadata — see the program docs for `settl
 yarn molpha round settle-x402 \
   --source-id <SOURCE_ID_HEX> \
   --canonical-timestamp 1700000123 \
-  --signatures-required 1 \
+  --signatures-required 3 \
   --registry-version 1 \
   --amount <PRICE> \
   --payer-id <32_BYTE_HEX> \
   --payment-rail 1 \
   --gateway-wallet <GATEWAY_KEYPAIR> \
-  --credited-bits 0
+  --agg-sig ./signature.json
 ```
 
 ## Notes
 
 - Seeds match the current program: `molpha_config`, `molpha_registry`, `molpha_feed`,
   `molpha_gateway`, `molpha_round`, `molpha_x402_round`, etc.
-- Feed PDA is `[molpha_feed, source_id, signatures_required, submitter]`. Round PDAs
-  also include `source_id` and `signatures_required` (not a derived `feed_id` or
-  `api_config_hash`). `--submitter` defaults to the wallet.
+- Feed PDA is `[molpha_feed, source_id, signatures_required, submitter]`. Settlement creates a
+  minimal consumer-scoped round replay marker; it stores no attestation or pending state.
 - There is no `Job` account or `create_job` instruction. Feeds are created via
   `init_if_needed` inside `submit_attestation`. `source_id` is a caller-provided
   32-byte identifier.
@@ -218,3 +200,21 @@ yarn molpha round settle-x402 \
   `--consumer-wallet` so the CLI can sign the auth message. The message is bound to the program id
   and to the `--gateway-authority` gateway PDA, so it is only redeemable by that gateway. `round settle-x402` has no
   on-chain payer authentication — the gateway self-attests and pays from its own float.
+
+Protocol initialization accepts `--liveliness-penalty-per-miss` (default 500) and
+`--liveliness-recovery-per-sign` (default 100). JSON config uses
+`livelinessPenaltyPerMiss` and `livelinessRecoveryPerSign`. Updates preserve omitted values.
+These settings take effect during settlement.
+
+Both admin instructions require positive withdrawal cooldown, settlement delay, and node deposit.
+Liveliness threshold, penalty, and recovery must
+be 1–10,000; challenger bounty is 0–10,000; minimum signers is 3–255; initialization
+redundancy is 1–8. Zero reward and base price are allowed. Slot/timestamp deadlines and
+the base price plus rewards for 256 signers must not overflow. The CLI checks static
+bounds before sending; the program also checks deadlines against its current clock.
+
+The removed config fields change the account layout and instruction encoding. Rebuild the
+program and IDL before using this CLI; existing config accounts require migration or
+reinitialization in a fresh deployment.
+
+Run the CLI config tests with `yarn test:cli`.

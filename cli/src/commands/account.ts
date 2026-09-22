@@ -212,11 +212,11 @@ export function registerAccountCommands(program: Command): void {
     });
 
   account
-    .command("round")
-    .description("Fetch round receipt record by address")
-    .requiredOption("--address <pubkey>", "round receipt record address")
+    .command("round-replay")
+    .description("Fetch a round replay marker by address")
+    .requiredOption("--address <pubkey>", "round replay marker address")
     .action(async (options, command: Command) => {
-      await printNamedAccount(command, "roundReceiptRecord", options.address);
+      await printNamedAccount(command, "roundReplayMarker", options.address);
     });
 
   account

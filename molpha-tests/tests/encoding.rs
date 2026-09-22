@@ -16,11 +16,11 @@ use molpha_verifier::payload::{Attestation, AttestationPayload, SchnorrSignature
 ///
 /// Pinned because the CLI, gateway and SDK all build this instruction off-chain: any field
 /// added, removed or retyped here is a breaking wire change and should be a deliberate one.
-const INITIALIZE_IX_DATA_LEN: usize = 102;
+const INITIALIZE_IX_DATA_LEN: usize = 90;
 
 /// Borsh encoding of `UpdateConfigArgs`, plus the 8-byte Anchor discriminator.
 /// Pinned for the same reason as `INITIALIZE_IX_DATA_LEN`: off-chain clients encode this.
-const UPDATE_CONFIG_IX_DATA_LEN: usize = 69;
+const UPDATE_CONFIG_IX_DATA_LEN: usize = 57;
 
 /// Borsh encoding of `SubmitAttestationArgs` without a raw value: the 161-byte attestation plus
 /// the `None` tag. A change to it is a breaking change for every off-chain submitter.
@@ -33,10 +33,10 @@ fn initialize_args() -> InitializeArgs {
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
         max_settlement_delay_seconds: 256,
-        dispute_window_slots: 1024,
-        gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
         liveliness_freeze_threshold: 5_000,
+        liveliness_penalty_per_miss: 500,
+        liveliness_recovery_per_sign: 100,
         usdc_mint: Pubkey::new_from_array([7; 32]),
         x402_round_base: 1_000,
         min_signers: 3,
@@ -61,9 +61,15 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
         decoded.max_settlement_delay_seconds,
         args.max_settlement_delay_seconds
     );
-    assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
-    assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
+    assert_eq!(
+        decoded.liveliness_penalty_per_miss,
+        args.liveliness_penalty_per_miss
+    );
+    assert_eq!(
+        decoded.liveliness_recovery_per_sign,
+        args.liveliness_recovery_per_sign
+    );
     assert_eq!(
         decoded.liveliness_freeze_threshold,
         args.liveliness_freeze_threshold
@@ -79,10 +85,10 @@ fn update_config_args() -> UpdateConfigArgs {
         minimum_node_deposit: 100_000_000,
         reward_per_signature: 10,
         max_settlement_delay_seconds: 256,
-        dispute_window_slots: 1024,
-        gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
         liveliness_freeze_threshold: 5_000,
+        liveliness_penalty_per_miss: 500,
+        liveliness_recovery_per_sign: 100,
         x402_round_base: 1_000,
         min_signers: 3,
     }
@@ -105,9 +111,15 @@ fn update_config_instruction_data_is_stable_and_round_trips() {
         decoded.max_settlement_delay_seconds,
         args.max_settlement_delay_seconds
     );
-    assert_eq!(decoded.dispute_window_slots, args.dispute_window_slots);
-    assert_eq!(decoded.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(decoded.challenger_bounty_bps, args.challenger_bounty_bps);
+    assert_eq!(
+        decoded.liveliness_penalty_per_miss,
+        args.liveliness_penalty_per_miss
+    );
+    assert_eq!(
+        decoded.liveliness_recovery_per_sign,
+        args.liveliness_recovery_per_sign
+    );
     assert_eq!(
         decoded.liveliness_freeze_threshold,
         args.liveliness_freeze_threshold
@@ -191,7 +203,7 @@ fn permanent_node_roundtrips() {
 /// Off-chain readers decode `Feed` directly; `value` is a fixed 32-byte slot in either kind.
 #[test]
 fn feed_layout_is_pinned() {
-    assert_eq!(Feed::INIT_SPACE, 32 + 32 + 1 + 8 + 1 + 32 + 4 + 1);
+    assert_eq!(Feed::INIT_SPACE, 32 + 32 + 1 + 8 + 32 + 1 + 32 + 4 + 1);
     assert_eq!(borsh::to_vec(&FeedValueKind::Value).unwrap(), vec![0]);
     assert_eq!(borsh::to_vec(&FeedValueKind::Hash).unwrap(), vec![1]);
 }

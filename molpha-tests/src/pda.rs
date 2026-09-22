@@ -6,7 +6,7 @@
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{
     Delegate, Feed, Gateway, Node, Plan, PlanType, ProtocolConfig, PunishmentCase, Registry,
-    RegistryState, RoundReceiptRecord, Secp256k1KeyClaim, Subscription,
+    RegistryState, RoundReplayMarker, Secp256k1KeyClaim, Subscription,
 };
 use solana_keccak_hasher::hashv;
 
@@ -79,7 +79,7 @@ pub fn subscription_round(
     timestamp: u64,
 ) -> Pubkey {
     pda(&[
-        RoundReceiptRecord::SEED_PREFIX,
+        RoundReplayMarker::SEED_PREFIX,
         subscription_owner.as_ref(),
         gateway.as_ref(),
         source_id.as_ref(),
@@ -96,7 +96,7 @@ pub fn x402_round(
     canonical_timestamp: u64,
 ) -> Pubkey {
     pda(&[
-        RoundReceiptRecord::X402_SEED_PREFIX,
+        RoundReplayMarker::X402_SEED_PREFIX,
         payer_id.as_ref(),
         gateway.as_ref(),
         source_id.as_ref(),

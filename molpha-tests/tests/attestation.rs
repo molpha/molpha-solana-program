@@ -321,7 +321,7 @@ fn submit_attestation_rejects_a_quorum_below_signatures_required() {
     let signed = p.sign_duty_with_bits(duty, &selected[..SIGS_REQUIRED as usize - 1], None);
     let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
     let failed = p.env.send_err(&[ix], &[&submitter]);
-    assert_molpha_error(&failed, MolphaError::InsufficientSigners);
+    assert_molpha_error(&failed, MolphaError::QuorumBelowThreshold);
 }
 
 #[test]

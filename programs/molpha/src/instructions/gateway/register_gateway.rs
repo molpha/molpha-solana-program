@@ -1,8 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_spl::{
-    associated_token::AssociatedToken,
-    token::{self, Mint, Token, TokenAccount, Transfer},
-};
 
 use crate::{
     error::MolphaError,
@@ -12,38 +8,21 @@ use crate::{
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct RegisterGatewayArgs {
+    pub authority: Pubkey,
     pub ip: [u8; 4],
     pub port: u16,
-    pub bond_amount: u64,
 }
 
 pub fn register_gateway(ctx: Context<RegisterGateway>, args: RegisterGatewayArgs) -> Result<()> {
-    let config = &ctx.accounts.protocol_config;
-    require!(
-        args.bond_amount >= config.gateway_bond_min,
-        MolphaError::InsufficientBond
-    );
     require!(
         args.ip != [0, 0, 0, 0] && args.port != 0,
         MolphaError::InvalidGatewayEndpoint
     );
 
-    token::transfer(
-        CpiContext::new(
-            ctx.accounts.token_program.key(),
-            Transfer {
-                from: ctx.accounts.authority_usdc.to_account_info(),
-                to: ctx.accounts.gateway_bond.to_account_info(),
-                authority: ctx.accounts.authority.to_account_info(),
-            },
-        ),
-        args.bond_amount,
-    )?;
-
     let now = Clock::get()?.unix_timestamp;
 
     let gateway = &mut ctx.accounts.gateway;
-    gateway.authority = ctx.accounts.gateway_authority.key();
+    gateway.authority = args.authority;
     gateway.ip = args.ip;
     gateway.port = args.port;
     gateway.status = GatewayStatus::Active;
@@ -54,7 +33,6 @@ pub fn register_gateway(ctx: Context<RegisterGateway>, args: RegisterGatewayArgs
         authority: gateway.authority,
         ip: gateway.ip,
         port: gateway.port,
-        bond: args.bond_amount,
         registered_at: now,
     });
 
@@ -62,12 +40,10 @@ pub fn register_gateway(ctx: Context<RegisterGateway>, args: RegisterGatewayArgs
 }
 
 #[derive(Accounts)]
+#[instruction(args: RegisterGatewayArgs)]
 pub struct RegisterGateway<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
-
-    /// CHECK: Stored as `gateway.authority`; registration is gated by protocol authority.
-    pub gateway_authority: UncheckedAccount<'info>,
 
     #[account(
         mut,
@@ -81,34 +57,10 @@ pub struct RegisterGateway<'info> {
         init,
         payer = authority,
         space = Gateway::SPACE,
-        seeds = [Gateway::SEED_PREFIX, gateway_authority.key().as_ref()],
+        seeds = [Gateway::SEED_PREFIX, args.authority.as_ref()],
         bump
     )]
     pub gateway: Account<'info, Gateway>,
 
-    #[account(
-        constraint = usdc_mint.key() == protocol_config.usdc_mint @ MolphaError::InvalidOwnerUsdc
-    )]
-    pub usdc_mint: Account<'info, Mint>,
-
-    #[account(
-        mut,
-        associated_token::mint = usdc_mint,
-        associated_token::authority = authority,
-        associated_token::token_program = token_program,
-    )]
-    pub authority_usdc: Account<'info, TokenAccount>,
-
-    #[account(
-        init,
-        payer = authority,
-        associated_token::mint = usdc_mint,
-        associated_token::authority = gateway,
-        associated_token::token_program = token_program,
-    )]
-    pub gateway_bond: Account<'info, TokenAccount>,
-
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
 }

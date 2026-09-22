@@ -1,3 +1,4 @@
+import { validateProtocolConfig } from "../lib/protocol-config";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
@@ -27,10 +28,10 @@ type InitConfig = {
   minimumNodeDeposit?: string;
   rewardPerSignature?: string;
   maxSettlementDelaySeconds?: string;
-  disputeWindowSlots?: string;
-  gatewayBondMin?: string;
   challengerBountyBps?: number;
   livelinessFreezeThreshold?: number;
+  livelinessPenaltyPerMiss?: number;
+  livelinessRecoveryPerSign?: number;
   usdcMint?: string;
   x402RoundBase?: string;
   minSigners?: number;
@@ -55,14 +56,20 @@ export function registerInitCommand(program: Command): void {
       "--max-settlement-delay-seconds <seconds>",
       "max age of canonical_timestamp at settlement ingress",
     )
-    .option("--dispute-window-slots <slots>", "settled round dispute window")
-    .option("--gateway-bond-min <amount>", "minimum gateway bond")
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
     .option(
       "--liveliness-freeze-threshold <score>",
       "liveliness score below which a node may be frozen",
     )
     .option("--usdc-mint <pubkey>", "USDC mint")
+    .option(
+      "--liveliness-penalty-per-miss <score>",
+      "score lost per missed round (1-10000)",
+    )
+    .option(
+      "--liveliness-recovery-per-sign <score>",
+      "score regained per signed round (1-10000)",
+    )
     .option("--x402-round-base <amount>", "base x402 round settlement price")
     .option(
       "--min-signers <count>",
@@ -122,23 +129,6 @@ export function registerInitCommand(program: Command): void {
           ),
           "max settlement delay",
         ),
-        disputeWindowSlots: bn(
-          requireValue(
-            optionOrConfig(
-              options.disputeWindowSlots,
-              config.disputeWindowSlots,
-            ),
-            "Missing --dispute-window-slots",
-          ),
-          "dispute window",
-        ),
-        gatewayBondMin: bn(
-          requireValue(
-            optionOrConfig(options.gatewayBondMin, config.gatewayBondMin),
-            "Missing --gateway-bond-min",
-          ),
-          "gateway bond minimum",
-        ),
         challengerBountyBps: Number(
           requireValue(
             optionOrConfig(
@@ -157,6 +147,18 @@ export function registerInitCommand(program: Command): void {
             "Missing --liveliness-freeze-threshold",
           ),
         ),
+        livelinessPenaltyPerMiss: Number(
+          optionOrConfig(
+            options.livelinessPenaltyPerMiss,
+            config.livelinessPenaltyPerMiss,
+          ) ?? 500,
+        ),
+        livelinessRecoveryPerSign: Number(
+          optionOrConfig(
+            options.livelinessRecoveryPerSign,
+            config.livelinessRecoveryPerSign,
+          ) ?? 100,
+        ),
         usdcMint: parsePubkeyOption(
           optionOrConfig(options.usdcMint, config.usdcMint),
           "usdc mint",
@@ -172,6 +174,7 @@ export function registerInitCommand(program: Command): void {
           optionOrConfig(options.minSigners, config.minSigners) ?? 3,
         ),
       };
+      validateProtocolConfig(args);
       const treasury = getAssociatedTokenAddressSync(
         args.usdcMint,
         protocolConfig,

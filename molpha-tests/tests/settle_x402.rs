@@ -5,9 +5,7 @@ use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::X402RoundSettled;
 use molpha::instructions::SettleX402RoundArgs;
-use molpha::state::{
-    Gateway, GatewayStatus, RoundReceiptRecord, RoundRecordKind, RoundRecordStatus,
-};
+use molpha::state::{Gateway, GatewayStatus, Node};
 use molpha::utils::MAX_FUTURE_DRIFT_SECONDS;
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
@@ -39,10 +37,6 @@ impl Fixture {
 
     fn float_ata(&self) -> Pubkey {
         pda::ata(&self.gateway.pubkey(), &self.p.usdc_mint)
-    }
-
-    fn bond_ata(&self) -> Pubkey {
-        pda::ata(&self.gateway_pda(), &self.p.usdc_mint)
     }
 
     fn record(&self, attestation: &Attestation, args: &SettleX402RoundArgs) -> Pubkey {
@@ -80,7 +74,7 @@ fn x402_settlement(
     (signed.attestation(), p.x402_args(signed, payer_id))
 }
 
-/// The whole selection is charged for, not just the threshold: finalization may credit up to
+/// The whole selection is charged for, not just the threshold: settlement may credit up to
 /// `signatures_required + redundancy_buffer` signers.
 fn expected_price(p: &Protocol, signatures_required: u8) -> u64 {
     p.args.x402_round_base
@@ -98,7 +92,6 @@ fn settlement_debits_the_gateway_float_and_credits_the_treasury() {
     assert_eq!(args.amount, price);
 
     let float_before = f.p.env.token_balance(&f.float_ata());
-    let bond_before = f.p.env.token_balance(&f.bond_ata());
     let treasury_before = f.p.treasury_balance();
 
     let ix =
@@ -108,20 +101,17 @@ fn settlement_debits_the_gateway_float_and_credits_the_treasury() {
 
     assert_eq!(f.p.env.token_balance(&f.float_ata()), float_before - price);
     assert_eq!(f.p.treasury_balance(), treasury_before + price);
+    assert!(f.p.env.account_exists(&f.record(&attestation, &args)));
+    for node in &signed.signer_pdas {
+        assert_eq!(
+            f.p.env.get::<Node>(node).claimable_rewards,
+            f.p.args.reward_per_signature
+        );
+    }
     assert_eq!(
-        f.p.env.token_balance(&f.bond_ata()),
-        bond_before,
-        "the bond is not a payment source"
+        f.p.reward_liability(),
+        f.p.args.reward_per_signature * signed.signer_pdas.len() as u64
     );
-
-    let record: RoundReceiptRecord = f.p.env.get(&f.record(&attestation, &args));
-    assert_eq!(record.status, RoundRecordStatus::Pending);
-    assert_eq!(record.kind, RoundRecordKind::X402);
-    assert_eq!(record.gateway, f.gateway_pda());
-    assert_eq!(record.registry_version, duty.registry_version);
-    assert_eq!(record.signers_bitmap, signed.signers_bitmap);
-    assert_eq!(record.attestation_message_hash, signed.message_hash);
-    assert_eq!(record.reward_per_signature, f.p.args.reward_per_signature);
 
     let event: X402RoundSettled = only_event(&meta);
     assert_eq!(event.payer_id, args.payer_id);
@@ -160,8 +150,8 @@ fn settlement_rejects_an_amount_that_is_not_the_computed_price() {
     }
 }
 
-/// Pricing the threshold alone would leave every round short by the redundancy buffer, which
-/// finalization is entitled to credit.
+/// Pricing the threshold alone would leave every round short by the redundancy buffer, whose
+/// selected signers may be credited during settlement.
 #[test]
 fn the_price_covers_the_redundancy_buffer_not_just_the_threshold() {
     let mut f = fixture();
@@ -272,33 +262,13 @@ fn records_are_scoped_per_payer_so_two_payers_each_pay_in_full() {
 fn settlement_rejects_an_underfunded_float() {
     let mut p = Protocol::start();
     p.register_nodes("x402-broke", NODE_COUNT);
-    let gateway = p.register_gateway(0); // bonded, but no float
+    let gateway = p.register_gateway(0); // registered, but no float
     let mut f = Fixture { p, gateway };
 
     let signed = f.p.sign_duty(duty(4));
     let (attestation, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
     let failed = f.settle(&attestation, args).unwrap_err();
     assert_molpha_error(&failed, MolphaError::InsufficientGatewayFloat);
-}
-
-#[test]
-fn the_bond_escrow_cannot_be_used_as_the_float() {
-    let mut f = fixture();
-    let signed = f.p.sign_duty(duty(4));
-    let (attestation, args) = x402_settlement(&f.p, &signed, [0xaa; 32]);
-
-    let mut ix =
-        f.p.settle_x402_round_ix(&f.gateway.pubkey(), &attestation, args);
-    let float = f.float_ata();
-    let bond = f.bond_ata();
-    for meta in ix.accounts.iter_mut() {
-        if meta.pubkey == float {
-            meta.pubkey = bond;
-        }
-    }
-    let gateway = f.gateway.insecure_clone();
-    let failed = f.p.env.send_err(&[ix], &[&gateway]);
-    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintTokenOwner);
 }
 
 #[test]
@@ -417,18 +387,15 @@ fn settlement_accepts_a_superseded_registry_during_grace() {
 }
 
 #[test]
-fn a_settlement_leaves_the_gateway_bond_and_status_untouched() {
+fn a_settlement_leaves_the_gateway_active() {
     let mut f = fixture();
-    let bond_before = f.p.env.token_balance(&f.bond_ata());
     let signed = f.p.sign_duty(duty(4));
     let attestation = signed.attestation();
     let args = f.p.x402_args(&signed, [0xaa; 32]);
     f.settle(&attestation, args).expect("settles");
 
     let after: Gateway = f.p.env.get(&f.gateway_pda());
-    assert_eq!(f.p.env.token_balance(&f.bond_ata()), bond_before);
     assert_eq!(after.status, GatewayStatus::Active);
-    assert_eq!(after.withdrawable_slot, 0);
 }
 
 #[test]

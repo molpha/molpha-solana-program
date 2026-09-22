@@ -1,11 +1,9 @@
 import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
   Ed25519Program,
-  PublicKey,
   SystemProgram,
   SYSVAR_INSTRUCTIONS_PUBKEY,
 } from "@solana/web3.js";
@@ -13,19 +11,16 @@ import { Command } from "commander";
 import {
   creditedBitsFromBitmap,
   parseSchnorrSignatureJson,
-  signersBitmapFromOptions,
 } from "../lib/agg-sig";
 import { hashRequestAuthFields } from "../lib/auth";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import {
   buildAttestation,
-  SchnorrSignatureBytes,
+  settlementRemainingAccounts,
 } from "../lib/signing/attestation";
 import {
-  derivePayerId,
   findDelegatePda,
-  findGatewayBondAta,
   findGatewayPda,
   findProtocolConfigPda,
   findRegistryPda,
@@ -40,33 +35,13 @@ import {
   loadKeypair,
   parseInteger,
   parsePublicKey,
-  requireValue,
   writeJson,
 } from "../lib/utils";
-
-function registryNode(registry: any, bit: number): PublicKey {
-  if (bit >= Number(registry.nodeCount)) {
-    throw new Error(`credited bit ${bit} is outside registry node_count`);
-  }
-  return new PublicKey(Uint8Array.from(registry.nodes[bit]));
-}
-
-/** `--agg-sig` file, or a zero signature over the bitmap from the credited-signer flags. */
-function schnorrSignatureFromOptions(options: {
-  aggSig?: string;
-  signersBitmap?: string;
-  creditedBits?: string;
-  signerCount?: string;
-}): SchnorrSignatureBytes {
-  return options.aggSig
-    ? parseSchnorrSignatureJson(options.aggSig)
-    : { signersBitmap: signersBitmapFromOptions(options) };
-}
 
 export function registerRoundCommands(program: Command): void {
   const round = program
     .command("round")
-    .description("Settle, finalize, and dispute round receipts");
+    .description("Verify and settle rounds");
 
   round
     .command("settle-subscription")
@@ -89,10 +64,7 @@ export function registerRoundCommands(program: Command): void {
       "--consumer-wallet <path>",
       "consumer (owner or delegate) keypair that signs RequestAuth",
     )
-    .option("--agg-sig <path>", "JSON SchnorrSignature file")
-    .option("--signers-bitmap <hex>", "32-byte credited signers bitmap")
-    .option("--credited-bits <list>", "comma-separated credited bit indices")
-    .option("--signer-count <number>", "first-N bits credited")
+    .requiredOption("--agg-sig <path>", "JSON SchnorrSignature file")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
@@ -138,7 +110,7 @@ export function registerRoundCommands(program: Command): void {
         registryPda,
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
-      const schnorrSignature = schnorrSignatureFromOptions(options);
+      const schnorrSignature = parseSchnorrSignatureJson(options.aggSig);
       const attestation = buildAttestation({
         value: hexToBytes(options.value, 32, "value"),
         sourceId,
@@ -150,7 +122,12 @@ export function registerRoundCommands(program: Command): void {
       const creditedBits = creditedBitsFromBitmap(
         schnorrSignature.signersBitmap,
       );
-      const [roundRecordPda] = findSubscriptionRoundPda(
+      const remainingAccounts = settlementRemainingAccounts(
+        registry,
+        attestation.payload,
+        schnorrSignature.signersBitmap,
+      );
+      const [roundReplay] = findSubscriptionRoundPda(
         ctx.programId,
         subscriptionOwner,
         gatewayPda,
@@ -178,29 +155,29 @@ export function registerRoundCommands(program: Command): void {
         .settleSubscriptionRound(attestation, consumer.publicKey)
         .accountsPartial({
           authority: ctx.wallet.publicKey,
-          protocolConfig: protocolConfigPda,
+          config: protocolConfigPda,
           registry: registryPda,
           subscription: subscriptionPda,
+          treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
           consumerDelegate,
           gateway: gatewayPda,
-          roundRecord: roundRecordPda,
+          roundReplay,
           instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
           systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID,
         })
+        .remainingAccounts(remainingAccounts)
         .preInstructions([
           Ed25519Program.createInstructionWithPrivateKey({
             privateKey: consumer.secretKey,
             message: authHash,
           }),
         ])
-        .signers(
-          consumer.publicKey.equals(ctx.wallet.publicKey) ? [] : [consumer],
-        )
         .rpc();
 
       writeJson({
         signature,
-        roundRecord: roundRecordPda.toBase58(),
+        roundReplay: roundReplay.toBase58(),
         sourceId: `0x${Buffer.from(sourceId).toString("hex")}`,
         creditedBits,
       });
@@ -236,10 +213,7 @@ export function registerRoundCommands(program: Command): void {
       "32-byte oracle value (hex)",
       "0x" + "00".repeat(32),
     )
-    .option("--agg-sig <path>", "JSON SchnorrSignature file")
-    .option("--signers-bitmap <hex>", "32-byte credited signers bitmap")
-    .option("--credited-bits <list>", "comma-separated credited bit indices")
-    .option("--signer-count <number>", "first-N bits credited")
+    .requiredOption("--agg-sig <path>", "JSON SchnorrSignature file")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
@@ -295,7 +269,7 @@ export function registerRoundCommands(program: Command): void {
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
       const amount = bn(options.amount, "amount");
-      const schnorrSignature = schnorrSignatureFromOptions(options);
+      const schnorrSignature = parseSchnorrSignatureJson(options.aggSig);
       const attestation = buildAttestation({
         value: hexToBytes(options.value, 32, "value"),
         sourceId,
@@ -307,7 +281,12 @@ export function registerRoundCommands(program: Command): void {
       const creditedBits = creditedBitsFromBitmap(
         schnorrSignature.signersBitmap,
       );
-      const [roundRecordPda] = findX402RoundPda(
+      const remainingAccounts = settlementRemainingAccounts(
+        registry,
+        attestation.payload,
+        schnorrSignature.signersBitmap,
+      );
+      const [roundReplay] = findX402RoundPda(
         ctx.programId,
         payerId,
         gatewayPda,
@@ -330,203 +309,26 @@ export function registerRoundCommands(program: Command): void {
         })
         .accountsPartial({
           authority: gatewayAuthority.publicKey,
-          protocolConfig: protocolConfigPda,
+          config: protocolConfigPda,
           registry: registryPda,
           gateway: gatewayPda,
           gatewayUsdc,
           treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
+          roundReplay,
           tokenProgram: TOKEN_PROGRAM_ID,
-          roundRecord: roundRecordPda,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts(remainingAccounts)
         .signers(signers)
         .rpc();
 
       writeJson({
         signature,
-        roundRecord: roundRecordPda.toBase58(),
+        roundReplay: roundReplay.toBase58(),
         payerId: `0x${Buffer.from(payerId).toString("hex")}`,
         paymentRail,
         sourceId: `0x${Buffer.from(sourceId).toString("hex")}`,
         creditedBits,
-      });
-    });
-
-  round
-    .command("finalize")
-    .description("Finalize a pending round after the dispute window")
-    .requiredOption("--round-record <pubkey>", "round receipt record address")
-    .requiredOption(
-      "--gateway-authority <pubkey>",
-      "gateway authority pubkey (for PDA)",
-    )
-    .option(
-      "--credited-bits <list>",
-      "comma-separated credited bits (default: read from round record)",
-    )
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
-      const roundRecord = parsePublicKey(options.roundRecord, "round record");
-      const record = await fetchAccountOrNull<any>(
-        ctx.program,
-        "roundReceiptRecord",
-        roundRecord,
-      );
-      if (!record) {
-        throw new Error(`Round record not found at ${roundRecord.toBase58()}`);
-      }
-
-      const gatewayAuthority = parsePublicKey(
-        options.gatewayAuthority,
-        "gateway authority",
-      );
-      const [gatewayPda] = findGatewayPda(ctx.programId, gatewayAuthority);
-      const creditedBits = options.creditedBits
-        ? options.creditedBits
-            .split(",")
-            .map((part: string) => parseInteger(part.trim(), "credited bit"))
-        : creditedBitsFromBitmap(Uint8Array.from(record.signersBitmap));
-      const registryVersion = Number(record.registryVersion);
-      const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
-      const registry = await fetchAccountOrNull<any>(
-        ctx.program,
-        "registry",
-        registryPda,
-      );
-      if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
-
-      // Crediting checks the treasury can back the rewards it is about to owe.
-      const protocolConfig = await fetchAccountOrNull<any>(
-        ctx.program,
-        "protocolConfig",
-        protocolConfigPda,
-      );
-      if (!protocolConfig) throw new Error("Protocol is not initialized");
-
-      const signature = await (ctx.program.methods as any)
-        .finalizeRound()
-        .accountsPartial({
-          caller: ctx.wallet.publicKey,
-          protocolConfig: protocolConfigPda,
-          usdcMint: protocolConfig.usdcMint,
-          treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
-          registry: registryPda,
-          roundRecord,
-          gateway: gatewayPda,
-        })
-        .remainingAccounts(
-          creditedBits.map((bit: number) => ({
-            pubkey: registryNode(registry, bit),
-            isWritable: true,
-            isSigner: false,
-          })),
-        )
-        .rpc();
-
-      writeJson({
-        signature,
-        roundRecord: roundRecord.toBase58(),
-        creditedBits,
-      });
-    });
-
-  round
-    .command("validate")
-    .description("Validate and immediately finalize a genuine pending round")
-    .requiredOption("--round-record <pubkey>", "round receipt record address")
-    .requiredOption(
-      "--gateway-authority <pubkey>",
-      "gateway authority pubkey (for PDA)",
-    )
-    .option(
-      "--subscription <pubkey>",
-      "subscription account (required for subscription rounds; omit for x402 rounds — they are never refunded)",
-    )
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const [protocolConfigPda] = findProtocolConfigPda(ctx.programId);
-      const protocolConfig = await fetchAccountOrNull<any>(
-        ctx.program,
-        "protocolConfig",
-        protocolConfigPda,
-      );
-      if (!protocolConfig) {
-        throw new Error("Protocol config is not initialized");
-      }
-
-      const roundRecord = parsePublicKey(options.roundRecord, "round record");
-      const record = await fetchAccountOrNull<any>(
-        ctx.program,
-        "roundReceiptRecord",
-        roundRecord,
-      );
-      if (!record)
-        throw new Error(`Round record not found at ${roundRecord.toBase58()}`);
-      const registryVersion = Number(record.registryVersion);
-      const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
-      const registry = await fetchAccountOrNull<any>(
-        ctx.program,
-        "registry",
-        registryPda,
-      );
-      if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
-      const gatewayAuthority = parsePublicKey(
-        options.gatewayAuthority,
-        "gateway authority",
-      );
-      const [gatewayPda] = findGatewayPda(ctx.programId, gatewayAuthority);
-      const gatewayBond = findGatewayBondAta(
-        protocolConfig.usdcMint,
-        gatewayPda,
-      );
-      const challengerUsdc = getAssociatedTokenAddressSync(
-        protocolConfig.usdcMint,
-        ctx.wallet.publicKey,
-      );
-
-      // `record.kind` discriminates the funding path: subscription rounds are restored on a
-      // failed validation; x402 rounds are never refunded (the price came from the gateway's
-      // own float, and the gateway is the party being slashed).
-      const isSubscription = record.kind?.subscription !== undefined;
-      const subscription = isSubscription
-        ? parsePublicKey(
-            requireValue(options.subscription, "Missing --subscription"),
-            "subscription",
-          )
-        : null;
-
-      const signature = await (ctx.program.methods as any)
-        .validateRound()
-        .accountsPartial({
-          challenger: ctx.wallet.publicKey,
-          protocolConfig: protocolConfigPda,
-          registry: registryPda,
-          roundRecord,
-          gateway: gatewayPda,
-          usdcMint: protocolConfig.usdcMint,
-          gatewayBond,
-          treasury: findTreasuryAta(ctx.programId, protocolConfig.usdcMint),
-          challengerUsdc,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          subscription,
-        })
-        .remainingAccounts(
-          creditedBitsFromBitmap(Uint8Array.from(record.signersBitmap)).map(
-            (bit) => ({
-              pubkey: registryNode(registry, bit),
-              isWritable: true,
-              isSigner: false,
-            }),
-          ),
-        )
-        .rpc();
-
-      writeJson({
-        signature,
-        roundRecord: roundRecord.toBase58(),
       });
     });
 }

@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
+use crate::state::ProtocolConfig;
+
 pub const LIVELINESS_SCORE_MAX: u16 = 10_000;
-pub const LIVELINESS_PENALTY_PER_MISS: u16 = 500;
-pub const LIVELINESS_RECOVERY_PER_SIGN: u16 = 100;
 pub const NODE_ID_PREFIX: &[u8] = b"MOLPHA_NODE_ID_V1";
 
 /// Permanent node identity and reward account; never closed or re-keyed.
@@ -59,6 +59,18 @@ impl Node {
     pub fn update_endpoint(&mut self, ip: [u8; 4], port: u16) {
         self.ip = ip;
         self.port = port;
+    }
+
+    pub fn record_round_settlement(&mut self, config: &ProtocolConfig) -> Result<()> {
+        self.claimable_rewards = self
+            .claimable_rewards
+            .checked_add(config.reward_per_signature)
+            .ok_or(crate::error::MolphaError::TreasuryInsolvent)?;
+        self.liveliness_score = self
+            .liveliness_score
+            .saturating_add(config.liveliness_recovery_per_sign);
+        self.liveliness_score = self.liveliness_score.min(LIVELINESS_SCORE_MAX);
+        Ok(())
     }
 }
 

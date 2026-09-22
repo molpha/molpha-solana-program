@@ -7,29 +7,14 @@ use crate::{
 };
 
 pub fn deactivate_gateway(ctx: Context<DeactivateGateway>) -> Result<()> {
-    let config = &ctx.accounts.protocol_config;
     let gateway = &mut ctx.accounts.gateway;
     let clock = Clock::get()?;
 
-    require!(
-        gateway.authority == ctx.accounts.authority.key()
-            || config.authority == ctx.accounts.authority.key(),
-        MolphaError::UnauthorizedGatewayAuthority
-    );
-
-    let withdrawable_slot = clock
-        .slot
-        .checked_add(config.dispute_window_slots)
-        .and_then(|slot| slot.checked_add(1))
-        .ok_or(MolphaError::WithdrawalArithmeticOverflow)?;
-
     gateway.status = GatewayStatus::Deactivated;
-    gateway.withdrawable_slot = withdrawable_slot;
 
     emit!(GatewayDeactivated {
         gateway: gateway.key(),
         authority: gateway.authority,
-        withdrawable_slot,
         deactivated_at: clock.unix_timestamp,
     });
     Ok(())
@@ -41,6 +26,7 @@ pub struct DeactivateGateway<'info> {
     pub authority: Signer<'info>,
 
     #[account(
+        has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump = protocol_config.bump,
     )]

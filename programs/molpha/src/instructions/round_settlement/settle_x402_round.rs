@@ -1,14 +1,11 @@
 //! Gateway-funded pay-per-request settlement: debits gateway USDC float at the protocol price and
-//! records the round like `settle_subscription_round`. Payment rail/ref metadata is attested only.
+//! settles the round like `settle_subscription_round`. Payment rail/ref metadata is attested only.
 
 use crate::{
     error::MolphaError,
     events::X402RoundSettled,
-    state::{
-        Gateway, GatewayStatus, ProtocolConfig, Registry, RoundReceiptInitArgs, RoundReceiptRecord,
-        RoundRecordKind,
-    },
-    utils::settlement::validate_settlement_attestation,
+    state::{Gateway, GatewayStatus, ProtocolConfig, Registry, RoundReplayMarker},
+    utils::{attestation::validate_attestation, settlement::credit_round_rewards},
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
@@ -29,8 +26,8 @@ pub struct SettleX402RoundArgs {
 /// Price from request-time parameters only (not post-hoc signer count).
 ///
 /// Charges for the whole selection, `signatures_required + redundancy_buffer`, because that is
-/// the largest coalition finalization may credit. Every settled x402 round therefore funds its
-/// own rewards, whatever subset of the selection ends up signing.
+/// the largest coalition settlement may credit. Every settled x402 round therefore funds its own
+/// rewards, whatever subset of the selection ends up signing.
 pub fn compute_x402_price(
     config: &ProtocolConfig,
     signatures_required: u8,
@@ -50,20 +47,19 @@ pub fn compute_x402_price(
 }
 
 pub fn settle_x402_round<'info>(
-    ctx: Context<SettleX402Round<'info>>,
+    ctx: Context<'info, SettleX402Round<'info>>,
     attestation: Attestation,
     args: SettleX402RoundArgs,
 ) -> Result<()> {
-    let config = &ctx.accounts.protocol_config;
-    let registry = ctx.accounts.registry.load()?;
     let gateway = &ctx.accounts.gateway;
     let clock = Clock::get()?;
     let now_slot = clock.slot;
 
+    let redundancy_buffer = ctx.accounts.registry.load()?.redundancy_buffer;
     let price = compute_x402_price(
-        config,
+        &ctx.accounts.config,
         attestation.payload.signatures_required,
-        registry.redundancy_buffer,
+        redundancy_buffer,
     )?;
     require!(price == args.amount, MolphaError::AmountMismatch);
 
@@ -72,8 +68,13 @@ pub fn settle_x402_round<'info>(
         MolphaError::PaymentRefTooLong
     );
 
-    let validated =
-        validate_settlement_attestation(&registry, config, &attestation, clock.unix_timestamp)?;
+    validate_attestation(
+        ctx.remaining_accounts,
+        &ctx.accounts.registry,
+        &ctx.accounts.config,
+        &attestation,
+        clock.unix_timestamp,
+    )?;
 
     require!(
         ctx.accounts.gateway_usdc.amount >= price,
@@ -92,21 +93,19 @@ pub fn settle_x402_round<'info>(
         price,
     )?;
 
-    let reward_per_signature = config.reward_per_signature;
+    // Anchor does not refresh deserialized token accounts after a CPI. Include the payment that
+    // just landed before checking whether the treasury backs the new reward liability.
+    ctx.accounts.treasury.reload()?;
 
-    ctx.accounts.round_record.init(
+    credit_round_rewards(
+        &ctx.accounts.registry,
+        &mut ctx.accounts.config,
+        &ctx.accounts.treasury,
+        ctx.remaining_accounts,
         &attestation,
-        RoundReceiptInitArgs {
-            consumer_id: args.payer_id,
-            selection_bitmap: validated.selection_bitmap,
-            attestation_message_hash: validated.attestation_message_hash,
-            gateway: gateway.key(),
-            reward_per_signature,
-            recorded_slot: now_slot,
-            kind: RoundRecordKind::X402,
-            bump: ctx.bumps.round_record,
-        },
-    );
+        ctx.accounts.round_replay.key(),
+    )?;
+    ctx.accounts.round_replay.bump = ctx.bumps.round_replay;
 
     emit!(X402RoundSettled {
         payer_id: args.payer_id,
@@ -115,8 +114,7 @@ pub fn settle_x402_round<'info>(
         source_id: attestation.payload.source_id,
         canonical_timestamp: attestation.payload.canonical_timestamp,
         gateway: gateway.key(),
-        signers_bitmap: ctx.accounts.round_record.signers_bitmap,
-        credited_count: validated.credited_count,
+        signers_bitmap: attestation.signature.signers_bitmap,
         recorded_slot: now_slot,
         recorded_at: clock.unix_timestamp,
     });
@@ -131,10 +129,11 @@ pub struct SettleX402Round<'info> {
     pub authority: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [ProtocolConfig::SEED_PREFIX],
-        bump = protocol_config.bump,
+        bump = config.bump,
     )]
-    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
+    pub config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(
         seeds = [Registry::SEED_PREFIX, attestation.payload.registry_version.to_le_bytes().as_ref()],
@@ -151,7 +150,7 @@ pub struct SettleX402Round<'info> {
 
     #[account(
         mut,
-        associated_token::mint = protocol_config.usdc_mint,
+        associated_token::mint = config.usdc_mint,
         associated_token::authority = authority,
         associated_token::token_program = token_program,
     )]
@@ -159,29 +158,28 @@ pub struct SettleX402Round<'info> {
 
     #[account(
         mut,
-        associated_token::mint = protocol_config.usdc_mint,
-        associated_token::authority = protocol_config,
+        associated_token::mint = config.usdc_mint,
+        associated_token::authority = config,
         associated_token::token_program = token_program,
     )]
     pub treasury: Box<Account<'info, TokenAccount>>,
 
-    pub token_program: Program<'info, Token>,
-
     #[account(
         init,
         payer = authority,
-        space = RoundReceiptRecord::SPACE,
+        space = RoundReplayMarker::SPACE,
         seeds = [
-            RoundReceiptRecord::X402_SEED_PREFIX,
+            RoundReplayMarker::X402_SEED_PREFIX,
             args.payer_id.as_ref(),
             gateway.key().as_ref(),
             attestation.payload.source_id.as_ref(),
             attestation.payload.signatures_required.to_le_bytes().as_ref(),
             attestation.payload.canonical_timestamp.to_le_bytes().as_ref(),
         ],
-        bump
+        bump,
     )]
-    pub round_record: Box<Account<'info, RoundReceiptRecord>>,
+    pub round_replay: Account<'info, RoundReplayMarker>,
 
+    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }

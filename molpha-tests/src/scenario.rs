@@ -162,10 +162,10 @@ pub fn default_initialize_args(usdc_mint: Pubkey) -> InitializeArgs {
         // Wide enough that every hardcoded duty timestamp stays inside the window even after
         // a cooldown-length clock advance; freshness tests tighten it via the builder.
         max_settlement_delay_seconds: 604_800,
-        dispute_window_slots: 100,
-        gateway_bond_min: 500_000_000,
         challenger_bounty_bps: 500,
         liveliness_freeze_threshold: 5_000,
+        liveliness_penalty_per_miss: 500,
+        liveliness_recovery_per_sign: 100,
         usdc_mint,
         x402_round_base: 1_000_000,
         min_signers: 3,
@@ -241,11 +241,6 @@ impl ProtocolBuilder {
         self
     }
 
-    pub fn dispute_window_slots(mut self, value: u64) -> Self {
-        self.args.dispute_window_slots = value;
-        self
-    }
-
     pub fn reward_per_signature(mut self, value: u64) -> Self {
         self.args.reward_per_signature = value;
         self
@@ -256,13 +251,18 @@ impl ProtocolBuilder {
         self
     }
 
-    pub fn liveliness_freeze_threshold(mut self, value: u16) -> Self {
-        self.args.liveliness_freeze_threshold = value;
+    pub fn liveliness_penalty_per_miss(mut self, value: u16) -> Self {
+        self.args.liveliness_penalty_per_miss = value;
         self
     }
 
-    pub fn gateway_bond_min(mut self, value: u64) -> Self {
-        self.args.gateway_bond_min = value;
+    pub fn liveliness_recovery_per_sign(mut self, value: u16) -> Self {
+        self.args.liveliness_recovery_per_sign = value;
+        self
+    }
+
+    pub fn liveliness_freeze_threshold(mut self, value: u16) -> Self {
+        self.args.liveliness_freeze_threshold = value;
         self
     }
 
@@ -412,16 +412,6 @@ impl Protocol {
 
     pub fn node_pdas(&self) -> Vec<Pubkey> {
         self.nodes.iter().map(|n| n.pda).collect()
-    }
-
-    /// A funded actor who can dispute a round.
-    ///
-    /// `validate_round` pays the challenger bounty into an account it does not create, so a
-    /// challenger needs a USDC account before it can dispute.
-    pub fn challenger(&mut self) -> Keypair {
-        let challenger = self.env.keypair();
-        self.fund_usdc(&challenger.pubkey(), 0);
-        challenger
     }
 
     /// A funded actor who can file a punishment.
@@ -682,31 +672,23 @@ impl Protocol {
             program_id: molpha::ID,
             accounts: molpha::accounts::RegisterGateway {
                 authority: self.authority.pubkey(),
-                gateway_authority: *gateway_authority,
                 protocol_config: pda::protocol_config(),
                 gateway: pda::gateway(gateway_authority),
-                usdc_mint: self.usdc_mint,
-                authority_usdc: pda::ata(&self.authority.pubkey(), &self.usdc_mint),
-                gateway_bond: pda::ata(&pda::gateway(gateway_authority), &self.usdc_mint),
                 system_program: anchor_lang::solana_program::system_program::ID,
-                token_program: pda::TOKEN_PROGRAM_ID,
-                associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
             }
             .to_account_metas(None),
             data: molpha::instruction::RegisterGateway { args: args.clone() }.data(),
         }
     }
 
-    /// A bonded gateway whose authority also holds a USDC float for x402 settlement.
+    /// A registered gateway whose authority also holds a USDC float for x402 settlement.
     pub fn register_gateway(&mut self, float: u64) -> Keypair {
         let gateway_authority = self.env.keypair();
-        let bond = self.args.gateway_bond_min;
-        self.fund_usdc(&self.authority.pubkey(), bond);
         self.fund_usdc(&gateway_authority.pubkey(), float);
         let args = RegisterGatewayArgs {
+            authority: gateway_authority.pubkey(),
             ip: [10, 0, 0, 7],
             port: 9_000,
-            bond_amount: bond,
         };
         let ix = self.register_gateway_ix(&gateway_authority.pubkey(), &args);
         let protocol_authority = self.authority.insecure_clone();
@@ -729,25 +711,6 @@ impl Protocol {
             }
             .to_account_metas(None),
             data: molpha::instruction::DeactivateGateway {}.data(),
-        }
-    }
-
-    pub fn withdraw_gateway_bond_ix(&self, authority: &Pubkey) -> Instruction {
-        let gateway = pda::gateway(authority);
-        Instruction {
-            program_id: molpha::ID,
-            accounts: molpha::accounts::WithdrawGatewayBond {
-                authority: *authority,
-                protocol_config: pda::protocol_config(),
-                gateway,
-                gateway_bond: pda::ata(&gateway, &self.usdc_mint),
-                destination: pda::ata(authority, &self.usdc_mint),
-                token_program: pda::TOKEN_PROGRAM_ID,
-                associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
-                system_program: anchor_lang::solana_program::system_program::ID,
-            }
-            .to_account_metas(None),
-            data: molpha::instruction::WithdrawGatewayBond {}.data(),
         }
     }
 
@@ -860,26 +823,32 @@ impl Protocol {
     ) -> Instruction {
         let duty = attestation.duty;
         let gateway = pda::gateway(gateway_authority);
+        let mut accounts = molpha::accounts::SettleSubscriptionRound {
+            authority: *gateway_authority,
+            config: pda::protocol_config(),
+            registry: pda::registry(duty.registry_version),
+            subscription: pda::subscription(subscription_owner),
+            treasury: self.treasury(),
+            consumer_delegate,
+            gateway,
+            round_replay: pda::subscription_round(
+                subscription_owner,
+                &gateway,
+                &duty.source_id,
+                duty.signatures_required,
+                duty.canonical_timestamp,
+            ),
+            instructions_sysvar: pda::INSTRUCTIONS_SYSVAR_ID,
+            system_program: anchor_lang::solana_program::system_program::ID,
+            token_program: pda::TOKEN_PROGRAM_ID,
+        }
+        .to_account_metas(None);
+        accounts.extend(crate::env::writable_metas(
+            self.settlement_node_pdas(&attestation.attestation()),
+        ));
         Instruction {
             program_id: molpha::ID,
-            accounts: molpha::accounts::SettleSubscriptionRound {
-                authority: *gateway_authority,
-                protocol_config: pda::protocol_config(),
-                registry: pda::registry(duty.registry_version),
-                subscription: pda::subscription(subscription_owner),
-                consumer_delegate,
-                gateway,
-                round_record: pda::subscription_round(
-                    subscription_owner,
-                    &gateway,
-                    &duty.source_id,
-                    duty.signatures_required,
-                    duty.canonical_timestamp,
-                ),
-                instructions_sysvar: pda::INSTRUCTIONS_SYSVAR_ID,
-                system_program: anchor_lang::solana_program::system_program::ID,
-            }
-            .to_account_metas(None),
+            accounts,
             data: molpha::instruction::SettleSubscriptionRound {
                 attestation: attestation.attestation(),
                 consumer_authority: *consumer_authority,
@@ -913,32 +882,58 @@ impl Protocol {
     ) -> Instruction {
         let gateway = pda::gateway(gateway_authority);
         let payload = &attestation.payload;
+        let mut accounts = molpha::accounts::SettleX402Round {
+            authority: *gateway_authority,
+            config: pda::protocol_config(),
+            registry: pda::registry(payload.registry_version),
+            gateway,
+            gateway_usdc: pda::ata(gateway_authority, &self.usdc_mint),
+            treasury: self.treasury(),
+            round_replay: pda::x402_round(
+                &args.payer_id,
+                &gateway,
+                &payload.source_id,
+                payload.signatures_required,
+                payload.canonical_timestamp,
+            ),
+            token_program: pda::TOKEN_PROGRAM_ID,
+            system_program: anchor_lang::solana_program::system_program::ID,
+        }
+        .to_account_metas(None);
+        accounts.extend(crate::env::writable_metas(
+            self.settlement_node_pdas(attestation),
+        ));
         Instruction {
             program_id: molpha::ID,
-            accounts: molpha::accounts::SettleX402Round {
-                authority: *gateway_authority,
-                protocol_config: pda::protocol_config(),
-                registry: pda::registry(payload.registry_version),
-                gateway,
-                gateway_usdc: pda::ata(gateway_authority, &self.usdc_mint),
-                treasury: self.treasury(),
-                token_program: pda::TOKEN_PROGRAM_ID,
-                round_record: pda::x402_round(
-                    &args.payer_id,
-                    &gateway,
-                    &payload.source_id,
-                    payload.signatures_required,
-                    payload.canonical_timestamp,
-                ),
-                system_program: anchor_lang::solana_program::system_program::ID,
-            }
-            .to_account_metas(None),
+            accounts,
             data: molpha::instruction::SettleX402Round {
                 attestation: attestation.clone(),
                 args,
             }
             .data(),
         }
+    }
+
+    /// Writable node accounts for immediate settlement: signers first for verification and
+    /// crediting, followed by selected non-signers for liveliness penalties.
+    pub fn settlement_node_pdas(&self, attestation: &Attestation) -> Vec<Pubkey> {
+        let duty = Duty {
+            source_id: attestation.payload.source_id,
+            registry_version: attestation.payload.registry_version,
+            canonical_timestamp: attestation.payload.canonical_timestamp,
+            signatures_required: attestation.payload.signatures_required,
+            value: attestation.payload.value,
+        };
+        let registry = self.env.registry(duty.registry_version);
+        let signer_bits = crypto::bitmap_bits(&attestation.signature.signers_bitmap);
+        let mut nodes: Vec<Pubkey> = signer_bits.iter().map(|bit| registry.nodes[*bit]).collect();
+        nodes.extend(
+            self.selection_bits(&duty)
+                .into_iter()
+                .filter(|bit| !signer_bits.contains(bit))
+                .map(|bit| registry.nodes[bit]),
+        );
+        nodes
     }
 
     /// Well-formed x402 args at the protocol's own price.
@@ -956,72 +951,6 @@ impl Protocol {
             amount: price,
             payment_rail: 1,
             payment_ref: b"test-payment-ref".to_vec(),
-        }
-    }
-
-    pub fn finalize_round_ix(
-        &self,
-        caller: &Pubkey,
-        round_record: &Pubkey,
-        credited_nodes: &[Pubkey],
-    ) -> Instruction {
-        let record = self
-            .env
-            .get::<molpha::state::RoundReceiptRecord>(round_record);
-        let mut accounts = molpha::accounts::FinalizeRound {
-            caller: *caller,
-            protocol_config: pda::protocol_config(),
-            treasury: self.treasury(),
-            registry: pda::registry(record.registry_version),
-            round_record: *round_record,
-            gateway: record.gateway,
-        }
-        .to_account_metas(None);
-        accounts.extend(crate::env::writable_metas(credited_nodes.iter().copied()));
-        let missed_bitmap = bitmap_difference(&record.selection_bitmap, &record.signers_bitmap);
-        let missed_nodes = self.node_pdas_for_bitmap(record.registry_version, &missed_bitmap);
-        accounts.extend(crate::env::writable_metas(missed_nodes));
-        Instruction {
-            program_id: molpha::ID,
-            accounts,
-            data: molpha::instruction::FinalizeRound {}.data(),
-        }
-    }
-
-    pub fn validate_round_ix(
-        &self,
-        challenger: &Pubkey,
-        round_record: &Pubkey,
-        subscription: Option<Pubkey>,
-        signer_nodes: &[Pubkey],
-    ) -> Instruction {
-        let record = self
-            .env
-            .get::<molpha::state::RoundReceiptRecord>(round_record);
-        let mut accounts = molpha::accounts::ValidateRound {
-            challenger: *challenger,
-            protocol_config: pda::protocol_config(),
-            registry: pda::registry(record.registry_version),
-            round_record: *round_record,
-            gateway: record.gateway,
-            usdc_mint: self.usdc_mint,
-            gateway_bond: pda::ata(&record.gateway, &self.usdc_mint),
-            treasury: self.treasury(),
-            challenger_usdc: pda::ata(challenger, &self.usdc_mint),
-            token_program: pda::TOKEN_PROGRAM_ID,
-            associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
-            system_program: anchor_lang::solana_program::system_program::ID,
-            subscription,
-        }
-        .to_account_metas(None);
-        accounts.extend(crate::env::writable_metas(signer_nodes.iter().copied()));
-        let missed_bitmap = bitmap_difference(&record.selection_bitmap, &record.signers_bitmap);
-        let missed_nodes = self.node_pdas_for_bitmap(record.registry_version, &missed_bitmap);
-        accounts.extend(crate::env::writable_metas(missed_nodes));
-        Instruction {
-            program_id: molpha::ID,
-            accounts,
-            data: molpha::instruction::ValidateRound {}.data(),
         }
     }
 

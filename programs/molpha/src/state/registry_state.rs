@@ -70,10 +70,10 @@ impl RegistryState {
         &mut self,
         transition: &RegistryTransition<'a, 'b>,
         nodes: &[Pubkey],
-    ) -> Result<()> {
+    ) -> Result<u16> {
         self.with_registry_snapshot(transition, |_, next| {
             next.swap_remove_nodes(nodes)?;
-            Ok(())
+            Ok(next.node_count)
         })
     }
 

@@ -18,10 +18,10 @@ fn tuned_update_args() -> UpdateConfigArgs {
         minimum_node_deposit: 250_000_000,
         reward_per_signature: 11,
         max_settlement_delay_seconds: 512,
-        dispute_window_slots: 4_096,
-        gateway_bond_min: 900_000_000,
         challenger_bounty_bps: 1_250,
         liveliness_freeze_threshold: 4_000,
+        liveliness_penalty_per_miss: 700,
+        liveliness_recovery_per_sign: 250,
         x402_round_base: 2_000,
         min_signers: 5,
     }
@@ -42,9 +42,15 @@ fn initialize_writes_config_registry_state_and_genesis_snapshot() {
         config.max_settlement_delay_seconds,
         args.max_settlement_delay_seconds
     );
-    assert_eq!(config.dispute_window_slots, args.dispute_window_slots);
-    assert_eq!(config.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(config.challenger_bounty_bps, args.challenger_bounty_bps);
+    assert_eq!(
+        config.liveliness_penalty_per_miss,
+        args.liveliness_penalty_per_miss
+    );
+    assert_eq!(
+        config.liveliness_recovery_per_sign,
+        args.liveliness_recovery_per_sign
+    );
     assert_eq!(
         config.liveliness_freeze_threshold,
         args.liveliness_freeze_threshold
@@ -189,9 +195,15 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
         after.max_settlement_delay_seconds,
         args.max_settlement_delay_seconds
     );
-    assert_eq!(after.dispute_window_slots, args.dispute_window_slots);
-    assert_eq!(after.gateway_bond_min, args.gateway_bond_min);
     assert_eq!(after.challenger_bounty_bps, args.challenger_bounty_bps);
+    assert_eq!(
+        after.liveliness_penalty_per_miss,
+        args.liveliness_penalty_per_miss
+    );
+    assert_eq!(
+        after.liveliness_recovery_per_sign,
+        args.liveliness_recovery_per_sign
+    );
     assert_eq!(
         after.liveliness_freeze_threshold,
         args.liveliness_freeze_threshold
@@ -211,6 +223,14 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
     let event: ProtocolConfigUpdated = only_event(&meta);
     assert_eq!(event.min_signers, args.min_signers);
     assert_eq!(event.reward_per_signature, args.reward_per_signature);
+    assert_eq!(
+        event.liveliness_penalty_per_miss,
+        args.liveliness_penalty_per_miss
+    );
+    assert_eq!(
+        event.liveliness_recovery_per_sign,
+        args.liveliness_recovery_per_sign
+    );
     assert_eq!(
         event.liveliness_freeze_threshold,
         args.liveliness_freeze_threshold
@@ -324,4 +344,147 @@ fn update_config_rejects_a_challenger_bounty_over_one_hundred_percent() {
     // The rejected value never lands.
     let config: ProtocolConfig = p.env.get(&pda::protocol_config());
     assert_eq!(config.challenger_bounty_bps, p.args.challenger_bounty_bps);
+}
+
+// Run each invalid configuration through both public instructions and assert atomicity.
+macro_rules! rejects_config {
+    ($name:ident, $field:ident, $value:expr, $error:ident) => {
+        #[test]
+        fn $name() {
+            let mut b = bare();
+            let mut args = default_initialize_args(b.usdc_mint);
+            args.$field = $value;
+            let ix = initialize_ix(&b.authority.pubkey(), &b.usdc_mint, &args);
+            let failed = b.env.send_err(&[ix], &[&b.authority]);
+            assert_molpha_error(&failed, MolphaError::$error);
+            // A failed initialization must leave the PDA available for a valid retry.
+            let ix = initialize_ix(
+                &b.authority.pubkey(),
+                &b.usdc_mint,
+                &default_initialize_args(b.usdc_mint),
+            );
+            b.env.send_ok(&[ix], &[&b.authority]);
+
+            let mut p = Protocol::start();
+            let before = p.env.account_data(&pda::protocol_config());
+            let mut args = tuned_update_args();
+            args.$field = $value;
+            let authority = p.authority.insecure_clone();
+            let ix = update_config_ix(&authority.pubkey(), &args);
+            let failed = p.env.send_err(&[ix], &[&authority]);
+            assert_molpha_error(&failed, MolphaError::$error);
+            assert_eq!(p.env.account_data(&pda::protocol_config()), before);
+        }
+    };
+}
+
+rejects_config!(
+    zero_penalty,
+    liveliness_penalty_per_miss,
+    0,
+    InvalidLivelinessPenalty
+);
+rejects_config!(
+    excessive_penalty,
+    liveliness_penalty_per_miss,
+    10_001,
+    InvalidLivelinessPenalty
+);
+rejects_config!(
+    zero_recovery,
+    liveliness_recovery_per_sign,
+    0,
+    InvalidLivelinessRecovery
+);
+rejects_config!(
+    excessive_recovery,
+    liveliness_recovery_per_sign,
+    10_001,
+    InvalidLivelinessRecovery
+);
+rejects_config!(
+    zero_threshold,
+    liveliness_freeze_threshold,
+    0,
+    InvalidLivelinessFreezeThreshold
+);
+rejects_config!(
+    excessive_threshold,
+    liveliness_freeze_threshold,
+    10_001,
+    InvalidLivelinessFreezeThreshold
+);
+rejects_config!(
+    zero_deposit,
+    minimum_node_deposit,
+    0,
+    InvalidMinimumNodeDeposit
+);
+rejects_config!(
+    unrepresentable_delay,
+    max_settlement_delay_seconds,
+    u64::MAX,
+    InvalidMaxReceiptDelay
+);
+rejects_config!(
+    overflowing_timestamp,
+    max_settlement_delay_seconds,
+    i64::MAX as u64,
+    InvalidMaxReceiptDelay
+);
+rejects_config!(
+    overflowing_cooldown,
+    withdrawal_cooldown_slots,
+    u64::MAX,
+    InvalidWithdrawalCooldown
+);
+rejects_config!(
+    overflowing_rewards,
+    reward_per_signature,
+    u64::MAX,
+    InvalidRoundPrice
+);
+rejects_config!(
+    overflowing_price,
+    x402_round_base,
+    u64::MAX,
+    InvalidRoundPrice
+);
+
+#[test]
+fn initialize_rejects_invalid_redundancy_without_panicking() {
+    for redundancy_buffer in [0, 9, u8::MAX] {
+        let mut b = bare();
+        let mut args = default_initialize_args(b.usdc_mint);
+        args.redundancy_buffer = redundancy_buffer;
+        let ix = initialize_ix(&b.authority.pubkey(), &b.usdc_mint, &args);
+        let failed = b.env.send_err(&[ix], &[&b.authority]);
+        assert_molpha_error(&failed, MolphaError::InvalidRedundancyBuffer);
+    }
+}
+
+#[test]
+fn config_accepts_inclusive_boundaries_and_zero_optional_economics() {
+    for score in [1, 10_000] {
+        let mut b = bare();
+        let mut args = default_initialize_args(b.usdc_mint);
+        args.liveliness_freeze_threshold = score;
+        args.liveliness_penalty_per_miss = score;
+        args.liveliness_recovery_per_sign = score;
+        args.redundancy_buffer = if score == 1 { 1 } else { 8 };
+        args.challenger_bounty_bps = 0;
+        args.reward_per_signature = 0;
+        args.x402_round_base = 0;
+        let ix = initialize_ix(&b.authority.pubkey(), &b.usdc_mint, &args);
+        b.env.send_ok(&[ix], &[&b.authority]);
+        let mut update = tuned_update_args();
+        update.liveliness_freeze_threshold = score;
+        update.liveliness_penalty_per_miss = score;
+        update.liveliness_recovery_per_sign = score;
+        update.challenger_bounty_bps = 10_000;
+        update.reward_per_signature = 0;
+        update.x402_round_base = u64::MAX;
+        let ix = update_config_ix(&b.authority.pubkey(), &update);
+        b.env.send_ok(&[ix], &[&b.authority]);
+    }
 }

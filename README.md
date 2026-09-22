@@ -27,7 +27,7 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 - registration requires a domain-separated Schnorr proof of possession bound to the program and
   derived node identity; verifier hot paths rely on this registration invariant
 - `update_registry_policy` snapshots redundancy-policy changes without changing membership
-- **Liveliness scoring** — each `Node` carries a score (max 10,000). Round finalization penalizes
+- **Liveliness scoring** — each `Node` carries a score (max 10,000). Round settlement penalizes
   missed selections and rewards participation; `slash_offence` with `Offence::Inactivity` evicts
   nodes whose score drops below `liveliness_freeze_threshold`, and `reinstate_node` restores them
   after cooldown
@@ -57,12 +57,13 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 ### Rounds
 
 - Two settlement instructions, discriminated by funding source: `settle_subscription_round`
-  (draws down a subscription's round quota) and `settle_x402_round` (a bonded gateway pays the
+  (draws down a subscription's round quota) and `settle_x402_round` (the gateway pays the
   protocol-quoted price from its canonical USDC ATA — any payment rail, e.g. Solana or Base x402 —
   and records `payment_rail` / `payment_ref` as attested, gateway-claimed metadata the program
   never verifies). Both take the coalition's signed `Attestation` (payload + aggregate signature)
   as an argument, keyed by its `source_id` directly (not a derived `feed_id` / `api_config_hash`),
-  and store the signature unverified for `finalize_round`.
+  verify it immediately, credit signer rewards, and update liveliness. A consumer-scoped replay
+  marker PDA prevents the same round authorization from being settled twice.
 - `RequestAuth` is `H(program_id, gateway, source_id, signatures_required, timestamp)`, with the
   last three taken from the attestation payload (`timestamp` = `canonical_timestamp`), verified
   on-chain for the subscription path. The `program_id` and `gateway` fields scope the
@@ -86,9 +87,9 @@ programs/
 │       │   ├── admin/              # initialize.rs, update_config.rs, add_plan.rs, ...
 │       │   ├── node/                # register_node.rs, deactivate_node.rs, update_node_endpoint.rs, ...
 │       │   ├── delegate/            # add_delegate.rs, remove_delegate.rs, set_delegate_paused.rs
-│       │   ├── gateway/             # register_gateway.rs, claim_gateway_rewards.rs
+│       │   ├── gateway/             # register_gateway.rs, deactivate_gateway.rs
 │       │   ├── subscriptions/       # subscribe.rs, extend_subscription.rs
-│       │   ├── round_settlement/    # settle_*_round.rs, validate_round.rs, finalize_round.rs
+│       │   ├── round_settlement/    # settle_subscription_round.rs, settle_x402_round.rs
 │       │   ├── slashing/            # slash_offence.rs
 │       │   ├── submit_attestation.rs / verify_attestation.rs
 │       ├── state/
@@ -99,7 +100,7 @@ programs/
 │       │   ├── feed.rs
 │       │   ├── gateway.rs
 │       │   ├── offence/             # Offence enum, evidence, penalties
-│       │   └── round_receipt.rs / receipt.rs / punishment_case.rs
+│       │   └── round_replay.rs / receipt.rs / punishment_case.rs
 │       ├── utils/
 │       │   ├── ed25519.rs
 │       │   ├── settlement.rs      # Attestation shape checks shared by both settlement paths
@@ -296,19 +297,16 @@ Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_G
 - PDA-scoped accounts and authority checks per instruction
 - USDC deposits and protocol fee configuration for node registration and subscriptions
 - Node deposits are custodied in a shared vault (`registry_state` ATA), isolated from treasury revenue
-- Gateway deactivation keeps its bond ATA slashable through the full dispute window
+- Gateway registration and deactivation are controlled by the protocol authority
 
 ### Withdrawals
 
 - `registry withdraw-deposit` releases a deactivated node's deposit after `withdrawable_at`, or
   the surviving balance of a tombstoned node after its punishment cooldown. Rewards remain on the
   separate `claim_node_rewards` path.
-- `gateway deactivate` is protocol-authority controlled. It immediately disables new settlement,
-  records deactivation on the permanent Gateway account, and leaves the bond ATA intact and
-  slashable.
-- `gateway withdraw-bond` is gateway-authority controlled and succeeds at the snapshotted first
-  slot past the dispute window. It transfers the surviving balance and closes only the bond ATA;
-  the deactivated Gateway identity remains permanent and cannot re-register.
+- `gateway deactivate` immediately disables new settlement and records deactivation on the
+  permanent Gateway account. Gateway registration is bondless, and a deactivated identity cannot
+  re-register.
 
 ## Contributing
 

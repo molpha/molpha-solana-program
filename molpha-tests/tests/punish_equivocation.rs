@@ -502,17 +502,10 @@ fn punishment_releases_the_reward_liability_it_cancels() {
     let mut case = case();
     let gateway = case.p.register_gateway(500_000_000);
 
-    // A settled and finalized round leaves every selected node with a reward credit.
+    // A settled round immediately leaves every signer with a reward credit.
     let round_duty = duty().source_id([0x77; 32]).at(1_700_000_500);
     let signed = case.p.sign_duty(round_duty);
     let x402 = case.p.x402_args(&signed, [0xaa; 32]);
-    let record = pda::x402_round(
-        &x402.payer_id,
-        &pda::gateway(&gateway.pubkey()),
-        &round_duty.source_id,
-        round_duty.signatures_required,
-        round_duty.canonical_timestamp,
-    );
     let settle = case
         .p
         .settle_x402_round_ix(&gateway.pubkey(), &signed.attestation(), x402);
@@ -522,15 +515,6 @@ fn punishment_releases_the_reward_liability_it_cancels() {
     let credited = case
         .p
         .node_pdas_for_bitmap(round_duty.registry_version, &signed.signers_bitmap);
-    case.p
-        .env
-        .advance_slots(case.p.args.dispute_window_slots + 1);
-    let caller = case.p.env.keypair();
-    let ix = case
-        .p
-        .finalize_round_ix(&caller.pubkey(), &record, &credited);
-    case.p.env.send_ok(&[ix], &[&caller]);
-
     let reward = case.p.args.reward_per_signature;
     let liability_before = case.p.reward_liability();
     assert_eq!(liability_before, reward * credited.len() as u64);
