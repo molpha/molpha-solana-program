@@ -43,7 +43,7 @@ pub fn submit_attestation<'info>(
     let clock = Clock::get()?;
 
     validate_attestation(
-        &ctx.remaining_accounts,
+        ctx.remaining_accounts,
         &ctx.accounts.registry,
         &ctx.accounts.protocol_config,
         &attestation,

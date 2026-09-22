@@ -48,7 +48,7 @@ pub fn settle_subscription_round<'info>(
     );
 
     validate_attestation(
-        &ctx.remaining_accounts,
+        ctx.remaining_accounts,
         &ctx.accounts.registry,
         &ctx.accounts.config,
         &attestation,
@@ -59,7 +59,7 @@ pub fn settle_subscription_round<'info>(
         &ctx.accounts.registry,
         &mut ctx.accounts.config,
         &ctx.accounts.treasury,
-        &ctx.remaining_accounts,
+        ctx.remaining_accounts,
         &attestation,
         ctx.accounts.round_replay.key(),
     )?;
