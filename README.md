@@ -149,10 +149,10 @@ anchor build -p molpha
 # Full test suite: unit tests + LiteSVM integration tests, all in molpha-tests
 cargo test --workspace
 
-# One area at a time
-cargo test -p molpha-tests --test settle_subscription
-cargo test -p molpha-tests --test encoding                # pure unit tests, no .so needed
-cargo test -p molpha-tests --test limits -- --nocapture   # prints CU and transaction sizes
+# One area at a time (all files are modules of the single `suite` binary)
+cargo test -p molpha-tests --test suite settle_subscription
+cargo test -p molpha-tests --test suite encoding          # pure unit tests, no .so needed
+cargo test -p molpha-tests --test suite limits -- --nocapture   # prints CU and transaction sizes
 ```
 
 Tests run against [LiteSVM](https://github.com/LiteSVM/litesvm): no validator, no ledger, no
@@ -179,7 +179,7 @@ Program IDs are defined in [`Anchor.toml`](Anchor.toml) (see below).
 
 ### Coalition size limits (`submit_attestation`)
 
-Measured by `cargo test -p molpha-tests --test limits -- --nocapture`, which asserts these
+Measured by `cargo test -p molpha-tests --test suite limits -- --nocapture`, which asserts these
 numbers rather than reporting them:
 
 | Signers | Compute units | Transaction bytes |
