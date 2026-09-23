@@ -1,3 +1,12 @@
+//! Permissionless rent reclaim for settlement replay markers.
+//!
+//! A marker only guards against settling the same round twice. Settlement rejects any
+//! `canonical_timestamp` older than `now - max_settlement_delay_seconds`, and
+//! `ProtocolConfig::validate` caps that delay at [`MAX_SETTLEMENT_DELAY_CAP_SECONDS`]. Once
+//! `timestamp + MAX_SETTLEMENT_DELAY_CAP_SECONDS < now`, no configuration can make the round
+//! settleable again, so the marker can be closed and its rent returned to the gateway authority
+//! that paid for it.
+
 use anchor_lang::prelude::*;
 
 use crate::{
@@ -8,20 +17,24 @@ use crate::{
 
 pub fn close_round_replay(ctx: Context<CloseRoundReplay>) -> Result<()> {
     let round_replay = &ctx.accounts.round_replay;
-
     let clock = Clock::get()?;
+    // A pre-1970 cluster clock is broken; clamping to 0 fails closed.
+    let now = u64::try_from(clock.unix_timestamp).unwrap_or(0);
+
     require!(
         round_replay
-            .recorded_at
-            .saturating_add(MAX_SETTLEMENT_DELAY_CAP_SECONDS as i64)
-            < clock.unix_timestamp,
+            .timestamp
+            .saturating_add(MAX_SETTLEMENT_DELAY_CAP_SECONDS)
+            < now,
         MolphaError::RoundReplayNotExpired
     );
 
     emit!(RoundReplayClosed {
         round_replay: round_replay.key(),
+        round_id: round_replay.round_id,
         gateway: ctx.accounts.gateway.key(),
         rent_receiver: ctx.accounts.rent_receiver.key(),
+        canonical_timestamp: round_replay.timestamp,
         closed_at: clock.unix_timestamp,
     });
 
@@ -40,7 +53,17 @@ pub struct CloseRoundReplay<'info> {
     )]
     pub rent_receiver: UncheckedAccount<'info>,
 
-    /// Seeds are verified in the handler (the prefix depends on `args.kind`).
-    #[account(mut, close = rent_receiver)]
+    /// The seeds bind the marker to `gateway`: without them, a marker settled through one gateway
+    /// could be closed against another and its rent paid to the wrong authority.
+    #[account(
+        mut,
+        close = rent_receiver,
+        seeds = [
+            RoundReplayMarker::SEED_PREFIX,
+            gateway.key().as_ref(),
+            round_replay.round_id.as_ref(),
+        ],
+        bump = round_replay.bump,
+    )]
     pub round_replay: Account<'info, RoundReplayMarker>,
 }

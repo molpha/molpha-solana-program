@@ -13,6 +13,8 @@ use crate::{
     state::{Node, ProtocolConfig, Registry},
 };
 
+pub const DOMAIN_ROUND_ID: &[u8] = b"MOLPHA_ROUND_ID_V1";
+
 pub(crate) fn credit_round_rewards<'info>(
     registry_acc: &AccountLoader<'info, Registry>,
     config: &mut Account<'info, ProtocolConfig>,

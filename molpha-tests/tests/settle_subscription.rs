@@ -68,9 +68,15 @@ fn settle_ixs(
     ]
 }
 
+/// Replay marker for `duty` settled by the subscription owner itself.
 fn round_record(f: &Fixture, duty: &Duty) -> Pubkey {
+    round_record_for(f, &f.owner.pubkey(), duty)
+}
+
+/// Replay marker for `duty` settled by `consumer` (owner or delegate).
+fn round_record_for(f: &Fixture, consumer: &Pubkey, duty: &Duty) -> Pubkey {
     pda::subscription_round(
-        &f.owner.pubkey(),
+        consumer,
         &pda::gateway(&f.gateway.pubkey()),
         &duty.source_id,
         duty.signatures_required,
@@ -137,7 +143,12 @@ fn delegate_settlement_consumes_the_delegates_request_quota() {
     assert_eq!(account.data_requests_used, 1);
     let subscription: Subscription = f.p.env.get(&pda::subscription(&owner.pubkey()));
     assert_eq!(subscription.used_rounds, 1);
-    assert!(f.p.env.account_exists(&round_record(&f, &duty)));
+    // The marker is scoped to the delegate that signed, not to the subscription owner.
+    assert!(f
+        .p
+        .env
+        .account_exists(&round_record_for(&f, &delegate.pubkey(), &duty)));
+    assert!(!f.p.env.account_exists(&round_record(&f, &duty)));
 }
 
 #[test]
@@ -189,6 +200,51 @@ fn the_same_round_cannot_be_settled_twice() {
         subscription.used_rounds, 1,
         "the replay must not burn quota"
     );
+}
+
+/// Replay scope is the signing consumer: the owner and each delegate may each settle a coalesced
+/// round once (each pays quota), but none of them twice.
+#[test]
+fn owner_and_delegate_each_settle_a_shared_round_once() {
+    let mut f = fixture();
+    let owner = f.owner.insecure_clone();
+    let gateway = f.gateway.insecure_clone();
+    let delegate = f.p.env.keypair();
+    f.p.add_delegate(&owner, &delegate.pubkey(), 5);
+    let delegate_pda = pda::delegate(&owner.pubkey(), &delegate.pubkey());
+    let duty = duty(4);
+    let signed = f.p.sign_duty(duty);
+
+    let ixs = settle_ixs(&f, &owner, None, &signed);
+    f.p.env.send_ok(&ixs, &[&owner, &gateway]);
+    let ixs = settle_ixs(&f, &delegate, Some(delegate_pda), &signed);
+    f.p.env.send_ok(&ixs, &[&delegate, &gateway]);
+
+    assert_ne!(
+        round_record(&f, &duty),
+        round_record_for(&f, &delegate.pubkey(), &duty)
+    );
+    let subscription: Subscription = f.p.env.get(&pda::subscription(&owner.pubkey()));
+    assert_eq!(subscription.used_rounds, 2);
+
+    let ixs = settle_ixs(&f, &delegate, Some(delegate_pda), &signed);
+    let failed = f.p.env.send_err(&ixs, &[&delegate, &gateway]);
+    assert!(
+        failed
+            .meta
+            .logs
+            .iter()
+            .any(|l| l.contains("already in use")),
+        "logs:\n{}",
+        failed.meta.logs.join("\n")
+    );
+    let subscription: Subscription = f.p.env.get(&pda::subscription(&owner.pubkey()));
+    assert_eq!(
+        subscription.used_rounds, 2,
+        "the replay must not burn quota"
+    );
+    let account: Delegate = f.p.env.get(&delegate_pda);
+    assert_eq!(account.data_requests_used, 1);
 }
 
 // ---------------------------------------------------------------------------

@@ -245,7 +245,9 @@ pub struct NodeReinstated {
 #[event]
 pub struct RoundReplayClosed {
     pub round_replay: Pubkey,
+    pub round_id: [u8; 32],
     pub gateway: Pubkey,
     pub rent_receiver: Pubkey,
+    pub canonical_timestamp: u64,
     pub closed_at: i64,
 }

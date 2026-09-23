@@ -833,8 +833,9 @@ impl Protocol {
             treasury: self.treasury(),
             consumer_delegate,
             gateway,
+            // Markers are scoped to the signing consumer, not the subscription owner.
             round_replay: pda::subscription_round(
-                subscription_owner,
+                consumer_authority,
                 &gateway,
                 &duty.source_id,
                 duty.signatures_required,

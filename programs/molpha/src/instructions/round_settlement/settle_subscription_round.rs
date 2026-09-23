@@ -6,7 +6,7 @@ use crate::{
     events::RoundSettled,
     state::{
         hash_request_auth_fields, Delegate, Gateway, GatewayStatus, ProtocolConfig, Registry,
-        RoundReplayMarker, Subscription,
+        RoundReplayKind, RoundReplayMarker, Subscription,
     },
     utils::{
         attestation::{validate_attestation, NodeAccountLayout},
@@ -67,8 +67,15 @@ pub fn settle_subscription_round<'info>(
     )?;
 
     subscription.consume_round()?;
-    ctx.accounts.round_replay.bump = ctx.bumps.round_replay;
-    ctx.accounts.round_replay.recorded_at = clock.unix_timestamp;
+    ctx.accounts.round_replay.init(
+        RoundReplayMarker::round_id(
+            RoundReplayKind::Subscription,
+            &attestation,
+            &consumer_authority.to_bytes(),
+        ),
+        attestation.payload.canonical_timestamp,
+        ctx.bumps.round_replay,
+    );
 
     emit!(RoundSettled {
         gateway: gateway.key(),
@@ -82,6 +89,18 @@ pub fn settle_subscription_round<'info>(
 
     Ok(())
 }
+
+// /// Replay scope for the subscription path: one settlement per signing consumer (owner or delegate)
+// /// per gateway and round.
+// fn subscription_round_id(attestation: &Attestation, consumer_authority: &Pubkey) -> [u8; 32] {
+//     RoundReplayMarker::round_id(
+//         RoundReplayKind::Subscription,
+//         &attestation.payload.source_id,
+//         attestation.payload.signatures_required,
+//         attestation.payload.canonical_timestamp,
+//         &consumer_authority.to_bytes(),
+//     )
+// }
 
 fn authorize_consumer(
     subscription: &Account<'_, Subscription>,
@@ -167,11 +186,12 @@ pub struct SettleSubscriptionRound<'info> {
         space = RoundReplayMarker::SPACE,
         seeds = [
             RoundReplayMarker::SEED_PREFIX,
-            subscription.owner.as_ref(),
             gateway.key().as_ref(),
-            attestation.payload.source_id.as_ref(),
-            attestation.payload.signatures_required.to_le_bytes().as_ref(),
-            attestation.payload.canonical_timestamp.to_le_bytes().as_ref(),
+            &RoundReplayMarker::round_id(
+                RoundReplayKind::Subscription,
+                &attestation,
+                &consumer_authority.to_bytes(),
+            ),
         ],
         bump,
     )]

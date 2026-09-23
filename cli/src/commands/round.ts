@@ -15,19 +15,23 @@ import {
 import { hashRequestAuthFields } from "../lib/auth";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
+import { MAX_SETTLEMENT_DELAY_CAP_SECONDS } from "../lib/protocol-config";
 import {
   buildAttestation,
   settlementRemainingAccounts,
 } from "../lib/signing/attestation";
 import {
+  deriveRoundId,
   findDelegatePda,
   findGatewayPda,
   findProtocolConfigPda,
   findRegistryPda,
+  findRoundReplayPda,
   findSubscriptionPda,
   findSubscriptionRoundPda,
   findTreasuryAta,
   findX402RoundPda,
+  RoundReplayKind,
 } from "../lib/pdas";
 import {
   bn,
@@ -127,9 +131,10 @@ export function registerRoundCommands(program: Command): void {
         attestation.payload,
         schnorrSignature.signersBitmap,
       );
+      // Replay markers are scoped to the signing consumer (owner or delegate).
       const [roundReplay] = findSubscriptionRoundPda(
         ctx.programId,
-        subscriptionOwner,
+        consumer.publicKey,
         gatewayPda,
         sourceId,
         signaturesRequired,
@@ -331,4 +336,116 @@ export function registerRoundCommands(program: Command): void {
         creditedBits,
       });
     });
+
+  round
+    .command("close-replay")
+    .description(
+      "Close an expired settlement replay marker; rent goes to the gateway authority",
+    )
+    .requiredOption(
+      "--gateway-authority <pubkey>",
+      "authority of the gateway the round was settled through",
+    )
+    .option("--address <pubkey>", "replay marker address")
+    .option(
+      "--kind <kind>",
+      "settlement path when deriving the marker: subscription | x402",
+    )
+    .option(
+      "--initiator <value>",
+      "signing consumer pubkey (subscription) or 32-byte payer id hex (x402)",
+    )
+    .option("--source-id <hex>", "32-byte source identifier")
+    .option("--signatures-required <number>", "quorum threshold")
+    .option("--canonical-timestamp <number>", "canonical timestamp")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const gatewayAuthority = parsePublicKey(
+        options.gatewayAuthority,
+        "gateway authority",
+      );
+      const [gatewayPda] = findGatewayPda(ctx.programId, gatewayAuthority);
+      const roundReplay = options.address
+        ? parsePublicKey(options.address, "replay marker")
+        : findRoundReplayPda(
+            ctx.programId,
+            gatewayPda,
+            roundIdFromOptions(options),
+          )[0];
+
+      const marker = await fetchAccountOrNull<any>(
+        ctx.program,
+        "roundReplayMarker",
+        roundReplay,
+      );
+      if (!marker) {
+        throw new Error(`Replay marker ${roundReplay.toBase58()} not found`);
+      }
+      const closableAfter =
+        BigInt(marker.timestamp.toString()) +
+        BigInt(MAX_SETTLEMENT_DELAY_CAP_SECONDS);
+      const slot = await ctx.connection.getSlot();
+      const now = await ctx.connection.getBlockTime(slot);
+      if (now !== null && BigInt(now) <= closableAfter) {
+        throw new Error(
+          `Replay marker is closable after unix time ${closableAfter} (cluster time ${now})`,
+        );
+      }
+
+      const signature = await (ctx.program.methods as any)
+        .closeRoundReplay()
+        .accountsPartial({
+          gateway: gatewayPda,
+          rentReceiver: gatewayAuthority,
+          roundReplay,
+        })
+        .rpc();
+
+      writeJson({
+        signature,
+        roundReplay: roundReplay.toBase58(),
+        roundId: `0x${Buffer.from(marker.roundId).toString("hex")}`,
+        rentReceiver: gatewayAuthority.toBase58(),
+      });
+    });
+}
+
+/** Re-derive a replay marker's round id from `close-replay` options. */
+export function roundIdFromOptions(options: {
+  kind?: string;
+  initiator?: string;
+  sourceId?: string;
+  signaturesRequired?: string;
+  canonicalTimestamp?: string;
+}): Uint8Array {
+  const missing = [
+    "kind",
+    "initiator",
+    "sourceId",
+    "signaturesRequired",
+    "canonicalTimestamp",
+  ].filter((key) => (options as any)[key] === undefined);
+  if (missing.length > 0) {
+    throw new Error(
+      `Pass --address, or all of --kind --initiator --source-id --signatures-required --canonical-timestamp (missing: ${missing.join(", ")})`,
+    );
+  }
+  let kind: RoundReplayKind;
+  let initiator: Uint8Array;
+  if (options.kind === "subscription") {
+    kind = RoundReplayKind.Subscription;
+    initiator = parsePublicKey(options.initiator!, "initiator").toBytes();
+  } else if (options.kind === "x402") {
+    kind = RoundReplayKind.X402;
+    initiator = hexToBytes(options.initiator!, 32, "initiator");
+  } else {
+    throw new Error("--kind must be subscription or x402");
+  }
+  return deriveRoundId(
+    kind,
+    hexToBytes(options.sourceId!, 32, "source id"),
+    parseInteger(options.signaturesRequired!, "signatures required"),
+    parseInteger(options.canonicalTimestamp!, "canonical timestamp"),
+    initiator,
+  );
 }

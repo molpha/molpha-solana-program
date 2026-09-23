@@ -4,7 +4,7 @@
 use crate::{
     error::MolphaError,
     events::X402RoundSettled,
-    state::{Gateway, GatewayStatus, ProtocolConfig, Registry, RoundReplayMarker},
+    state::{Gateway, GatewayStatus, ProtocolConfig, Registry, RoundReplayKind, RoundReplayMarker},
     utils::{
         attestation::{validate_attestation, NodeAccountLayout},
         settlement::credit_round_rewards,
@@ -110,8 +110,11 @@ pub fn settle_x402_round<'info>(
         ctx.accounts.round_replay.key(),
     )?;
 
-    ctx.accounts.round_replay.bump = ctx.bumps.round_replay;
-    ctx.accounts.round_replay.recorded_at = clock.unix_timestamp;
+    ctx.accounts.round_replay.init(
+        RoundReplayMarker::round_id(RoundReplayKind::X402, &attestation, &args.payer_id),
+        attestation.payload.canonical_timestamp,
+        ctx.bumps.round_replay,
+    );
 
     emit!(X402RoundSettled {
         payer_id: args.payer_id,
@@ -175,12 +178,9 @@ pub struct SettleX402Round<'info> {
         payer = authority,
         space = RoundReplayMarker::SPACE,
         seeds = [
-            RoundReplayMarker::X402_SEED_PREFIX,
-            args.payer_id.as_ref(),
+            RoundReplayMarker::SEED_PREFIX,
             gateway.key().as_ref(),
-            attestation.payload.source_id.as_ref(),
-            attestation.payload.signatures_required.to_le_bytes().as_ref(),
-            attestation.payload.canonical_timestamp.to_le_bytes().as_ref(),
+            &RoundReplayMarker::round_id(RoundReplayKind::X402, &attestation, &args.payer_id),
         ],
         bump,
     )]
