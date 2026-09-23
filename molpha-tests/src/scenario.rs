@@ -164,8 +164,10 @@ pub fn default_initialize_args(usdc_mint: Pubkey) -> InitializeArgs {
         max_settlement_delay_seconds: 604_800,
         challenger_bounty_bps: 500,
         liveliness_freeze_threshold: 5_000,
-        liveliness_penalty_per_miss: 500,
-        liveliness_recovery_per_sign: 100,
+        // Break-even inclusion rate penalty / (penalty + recovery) = 10%, below the lowest
+        // average inclusion k / (k + b) any allowed config produces (3 / 11 at b = 8).
+        liveliness_penalty_per_miss: 10,
+        liveliness_recovery_per_sign: 90,
         usdc_mint,
         x402_round_base: 1_000_000,
         min_signers: 3,
@@ -911,6 +913,25 @@ impl Protocol {
                 args,
             }
             .data(),
+        }
+    }
+
+    /// `close_round_replay` with an explicit marker account — for mismatch tests.
+    pub fn close_round_replay_ix_for(
+        &self,
+        gateway: &Pubkey,
+        rent_receiver: &Pubkey,
+        round_replay: &Pubkey,
+    ) -> Instruction {
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::CloseRoundReplay {
+                gateway: *gateway,
+                rent_receiver: *rent_receiver,
+                round_replay: *round_replay,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::CloseRoundReplay.data(),
         }
     }
 

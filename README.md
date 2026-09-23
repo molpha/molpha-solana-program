@@ -63,7 +63,10 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
   never verifies). Both take the coalition's signed `Attestation` (payload + aggregate signature)
   as an argument, keyed by its `source_id` directly (not a derived `feed_id` / `api_config_hash`),
   verify it immediately, credit signer rewards, and update liveliness. A consumer-scoped replay
-  marker PDA prevents the same round authorization from being settled twice.
+  marker PDA prevents the same round authorization from being settled twice. Once
+  `canonical_timestamp + MAX_SETTLEMENT_DELAY_CAP_SECONDS` (7 days) has passed, anyone can call
+  `close_round_replay` to return the marker's rent to the gateway authority; the cap on
+  `max_settlement_delay_seconds` guarantees a closed round can never be re-admitted.
 - `RequestAuth` is `H(program_id, gateway, source_id, signatures_required, timestamp)`, with the
   last three taken from the attestation payload (`timestamp` = `canonical_timestamp`), verified
   on-chain for the subscription path. The `program_id` and `gateway` fields scope the

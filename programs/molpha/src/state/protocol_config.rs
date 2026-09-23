@@ -3,6 +3,13 @@ use anchor_lang::prelude::*;
 
 pub const MIN_SIGNERS_FLOOR: u8 = 3;
 
+/// Hard ceiling on `max_settlement_delay_seconds` (7 days).
+///
+/// Replay markers become closable once `canonical_timestamp + MAX_SETTLEMENT_DELAY_CAP_SECONDS`
+/// has passed. Capping the configurable delay here guarantees a later config update can never
+/// re-open the freshness window for a round whose marker was already closed.
+pub const MAX_SETTLEMENT_DELAY_CAP_SECONDS: u64 = 604_800;
+
 #[account]
 #[derive(InitSpace)]
 pub struct ProtocolConfig {
@@ -41,6 +48,7 @@ impl ProtocolConfig {
         let now = Clock::get()?;
         require!(
             self.max_settlement_delay_seconds > 0
+                && self.max_settlement_delay_seconds <= MAX_SETTLEMENT_DELAY_CAP_SECONDS
                 && i64::try_from(self.max_settlement_delay_seconds)
                     .ok()
                     .and_then(|delay| now.unix_timestamp.checked_add(delay))
@@ -98,11 +106,11 @@ impl ProtocolConfig {
         let total = self
             .reward_per_signature
             .checked_mul(u64::from(signer_count))
-            .ok_or(MolphaError::TreasuryInsolvent)?;
+            .ok_or(MolphaError::RewardOverflow)?;
         self.reward_liability = self
             .reward_liability
             .checked_add(total)
-            .ok_or(MolphaError::TreasuryInsolvent)?;
+            .ok_or(MolphaError::RewardOverflow)?;
 
         Ok(())
     }

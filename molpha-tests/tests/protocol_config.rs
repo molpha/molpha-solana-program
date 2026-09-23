@@ -427,6 +427,12 @@ rejects_config!(
     InvalidMaxReceiptDelay
 );
 rejects_config!(
+    delay_above_cap,
+    max_settlement_delay_seconds,
+    molpha::state::MAX_SETTLEMENT_DELAY_CAP_SECONDS + 1,
+    InvalidMaxReceiptDelay
+);
+rejects_config!(
     overflowing_timestamp,
     max_settlement_delay_seconds,
     i64::MAX as u64,

@@ -9,7 +9,8 @@ use crate::{
         RoundReplayMarker, Subscription,
     },
     utils::{
-        attestation::validate_attestation, ed25519::verify_ed25519_signature,
+        attestation::{validate_attestation, NodeAccountLayout},
+        ed25519::verify_ed25519_signature,
         settlement::credit_round_rewards,
     },
 };
@@ -49,6 +50,7 @@ pub fn settle_subscription_round<'info>(
 
     validate_attestation(
         ctx.remaining_accounts,
+        NodeAccountLayout::SignersThenOthers,
         &ctx.accounts.registry,
         &ctx.accounts.config,
         &attestation,
@@ -66,6 +68,7 @@ pub fn settle_subscription_round<'info>(
 
     subscription.consume_round()?;
     ctx.accounts.round_replay.bump = ctx.bumps.round_replay;
+    ctx.accounts.round_replay.recorded_at = clock.unix_timestamp;
 
     emit!(RoundSettled {
         gateway: gateway.key(),

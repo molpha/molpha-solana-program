@@ -35,8 +35,11 @@ export function validateProtocolConfig(args: ProtocolConfigArgs): void {
       );
     }
   }
-  if (args.maxSettlementDelaySeconds.gt(new BN("9223372036854775807"))) {
-    throw new Error("maxSettlementDelaySeconds must fit an i64 timestamp");
+  // Mirrors MAX_SETTLEMENT_DELAY_CAP_SECONDS in the program (7 days).
+  if (args.maxSettlementDelaySeconds.gt(new BN(604_800))) {
+    throw new Error(
+      "maxSettlementDelaySeconds must not exceed 604800 (7 days)",
+    );
   }
   for (const [field, min, max] of [
     ["challengerBountyBps", 0, 10000],

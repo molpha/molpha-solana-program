@@ -7,7 +7,7 @@ use crate::{
     error::MolphaError,
     events::FeedUpdated,
     state::{Feed, FeedValueKind, ProtocolConfig, Registry},
-    utils::attestation::validate_attestation,
+    utils::attestation::{validate_attestation, NodeAccountLayout},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -44,6 +44,7 @@ pub fn submit_attestation<'info>(
 
     validate_attestation(
         ctx.remaining_accounts,
+        NodeAccountLayout::SignersOnly,
         &ctx.accounts.registry,
         &ctx.accounts.protocol_config,
         &attestation,

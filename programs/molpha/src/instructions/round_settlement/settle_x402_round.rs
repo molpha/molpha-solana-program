@@ -5,7 +5,10 @@ use crate::{
     error::MolphaError,
     events::X402RoundSettled,
     state::{Gateway, GatewayStatus, ProtocolConfig, Registry, RoundReplayMarker},
-    utils::{attestation::validate_attestation, settlement::credit_round_rewards},
+    utils::{
+        attestation::{validate_attestation, NodeAccountLayout},
+        settlement::credit_round_rewards,
+    },
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
@@ -70,6 +73,7 @@ pub fn settle_x402_round<'info>(
 
     validate_attestation(
         ctx.remaining_accounts,
+        NodeAccountLayout::SignersThenOthers,
         &ctx.accounts.registry,
         &ctx.accounts.config,
         &attestation,
@@ -105,7 +109,9 @@ pub fn settle_x402_round<'info>(
         &attestation,
         ctx.accounts.round_replay.key(),
     )?;
+
     ctx.accounts.round_replay.bump = ctx.bumps.round_replay;
+    ctx.accounts.round_replay.recorded_at = clock.unix_timestamp;
 
     emit!(X402RoundSettled {
         payer_id: args.payer_id,

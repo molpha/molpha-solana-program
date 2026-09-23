@@ -94,11 +94,11 @@ test("u64 and price overflow checks, and positive required fields", () => {
   assert.throws(
     () =>
       buildUpdateConfigArgs(
-        { maxSettlementDelaySeconds: "9223372036854775808" },
+        { maxSettlementDelaySeconds: "604801" },
         {},
         config(),
       ),
-    /timestamp/,
+    /604800/,
   );
   assert.throws(
     () =>

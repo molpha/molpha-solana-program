@@ -241,3 +241,11 @@ pub struct NodeReinstated {
     pub registry_version: u32,
     pub reinstated_at: i64,
 }
+
+#[event]
+pub struct RoundReplayClosed {
+    pub round_replay: Pubkey,
+    pub gateway: Pubkey,
+    pub rent_receiver: Pubkey,
+    pub closed_at: i64,
+}
