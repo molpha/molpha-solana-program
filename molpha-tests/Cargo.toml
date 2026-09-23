@@ -4,10 +4,18 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 description = "LiteSVM integration tests for the Molpha Solana program"
+# Each file under tests/ would otherwise become its own executable, and every one statically
+# links LiteSVM plus the Agave runtime. Parallel links of those binaries exhaust CI memory and
+# rust-lld dies with SIGBUS. One harness links that graph once; the files stay modules of it.
+autotests = false
 
 [lib]
 name = "molpha_tests"
 path = "src/lib.rs"
+
+[[test]]
+name = "suite"
+path = "tests/suite.rs"
 
 [dependencies]
 molpha = { path = "../programs/molpha", features = ["no-entrypoint"] }

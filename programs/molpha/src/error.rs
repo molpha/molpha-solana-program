@@ -194,6 +194,16 @@ pub enum MolphaError {
     InvalidLivelinessRecovery,
     #[msg("base price plus rewards for the maximum signer count must fit u64")]
     InvalidRoundPrice,
+    #[msg("reward or reward liability arithmetic overflowed")]
+    RewardOverflow,
+    #[msg("round replay marker is still inside the maximum settlement window")]
+    RoundReplayNotExpired,
+    #[msg("round replay marker does not match the supplied round identity")]
+    InvalidRoundReplayAccount,
+    #[msg("rent receiver must be the gateway authority that paid for the marker")]
+    InvalidRentReceiver,
+    #[msg("signer account list must contain exactly one account per signer")]
+    UnexpectedSignerAccounts,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {

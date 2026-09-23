@@ -26,7 +26,9 @@ stale `.so` silently tests the old binary.
 | `src/token.rs`      | hand-encoded SPL Token / ATA instructions and account readers           |
 | `fixtures/`         | the cross-chain golden vector shared with the EVM validator             |
 
-One test file per instruction group: `protocol_config`, `plans_and_subscriptions`, `delegates`,
+The files are modules of one `suite` binary (`tests/suite.rs`), so `cargo test` links LiteSVM
+once. Filter an area with `cargo test -p molpha-tests --test suite <file>`. One file per
+instruction group: `protocol_config`, `plans_and_subscriptions`, `delegates`,
 `node_registry`, `reinstate_node`, `liveliness`, `gateway`, `attestation`, `settle_subscription`, `settle_x402`,
 `rounds`, `punish_equivocation`, `punish_unsolicited_signing`, `punish_commitment_reuse`,
 `punish_nonce_reuse`, `slash_offence`, plus `evm_compatibility` and `limits`.

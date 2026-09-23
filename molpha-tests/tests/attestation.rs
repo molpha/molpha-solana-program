@@ -481,3 +481,17 @@ fn the_freshness_window_comes_from_config() {
 
     submit(&mut p, &submitter, duty().at(now - 1_000));
 }
+
+#[test]
+fn trailing_accounts_after_the_signers_are_rejected() {
+    let mut p = with_nodes("submit-trailing-accounts");
+    let submitter = p.env.keypair();
+    let signed = p.sign_duty(duty());
+
+    let mut accounts = signed.signer_pdas.clone();
+    accounts.push(pda::protocol_config());
+    let ix =
+        p.submit_attestation_ix_with_args(&submitter.pubkey(), signed.submit_args(), &accounts);
+    let failed = p.env.send_err(&[ix], &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::UnexpectedSignerAccounts);
+}

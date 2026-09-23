@@ -7,12 +7,16 @@ const { registerRoundCommands } = require("../dist/commands/round");
 test("gateway CLI exposes only registration and deactivation", () => {
   const program = new Command();
   registerGatewayCommands(program);
-  const gateway = program.commands.find((command) => command.name() === "gateway");
+  const gateway = program.commands.find(
+    (command) => command.name() === "gateway",
+  );
   assert.deepEqual(
     gateway.commands.map((command) => command.name()),
     ["register", "deactivate"],
   );
-  const register = gateway.commands.find((command) => command.name() === "register");
+  const register = gateway.commands.find(
+    (command) => command.name() === "register",
+  );
   const flags = register.options.map((option) => option.long);
   assert.ok(flags.includes("--gateway-authority"));
   assert.ok(!flags.includes("--bond-amount"));
@@ -24,9 +28,11 @@ test("round CLI exposes immediate settlement commands that require aggregate sig
   const round = program.commands.find((command) => command.name() === "round");
   assert.deepEqual(
     round.commands.map((command) => command.name()),
-    ["settle-subscription", "settle-x402"],
+    ["settle-subscription", "settle-x402", "close-replay"],
   );
-  for (const command of round.commands) {
+  for (const command of round.commands.filter(
+    (c) => c.name() !== "close-replay",
+  )) {
     const aggregateSignature = command.options.find(
       (option) => option.long === "--agg-sig",
     );

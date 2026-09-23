@@ -1,5 +1,8 @@
 import { BN } from "@coral-xyz/anchor";
 
+/** Mirrors `MAX_SETTLEMENT_DELAY_CAP_SECONDS` in the program (7 days). */
+export const MAX_SETTLEMENT_DELAY_CAP_SECONDS = 604_800;
+
 type ProtocolConfigArgs = {
   withdrawalCooldownSlots: BN;
   minimumNodeDeposit: BN;
@@ -35,8 +38,13 @@ export function validateProtocolConfig(args: ProtocolConfigArgs): void {
       );
     }
   }
-  if (args.maxSettlementDelaySeconds.gt(new BN("9223372036854775807"))) {
-    throw new Error("maxSettlementDelaySeconds must fit an i64 timestamp");
+  // Mirrors MAX_SETTLEMENT_DELAY_CAP_SECONDS in the program (7 days).
+  if (
+    args.maxSettlementDelaySeconds.gt(new BN(MAX_SETTLEMENT_DELAY_CAP_SECONDS))
+  ) {
+    throw new Error(
+      "maxSettlementDelaySeconds must not exceed 604800 (7 days)",
+    );
   }
   for (const [field, min, max] of [
     ["challengerBountyBps", 0, 10000],

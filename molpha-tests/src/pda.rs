@@ -6,8 +6,9 @@
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{
     Delegate, Feed, Gateway, Node, Plan, PlanType, ProtocolConfig, PunishmentCase, Registry,
-    RegistryState, RoundReplayMarker, Secp256k1KeyClaim, Subscription,
+    RegistryState, RoundReplayKind, RoundReplayMarker, Secp256k1KeyClaim, Subscription,
 };
+use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
 use solana_keccak_hasher::hashv;
 
 pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey =
@@ -71,23 +72,35 @@ pub fn feed(source_id: &[u8; 32], signatures_required: u8, submitter: &Pubkey) -
     ])
 }
 
-pub fn subscription_round(
-    subscription_owner: &Pubkey,
-    gateway: &Pubkey,
-    source_id: &[u8; 32],
-    signatures_required: u8,
-    timestamp: u64,
-) -> Pubkey {
+/// Replay marker for a round settled through `gateway` (a gateway PDA) under `round_id`.
+pub fn round_replay(gateway: &Pubkey, round_id: &[u8; 32]) -> Pubkey {
     pda(&[
         RoundReplayMarker::SEED_PREFIX,
-        subscription_owner.as_ref(),
         gateway.as_ref(),
-        source_id.as_ref(),
-        &signatures_required.to_le_bytes(),
-        &timestamp.to_le_bytes(),
+        round_id.as_ref(),
     ])
 }
 
+/// Subscription-path marker: scoped to the consumer that signed the request (owner or delegate).
+pub fn subscription_round(
+    consumer_authority: &Pubkey,
+    gateway: &Pubkey,
+    source_id: &[u8; 32],
+    signatures_required: u8,
+    canonical_timestamp: u64,
+) -> Pubkey {
+    let attestation = round_attestation(source_id, signatures_required, canonical_timestamp);
+    round_replay(
+        gateway,
+        &RoundReplayMarker::round_id(
+            RoundReplayKind::Subscription,
+            &attestation,
+            &consumer_authority.to_bytes(),
+        ),
+    )
+}
+
+/// x402-path marker: scoped to the rail-scoped `payer_id`.
 pub fn x402_round(
     payer_id: &[u8; 32],
     gateway: &Pubkey,
@@ -95,14 +108,33 @@ pub fn x402_round(
     signatures_required: u8,
     canonical_timestamp: u64,
 ) -> Pubkey {
-    pda(&[
-        RoundReplayMarker::X402_SEED_PREFIX,
-        payer_id.as_ref(),
-        gateway.as_ref(),
-        source_id.as_ref(),
-        &signatures_required.to_le_bytes(),
-        &canonical_timestamp.to_le_bytes(),
-    ])
+    let attestation = round_attestation(source_id, signatures_required, canonical_timestamp);
+    round_replay(
+        gateway,
+        &RoundReplayMarker::round_id(RoundReplayKind::X402, &attestation, payer_id),
+    )
+}
+
+/// `round_id` reads only `source_id`, `signatures_required`, and `canonical_timestamp`.
+fn round_attestation(
+    source_id: &[u8; 32],
+    signatures_required: u8,
+    canonical_timestamp: u64,
+) -> Attestation {
+    Attestation {
+        payload: AttestationPayload {
+            value: [0; 32],
+            source_id: *source_id,
+            registry_version: 0,
+            signatures_required,
+            canonical_timestamp,
+        },
+        signature: SchnorrSignature {
+            agg_sig_s: [0; 32],
+            commitment: [0; 20],
+            signers_bitmap: [0; 32],
+        },
+    }
 }
 
 pub fn punishment_case(evidence_hash: &[u8; 32]) -> Pubkey {

@@ -65,7 +65,7 @@ impl Node {
         self.claimable_rewards = self
             .claimable_rewards
             .checked_add(config.reward_per_signature)
-            .ok_or(crate::error::MolphaError::TreasuryInsolvent)?;
+            .ok_or(crate::error::MolphaError::RewardOverflow)?;
         self.liveliness_score = self
             .liveliness_score
             .saturating_add(config.liveliness_recovery_per_sign);

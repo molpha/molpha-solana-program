@@ -7,8 +7,19 @@ use crate::{
 };
 use molpha_verifier::{solana::verify_attestation, Attestation, Bitmap};
 
+/// How the caller lays out node accounts in `remaining_accounts`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum NodeAccountLayout {
+    /// Exactly one account per signer, nothing else (`submit_attestation`).
+    SignersOnly,
+    /// Signers first, then further accounts the caller validates itself (settlement appends the
+    /// missed selected nodes and checks the full length against the selection).
+    SignersThenOthers,
+}
+
 pub(crate) fn validate_attestation<'info>(
     node_accounts: &'info [AccountInfo<'info>],
+    layout: NodeAccountLayout,
     registry_acc: &AccountLoader<'info, Registry>,
     config: &ProtocolConfig,
     attestation: &Attestation,
@@ -44,6 +55,11 @@ pub(crate) fn validate_attestation<'info>(
     require!(
         node_accounts.len() >= signer_count as usize,
         MolphaError::MissingSignerAccount
+    );
+    require!(
+        layout == NodeAccountLayout::SignersThenOthers
+            || node_accounts.len() == signer_count as usize,
+        MolphaError::UnexpectedSignerAccounts
     );
 
     // Settlement also receives the missed selected nodes after the signer accounts so it can

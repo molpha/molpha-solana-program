@@ -151,13 +151,13 @@ export function registerInitCommand(program: Command): void {
           optionOrConfig(
             options.livelinessPenaltyPerMiss,
             config.livelinessPenaltyPerMiss,
-          ) ?? 500,
+          ) ?? 10,
         ),
         livelinessRecoveryPerSign: Number(
           optionOrConfig(
             options.livelinessRecoveryPerSign,
             config.livelinessRecoveryPerSign,
-          ) ?? 100,
+          ) ?? 90,
         ),
         usdcMint: parsePubkeyOption(
           optionOrConfig(options.usdcMint, config.usdcMint),

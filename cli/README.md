@@ -201,8 +201,8 @@ yarn molpha round settle-x402 \
   and to the `--gateway-authority` gateway PDA, so it is only redeemable by that gateway. `round settle-x402` has no
   on-chain payer authentication — the gateway self-attests and pays from its own float.
 
-Protocol initialization accepts `--liveliness-penalty-per-miss` (default 500) and
-`--liveliness-recovery-per-sign` (default 100). JSON config uses
+Protocol initialization accepts `--liveliness-penalty-per-miss` (default 10) and
+`--liveliness-recovery-per-sign` (default 90), a 10% break-even inclusion rate. JSON config uses
 `livelinessPenaltyPerMiss` and `livelinessRecoveryPerSign`. Updates preserve omitted values.
 These settings take effect during settlement.
 

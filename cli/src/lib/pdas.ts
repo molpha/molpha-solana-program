@@ -14,8 +14,10 @@ export const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 export const FEED_SEED = Buffer.from("molpha_feed");
 export const DELEGATE_SEED = Buffer.from("molpha_delegate");
 export const GATEWAY_SEED = Buffer.from("molpha_gateway");
-export const X402_ROUND_SEED = Buffer.from("molpha_x402_round");
+/** Settlement replay-marker seed prefix: `[ROUND_SEED, gatewayPda, roundId]`. */
 export const ROUND_SEED = Buffer.from("molpha_round");
+/** Domain tag of `RoundReplayMarker::round_id`. */
+export const ROUND_ID_DOMAIN = Buffer.from("MOLPHA_ROUND_ID_V1");
 export const PUNISHMENT_CASE_SEED = Buffer.from("molpha_punishment");
 
 export function findProtocolConfigPda(
@@ -157,46 +159,100 @@ export function derivePayerId(
   return keccak_256(Buffer.concat([railIdBe, Buffer.from(addressBytes)]));
 }
 
-/** Subscription / delegate round replay-marker PDA. */
-export function findSubscriptionRoundPda(
-  programId: PublicKey,
-  subscriptionOwner: PublicKey,
-  gatewayPda: PublicKey,
+/** Settlement path tag inside the round id (mirrors `RoundReplayKind`). */
+export enum RoundReplayKind {
+  Subscription = 0,
+  X402 = 1,
+}
+
+/**
+ * `keccak256(DOMAIN || kind || sourceId || signaturesRequired || canonicalTimestamp_le || initiator)`,
+ * matching `RoundReplayMarker::round_id` in the program.
+ */
+export function deriveRoundId(
+  kind: RoundReplayKind,
   sourceId: Uint8Array,
   signaturesRequired: number,
-  timestamp: number | bigint,
+  canonicalTimestamp: number | bigint,
+  initiator: Uint8Array | Buffer,
+): Uint8Array {
+  if (sourceId.length !== 32) throw new Error("source id must be 32 bytes");
+  if (initiator.length !== 32) throw new Error("initiator must be 32 bytes");
+  if (
+    !Number.isInteger(signaturesRequired) ||
+    signaturesRequired < 0 ||
+    signaturesRequired > 255
+  ) {
+    throw new Error("signatures required must fit u8");
+  }
+  return keccak_256(
+    Buffer.concat([
+      ROUND_ID_DOMAIN,
+      Buffer.from([kind]),
+      Buffer.from(sourceId),
+      Buffer.from([signaturesRequired]),
+      u64Le(canonicalTimestamp),
+      Buffer.from(initiator),
+    ]),
+  );
+}
+
+/** Replay-marker PDA for a round settled through `gatewayPda` under `roundId`. */
+export function findRoundReplayPda(
+  programId: PublicKey,
+  gatewayPda: PublicKey,
+  roundId: Uint8Array,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [
-      ROUND_SEED,
-      subscriptionOwner.toBuffer(),
-      gatewayPda.toBuffer(),
-      Buffer.from(sourceId),
-      Buffer.from([signaturesRequired & 0xff]),
-      u64Le(timestamp),
-    ],
+    [ROUND_SEED, gatewayPda.toBuffer(), Buffer.from(roundId)],
     programId,
   );
 }
 
-export function findX402RoundPda(
+/**
+ * Subscription-path replay marker. Scoped to the consumer that signed the request (the owner or a
+ * delegate), not to the subscription owner.
+ */
+export function findSubscriptionRoundPda(
   programId: PublicKey,
-  payerId: Uint8Array | Buffer,
-  gateway: PublicKey,
+  consumerAuthority: PublicKey,
+  gatewayPda: PublicKey,
   sourceId: Uint8Array,
   signaturesRequired: number,
   canonicalTimestamp: number | bigint,
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [
-      X402_ROUND_SEED,
-      Buffer.from(payerId),
-      gateway.toBuffer(),
-      Buffer.from(sourceId),
-      Buffer.from([signaturesRequired & 0xff]),
-      u64Le(canonicalTimestamp),
-    ],
+  return findRoundReplayPda(
     programId,
+    gatewayPda,
+    deriveRoundId(
+      RoundReplayKind.Subscription,
+      sourceId,
+      signaturesRequired,
+      canonicalTimestamp,
+      consumerAuthority.toBuffer(),
+    ),
+  );
+}
+
+/** x402-path replay marker, scoped to the rail-scoped `payerId`. */
+export function findX402RoundPda(
+  programId: PublicKey,
+  payerId: Uint8Array | Buffer,
+  gatewayPda: PublicKey,
+  sourceId: Uint8Array,
+  signaturesRequired: number,
+  canonicalTimestamp: number | bigint,
+): [PublicKey, number] {
+  return findRoundReplayPda(
+    programId,
+    gatewayPda,
+    deriveRoundId(
+      RoundReplayKind.X402,
+      sourceId,
+      signaturesRequired,
+      canonicalTimestamp,
+      payerId,
+    ),
   );
 }
 

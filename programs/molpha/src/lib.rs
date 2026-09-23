@@ -115,6 +115,10 @@ pub mod molpha {
         instructions::settle_x402_round(ctx, attestation, args)
     }
 
+    pub fn close_round_replay(ctx: Context<CloseRoundReplay>) -> Result<()> {
+        instructions::close_round_replay(ctx)
+    }
+
     pub fn slash_offence<'info>(
         ctx: Context<'info, SlashOffence<'info>>,
         offence: state::Offence,
