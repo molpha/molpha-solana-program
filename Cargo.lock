@@ -1920,9 +1920,7 @@ dependencies = [
 
 [[package]]
 name = "molpha-verifier"
-version = "0.3.0-dev.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c239ea48eb2e69292c9dd8a32015dbb1a7872094e2607d2e9c16ba4083b141a"
+version = "0.3.0"
 dependencies = [
  "anchor-lang",
  "borsh",

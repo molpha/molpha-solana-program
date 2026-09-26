@@ -373,6 +373,55 @@ export function remainingBitsFromOffence(
   );
 }
 
+/**
+ * Signer bitmaps an offence needs coalition keys for, keyed by the (camelCase) key field.
+ *
+ * Inactivity verifies no aggregate, and nonce reuse checks a single node's batch signature
+ * against that node's own stored key, so neither carries one.
+ */
+export function offenceCoalitionBitmaps(
+  offence: Record<string, unknown>,
+): Array<[string, Uint8Array]> {
+  const variant = offenceVariant(offence);
+  const bitmapOf = (attestation: unknown, label: string) => {
+    const signature = asRecord(
+      pick(asRecord(attestation, label), "signature"),
+      `${label}.signature`,
+    );
+    return bytesField(
+      pick(signature, "signersBitmap", "signers_bitmap"),
+      `${label} signers bitmap`,
+      32,
+    );
+  };
+  switch (variant.kind) {
+    case "unsolicitedSigning":
+      return [
+        ["coalitionKey", bitmapOf(pick(variant, "attestation"), "attestation")],
+      ];
+    case "equivocation":
+    case "commitmentReuse":
+      return [
+        [
+          "coalitionKeyA",
+          bitmapOf(
+            pick(variant, "attestationA", "attestation_a"),
+            "attestationA",
+          ),
+        ],
+        [
+          "coalitionKeyB",
+          bitmapOf(
+            pick(variant, "attestationB", "attestation_b"),
+            "attestationB",
+          ),
+        ],
+      ];
+    default:
+      return [];
+  }
+}
+
 export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   return (
     a.length === b.length &&

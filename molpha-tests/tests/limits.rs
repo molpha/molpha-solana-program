@@ -4,7 +4,10 @@ use molpha_tests::env::PACKET_DATA_SIZE;
 use molpha_tests::scenario::{Duty, Protocol};
 use solana_signer::Signer;
 
-const MAX_LEGACY_COALITION: usize = 21;
+/// Largest coalition whose `submit_attestation` fits a legacy packet. The 64-byte coalition key
+/// in instruction data costs two 32-byte signer accounts (was 21 without it); v0 transactions
+/// with a lookup table are unaffected.
+const MAX_LEGACY_COALITION: usize = 19;
 const REDUNDANCY_BUFFER: u8 = 2;
 const NODE_COUNT: usize = 30;
 const MAX_COMPUTE_UNITS: u64 = 1_400_000;

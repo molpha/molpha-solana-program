@@ -6,19 +6,24 @@ On-chain interaction (init, registry, plans, subscriptions, jobs, account reads)
 
 ## Yarn shortcuts
 
-| Command               | Script                           |
-| --------------------- | -------------------------------- |
-| `yarn register-nodes` | `generate-and-register-nodes.js` |
+| Command               | Script                 |
+| --------------------- | ---------------------- |
+| `yarn generate-nodes` | `generate-nodes.js`    |
+| `yarn register-nodes` | `register-nodes.js`    |
 
 ## Node generation & registration
 
-`generate-and-register-nodes.js` — generate Solana + EVM keypairs, register nodes on-chain, write `generated-nodes.json`.
+`generate-nodes.js` writes a manifest of Solana + EVM keypairs. Each node is created with `ip` and `port` set to `null`.
+
+`register-nodes.js` registers those nodes on-chain. It refuses to send transactions unless every unregistered node has `ip` and `port` set in the manifest.
 
 ```bash
-yarn register-nodes --count 5 --generate-new
+yarn generate-nodes --cluster devnet --count 5 --output generated-nodes-dev.json
+# set nodes[].ip and nodes[].port, then:
+yarn register-nodes --input generated-nodes-dev.json
 ```
 
-Prerequisites: `anchor build`, `yarn molpha init`, funded admin wallet (SOL + USDC).
+Prerequisites for registration: `anchor build`, `yarn molpha init`, funded admin wallet (SOL + USDC).
 
 ## Crypto utilities
 

@@ -75,6 +75,8 @@ fn args_for(_case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> Commi
     CommitmentReuseEvidence {
         attestation_a,
         attestation_b,
+        coalition_key_a: a.coalition_key,
+        coalition_key_b: b.coalition_key,
     }
 }
 

@@ -54,8 +54,10 @@ fn case() -> Case {
 }
 
 fn args_for(_case: &Case, signed: &SignedAttestation) -> UnsolicitedSigningEvidence {
-    let attestation = signed.attestation();
-    UnsolicitedSigningEvidence { attestation }
+    UnsolicitedSigningEvidence {
+        attestation: signed.attestation(),
+        coalition_key: signed.coalition_key,
+    }
 }
 
 fn pda_for_bit(case: &Case, bit: usize) -> Pubkey {
@@ -161,6 +163,23 @@ fn a_fully_selected_coalition_is_not_an_offence() {
         .slash_unsolicited_signing_ix(&reporter.pubkey(), args);
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::SignersFullySelected);
+}
+
+#[test]
+fn a_wrong_coalition_key_fails_the_filing_without_punishing_anyone() {
+    let mut case = case();
+    let mut args = args_for(&case, &case.signed);
+    args.coalition_key.y[0] ^= 0x01;
+    let reporter = case.reporter.insecure_clone();
+
+    let ix = case
+        .p
+        .slash_unsolicited_signing_ix(&reporter.pubkey(), args);
+    let failed = case.p.env.send_err(&[ix], &[&reporter]);
+    assert_molpha_error(&failed, MolphaError::InvalidCoalitionKey);
+    for node in case.p.node_pdas() {
+        assert_eq!(case.p.env.get::<Node>(&node).status, NodeStatus::Active);
+    }
 }
 
 #[test]

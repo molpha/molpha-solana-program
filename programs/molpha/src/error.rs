@@ -204,6 +204,8 @@ pub enum MolphaError {
     InvalidRentReceiver,
     #[msg("signer account list must contain exactly one account per signer")]
     UnexpectedSignerAccounts,
+    #[msg("coalition key is not the sum of the signer keys")]
+    InvalidCoalitionKey,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {
@@ -225,6 +227,7 @@ pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error
         }
         AttestationError::InvalidRegistryVersion => error!(MolphaError::InvalidRegistryVersion),
         AttestationError::InvalidNodeIndex => error!(MolphaError::InvalidNodeIndex),
+        AttestationError::InvalidCoalitionKey => error!(MolphaError::InvalidCoalitionKey),
     }
 }
 

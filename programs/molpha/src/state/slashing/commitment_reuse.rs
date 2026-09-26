@@ -1,7 +1,9 @@
 use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
-use molpha_verifier::{solana::resolve_intersected_signers_accounts, Attestation, Bitmap};
+use molpha_verifier::{
+    solana::resolve_intersected_signers_accounts, Attestation, Bitmap, CoalitionKey,
+};
 
 use crate::error::MolphaError;
 use crate::state::{Evidence, EvidenceAccounts};
@@ -16,6 +18,11 @@ pub const DOMAIN_COMMITMENT_REUSE: &[u8] = b"MOLPHA_COMMITMENT_REUSE_V1";
 pub struct CommitmentReuseEvidence {
     pub attestation_a: Attestation,
     pub attestation_b: Attestation,
+    /// Affine sum of `attestation_a`'s signer keys. A verification input, not evidence: it is
+    /// left out of [`Evidence::hash`], so the case PDA derives from the attestations alone.
+    pub coalition_key_a: CoalitionKey,
+    /// Affine sum of `attestation_b`'s signer keys; see `coalition_key_a`.
+    pub coalition_key_b: CoalitionKey,
 }
 
 impl Evidence for CommitmentReuseEvidence {
@@ -63,8 +70,8 @@ impl Evidence for CommitmentReuseEvidence {
         let guilty_bitmap = resolution.intersected_bitmap;
         require!(guilty_bitmap.popcount() > 0, MolphaError::GuiltySetEmpty);
 
-        verify_evidence_signature(attestation_a, &resolution.signers_a)?;
-        verify_evidence_signature(attestation_b, &resolution.signers_b)?;
+        verify_evidence_signature(attestation_a, &resolution.signers_a, &self.coalition_key_a)?;
+        verify_evidence_signature(attestation_b, &resolution.signers_b, &self.coalition_key_b)?;
 
         Ok((resolution.unioned_bitmap, guilty_bitmap))
     }

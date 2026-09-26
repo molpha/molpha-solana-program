@@ -15,6 +15,7 @@ import {
 import { hashRequestAuthFields } from "../lib/auth";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
+import { fetchCoalitionKey } from "../lib/coalition";
 import { MAX_SETTLEMENT_DELAY_CAP_SECONDS } from "../lib/protocol-config";
 import {
   buildAttestation,
@@ -156,8 +157,13 @@ export function registerRoundCommands(program: Command): void {
         signaturesRequired,
         timestamp,
       );
+      const coalitionKey = await fetchCoalitionKey(
+        ctx.program,
+        registry,
+        schnorrSignature.signersBitmap,
+      );
       const signature = await (ctx.program.methods as any)
-        .settleSubscriptionRound(attestation, consumer.publicKey)
+        .settleSubscriptionRound(attestation, consumer.publicKey, coalitionKey)
         .accountsPartial({
           authority: ctx.wallet.publicKey,
           config: protocolConfigPda,
@@ -305,13 +311,22 @@ export function registerRoundCommands(program: Command): void {
         signers.push(gatewayAuthority);
       }
 
+      const coalitionKey = await fetchCoalitionKey(
+        ctx.program,
+        registry,
+        schnorrSignature.signersBitmap,
+      );
       const signature = await (ctx.program.methods as any)
-        .settleX402Round(attestation, {
-          payerId: Array.from(payerId),
-          amount,
-          paymentRail,
-          paymentRef: Buffer.from(paymentRef),
-        })
+        .settleX402Round(
+          attestation,
+          {
+            payerId: Array.from(payerId),
+            amount,
+            paymentRail,
+            paymentRef: Buffer.from(paymentRef),
+          },
+          coalitionKey,
+        )
         .accountsPartial({
           authority: gatewayAuthority.publicKey,
           config: protocolConfigPda,

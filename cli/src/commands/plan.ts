@@ -162,7 +162,7 @@ function buildPlanArgs(options: Record<string, string | boolean>) {
       requireValue(options.maxDelegates as string, "Missing --max-delegates"),
       "max delegates",
     ),
-    maxRounds: parseInteger(
+    maxRounds: bn(
       requireValue(options.maxRounds as string, "Missing --max-rounds"),
       "max rounds",
     ),
@@ -201,10 +201,8 @@ function buildUpdatePlanArgs(
         : current.maxDelegates,
     maxRounds:
       options.maxRounds !== undefined
-        ? parseInteger(options.maxRounds as string, "max rounds")
-        : typeof current.maxRounds === "number"
-          ? current.maxRounds
-          : parseInteger(current.maxRounds.toString(), "max rounds"),
+        ? bn(options.maxRounds as string, "max rounds")
+        : bn(current.maxRounds.toString(), "max rounds"),
     privateApiEnabled:
       options.privateApiEnabled === true ? true : current.privateApiEnabled,
     isActive: options.inactive === true ? false : current.isActive,

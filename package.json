@@ -14,7 +14,8 @@
     "test:anchor": "anchor test --skip-local-validator",
     "molpha": "node cli/dist/index.js",
     "molpha:dev": "ts-node -r tsconfig-paths/register cli/src/index.ts",
-    "register-nodes": "node scripts/generate-and-register-nodes.js",
+    "generate-nodes": "node scripts/generate-nodes.js",
+    "register-nodes": "node scripts/register-nodes.js",
     "sign-and-send-metadata-tx": "node scripts/sign-and-send-metadata-tx.mjs"
   },
   "dependencies": {

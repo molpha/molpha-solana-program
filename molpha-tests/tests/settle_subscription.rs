@@ -126,6 +126,26 @@ fn owner_direct_settlement_records_the_round_and_consumes_quota() {
 }
 
 #[test]
+fn settlement_rejects_a_wrong_coalition_key() {
+    let mut f = fixture();
+    let duty = duty(4);
+    let signed = f.p.sign_duty(duty);
+    let mut ixs = settle_ixs(&f, &f.owner, None, &signed);
+    // The key trails the instruction data (pinned in `encoding`): nudge its `y`.
+    let data = &mut ixs[1].data;
+    let last = data.len() - 1;
+    data[last] ^= 0x01;
+
+    let owner = f.owner.insecure_clone();
+    let gateway = f.gateway.insecure_clone();
+    let failed = f.p.env.send_err(&ixs, &[&owner, &gateway]);
+    assert_molpha_error(&failed, MolphaError::InvalidCoalitionKey);
+    assert!(!f.p.env.account_exists(&round_record(&f, &duty)));
+    let subscription: Subscription = f.p.env.get(&pda::subscription(&owner.pubkey()));
+    assert_eq!(subscription.used_rounds, 0);
+}
+
+#[test]
 fn delegate_settlement_consumes_the_delegates_request_quota() {
     let mut f = fixture();
     let delegate = f.p.env.keypair();

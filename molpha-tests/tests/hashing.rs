@@ -14,6 +14,7 @@ use molpha::state::{
     DOMAIN_COMMITMENT_BATCH, DOMAIN_COMMITMENT_REUSE, DOMAIN_EQUIVOCATION, DOMAIN_INACTIVITY,
     DOMAIN_NONCE_REUSE, DOMAIN_REQAUTH, DOMAIN_UNSOLICITED_SIGNING,
 };
+use molpha_tests::scenario::ZERO_COALITION_KEY;
 use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
 use solana_keccak_hasher::hashv;
 
@@ -45,6 +46,8 @@ fn equivocation_evidence_hash(a: &Attestation, b: &Attestation) -> [u8; 32] {
     EquivocationEvidence {
         attestation_a: a.clone(),
         attestation_b: b.clone(),
+        coalition_key_a: ZERO_COALITION_KEY,
+        coalition_key_b: ZERO_COALITION_KEY,
     }
     .hash()
 }
@@ -53,6 +56,8 @@ fn commitment_reuse_evidence_hash(a: &Attestation, b: &Attestation) -> [u8; 32] 
     CommitmentReuseEvidence {
         attestation_a: a.clone(),
         attestation_b: b.clone(),
+        coalition_key_a: ZERO_COALITION_KEY,
+        coalition_key_b: ZERO_COALITION_KEY,
     }
     .hash()
 }
@@ -60,6 +65,7 @@ fn commitment_reuse_evidence_hash(a: &Attestation, b: &Attestation) -> [u8; 32] 
 fn unsolicited_signing_evidence_hash(attestation: &Attestation) -> [u8; 32] {
     UnsolicitedSigningEvidence {
         attestation: attestation.clone(),
+        coalition_key: ZERO_COALITION_KEY,
     }
     .hash()
 }
@@ -242,6 +248,43 @@ fn equivocation_hash_is_sensitive_to_every_field() {
         assert_ne!(equivocation_evidence_hash(&a2, &b), base, "{field} of a");
         assert_ne!(equivocation_evidence_hash(&a, &b2), base, "{field} of b");
     }
+}
+
+/// Coalition keys are verification inputs, not evidence: the case PDA must derive from the
+/// attestations alone, so a watcher can find a case without knowing the keys the reporter sent.
+#[test]
+fn evidence_hashes_ignore_coalition_keys() {
+    let a = fixture_attestation(1, 0b0011);
+    let b = fixture_attestation(2, 0b0101);
+    let key = molpha_verifier::CoalitionKey {
+        x: [0x11; 32],
+        y: [0x22; 32],
+    };
+
+    let equivocation = EquivocationEvidence {
+        attestation_a: a.clone(),
+        attestation_b: b.clone(),
+        coalition_key_a: key,
+        coalition_key_b: key,
+    };
+    assert_eq!(equivocation.hash(), equivocation_evidence_hash(&a, &b));
+
+    let commitment_reuse = CommitmentReuseEvidence {
+        attestation_a: a.clone(),
+        attestation_b: b.clone(),
+        coalition_key_a: key,
+        coalition_key_b: key,
+    };
+    assert_eq!(
+        commitment_reuse.hash(),
+        commitment_reuse_evidence_hash(&a, &b)
+    );
+
+    let unsolicited = UnsolicitedSigningEvidence {
+        attestation: a.clone(),
+        coalition_key: key,
+    };
+    assert_eq!(unsolicited.hash(), unsolicited_signing_evidence_hash(&a));
 }
 
 #[test]

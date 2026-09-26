@@ -12,7 +12,7 @@ use crate::{
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use molpha_verifier::Attestation;
+use molpha_verifier::{Attestation, CoalitionKey};
 
 pub const MAX_PAYMENT_REF_LEN: usize = 64;
 
@@ -53,6 +53,7 @@ pub fn settle_x402_round<'info>(
     ctx: Context<'info, SettleX402Round<'info>>,
     attestation: Attestation,
     args: SettleX402RoundArgs,
+    coalition_key: CoalitionKey,
 ) -> Result<()> {
     let gateway = &ctx.accounts.gateway;
     let clock = Clock::get()?;
@@ -77,6 +78,7 @@ pub fn settle_x402_round<'info>(
         &ctx.accounts.registry,
         &ctx.accounts.config,
         &attestation,
+        &coalition_key,
         clock.unix_timestamp,
     )?;
 

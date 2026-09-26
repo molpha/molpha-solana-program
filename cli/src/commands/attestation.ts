@@ -4,6 +4,7 @@ import { ComputeBudgetProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import { accountJson, fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext, getGlobalOptions } from "../lib/client";
+import { fetchCoalitionKey, parseCoalitionKey } from "../lib/coalition";
 import { resolveCliOptions } from "../lib/config";
 import { findFeedPda, findRegistryPda } from "../lib/pdas";
 import {
@@ -45,6 +46,7 @@ type SubmitArgsShape = {
     };
   };
   rawValue?: ByteField | null;
+  coalitionKey?: { x: ByteField; y: ByteField };
 };
 
 export function registerAttestationCommands(program: Command): void {
@@ -133,9 +135,16 @@ export function registerAttestationCommands(program: Command): void {
         registry,
         schnorrSignature.signersBitmap,
       );
+      const coalitionKey =
+        submitArgs.coalitionKey ??
+        (await fetchCoalitionKey(
+          ctx.program,
+          registry,
+          schnorrSignature.signersBitmap,
+        ));
 
       const signature = await (ctx.program.methods as any)
-        .submitAttestation(submitArgs)
+        .submitAttestation({ ...submitArgs, coalitionKey })
         .accountsPartial({
           submitter: ctx.wallet.publicKey,
           registry: registryPda,
@@ -297,6 +306,9 @@ function normalizeSubmitArgs(value: SubmitArgsShape): SubmitAttestationArgs {
         ? bytesFromField(value.rawValue, undefined, "raw value")
         : undefined,
     ),
+    coalitionKey: value.coalitionKey
+      ? parseCoalitionKey(value.coalitionKey)
+      : undefined,
   };
 }
 

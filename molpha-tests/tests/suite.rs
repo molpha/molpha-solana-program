@@ -8,6 +8,7 @@
 //! Run one area with a filter, for example `cargo test -p molpha-tests --test suite limits`.
 
 mod attestation;
+mod compute_bench;
 mod delegates;
 mod encoding;
 mod evm_compatibility;

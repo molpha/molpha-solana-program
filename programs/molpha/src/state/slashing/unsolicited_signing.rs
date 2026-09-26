@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
 use molpha_verifier::{
-    derive_selection_bitmap, solana::resolve_signers_accounts, Attestation, Bitmap,
+    derive_selection_bitmap, solana::resolve_signers_accounts, Attestation, Bitmap, CoalitionKey,
 };
 
 use crate::error::{map_attestation_err, MolphaError};
@@ -14,6 +14,10 @@ pub const DOMAIN_UNSOLICITED_SIGNING: &[u8] = b"MOLPHA_UNSOLICITED_SIGNING_V1";
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct UnsolicitedSigningEvidence {
     pub attestation: Attestation,
+    /// Affine sum of the attestation's signer keys, intruders included. A verification input,
+    /// not evidence: it is left out of [`Evidence::hash`], so the case PDA derives from the
+    /// attestation alone.
+    pub coalition_key: CoalitionKey,
 }
 
 impl Evidence for UnsolicitedSigningEvidence {
@@ -44,7 +48,7 @@ impl Evidence for UnsolicitedSigningEvidence {
             &attestation.signature.signers_bitmap,
         )
         .map_err(|_| error!(MolphaError::InvalidNodeAccount))?;
-        verify_evidence_signature(attestation, &signers)?;
+        verify_evidence_signature(attestation, &signers, &self.coalition_key)?;
 
         Ok((signers_bitmap, guilty_bitmap))
     }

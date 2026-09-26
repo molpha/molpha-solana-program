@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
-use molpha_verifier::{Bitmap, NonceEquationError};
+use molpha_verifier::{Bitmap, CoalitionKey, NonceEquationError};
 
 use crate::error::{map_attestation_err, MolphaError};
 use crate::state::{Evidence, EvidenceAccounts, Node, MAX_REGISTRY_NODES};
@@ -84,12 +84,19 @@ impl Evidence for NonceReuseEvidence {
             &self.batch_meta,
             &self.batch_root,
         );
+        // A coalition of one: the node's stored key is its own affine sum, so passing it skips
+        // the verifier's field inversion without any reporter-supplied input.
+        let node_key = (node.secp256k1_pubkey_x, node.secp256k1_pubkey_y);
         require!(
-            molpha_verifier::verify_aggregate_over_hash(
+            molpha_verifier::verify_aggregate_over_hash_with_coalition_key(
                 &self.batch_sig_s,
                 &self.batch_commitment_addr,
                 &batch_message,
-                &[(node.secp256k1_pubkey_x, node.secp256k1_pubkey_y)],
+                &[node_key],
+                &CoalitionKey {
+                    x: node_key.0,
+                    y: node_key.1,
+                },
             )
             .map_err(map_attestation_err)?,
             MolphaError::InvalidBatchSignature

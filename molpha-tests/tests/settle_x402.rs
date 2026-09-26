@@ -121,6 +121,27 @@ fn settlement_debits_the_gateway_float_and_credits_the_treasury() {
 }
 
 #[test]
+fn settlement_rejects_a_wrong_coalition_key() {
+    let mut f = fixture();
+    let signed = f.p.sign_duty(duty(4));
+    let (attestation, args) = x402_settlement(&f.p, &signed, [0xab; 32]);
+    let mut wrong = signed.coalition_key;
+    wrong.x[0] ^= 0x01;
+    let float_before = f.p.env.token_balance(&f.float_ata());
+
+    let ix =
+        f.p.settle_x402_round_ix_with_key(&f.gateway.pubkey(), &attestation, args.clone(), wrong);
+    let gateway = f.gateway.insecure_clone();
+    let failed = f.p.env.send_err(&[ix], &[&gateway]);
+    assert_molpha_error(&failed, MolphaError::InvalidCoalitionKey);
+    assert!(!f.p.env.account_exists(&f.record(&attestation, &args)));
+    assert_eq!(f.p.env.token_balance(&f.float_ata()), float_before);
+
+    f.settle(&attestation, args)
+        .expect("the signers' own key settles");
+}
+
+#[test]
 fn the_price_scales_with_the_requested_quorum() {
     let mut f = fixture();
     for signatures_required in [3u8, 5, 7] {

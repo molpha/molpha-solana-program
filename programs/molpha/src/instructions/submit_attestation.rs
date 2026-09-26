@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
-use molpha_verifier::Attestation;
+use molpha_verifier::{Attestation, CoalitionKey};
 
 use crate::{
     error::MolphaError,
@@ -17,6 +17,11 @@ pub struct SubmitAttestationArgs {
     /// signed value must be `keccak256(raw_value)` and the feed stores it as
     /// [`FeedValueKind::Hash`].
     pub raw_value: Option<Vec<u8>>,
+    /// Affine sum of the signers' secp256k1 keys (`molpha_verifier::coalition_key`, or any
+    /// library's point sum over their `Node` accounts). Unsigned and untrusted: the verifier
+    /// checks it projectively against its own sum instead of inverting. A wrong key only fails
+    /// the instruction.
+    pub coalition_key: CoalitionKey,
 }
 
 pub fn submit_attestation<'info>(
@@ -26,6 +31,7 @@ pub fn submit_attestation<'info>(
     let SubmitAttestationArgs {
         attestation,
         raw_value,
+        coalition_key,
     } = args;
 
     let value_kind = match raw_value {
@@ -48,6 +54,7 @@ pub fn submit_attestation<'info>(
         &ctx.accounts.registry,
         &ctx.accounts.protocol_config,
         &attestation,
+        &coalition_key,
         clock.unix_timestamp,
     )?;
 
@@ -84,7 +91,7 @@ pub struct SubmitAttestation<'info> {
 
     #[account(
         seeds = [Registry::SEED_PREFIX, args.attestation.payload.registry_version.to_le_bytes().as_ref()],
-        bump,
+        bump = registry.load()?.bump,
     )]
     pub registry: AccountLoader<'info, Registry>,
 

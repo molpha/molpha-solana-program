@@ -10,7 +10,7 @@ use molpha::utils::MAX_FUTURE_DRIFT_SECONDS;
 use molpha_tests::crypto;
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event, readonly_metas};
 use molpha_tests::pda;
-use molpha_tests::scenario::{Duty, Protocol, SignedAttestation};
+use molpha_tests::scenario::{Duty, Protocol, SignedAttestation, ZERO_COALITION_KEY};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 
@@ -166,6 +166,7 @@ fn submit_with_raw_value(
     let args = SubmitAttestationArgs {
         attestation: signed.attestation(),
         raw_value: Some(raw),
+        coalition_key: signed.coalition_key,
     };
     let ix = p.submit_attestation_ix_with_args(&submitter.pubkey(), args, &signed.signer_pdas);
     p.env.send(&[ix], &[submitter])
@@ -260,6 +261,70 @@ fn feeds_are_scoped_to_submitter_source_and_quorum() {
     assert_eq!(p.env.get::<Feed>(&a).value, base.value);
     assert_eq!(p.env.get::<Feed>(&b).value, base.value);
     assert_eq!(p.env.get::<Feed>(&c).value, other_source.value);
+}
+
+/// `p - y` over the secp256k1 base field, big-endian.
+fn field_negate(y: &[u8; 32]) -> [u8; 32] {
+    const P: [u8; 32] = [
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF,
+        0xFC, 0x2F,
+    ];
+    let mut out = [0u8; 32];
+    let mut borrow = 0i16;
+    for i in (0..32).rev() {
+        let diff = P[i] as i16 - y[i] as i16 - borrow;
+        out[i] = diff.rem_euclid(256) as u8;
+        borrow = i16::from(diff < 0);
+    }
+    out
+}
+
+#[test]
+fn submit_attestation_rejects_a_wrong_coalition_key() {
+    let mut p = with_nodes("submit-bad-key");
+    let submitter = p.env.keypair();
+    let signed = p.sign_duty(duty());
+    let key = signed.coalition_key;
+
+    let mut flipped_x = key;
+    flipped_x.x[31] ^= 0x01;
+    // Same x, other parity: `-key` is on the curve, and only the Y check separates it.
+    let mut negated = key;
+    negated.y = field_negate(&key.y);
+    // A real key of a different signer set: one signer short.
+    let signer_keys: Vec<_> = p
+        .nodes
+        .iter()
+        .filter(|n| signed.signer_pdas.contains(&n.pda))
+        .map(|n| (n.key.x, n.key.y))
+        .collect();
+    let subset = molpha_verifier::coalition_key(&signer_keys[1..]).unwrap();
+
+    for bad in [flipped_x, negated, subset, ZERO_COALITION_KEY] {
+        let mut args = signed.submit_args();
+        args.coalition_key = bad;
+        let ix = p.submit_attestation_ix_with_args(&submitter.pubkey(), args, &signed.signer_pdas);
+        let failed = p.env.send_err(&[ix], &[&submitter]);
+        assert_molpha_error(&failed, MolphaError::InvalidCoalitionKey);
+    }
+    assert!(!p.env.account_exists(&pda::feed(
+        &duty().source_id,
+        SIGS_REQUIRED,
+        &submitter.pubkey()
+    )));
+
+    // Any signer order and any library give the same key; the node accounts' sum is accepted.
+    let mut reversed = signer_keys.clone();
+    reversed.reverse();
+    let mut args = signed.submit_args();
+    args.coalition_key = molpha_verifier::coalition_key(&reversed).unwrap();
+    assert_eq!(
+        args.coalition_key,
+        p.coalition_key_for(&signed.attestation())
+    );
+    let ix = p.submit_attestation_ix_with_args(&submitter.pubkey(), args, &signed.signer_pdas);
+    p.env.send_ok(&[ix], &[&submitter]);
 }
 
 #[test]

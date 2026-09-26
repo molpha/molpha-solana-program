@@ -49,13 +49,14 @@ const UNSOLICITED_REGISTRY_NODES: usize = ROUND_SIGNER_COUNT + MAX_UNSOLICITED_I
 ///
 /// Asserted exactly. A filing costs one account per signer plus a fixed set of token accounts,
 /// so every account added to the punishment context costs a signer directly, and going back to a
-/// vault per guilty node would halve this number. Both attestations carry their own duty fields,
-/// so the args are as large as commitment reuse and the limit matches it.
-const MAX_LEGACY_EQUIVOCATION: usize = 10;
+/// vault per guilty node would halve this number. Both attestations carry their own duty fields
+/// and 64-byte coalition keys (which cost three signers against the unkeyed 10), so the args are
+/// as large as commitment reuse and the limit matches it.
+const MAX_LEGACY_EQUIVOCATION: usize = 7;
 
 /// Same ceiling for `slash_offence` (commitment reuse), whose two full attestations make its args
 /// the largest pair-offence encoding.
-const MAX_LEGACY_COMMITMENT_REUSE: usize = 10;
+const MAX_LEGACY_COMMITMENT_REUSE: usize = 7;
 
 /// Solana's per-transaction maximum, which the harness requests for every transaction.
 const MAX_COMPUTE_UNITS: u64 = 1_400_000;
@@ -109,6 +110,8 @@ fn equivocation_args(a: &SignedAttestation, b: &SignedAttestation) -> Equivocati
     EquivocationEvidence {
         attestation_a,
         attestation_b,
+        coalition_key_a: a.coalition_key,
+        coalition_key_b: b.coalition_key,
     }
 }
 
@@ -137,6 +140,8 @@ fn commitment_reuse_args(a: &SignedAttestation, b: &SignedAttestation) -> Commit
     CommitmentReuseEvidence {
         attestation_a,
         attestation_b,
+        coalition_key_a: a.coalition_key,
+        coalition_key_b: b.coalition_key,
     }
 }
 
@@ -158,8 +163,10 @@ fn unsolicited_round_attestation(
 }
 
 fn unsolicited_args(signed: &SignedAttestation) -> UnsolicitedSigningEvidence {
-    let attestation = signed.attestation();
-    UnsolicitedSigningEvidence { attestation }
+    UnsolicitedSigningEvidence {
+        attestation: signed.attestation(),
+        coalition_key: signed.coalition_key,
+    }
 }
 
 #[test]
