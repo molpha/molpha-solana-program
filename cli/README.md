@@ -105,7 +105,11 @@ yarn molpha attestation submit \
 value pass `--raw-value <hex>` (<= 256 bytes) instead: the CLI signs `keccak256(raw)` as the value,
 submits the preimage as `raw_value`, and the feed stores the hash as `value_kind = Hash`.
 `attestation submit --args <path>` takes the `SubmitAttestationArgs` JSON that `attestation sign`
-prints under `submitArgs` (`{ attestation: { payload, signature }, rawValue }`).
+prints under `submitArgs` (`{ attestation: { payload, signature }, rawValue, coalitionKey }`).
+`coalitionKey` is the affine sum of the signers' secp256k1 keys. When it is missing, `submit` sums it
+from the signers' `Node` accounts. The settlement commands always derive it that way, and
+`slash offence` does too unless the offence JSON already carries `coalitionKeyA` / `coalitionKeyB`
+(pair offences) or `coalitionKey` (unsolicited signing).
 
 Node PoP is generated off chain over
 `keccak256("MOLPHA_NODE_POP_V1" || program_id || node_id)`. The CLI accepts only the

@@ -16,13 +16,19 @@ use molpha::state::{
     CommitmentReuseEvidence, EquivocationEvidence, InactivityEvidence, NonceReuseEvidence, Offence,
     PlanConfig, PlanType, RegistryState, UnsolicitedSigningEvidence,
 };
-use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
+use molpha_verifier::{Attestation, AttestationPayload, CoalitionKey, SchnorrSignature};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 
 use crate::crypto::{self, AggregateSignature, NodeKey};
 use crate::env::TestEnv;
 use crate::pda;
+
+/// Placeholder key for signer sets without a sum; every verifying instruction rejects it.
+pub const ZERO_COALITION_KEY: CoalitionKey = CoalitionKey {
+    x: [0; 32],
+    y: [0; 32],
+};
 
 /// A node that completed `register_node`.
 pub struct RegisteredNode {
@@ -95,6 +101,9 @@ pub struct SignedAttestation {
     pub signature: AggregateSignature,
     /// Node PDAs for the set bits, in ascending bit order — the `remaining_accounts` order.
     pub signer_pdas: Vec<Pubkey>,
+    /// Affine sum of the signers' keys, as every verifying instruction takes it (zero if
+    /// undefined, e.g. an empty set).
+    pub coalition_key: CoalitionKey,
 }
 
 impl SignedAttestation {
@@ -114,6 +123,7 @@ impl SignedAttestation {
         SubmitAttestationArgs {
             attestation: self.attestation(),
             raw_value: None,
+            coalition_key: self.coalition_key,
         }
     }
 
@@ -765,13 +775,40 @@ impl Protocol {
         let message_hash = duty.message_hash(signers_bitmap);
         let signature = crypto::sign_aggregate(&signer_keys, &message_hash, nonce);
 
+        let signer_xy: Vec<_> = signer_keys.iter().map(|key| (key.x, key.y)).collect();
+        let coalition_key =
+            molpha_verifier::coalition_key(&signer_xy).unwrap_or(ZERO_COALITION_KEY);
+
         SignedAttestation {
             duty,
             signers_bitmap,
             message_hash,
             signature,
             signer_pdas,
+            coalition_key,
         }
+    }
+
+    /// The coalition key a client derives for `attestation`: the sum of its signers' keys, read
+    /// from their `Node` accounts. Zero when a signer bit has no `Node` account (malformed-bitmap
+    /// tests), so those still fail on the check they target.
+    pub fn coalition_key_for(&self, attestation: &Attestation) -> CoalitionKey {
+        let payload = &attestation.payload;
+        let pdas = self.node_pdas_for_bitmap(
+            payload.registry_version,
+            &attestation.signature.signers_bitmap,
+        );
+        if pdas.iter().any(|pda| !self.env.account_exists(pda)) {
+            return ZERO_COALITION_KEY;
+        }
+        let signer_xy: Vec<_> = pdas
+            .iter()
+            .map(|pda| {
+                let node = self.env.get::<molpha::state::Node>(pda);
+                (node.secp256k1_pubkey_x, node.secp256k1_pubkey_y)
+            })
+            .collect();
+        molpha_verifier::coalition_key(&signer_xy).unwrap_or(ZERO_COALITION_KEY)
     }
 
     pub fn submit_attestation_ix(
@@ -855,6 +892,7 @@ impl Protocol {
             data: molpha::instruction::SettleSubscriptionRound {
                 attestation: attestation.attestation(),
                 consumer_authority: *consumer_authority,
+                coalition_key: self.coalition_key_for(&attestation.attestation()),
             }
             .data(),
         }
@@ -882,6 +920,18 @@ impl Protocol {
         gateway_authority: &Pubkey,
         attestation: &Attestation,
         args: SettleX402RoundArgs,
+    ) -> Instruction {
+        let coalition_key = self.coalition_key_for(attestation);
+        self.settle_x402_round_ix_with_key(gateway_authority, attestation, args, coalition_key)
+    }
+
+    /// `settle_x402_round` with a caller-chosen coalition key — for wrong-key tests.
+    pub fn settle_x402_round_ix_with_key(
+        &self,
+        gateway_authority: &Pubkey,
+        attestation: &Attestation,
+        args: SettleX402RoundArgs,
+        coalition_key: CoalitionKey,
     ) -> Instruction {
         let gateway = pda::gateway(gateway_authority);
         let payload = &attestation.payload;
@@ -912,6 +962,7 @@ impl Protocol {
             data: molpha::instruction::SettleX402Round {
                 attestation: attestation.clone(),
                 args,
+                coalition_key,
             }
             .data(),
         }

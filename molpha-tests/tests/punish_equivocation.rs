@@ -9,7 +9,9 @@ use molpha::state::{
 use molpha_tests::crypto;
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, events, only_event};
 use molpha_tests::pda;
-use molpha_tests::scenario::{intersect_bitmap, Duty, Protocol, SignedAttestation};
+use molpha_tests::scenario::{
+    intersect_bitmap, Duty, Protocol, SignedAttestation, ZERO_COALITION_KEY,
+};
 use molpha_verifier::Attestation;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
@@ -48,6 +50,8 @@ fn args_for(_case: &Case, a: &SignedAttestation, b: &SignedAttestation) -> Equiv
     EquivocationEvidence {
         attestation_a,
         attestation_b,
+        coalition_key_a: a.coalition_key,
+        coalition_key_b: b.coalition_key,
     }
 }
 
@@ -55,6 +59,8 @@ fn equivocation_evidence_hash(a: &Attestation, b: &Attestation) -> [u8; 32] {
     EquivocationEvidence {
         attestation_a: a.clone(),
         attestation_b: b.clone(),
+        coalition_key_a: ZERO_COALITION_KEY,
+        coalition_key_b: ZERO_COALITION_KEY,
     }
     .hash()
 }
@@ -289,6 +295,24 @@ fn an_attestation_whose_signature_does_not_verify_proves_nothing() {
     let failed = case.p.env.send_err(&[ix], &[&reporter]);
     assert_molpha_error(&failed, MolphaError::InvalidAggregateSignature);
 
+    for node in case.p.node_pdas() {
+        assert_eq!(case.p.env.get::<Node>(&node).status, NodeStatus::Active);
+    }
+}
+
+/// A key is a verification input the reporter supplies: a wrong one fails the filing instead of
+/// reading as an invalid (and so non-punishable) signature.
+#[test]
+fn a_wrong_coalition_key_fails_the_filing_without_punishing_anyone() {
+    let mut case = case();
+    let reporter = case.reporter.insecure_clone();
+    let mut args = args_for(&case, &case.a, &case.b);
+    // A real coalition key, but of `a`'s signer set.
+    args.coalition_key_b = case.a.coalition_key;
+
+    let ix = case.p.slash_equivocation_ix(&reporter.pubkey(), args);
+    let failed = case.p.env.send_err(&[ix], &[&reporter]);
+    assert_molpha_error(&failed, MolphaError::InvalidCoalitionKey);
     for node in case.p.node_pdas() {
         assert_eq!(case.p.env.get::<Node>(&node).status, NodeStatus::Active);
     }

@@ -12,6 +12,7 @@ import {
 import { Command } from "commander";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
+import { withOffenceCoalitionKeys } from "../lib/coalition";
 import {
   findNodeDepositVault,
   findNodePda,
@@ -44,7 +45,7 @@ function registryNode(registry: any, index: number): PublicKey {
 
 async function sendSlashOffence(
   command: Command,
-  offence: Record<string, unknown>,
+  evidence: Record<string, unknown>,
   expectedHash?: Uint8Array,
 ): Promise<void> {
   const ctx = await getCliContext(command);
@@ -63,8 +64,8 @@ async function sendSlashOffence(
   if (!config || !state) throw new Error("Protocol is not initialized");
 
   const currentVersion = Number(state.currentVersion);
-  const evidenceVersion = registryVersionFromOffence(offence);
-  const evidenceHash = offenceEvidenceHash(offence);
+  const evidenceVersion = registryVersionFromOffence(evidence);
+  const evidenceHash = offenceEvidenceHash(evidence);
   if (expectedHash && !equalBytes(expectedHash, evidenceHash)) {
     throw new Error(
       `--evidence-hash ${bytesToHex(expectedHash)} does not match computed ${bytesToHex(evidenceHash)}`,
@@ -82,6 +83,11 @@ async function sendSlashOffence(
   if (!evidenceRegistryAccount) {
     throw new Error(`Evidence registry ${evidenceVersion} is missing`);
   }
+  const offence = await withOffenceCoalitionKeys(
+    ctx.program,
+    evidenceRegistryAccount,
+    evidence,
+  );
 
   const remaining = remainingBitsFromOffence(offence).map((bit) => ({
     pubkey: registryNode(evidenceRegistryAccount, bit),

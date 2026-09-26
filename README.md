@@ -67,6 +67,12 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
   `canonical_timestamp + MAX_SETTLEMENT_DELAY_CAP_SECONDS` (7 days) has passed, anyone can call
   `close_round_replay` to return the marker's rent to the gateway authority; the cap on
   `max_settlement_delay_seconds` guarantees a closed round can never be re-admitted.
+- Every instruction that verifies an aggregate (`submit_attestation`, both settlements, and the
+  equivocation / commitment-reuse / unsolicited-signing evidence) also takes the coalition key
+  `CoalitionKey { x, y }`: the affine sum of the signers' secp256k1 keys, which any library
+  computes from their `Node` accounts in any order. It is unsigned and outside the evidence hash.
+  The verifier checks it against its own sum instead of inverting that sum (~138K CU), and a wrong
+  key fails with `InvalidCoalitionKey`.
 - `RequestAuth` is `H(program_id, gateway, source_id, signatures_required, timestamp)`, with the
   last three taken from the attestation payload (`timestamp` = `canonical_timestamp`), verified
   on-chain for the subscription path. The `program_id` and `gateway` fields scope the
@@ -184,16 +190,17 @@ numbers rather than reporting them:
 
 | Signers | Compute units | Transaction bytes |
 | ------- | ------------- | ----------------- |
-| 5       | ~233K         | 740               |
-| 10      | ~279K         | 905               |
-| 15      | ~325K         | 1,070             |
-| 19      | ~361K         | 1,202             |
-| 20      | —             | 1,235 ✗           |
+| 5       | ~91K          | 742               |
+| 10      | ~142K         | 907               |
+| 15      | ~183K         | 1,072             |
+| 19      | ~223K         | 1,204             |
+| 20      | —             | 1,237 ✗           |
 
-**19 signers** is the ceiling for a legacy transaction: each extra signer costs 33 bytes and the
-packet limit is 1,232. The compute budget is not the binding constraint — a 19-signer round uses
-about a quarter of the 1.4M maximum. Set `ComputeBudgetProgram.setComputeUnitLimit` ≥ **400_000**
-for large coalitions; go past 19 signers only with address lookup tables.
+**19 signers** is the ceiling for a legacy transaction: each extra signer costs 33 bytes, the
+64-byte coalition key costs about two of them, and the packet limit is 1,232. The compute budget is
+not the binding constraint — a 19-signer round uses about a sixth of the 1.4M maximum. Set
+`ComputeBudgetProgram.setComputeUnitLimit` ≥ **400_000** for large coalitions; go past 19 signers
+only with address lookup tables.
 
 ### Example: read feed via CLI
 
@@ -246,9 +253,10 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 | Command                 | Purpose                                  |
 | ----------------------- | ---------------------------------------- |
 | `yarn molpha`           | Operator CLI (after `yarn build:cli`)    |
-| `yarn register-nodes`   | `scripts/generate-and-register-nodes.js` |
+| `yarn generate-nodes`   | `scripts/generate-nodes.js`              |
+| `yarn register-nodes`   | `scripts/register-nodes.js`              |
 
-Key scripts under `scripts/`: `generate-and-register-nodes.js`, `oracle-client.ts`. Use `yarn molpha` for all on-chain operations.
+Key scripts under `scripts/`: `generate-nodes.js`, `register-nodes.js`, `oracle-client.ts`. Use `yarn molpha` for all on-chain operations.
 
 ## Architecture
 

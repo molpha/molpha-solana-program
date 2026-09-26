@@ -5,7 +5,9 @@ use crate::{
     state::{ProtocolConfig, Registry},
     utils::require_fresh_canonical_timestamp,
 };
-use molpha_verifier::{solana::verify_attestation, Attestation, Bitmap};
+use molpha_verifier::{
+    solana::verify_attestation_with_coalition_key, Attestation, Bitmap, CoalitionKey,
+};
 
 /// How the caller lays out node accounts in `remaining_accounts`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -23,6 +25,7 @@ pub(crate) fn validate_attestation<'info>(
     registry_acc: &AccountLoader<'info, Registry>,
     config: &ProtocolConfig,
     attestation: &Attestation,
+    coalition_key: &CoalitionKey,
     now: i64,
 ) -> Result<()> {
     let registry = registry_acc.load()?;
@@ -65,10 +68,11 @@ pub(crate) fn validate_attestation<'info>(
     // Settlement also receives the missed selected nodes after the signer accounts so it can
     // update liveliness in the same instruction. The verifier expects exactly one account per
     // signer, so only pass the signer prefix here.
-    verify_attestation(
+    verify_attestation_with_coalition_key(
         attestation,
         &registry_acc.to_account_info(),
         &node_accounts[..signer_count as usize],
+        coalition_key,
     )
     .map_err(map_attestation_accounts_err)?;
 

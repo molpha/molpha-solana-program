@@ -6,11 +6,14 @@
 
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::{AnchorDeserialize, AnchorSerialize, Discriminator, InstructionData, Space};
-use molpha::instructions::{InitializeArgs, SubmitAttestationArgs, UpdateConfigArgs};
+use molpha::instructions::{
+    InitializeArgs, SettleX402RoundArgs, SubmitAttestationArgs, UpdateConfigArgs,
+};
 use molpha::state::{
     Feed, FeedValueKind, InactivityEvidence, Node, NodeStatus, Offence, OffenceKind,
 };
 use molpha_verifier::payload::{Attestation, AttestationPayload, SchnorrSignature};
+use molpha_verifier::CoalitionKey;
 
 /// Borsh encoding of `InitializeArgs`, plus the 8-byte Anchor discriminator.
 ///
@@ -22,9 +25,10 @@ const INITIALIZE_IX_DATA_LEN: usize = 90;
 /// Pinned for the same reason as `INITIALIZE_IX_DATA_LEN`: off-chain clients encode this.
 const UPDATE_CONFIG_IX_DATA_LEN: usize = 57;
 
-/// Borsh encoding of `SubmitAttestationArgs` without a raw value: the 161-byte attestation plus
-/// the `None` tag. A change to it is a breaking change for every off-chain submitter.
-const SUBMIT_ATTESTATION_ARGS_LEN: usize = 162;
+/// Borsh encoding of `SubmitAttestationArgs` without a raw value: the 161-byte attestation, the
+/// `None` tag and the 64-byte coalition key. A change to it is a breaking change for every
+/// off-chain submitter.
+const SUBMIT_ATTESTATION_ARGS_LEN: usize = 226;
 
 fn initialize_args() -> InitializeArgs {
     InitializeArgs {
@@ -145,11 +149,52 @@ fn attestation() -> Attestation {
     }
 }
 
+fn coalition_key() -> CoalitionKey {
+    CoalitionKey {
+        x: [0x2a; 32],
+        y: [0x3b; 32],
+    }
+}
+
+/// Borsh `Attestation`: payload (32 + 32 + 4 + 1 + 8) plus signature (32 + 20 + 32).
+const ATTESTATION_LEN: usize = 161;
+
+#[test]
+fn settlement_instructions_end_with_the_coalition_key() {
+    let subscription = molpha::instruction::SettleSubscriptionRound {
+        attestation: attestation(),
+        consumer_authority: Pubkey::new_from_array([0x44; 32]),
+        coalition_key: coalition_key(),
+    }
+    .data();
+    assert_eq!(subscription.len(), 8 + ATTESTATION_LEN + 32 + 64);
+    assert_eq!(subscription[subscription.len() - 64..][..32], [0x2a; 32]);
+    assert_eq!(subscription[subscription.len() - 32..], [0x3b; 32]);
+
+    let args = SettleX402RoundArgs {
+        payer_id: [0x55; 32],
+        amount: 7,
+        payment_rail: 1,
+        payment_ref: b"ref".to_vec(),
+    };
+    let args_len = borsh::to_vec(&args).expect("serialize").len();
+    let x402 = molpha::instruction::SettleX402Round {
+        attestation: attestation(),
+        args,
+        coalition_key: coalition_key(),
+    }
+    .data();
+    assert_eq!(x402.len(), 8 + ATTESTATION_LEN + args_len + 64);
+    assert_eq!(x402[x402.len() - 64..][..32], [0x2a; 32]);
+    assert_eq!(x402[x402.len() - 32..], [0x3b; 32]);
+}
+
 #[test]
 fn submit_attestation_args_are_stable_and_round_trip() {
     let args = SubmitAttestationArgs {
         attestation: attestation(),
         raw_value: None,
+        coalition_key: coalition_key(),
     };
     let bytes = borsh::to_vec(&args).expect("serialize");
     assert_eq!(bytes.len(), SUBMIT_ATTESTATION_ARGS_LEN);
@@ -157,11 +202,16 @@ fn submit_attestation_args_are_stable_and_round_trip() {
     let decoded = borsh::from_slice::<SubmitAttestationArgs>(&bytes).expect("deserialize");
     assert_eq!(decoded.attestation, args.attestation);
     assert_eq!(decoded.raw_value, None);
+    assert_eq!(decoded.coalition_key, coalition_key());
+    // The key trails the variable-length raw value: `x` then `y`, both big-endian.
+    assert_eq!(bytes[SUBMIT_ATTESTATION_ARGS_LEN - 64..][..32], [0x2a; 32]);
+    assert_eq!(bytes[SUBMIT_ATTESTATION_ARGS_LEN - 32..], [0x3b; 32]);
 
     let raw = vec![0x5a; 40];
     let with_raw = SubmitAttestationArgs {
         attestation: attestation(),
         raw_value: Some(raw.clone()),
+        coalition_key: coalition_key(),
     };
     let bytes = borsh::to_vec(&with_raw).expect("serialize");
     assert_eq!(bytes.len(), SUBMIT_ATTESTATION_ARGS_LEN + 4 + raw.len());

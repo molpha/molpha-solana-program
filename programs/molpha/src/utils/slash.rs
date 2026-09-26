@@ -11,7 +11,8 @@ use solana_keccak_hasher::hashv;
 use molpha_verifier::bitmap::{for_each_set_bit, Bitmap};
 use molpha_verifier::Attestation;
 use molpha_verifier::{
-    derive_selection_bitmap, verify_aggregate_over_hash, RegistryView, SignerXy,
+    derive_selection_bitmap, verify_aggregate_over_hash_with_coalition_key, CoalitionKey,
+    RegistryView, SignerXy,
 };
 
 use crate::{
@@ -173,15 +174,20 @@ pub(crate) fn require_signers_selected(
 /// Signature only — unlike `molpha_verifier::verify`, neither selection membership nor quorum is
 /// enforced, since unsolicited-signing evidence breaks the former by definition. Callers that
 /// need membership check it with [`require_signers_selected`].
+///
+/// `coalition_key` is the reporter-supplied affine sum of `ordered_signers`; a wrong one fails
+/// the filing with `InvalidCoalitionKey` rather than reading as an invalid signature.
 pub(crate) fn verify_evidence_signature(
     attestation: &Attestation,
     ordered_signers: &[SignerXy],
+    coalition_key: &CoalitionKey,
 ) -> Result<()> {
-    let is_valid = verify_aggregate_over_hash(
+    let is_valid = verify_aggregate_over_hash_with_coalition_key(
         &attestation.signature.agg_sig_s,
         &attestation.signature.commitment,
         &attestation.message_hash(),
         ordered_signers,
+        coalition_key,
     )
     .map_err(map_attestation_err)?;
     require!(is_valid, MolphaError::InvalidAggregateSignature);

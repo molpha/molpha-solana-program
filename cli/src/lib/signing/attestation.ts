@@ -63,10 +63,17 @@ export type AttestationArgs = {
   };
 };
 
-/** Anchor `SubmitAttestationArgs`. */
+/** Anchor `CoalitionKey`: affine sum of the signers' secp256k1 keys, big-endian. */
+export type CoalitionKeyArgs = { x: number[]; y: number[] };
+
+/**
+ * Anchor `SubmitAttestationArgs`. `coalitionKey` may be left out while building offline; `submit`
+ * then sums it from the signers' `Node` accounts.
+ */
 export type SubmitAttestationArgs = {
   attestation: AttestationArgs;
   rawValue: Buffer | null;
+  coalitionKey?: CoalitionKeyArgs;
 };
 
 export type SignedAttestation = {
@@ -467,6 +474,7 @@ export function signE2eAttestation(
   }
 
   const coalitionCompressed = coalitionPoint.toRawBytes(true);
+  const coalitionAffine = coalitionPoint.toAffine();
   const { s, commitment } = schnorrSignForVerifier({
     coalitionPubkeyCompressed: coalitionCompressed,
     messageHash,
@@ -486,6 +494,10 @@ export function signE2eAttestation(
         commitment,
       }),
       rawValue: rawValueArg(attestation.rawValue),
+      coalitionKey: {
+        x: Array.from(secp256k1.etc.numberToBytesBE(coalitionAffine.x)),
+        y: Array.from(secp256k1.etc.numberToBytesBE(coalitionAffine.y)),
+      },
     },
     signersBitmap,
     aggSigS: s,

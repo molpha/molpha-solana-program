@@ -10,7 +10,7 @@ pub mod state;
 pub mod utils;
 
 use instructions::*;
-use molpha_verifier::Attestation;
+use molpha_verifier::{Attestation, CoalitionKey};
 use state::{PlanConfig, PlanType};
 
 declare_id!("MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3");
@@ -91,8 +91,9 @@ pub mod molpha {
         ctx: Context<'info, SettleSubscriptionRound<'info>>,
         attestation: Attestation,
         consumer_authority: Pubkey,
+        coalition_key: CoalitionKey,
     ) -> Result<()> {
-        instructions::settle_subscription_round(ctx, attestation, consumer_authority)
+        instructions::settle_subscription_round(ctx, attestation, consumer_authority, coalition_key)
     }
 
     pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
@@ -111,8 +112,9 @@ pub mod molpha {
         ctx: Context<'info, SettleX402Round<'info>>,
         attestation: Attestation,
         args: SettleX402RoundArgs,
+        coalition_key: CoalitionKey,
     ) -> Result<()> {
-        instructions::settle_x402_round(ctx, attestation, args)
+        instructions::settle_x402_round(ctx, attestation, args, coalition_key)
     }
 
     pub fn close_round_replay(ctx: Context<CloseRoundReplay>) -> Result<()> {

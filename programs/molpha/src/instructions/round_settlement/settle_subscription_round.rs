@@ -14,12 +14,13 @@ use crate::{
         settlement::credit_round_rewards,
     },
 };
-use molpha_verifier::Attestation;
+use molpha_verifier::{Attestation, CoalitionKey};
 
 pub fn settle_subscription_round<'info>(
     ctx: Context<'info, SettleSubscriptionRound<'info>>,
     attestation: Attestation,
     consumer_authority: Pubkey,
+    coalition_key: CoalitionKey,
 ) -> Result<()> {
     let clock = Clock::get()?;
     let now_slot = clock.slot;
@@ -54,6 +55,7 @@ pub fn settle_subscription_round<'info>(
         &ctx.accounts.registry,
         &ctx.accounts.config,
         &attestation,
+        &coalition_key,
         clock.unix_timestamp,
     )?;
 
