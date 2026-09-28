@@ -19,11 +19,14 @@ fn tuned_update_args() -> UpdateConfigArgs {
         reward_per_signature: 11,
         max_settlement_delay_seconds: 512,
         challenger_bounty_bps: 1_250,
-        liveliness_freeze_threshold: 4_000,
-        liveliness_penalty_per_miss: 700,
-        liveliness_recovery_per_sign: 250,
         x402_round_base: 2_000,
         min_signers: 5,
+        epoch_len_seconds: 43_200,
+        ticket_grace_seconds: 3_600,
+        target_tickets_per_epoch: 4_000,
+        min_availability_bps: 7_000,
+        min_availability_samples: 25,
+        protocol_fee_bps: 1_500,
     }
 }
 
@@ -43,18 +46,20 @@ fn initialize_writes_config_registry_state_and_genesis_snapshot() {
         args.max_settlement_delay_seconds
     );
     assert_eq!(config.challenger_bounty_bps, args.challenger_bounty_bps);
+    assert_eq!(config.epoch_len_seconds, args.epoch_len_seconds);
+    assert_eq!(config.ticket_grace_seconds, args.ticket_grace_seconds);
     assert_eq!(
-        config.liveliness_penalty_per_miss,
-        args.liveliness_penalty_per_miss
+        config.target_tickets_per_epoch,
+        args.target_tickets_per_epoch
     );
+    assert_eq!(config.min_availability_bps, args.min_availability_bps);
     assert_eq!(
-        config.liveliness_recovery_per_sign,
-        args.liveliness_recovery_per_sign
+        config.min_availability_samples,
+        args.min_availability_samples
     );
-    assert_eq!(
-        config.liveliness_freeze_threshold,
-        args.liveliness_freeze_threshold
-    );
+    assert_eq!(config.protocol_fee_bps, args.protocol_fee_bps);
+    assert_eq!(config.pool_liability, 0);
+    assert_eq!(config.protocol_reserved, 0);
     assert_eq!(config.minimum_node_deposit, args.minimum_node_deposit);
     assert_eq!(
         config.withdrawal_cooldown_slots,
@@ -82,6 +87,23 @@ fn initialize_writes_config_registry_state_and_genesis_snapshot() {
     assert_eq!(state.mint, b.usdc_mint);
     assert_eq!(state.owner, pda::protocol_config());
     assert_eq!(state.amount, 0);
+
+    // Genesis epochs: chained windows, current parameters, every round sampled.
+    let now = b.env.unix_timestamp();
+    let len = args.epoch_len_seconds as i64;
+    for (index, start) in [(0u64, now), (1u64, now + len)] {
+        let epoch = b.env.epoch(index);
+        assert_eq!(epoch.epoch, index);
+        assert_eq!((epoch.start, epoch.end), (start, start + len));
+        assert_eq!(epoch.ticket_grace, args.ticket_grace_seconds as i64);
+        assert_eq!(epoch.tau, u64::MAX);
+        assert_eq!(epoch.min_availability_bps, args.min_availability_bps);
+        assert_eq!(epoch.min_samples, args.min_availability_samples);
+        assert_eq!(epoch.rent_payer, b.authority.pubkey().to_bytes());
+        assert_eq!((epoch.pool, epoch.tickets, epoch.roster_len), (0, 0, 0));
+        assert_eq!(epoch.finalized, 0);
+    }
+    assert!(!b.env.account_exists(&pda::epoch(2)));
 
     let event: ProtocolInitialized = only_event(&meta);
     assert_eq!(event.protocol_config, pda::protocol_config());
@@ -196,24 +218,26 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
         args.max_settlement_delay_seconds
     );
     assert_eq!(after.challenger_bounty_bps, args.challenger_bounty_bps);
+    assert_eq!(after.epoch_len_seconds, args.epoch_len_seconds);
+    assert_eq!(after.ticket_grace_seconds, args.ticket_grace_seconds);
     assert_eq!(
-        after.liveliness_penalty_per_miss,
-        args.liveliness_penalty_per_miss
+        after.target_tickets_per_epoch,
+        args.target_tickets_per_epoch
     );
+    assert_eq!(after.min_availability_bps, args.min_availability_bps);
     assert_eq!(
-        after.liveliness_recovery_per_sign,
-        args.liveliness_recovery_per_sign
+        after.min_availability_samples,
+        args.min_availability_samples
     );
-    assert_eq!(
-        after.liveliness_freeze_threshold,
-        args.liveliness_freeze_threshold
-    );
+    assert_eq!(after.protocol_fee_bps, args.protocol_fee_bps);
     assert_eq!(after.x402_round_base, args.x402_round_base);
     assert_eq!(after.min_signers, args.min_signers);
     assert_eq!(
         after.reward_liability, before.reward_liability,
         "retuning knobs must not rewrite what the protocol owes"
     );
+    assert_eq!(after.pool_liability, before.pool_liability);
+    assert_eq!(after.protocol_reserved, before.protocol_reserved);
 
     // `update_config` must not be a back door to the authority or the settlement mint.
     assert_eq!(after.authority, before.authority);
@@ -223,18 +247,9 @@ fn update_config_rewrites_every_tunable_and_leaves_identity_alone() {
     let event: ProtocolConfigUpdated = only_event(&meta);
     assert_eq!(event.min_signers, args.min_signers);
     assert_eq!(event.reward_per_signature, args.reward_per_signature);
-    assert_eq!(
-        event.liveliness_penalty_per_miss,
-        args.liveliness_penalty_per_miss
-    );
-    assert_eq!(
-        event.liveliness_recovery_per_sign,
-        args.liveliness_recovery_per_sign
-    );
-    assert_eq!(
-        event.liveliness_freeze_threshold,
-        args.liveliness_freeze_threshold
-    );
+    assert_eq!(event.epoch_len_seconds, args.epoch_len_seconds);
+    assert_eq!(event.min_availability_bps, args.min_availability_bps);
+    assert_eq!(event.protocol_fee_bps, args.protocol_fee_bps);
 }
 
 #[test]
@@ -379,40 +394,53 @@ macro_rules! rejects_config {
 }
 
 rejects_config!(
-    zero_penalty,
-    liveliness_penalty_per_miss,
+    short_epoch,
+    epoch_len_seconds,
+    molpha::state::MIN_EPOCH_LEN_SECONDS - 1,
+    InvalidEpochLength
+);
+rejects_config!(
+    long_epoch,
+    epoch_len_seconds,
+    molpha::state::MAX_EPOCH_LEN_SECONDS + 1,
+    InvalidEpochLength
+);
+rejects_config!(zero_grace, ticket_grace_seconds, 0, InvalidTicketGrace);
+rejects_config!(
+    grace_as_long_as_the_epoch,
+    ticket_grace_seconds,
+    86_400,
+    InvalidTicketGrace
+);
+rejects_config!(
+    zero_ticket_target,
+    target_tickets_per_epoch,
     0,
-    InvalidLivelinessPenalty
+    InvalidTicketTarget
 );
 rejects_config!(
-    excessive_penalty,
-    liveliness_penalty_per_miss,
+    ticket_target_above_cap,
+    target_tickets_per_epoch,
+    molpha::state::MAX_TICKETS_PER_EPOCH / 8 + 1,
+    InvalidTicketTarget
+);
+rejects_config!(
+    excessive_availability_floor,
+    min_availability_bps,
     10_001,
-    InvalidLivelinessPenalty
+    InvalidAvailabilityFloor
 );
 rejects_config!(
-    zero_recovery,
-    liveliness_recovery_per_sign,
+    zero_availability_samples,
+    min_availability_samples,
     0,
-    InvalidLivelinessRecovery
+    InvalidAvailabilityFloor
 );
 rejects_config!(
-    excessive_recovery,
-    liveliness_recovery_per_sign,
+    excessive_protocol_fee,
+    protocol_fee_bps,
     10_001,
-    InvalidLivelinessRecovery
-);
-rejects_config!(
-    zero_threshold,
-    liveliness_freeze_threshold,
-    0,
-    InvalidLivelinessFreezeThreshold
-);
-rejects_config!(
-    excessive_threshold,
-    liveliness_freeze_threshold,
-    10_001,
-    InvalidLivelinessFreezeThreshold
+    InvalidProtocolFee
 );
 rejects_config!(
     zero_deposit,
@@ -471,22 +499,31 @@ fn initialize_rejects_invalid_redundancy_without_panicking() {
 
 #[test]
 fn config_accepts_inclusive_boundaries_and_zero_optional_economics() {
-    for score in [1, 10_000] {
+    for low in [true, false] {
         let mut b = bare();
         let mut args = default_initialize_args(b.usdc_mint);
-        args.liveliness_freeze_threshold = score;
-        args.liveliness_penalty_per_miss = score;
-        args.liveliness_recovery_per_sign = score;
-        args.redundancy_buffer = if score == 1 { 1 } else { 8 };
+        args.epoch_len_seconds = if low {
+            molpha::state::MIN_EPOCH_LEN_SECONDS
+        } else {
+            molpha::state::MAX_EPOCH_LEN_SECONDS
+        };
+        args.ticket_grace_seconds = if low { 1 } else { args.epoch_len_seconds - 1 };
+        args.target_tickets_per_epoch = if low {
+            1
+        } else {
+            molpha::state::MAX_TICKETS_PER_EPOCH / 8
+        };
+        args.min_availability_bps = if low { 0 } else { 10_000 };
+        args.min_availability_samples = if low { 1 } else { u16::MAX };
+        args.protocol_fee_bps = if low { 0 } else { 10_000 };
+        args.redundancy_buffer = if low { 1 } else { 8 };
         args.challenger_bounty_bps = 0;
         args.reward_per_signature = 0;
         args.x402_round_base = 0;
         let ix = initialize_ix(&b.authority.pubkey(), &b.usdc_mint, &args);
         b.env.send_ok(&[ix], &[&b.authority]);
         let mut update = tuned_update_args();
-        update.liveliness_freeze_threshold = score;
-        update.liveliness_penalty_per_miss = score;
-        update.liveliness_recovery_per_sign = score;
+        update.protocol_fee_bps = if low { 10_000 } else { 0 };
         update.challenger_bounty_bps = 10_000;
         update.reward_per_signature = 0;
         update.x402_round_base = u64::MAX;

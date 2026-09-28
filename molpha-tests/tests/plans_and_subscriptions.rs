@@ -179,7 +179,6 @@ fn subscribe_charges_the_plan_price_and_snapshots_its_limits() {
     let subscription: Subscription = p.env.get(&pda::subscription(&owner.pubkey()));
     assert_eq!(subscription.owner, owner.pubkey());
     assert_eq!(subscription.plan_type, PlanType::Professional);
-    assert_eq!(subscription.used_rounds, 0);
     assert_eq!(subscription.max_rounds, plan.max_rounds);
     assert_eq!(subscription.delegate_count, 0);
     assert_eq!(subscription.max_delegates, plan.max_delegates);
@@ -295,7 +294,7 @@ fn extend_adds_a_month_to_a_still_valid_subscription() {
         before.valid_until + Subscription::SECONDS_PER_MONTH,
         "an active subscription extends from its own expiry, not from now"
     );
-    assert_eq!(after.used_rounds, before.used_rounds);
+    assert_eq!(after.max_rounds, before.max_rounds);
 
     let event: SubscriptionExtended = only_event(&meta);
     assert_eq!(event.extended_at, p.env.unix_timestamp());

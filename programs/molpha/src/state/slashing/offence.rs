@@ -32,7 +32,7 @@ pub enum Offence {
     /// A node produced two verifying partial signatures against one nonce pair it had committed
     /// in a signed batch. Key-compromise-equivalent: a third such partial extracts the share.
     NonceReuse(NonceReuseEvidence),
-    /// A node liveliness score dropped below the freeze threshold.
+    /// A node's availability in a finalized epoch fell below that epoch's payout floor.
     Inactivity(InactivityEvidence),
 }
 

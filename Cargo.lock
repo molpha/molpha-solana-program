@@ -1901,6 +1901,7 @@ dependencies = [
  "base64 0.23.1",
  "bincode",
  "borsh",
+ "bytemuck",
  "libsecp256k1",
  "litesvm",
  "molpha",

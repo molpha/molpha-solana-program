@@ -17,26 +17,33 @@ type UpdateConfigFile = {
   rewardPerSignature?: string;
   maxSettlementDelaySeconds?: string;
   challengerBountyBps?: number;
-  livelinessFreezeThreshold?: number;
-  livelinessPenaltyPerMiss?: number;
-  livelinessRecoveryPerSign?: number;
   x402RoundBase?: string;
   minSigners?: number;
+  epochLenSeconds?: string;
+  ticketGraceSeconds?: string;
+  targetTicketsPerEpoch?: number;
+  minAvailabilityBps?: number;
+  minAvailabilitySamples?: number;
+  protocolFeeBps?: number;
 };
 
-/// Mirrors `ProtocolConfig`'s tunables. `reward_liability` is protocol-maintained accounting,
-/// not a knob, so `update_config` neither reads nor writes it.
+/// Mirrors `ProtocolConfig`'s tunables. `reward_liability`, `pool_liability` and
+/// `protocol_reserved` are protocol-maintained accounting, not knobs, so `update_config`
+/// neither reads nor writes them. Epoch parameters reach only epochs created afterwards.
 type ProtocolConfigAccount = {
   withdrawalCooldownSlots: { toString(): string };
   minimumNodeDeposit: { toString(): string };
   rewardPerSignature: { toString(): string };
   maxSettlementDelaySeconds: { toString(): string };
   challengerBountyBps: number;
-  livelinessFreezeThreshold: number;
-  livelinessPenaltyPerMiss: number;
-  livelinessRecoveryPerSign: number;
   x402RoundBase: { toString(): string };
   minSigners: number;
+  epochLenSeconds: { toString(): string };
+  ticketGraceSeconds: { toString(): string };
+  targetTicketsPerEpoch: number;
+  minAvailabilityBps: number;
+  minAvailabilitySamples: number;
+  protocolFeeBps: number;
 };
 
 export function registerUpdateConfigCommand(admin: Command): void {
@@ -52,25 +59,37 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .option("--reward-per-signature <amount>", "reward per signature")
     .option(
       "--max-settlement-delay-seconds <seconds>",
-      "max age of canonical_timestamp at settlement ingress",
+      "max age of canonical_timestamp at attestation ingress; registry version grace",
     )
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
     .option(
-      "--liveliness-freeze-threshold <score>",
-      "liveliness score below which a node may be frozen",
+      "--x402-round-base <amount>",
+      "published x402 base price per round (pricing input only)",
     )
-    .option(
-      "--liveliness-penalty-per-miss <score>",
-      "score lost per missed round (1-10000)",
-    )
-    .option(
-      "--liveliness-recovery-per-sign <score>",
-      "score regained per signed round (1-10000)",
-    )
-    .option("--x402-round-base <amount>", "base x402 round settlement price")
     .option(
       "--min-signers <count>",
-      "minimum signatures_required accepted by settlement",
+      "minimum signatures_required accepted for attestations and tickets",
+    )
+    .option("--epoch-len-seconds <seconds>", "length of epochs created later")
+    .option(
+      "--ticket-grace-seconds <seconds>",
+      "late-ticket window of epochs created later",
+    )
+    .option(
+      "--target-tickets-per-epoch <count>",
+      "ticket count the sampling threshold aims for",
+    )
+    .option(
+      "--min-availability-bps <bps>",
+      "payout floor relative to the network inclusion rate",
+    )
+    .option(
+      "--min-availability-samples <count>",
+      "selections below which the floor does not apply",
+    )
+    .option(
+      "--protocol-fee-bps <bps>",
+      "share of swept income kept by the protocol; the rest funds epoch pools",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -155,24 +174,6 @@ export function buildUpdateConfigArgs(
       optionOrConfig(options.challengerBountyBps, config.challengerBountyBps) ??
         current.challengerBountyBps,
     ),
-    livelinessFreezeThreshold: Number(
-      optionOrConfig(
-        options.livelinessFreezeThreshold,
-        config.livelinessFreezeThreshold,
-      ) ?? current.livelinessFreezeThreshold,
-    ),
-    livelinessPenaltyPerMiss: Number(
-      optionOrConfig(
-        options.livelinessPenaltyPerMiss,
-        config.livelinessPenaltyPerMiss,
-      ) ?? current.livelinessPenaltyPerMiss,
-    ),
-    livelinessRecoveryPerSign: Number(
-      optionOrConfig(
-        options.livelinessRecoveryPerSign,
-        config.livelinessRecoveryPerSign,
-      ) ?? current.livelinessRecoveryPerSign,
-    ),
     x402RoundBase: bn(
       requireValue(
         optionOrConfig(
@@ -186,6 +187,40 @@ export function buildUpdateConfigArgs(
     minSigners: Number(
       optionOrConfig(options.minSigners, config.minSigners) ??
         current.minSigners,
+    ),
+    epochLenSeconds: bn(
+      optionOrConfig(
+        options.epochLenSeconds as string | undefined,
+        config.epochLenSeconds,
+      ) ?? current.epochLenSeconds.toString(),
+      "epoch length",
+    ),
+    ticketGraceSeconds: bn(
+      optionOrConfig(
+        options.ticketGraceSeconds as string | undefined,
+        config.ticketGraceSeconds,
+      ) ?? current.ticketGraceSeconds.toString(),
+      "ticket grace",
+    ),
+    targetTicketsPerEpoch: Number(
+      optionOrConfig(
+        options.targetTicketsPerEpoch,
+        config.targetTicketsPerEpoch,
+      ) ?? current.targetTicketsPerEpoch,
+    ),
+    minAvailabilityBps: Number(
+      optionOrConfig(options.minAvailabilityBps, config.minAvailabilityBps) ??
+        current.minAvailabilityBps,
+    ),
+    minAvailabilitySamples: Number(
+      optionOrConfig(
+        options.minAvailabilitySamples,
+        config.minAvailabilitySamples,
+      ) ?? current.minAvailabilitySamples,
+    ),
+    protocolFeeBps: Number(
+      optionOrConfig(options.protocolFeeBps, config.protocolFeeBps) ??
+        current.protocolFeeBps,
     ),
   };
   validateProtocolConfig(args);

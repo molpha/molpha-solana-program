@@ -1,4 +1,4 @@
-import { validateProtocolConfig } from "../lib/protocol-config";
+import { EPOCH_DEFAULTS, validateProtocolConfig } from "../lib/protocol-config";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
@@ -8,6 +8,7 @@ import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import { getCliContext } from "../lib/client";
 import {
+  findEpochPda,
   findNodeDepositVault,
   findProtocolConfigPda,
   findRegistryPda,
@@ -29,12 +30,15 @@ type InitConfig = {
   rewardPerSignature?: string;
   maxSettlementDelaySeconds?: string;
   challengerBountyBps?: number;
-  livelinessFreezeThreshold?: number;
-  livelinessPenaltyPerMiss?: number;
-  livelinessRecoveryPerSign?: number;
   usdcMint?: string;
   x402RoundBase?: string;
   minSigners?: number;
+  epochLenSeconds?: string;
+  ticketGraceSeconds?: string;
+  targetTicketsPerEpoch?: number;
+  minAvailabilityBps?: number;
+  minAvailabilitySamples?: number;
+  protocolFeeBps?: number;
 };
 
 export function registerInitCommand(program: Command): void {
@@ -54,26 +58,38 @@ export function registerInitCommand(program: Command): void {
     .option("--reward-per-signature <amount>", "reward per signature")
     .option(
       "--max-settlement-delay-seconds <seconds>",
-      "max age of canonical_timestamp at settlement ingress",
+      "max age of canonical_timestamp at attestation ingress; registry version grace",
     )
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
-    .option(
-      "--liveliness-freeze-threshold <score>",
-      "liveliness score below which a node may be frozen",
-    )
     .option("--usdc-mint <pubkey>", "USDC mint")
     .option(
-      "--liveliness-penalty-per-miss <score>",
-      "score lost per missed round (1-10000)",
+      "--x402-round-base <amount>",
+      "published x402 base price per round (pricing input only)",
     )
-    .option(
-      "--liveliness-recovery-per-sign <score>",
-      "score regained per signed round (1-10000)",
-    )
-    .option("--x402-round-base <amount>", "base x402 round settlement price")
     .option(
       "--min-signers <count>",
-      "minimum signatures_required accepted by settlement",
+      "minimum signatures_required accepted for attestations and tickets",
+    )
+    .option("--epoch-len-seconds <seconds>", "epoch length (default 86400)")
+    .option(
+      "--ticket-grace-seconds <seconds>",
+      "late-ticket window after an epoch ends (default 21600)",
+    )
+    .option(
+      "--target-tickets-per-epoch <count>",
+      "ticket count the sampling threshold aims for (default 2000)",
+    )
+    .option(
+      "--min-availability-bps <bps>",
+      "payout floor relative to the network inclusion rate (default 8000)",
+    )
+    .option(
+      "--min-availability-samples <count>",
+      "selections below which the floor does not apply (default 50)",
+    )
+    .option(
+      "--protocol-fee-bps <bps>",
+      "share of swept income kept by the protocol; the rest funds epoch pools",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -138,27 +154,6 @@ export function registerInitCommand(program: Command): void {
             "Missing --challenger-bounty-bps",
           ),
         ),
-        livelinessFreezeThreshold: Number(
-          requireValue(
-            optionOrConfig(
-              options.livelinessFreezeThreshold,
-              config.livelinessFreezeThreshold,
-            ),
-            "Missing --liveliness-freeze-threshold",
-          ),
-        ),
-        livelinessPenaltyPerMiss: Number(
-          optionOrConfig(
-            options.livelinessPenaltyPerMiss,
-            config.livelinessPenaltyPerMiss,
-          ) ?? 10,
-        ),
-        livelinessRecoveryPerSign: Number(
-          optionOrConfig(
-            options.livelinessRecoveryPerSign,
-            config.livelinessRecoveryPerSign,
-          ) ?? 90,
-        ),
         usdcMint: parsePubkeyOption(
           optionOrConfig(options.usdcMint, config.usdcMint),
           "usdc mint",
@@ -173,6 +168,43 @@ export function registerInitCommand(program: Command): void {
         minSigners: Number(
           optionOrConfig(options.minSigners, config.minSigners) ?? 3,
         ),
+        epochLenSeconds: bn(
+          optionOrConfig(options.epochLenSeconds, config.epochLenSeconds) ??
+            EPOCH_DEFAULTS.epochLenSeconds,
+          "epoch length",
+        ),
+        ticketGraceSeconds: bn(
+          optionOrConfig(
+            options.ticketGraceSeconds,
+            config.ticketGraceSeconds,
+          ) ?? EPOCH_DEFAULTS.ticketGraceSeconds,
+          "ticket grace",
+        ),
+        targetTicketsPerEpoch: Number(
+          optionOrConfig(
+            options.targetTicketsPerEpoch,
+            config.targetTicketsPerEpoch,
+          ) ?? EPOCH_DEFAULTS.targetTicketsPerEpoch,
+        ),
+        minAvailabilityBps: Number(
+          optionOrConfig(
+            options.minAvailabilityBps,
+            config.minAvailabilityBps,
+          ) ?? EPOCH_DEFAULTS.minAvailabilityBps,
+        ),
+        minAvailabilitySamples: Number(
+          optionOrConfig(
+            options.minAvailabilitySamples,
+            config.minAvailabilitySamples,
+          ) ?? EPOCH_DEFAULTS.minAvailabilitySamples,
+        ),
+        // The fee level is an economic decision: no default.
+        protocolFeeBps: Number(
+          requireValue(
+            optionOrConfig(options.protocolFeeBps, config.protocolFeeBps),
+            "Missing --protocol-fee-bps",
+          ),
+        ),
       };
       validateProtocolConfig(args);
       const treasury = getAssociatedTokenAddressSync(
@@ -184,6 +216,8 @@ export function registerInitCommand(program: Command): void {
         ctx.programId,
         args.usdcMint,
       );
+      const [epoch0] = findEpochPda(ctx.programId, 0);
+      const [epoch1] = findEpochPda(ctx.programId, 1);
 
       const signature = await (ctx.program.methods as any)
         .initialize(args)
@@ -194,6 +228,8 @@ export function registerInitCommand(program: Command): void {
           usdcMint: args.usdcMint,
           treasury,
           nodeDepositVault,
+          epoch0,
+          epoch1,
           authority: ctx.wallet.publicKey,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -208,6 +244,8 @@ export function registerInitCommand(program: Command): void {
         registry: registry.toBase58(),
         treasury: treasury.toBase58(),
         nodeDepositVault: nodeDepositVault.toBase58(),
+        epoch0: epoch0.toBase58(),
+        epoch1: epoch1.toBase58(),
       });
     });
 }

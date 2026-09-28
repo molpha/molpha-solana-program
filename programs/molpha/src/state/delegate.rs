@@ -10,14 +10,14 @@ pub enum AgentStatus {
     Paused,
 }
 
-/// Owner-scoped delegate authorization with persistent request quotas.
+/// Owner-scoped delegate authorization. `max_data_requests` is enforced by the gateway at
+/// admission, not on chain.
 #[account]
 #[derive(InitSpace)]
 pub struct Delegate {
     pub owner: Pubkey,
     pub delegate: Pubkey,
     pub max_data_requests: u64,
-    pub data_requests_used: u64,
     pub bump: u8,
 }
 
@@ -29,19 +29,6 @@ impl Delegate {
         self.owner = owner;
         self.delegate = delegate;
         self.max_data_requests = max_data_requests;
-        self.data_requests_used = 0;
         self.bump = bump;
-    }
-
-    pub fn try_consume_data_request(&mut self) -> Result<()> {
-        require!(
-            self.data_requests_used < self.max_data_requests,
-            crate::error::MolphaError::DelegateDataRequestLimitReached
-        );
-        self.data_requests_used = self
-            .data_requests_used
-            .checked_add(1)
-            .ok_or(crate::error::MolphaError::DelegateDataRequestLimitReached)?;
-        Ok(())
     }
 }

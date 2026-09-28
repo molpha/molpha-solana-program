@@ -2,6 +2,20 @@ import { BN } from "@coral-xyz/anchor";
 
 /** Mirrors `MAX_SETTLEMENT_DELAY_CAP_SECONDS` in the program (7 days). */
 export const MAX_SETTLEMENT_DELAY_CAP_SECONDS = 604_800;
+/** Mirror `MIN_EPOCH_LEN_SECONDS` / `MAX_EPOCH_LEN_SECONDS` in the program. */
+export const MIN_EPOCH_LEN_SECONDS = 3_600;
+export const MAX_EPOCH_LEN_SECONDS = 30 * 86_400;
+/** Mirrors `MAX_TICKETS_PER_EPOCH` in the program; the ticket target may be at most 1/8 of it. */
+export const MAX_TICKETS_PER_EPOCH = 65_535;
+
+/** Defaults for the epoch reward knobs when neither a flag nor a config file sets them. */
+export const EPOCH_DEFAULTS = {
+  epochLenSeconds: "86400",
+  ticketGraceSeconds: "21600",
+  targetTicketsPerEpoch: 2_000,
+  minAvailabilityBps: 8_000,
+  minAvailabilitySamples: 50,
+} as const;
 
 type ProtocolConfigArgs = {
   withdrawalCooldownSlots: BN;
@@ -9,11 +23,14 @@ type ProtocolConfigArgs = {
   rewardPerSignature: BN;
   maxSettlementDelaySeconds: BN;
   challengerBountyBps: number;
-  livelinessFreezeThreshold: number;
-  livelinessPenaltyPerMiss: number;
-  livelinessRecoveryPerSign: number;
   x402RoundBase: BN;
   minSigners: number;
+  epochLenSeconds: BN;
+  ticketGraceSeconds: BN;
+  targetTicketsPerEpoch: number;
+  minAvailabilityBps: number;
+  minAvailabilitySamples: number;
+  protocolFeeBps: number;
   redundancyBuffer?: number;
 };
 
@@ -28,6 +45,8 @@ export function validateProtocolConfig(args: ProtocolConfigArgs): void {
     "rewardPerSignature",
     "maxSettlementDelaySeconds",
     "x402RoundBase",
+    "epochLenSeconds",
+    "ticketGraceSeconds",
   ] as const) {
     const value = args[field];
     const allowZero =
@@ -46,13 +65,25 @@ export function validateProtocolConfig(args: ProtocolConfigArgs): void {
       "maxSettlementDelaySeconds must not exceed 604800 (7 days)",
     );
   }
+  if (
+    args.epochLenSeconds.lt(new BN(MIN_EPOCH_LEN_SECONDS)) ||
+    args.epochLenSeconds.gt(new BN(MAX_EPOCH_LEN_SECONDS))
+  ) {
+    throw new Error(
+      `epochLenSeconds must be between ${MIN_EPOCH_LEN_SECONDS} and ${MAX_EPOCH_LEN_SECONDS}`,
+    );
+  }
+  if (args.ticketGraceSeconds.gte(args.epochLenSeconds)) {
+    throw new Error("ticketGraceSeconds must be shorter than epochLenSeconds");
+  }
   for (const [field, min, max] of [
     ["challengerBountyBps", 0, 10000],
-    ["livelinessFreezeThreshold", 1, 10000],
-    ["livelinessPenaltyPerMiss", 1, 10000],
-    ["livelinessRecoveryPerSign", 1, 10000],
     ["minSigners", 3, 255],
     ["redundancyBuffer", 1, 8],
+    ["targetTicketsPerEpoch", 1, Math.floor(MAX_TICKETS_PER_EPOCH / 8)],
+    ["minAvailabilityBps", 0, 10000],
+    ["minAvailabilitySamples", 1, 65535],
+    ["protocolFeeBps", 0, 10000],
   ] as const) {
     if (field === "redundancyBuffer" && args[field] === undefined) continue;
     const value = args[field];

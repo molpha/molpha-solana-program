@@ -2,7 +2,9 @@ use anchor_lang::prelude::*;
 
 /// Protocol-authorized gateway identified by its Solana authority.
 ///
-/// Holds endpoint metadata and activation status. Keyed by the gateway's authority key.
+/// Holds endpoint metadata and activation status. Keyed by the gateway's authority key, which
+/// signs the round dispatches tickets must carry. Gateways hold no funds: x402 payers pay the
+/// protocol treasury directly.
 #[account]
 #[derive(InitSpace)]
 pub struct Gateway {

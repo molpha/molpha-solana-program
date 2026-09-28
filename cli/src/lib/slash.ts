@@ -4,7 +4,7 @@ const DOMAIN_EQUIVOCATION = Buffer.from("MOLPHA_EQUIVOCATION_V1");
 const DOMAIN_COMMITMENT_REUSE = Buffer.from("MOLPHA_COMMITMENT_REUSE_V1");
 const DOMAIN_UNSOLICITED_SIGNING = Buffer.from("MOLPHA_UNSOLICITED_SIGNING_V1");
 const DOMAIN_NONCE_REUSE = Buffer.from("MOLPHA_NONCE_REUSE_V1");
-const DOMAIN_INACTIVITY = Buffer.from("MOLPHA_INACTIVITY_V1");
+const DOMAIN_INACTIVITY = Buffer.from("MOLPHA_INACTIVITY_V2");
 
 export function u32Be(value: number): Buffer {
   const out = Buffer.alloc(4);
@@ -157,17 +157,17 @@ function transcriptHash(value: unknown, label: string): Uint8Array {
   );
 }
 
+/**
+ * Inactivity case hash: `(epoch, roster_slot)` only, so a node is punished at most once per
+ * epoch however its registry location changes.
+ */
 export function inactivityEvidenceHash(
-  registryVersion: number,
-  nodeIndex: number,
+  epoch: number | bigint,
+  rosterSlot: number,
 ): Uint8Array {
-  return keccak_256(
-    Buffer.concat([
-      DOMAIN_INACTIVITY,
-      u32Be(registryVersion),
-      u32Be(nodeIndex),
-    ]),
-  );
+  const slot = Buffer.alloc(2);
+  slot.writeUInt16BE(rosterSlot, 0);
+  return keccak_256(Buffer.concat([DOMAIN_INACTIVITY, u64Be(epoch), slot]));
 }
 
 /** Bits set in a Molpha `Bitmap` (`U256` little-endian bit positions, big-endian bytes). */
@@ -247,11 +247,8 @@ export function offenceEvidenceHash(
   switch (variant.kind) {
     case "inactivity":
       return inactivityEvidenceHash(
-        numField(
-          pick(variant, "registryVersion", "registry_version"),
-          "registry version",
-        ),
-        numField(pick(variant, "nodeIndex", "node_index"), "node index"),
+        numField(pick(variant, "epoch"), "epoch"),
+        numField(pick(variant, "rosterSlot", "roster_slot"), "roster slot"),
       );
     case "equivocation":
       return pairEvidenceHash(DOMAIN_EQUIVOCATION, variant, "equivocation");

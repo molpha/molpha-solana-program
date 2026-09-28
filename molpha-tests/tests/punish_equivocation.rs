@@ -520,45 +520,46 @@ fn a_node_can_be_punished_again_after_surviving_an_earlier_punishment() {
     case.p.assert_solvent();
 }
 
-/// Slashing cancels reward credits, so the protocol stops owing them.
+/// Slashing cancels reward credits, so the protocol stops owing them, and what it recovered
+/// becomes protocol reserve rather than income.
 #[test]
 fn punishment_releases_the_reward_liability_it_cancels() {
     let mut case = case();
-    let gateway = case.p.register_gateway(500_000_000);
+    let gateway = case.p.register_gateway();
 
-    // A settled round immediately leaves every signer with a reward credit.
-    let round_duty = duty().source_id([0x77; 32]).at(1_700_000_500);
-    let signed = case.p.sign_duty(round_duty);
-    let x402 = case.p.x402_args(&signed, [0xaa; 32]);
-    let settle = case
+    // A full reward epoch leaves the nodes with credits.
+    case.p.run_reward_epoch(&gateway, 8_000_000, 4);
+    let credits: Vec<(anchor_lang::prelude::Pubkey, u64)> = case
         .p
-        .settle_x402_round_ix(&gateway.pubkey(), &signed.attestation(), x402);
-    let gateway_kp = gateway.insecure_clone();
-    case.p.env.send_ok(&[settle], &[&gateway_kp]);
-
-    let credited = case
-        .p
-        .node_pdas_for_bitmap(round_duty.registry_version, &signed.signers_bitmap);
-    let reward = case.p.args.reward_per_signature;
+        .node_pdas()
+        .into_iter()
+        .map(|node| (node, case.p.env.get::<Node>(&node).claimable_rewards))
+        .collect();
     let liability_before = case.p.reward_liability();
-    assert_eq!(liability_before, reward * credited.len() as u64);
+    assert_eq!(
+        liability_before,
+        credits.iter().map(|(_, c)| c).sum::<u64>()
+    );
+    let reserved_before = case.p.config().protocol_reserved;
 
     // Equivocation is a full slash, so each guilty node loses its credit as well as its stake.
     let args = args_for(&case, &case.a, &case.b);
     let guilty = guilty_pdas(&case);
-    let credited_guilty = guilty.iter().filter(|n| credited.contains(n)).count() as u64;
-    assert!(credited_guilty > 0, "the guilty were paid for this round");
+    let guilty_credit: u64 = credits
+        .iter()
+        .filter(|(node, _)| guilty.contains(node))
+        .map(|(_, credit)| credit)
+        .sum();
+    assert!(guilty_credit > 0, "the guilty were paid for the epoch");
 
     let reporter = case.reporter.insecure_clone();
     let ix = case.p.slash_equivocation_ix(&reporter.pubkey(), args);
     case.p.env.send_ok(&[ix], &[&reporter]);
 
-    assert_eq!(
-        case.p.reward_liability(),
-        liability_before - reward * credited_guilty
-    );
+    assert_eq!(case.p.reward_liability(), liability_before - guilty_credit);
     for node in &guilty {
         assert_eq!(case.p.env.get::<Node>(node).claimable_rewards, 0);
     }
+    assert!(case.p.config().protocol_reserved > reserved_before);
     case.p.assert_solvent();
 }

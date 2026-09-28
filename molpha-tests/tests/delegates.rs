@@ -48,7 +48,6 @@ fn add_delegate_writes_the_grant_and_counts_it_against_the_subscription() {
     assert_eq!(account.owner, owner.pubkey());
     assert_eq!(account.delegate, delegate);
     assert_eq!(account.max_data_requests, 25);
-    assert_eq!(account.data_requests_used, 0);
 
     let subscription: Subscription = p.env.get(&pda::subscription(&owner.pubkey()));
     assert_eq!(subscription.delegate_count, 1);

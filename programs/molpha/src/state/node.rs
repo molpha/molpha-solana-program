@@ -1,9 +1,6 @@
 use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
-use crate::state::ProtocolConfig;
-
-pub const LIVELINESS_SCORE_MAX: u16 = 10_000;
 pub const NODE_ID_PREFIX: &[u8] = b"MOLPHA_NODE_ID_V1";
 
 /// Permanent node identity and reward account; never closed or re-keyed.
@@ -18,7 +15,6 @@ pub struct Node {
     pub port: u16,
     pub locked_amount: u64,
     pub claimable_rewards: u64,
-    pub liveliness_score: u16,
     pub registered_at: i64,
     pub withdrawable_slot: u64,
     pub frozen_until: i64,
@@ -28,6 +24,14 @@ pub struct Node {
 impl Node {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_node";
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
+
+    pub fn add_rewards(&mut self, amount: u64) -> Result<()> {
+        self.claimable_rewards = self
+            .claimable_rewards
+            .checked_add(amount)
+            .ok_or(crate::error::MolphaError::RewardOverflow)?;
+        Ok(())
+    }
 
     #[allow(clippy::too_many_arguments)]
     pub fn init(
@@ -49,7 +53,6 @@ impl Node {
         self.port = port;
         self.locked_amount = locked_amount;
         self.claimable_rewards = 0;
-        self.liveliness_score = LIVELINESS_SCORE_MAX;
         self.registered_at = registered_at;
         self.withdrawable_slot = 0;
         self.frozen_until = 0;
@@ -60,19 +63,10 @@ impl Node {
         self.ip = ip;
         self.port = port;
     }
-
-    pub fn record_round_settlement(&mut self, config: &ProtocolConfig) -> Result<()> {
-        self.claimable_rewards = self
-            .claimable_rewards
-            .checked_add(config.reward_per_signature)
-            .ok_or(crate::error::MolphaError::RewardOverflow)?;
-        self.liveliness_score = self
-            .liveliness_score
-            .saturating_add(config.liveliness_recovery_per_sign);
-        self.liveliness_score = self.liveliness_score.min(LIVELINESS_SCORE_MAX);
-        Ok(())
-    }
 }
+
+// The shared verifier reads signer keys from Node accounts at fixed offsets and length.
+const _: () = assert!(Node::SPACE == molpha_verifier::solana::NODE_ACCOUNT_LEN);
 
 #[derive(
     AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Default, Debug,

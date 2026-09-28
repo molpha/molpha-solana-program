@@ -1,6 +1,5 @@
 pub mod attestation;
 pub mod ed25519;
-pub mod settlement;
 pub mod slash;
 pub mod time;
 

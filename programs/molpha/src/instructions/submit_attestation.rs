@@ -7,7 +7,10 @@ use crate::{
     error::MolphaError,
     events::FeedUpdated,
     state::{Feed, FeedValueKind, ProtocolConfig, Registry},
-    utils::attestation::{validate_attestation, NodeAccountLayout},
+    utils::{
+        attestation::{require_registry_active_at, verify_attestation_core},
+        require_fresh_canonical_timestamp,
+    },
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -48,14 +51,18 @@ pub fn submit_attestation<'info>(
 
     let clock = Clock::get()?;
 
-    validate_attestation(
+    require_registry_active_at(&*ctx.accounts.registry.load()?, clock.unix_timestamp)?;
+    require_fresh_canonical_timestamp(
+        attestation.payload.canonical_timestamp,
+        clock.unix_timestamp,
+        ctx.accounts.protocol_config.max_settlement_delay_seconds,
+    )?;
+    verify_attestation_core(
         ctx.remaining_accounts,
-        NodeAccountLayout::SignersOnly,
         &ctx.accounts.registry,
-        &ctx.accounts.protocol_config,
+        ctx.accounts.protocol_config.min_signers,
         &attestation,
         &coalition_key,
-        clock.unix_timestamp,
     )?;
 
     let feed = &mut ctx.accounts.feed;

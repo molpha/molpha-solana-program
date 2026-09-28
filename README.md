@@ -10,7 +10,7 @@ Molpha on Solana provides:
 - **Plans & subscriptions** — USDC-paid plans that cap jobs and define signing thresholds
 - **Feeds** — PDAs keyed by a 32-byte `source_id`, quorum (`signatures_required`), and submitter; updates store the signed 32-byte value (the oracle value itself, or `keccak256(raw_value)` for a preimage of up to 256 bytes, as recorded by `value_kind`), coalition bitmap, timestamp, and registry version
 - **Data updates** — `submit_attestation` writes feed state; `verify_attestation` runs the same checks without writing (for CPI / historical-registry consumers)
-- **Rounds & settlement** — Gateways settle subscription-funded and x402 gateway-funded rounds against `source_id`; request-auth hashes bind `source_id` + `signatures_required` + timestamp
+- **Epoch rewards** — Income lands in program-owned vaults and is swept into a per-epoch pool; node participation is measured from a sample of fully verified rounds (tickets); each node's share is credited after the epoch. No transaction per round.
 - **Delegates** — Subscription owners can authorize delegates (including owner-provisioned agents), capped by their plan's `max_delegates`
 - **Protocol governance** — Admin config for fees, snapshot policy, gateway allowlists, and treasury
 
@@ -27,9 +27,9 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 - registration requires a domain-separated Schnorr proof of possession bound to the program and
   derived node identity; verifier hot paths rely on this registration invariant
 - `update_registry_policy` snapshots redundancy-policy changes without changing membership
-- **Liveliness scoring** — each `Node` carries a score (max 10,000). Round settlement penalizes
-  missed selections and rewards participation; `slash_offence` with `Offence::Inactivity` evicts
-  nodes whose score drops below `liveliness_freeze_threshold`, and `reinstate_node` restores them
+- **Epoch availability** — a node's inclusion rate in a finalized epoch (`signed / selected`,
+  relative to the network rate) sets its payout floor; `slash_offence` with `Offence::Inactivity`
+  freezes a node below that floor (one case per node per epoch), and `reinstate_node` restores it
   after cooldown
 - Node security deposits are held in a **shared USDC vault** (the canonical ATA of `registry_state`),
   separate from the protocol treasury; per-node `locked_amount` tracks each node's share
@@ -54,32 +54,51 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
   the guilty set, and evicts them into a successor registry. Inactivity freezes without taking
   principal; the other offences tombstone.
 
-### Rounds
+### Epoch rewards
 
-- Two settlement instructions, discriminated by funding source: `settle_subscription_round`
-  (draws down a subscription's round quota) and `settle_x402_round` (the gateway pays the
-  protocol-quoted price from its canonical USDC ATA — any payment rail, e.g. Solana or Base x402 —
-  and records `payment_rail` / `payment_ref` as attested, gateway-claimed metadata the program
-  never verifies). Both take the coalition's signed `Attestation` (payload + aggregate signature)
-  as an argument, keyed by its `source_id` directly (not a derived `feed_id` / `api_config_hash`),
-  verify it immediately, credit signer rewards, and update liveliness. A consumer-scoped replay
-  marker PDA prevents the same round authorization from being settled twice. Once
-  `canonical_timestamp + MAX_SETTLEMENT_DELAY_CAP_SECONDS` (7 days) has passed, anyone can call
-  `close_round_replay` to return the marker's rent to the gateway authority; the cap on
-  `max_settlement_delay_seconds` guarantees a closed round can never be re-admitted.
-- Every instruction that verifies an aggregate (`submit_attestation`, both settlements, and the
-  equivocation / commitment-reuse / unsolicited-signing evidence) also takes the coalition key
-  `CoalitionKey { x, y }`: the affine sum of the signers' secp256k1 keys, which any library
-  computes from their `Node` accounts in any order. It is unsigned and outside the evidence hash.
-  The verifier checks it against its own sum instead of inverting that sum (~138K CU), and a wrong
-  key fails with `InvalidCoalitionKey`.
-- `RequestAuth` is `H(program_id, gateway, source_id, signatures_required, timestamp)`, with the
-  last three taken from the attestation payload (`timestamp` = `canonical_timestamp`), verified
-  on-chain for the subscription path. The `program_id` and `gateway` fields scope the
-  authorization: it can only be redeemed by the gateway the consumer chose, on the deployment they
-  meant to pay. The x402 path has no on-chain payer authentication — the gateway self-attests
-  and is economically deterred by paying real USDC per round; demand authenticity is a bilateral,
-  rail-level concern.
+Per-round settlement (`settle_subscription_round`, `settle_x402_round`, `close_round_replay`) is
+gone. Three flows replace it, and none of them writes an account per round:
+
+- **Income.** All income lands in the **treasury** (the USDC ATA of the `protocol_config` PDA):
+  x402 `payTo` is the treasury, and subscriptions pay it too. Gateways hold no funds, take no fee
+  and earn no rewards. Permissionless `sweep_treasury_revenue` books unswept income into the pool
+  of the epoch open at cluster time, keeping `protocol_fee_bps` as protocol reserve.
+  `withdraw_protocol_reserve` lets the authority withdraw fees and slashing proceeds, never pools
+  or rewards. The treasury ledger is `reward_liability` (Σ claimable) + `pool_liability`
+  (Σ live pools) + `protocol_reserved`; anything above it is unswept income.
+- **Measurement.** A round is a **ticket** when the big-endian `u64` prefix of
+  `keccak("MOLPHA_TICKET_V1" ‖ m ‖ s ‖ commitment)` is below its epoch's threshold `tau`.
+  Anyone may `submit_ticket`: the round must fall in the epoch window, arrive before
+  `end + ticket_grace`, use a registry version that was live at its `canonical_timestamp`, carry
+  the dispatching gateway's Ed25519 signature over
+  `keccak("MOLPHA_DISPATCH_V1" ‖ program_id ‖ source_id ‖ k ‖ version ‖ ts)` in the immediately
+  preceding instruction, and verify in full. Its whole selection is re-derived and counted in the
+  epoch's `EpochState` (selected / signed per node, keyed by an epoch roster of `Node` PDAs because
+  registry positions move between versions). A `TicketMarker` keyed by round identity
+  `(source_id, k, ts)` stops any aggregate of the same round counting twice; it is closable once
+  the epoch stops accepting tickets.
+- **Payout.** After the ticket deadline anyone may `finalize_epoch`: weights freeze and the epoch
+  two ahead is created with `tau` rescaled toward `target_tickets_per_epoch` (at most 8x per step).
+  A node's weight is its sampled signature count, or zero when it has at least
+  `min_availability_samples` selections and an inclusion rate below `min_availability_bps` of the
+  network rate. `credit_epoch_rewards` adds `floor(pool · w / W)` to `Node.claimable_rewards`
+  (tombstoned nodes forfeit); `claim_node_rewards` withdraws as before. `close_epoch` waits one
+  more epoch length (inactivity evidence window), then rolls the residual into the open epoch.
+
+Subscription round quotas and delegate request limits are enforced by the gateway at admission;
+`reward_per_signature` and `x402_round_base` remain as published x402 pricing inputs only.
+
+Every instruction that verifies an aggregate (`submit_attestation`, `submit_ticket`, and the
+equivocation / commitment-reuse / unsolicited-signing evidence) also takes the coalition key
+`CoalitionKey { x, y }`: the affine sum of the signers' secp256k1 keys, which any library computes
+from their `Node` accounts in any order. It is unsigned and outside the evidence hash. The verifier
+checks it against its own sum instead of inverting that sum (~138K CU), and a wrong key fails with
+`InvalidCoalitionKey`.
+
+Known beta posture (see the epoch reward spec): the gateway dispatch signature is the only thing
+binding a ticket to an admitted round, and a coalition that forms a round's whole signer set can
+re-sign that round to re-roll its lottery or exclude a co-signer. Both assume the permissioned
+operator set and the Molpha-operated gateway.
 
 ### Tooling
 
@@ -98,7 +117,8 @@ programs/
 │       │   ├── delegate/            # add_delegate.rs, remove_delegate.rs, set_delegate_paused.rs
 │       │   ├── gateway/             # register_gateway.rs, deactivate_gateway.rs
 │       │   ├── subscriptions/       # subscribe.rs, extend_subscription.rs
-│       │   ├── round_settlement/    # settle_subscription_round.rs, settle_x402_round.rs
+│       │   ├── epoch/               # submit_ticket, finalize_epoch, credit_epoch_rewards, close_epoch, close_ticket_marker
+│       │   ├── revenue/             # sweep_treasury_revenue, withdraw_protocol_reserve
 │       │   ├── slashing/            # slash_offence.rs
 │       │   ├── submit_attestation.rs / verify_attestation.rs
 │       ├── state/
@@ -109,10 +129,11 @@ programs/
 │       │   ├── feed.rs
 │       │   ├── gateway.rs
 │       │   ├── offence/             # Offence enum, evidence, penalties
-│       │   └── round_replay.rs / receipt.rs / punishment_case.rs
+│       │   ├── epoch.rs / ticket.rs  # EpochState, TicketMarker, ticket / dispatch hashes
+│       │   └── punishment_case.rs
 │       ├── utils/
 │       │   ├── ed25519.rs
-│       │   ├── settlement.rs      # Attestation shape checks shared by both settlement paths
+│       │   ├── attestation.rs     # Attestation checks shared by submit_attestation and submit_ticket
 │       │   └── registry.rs / slash.rs / time.rs
 │       ├── events.rs
 │       ├── error.rs
@@ -156,7 +177,7 @@ anchor build -p molpha
 cargo test --workspace
 
 # One area at a time (all files are modules of the single `suite` binary)
-cargo test -p molpha-tests --test suite settle_subscription
+cargo test -p molpha-tests --test suite tickets
 cargo test -p molpha-tests --test suite encoding          # pure unit tests, no .so needed
 cargo test -p molpha-tests --test suite limits -- --nocapture   # prints CU and transaction sizes
 ```
@@ -182,6 +203,23 @@ anchor deploy --provider.cluster devnet
 ```
 
 Program IDs are defined in [`Anchor.toml`](Anchor.toml) (see below).
+
+### Ticket limits (`submit_ticket`)
+
+A ticket transaction carries the compute-budget instruction, the gateway's Ed25519 dispatch
+instruction and the ticket, so it fits fewer signers than `submit_attestation`. Measured by
+`cargo test -p molpha-tests --test suite limits compute_bench -- --nocapture`:
+
+| Signers | Compute units (whole tx) | Fits                                  |
+| ------- | ------------------------ | ------------------------------------- |
+| 8       | ~132K                    | legacy                                |
+| 10      | —                        | legacy ceiling                        |
+| 12      | ~166K                    | v0 + lookup table                     |
+| 18      | ~223K                    | v0 + lookup table                     |
+| 20      | ~249K                    | v0 + lookup table (991 bytes)         |
+
+Put the signer `Node` accounts in the lookup table; the marker, epoch and payer stay static. Every
+ticket write-locks its epoch's `EpochState`, which is fine at the sampled rate.
 
 ### Coalition size limits (`submit_attestation`)
 
@@ -225,29 +263,6 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 | ---------- | --------------------------------------------- |
 | **Molpha** | `MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh` |
 
-## Documentation
-
-### User & integration
-
-- [Documentation Index](DOCUMENTATION_INDEX.md)
-- [Quick Start](QUICK_START.md)
-- [User Guide](MOLPHA_USER_GUIDE.md)
-- [Integration Guide](INTEGRATION_GUIDE.md)
-- [API Reference](API_REFERENCE.md)
-
-### Operators & protocol engineers
-
-- [**Node Operator Guide**](NODE_OPERATOR_GUIDE.md) — canonical on-chain behavior and runbooks
-- [Oracle Interfaces](ORACLE_INTERFACES.md) — adapter and encoding notes
-- [Remaining Accounts Limits](REMAINING_ACCOUNTS_LIMITS.md)
-- [Feed Consumer Implementation](FEED_CONSUMER_IMPLEMENTATION.md)
-
-### Deployment & project notes
-
-- [Devnet Deployment](DEVNET_DEPLOYMENT.md)
-- [Migration Guide](MIGRATION_GUIDE.md)
-- [Scripts README](scripts/README.md)
-
 ## Scripts & yarn commands
 
 | Command                 | Purpose                                  |
@@ -271,8 +286,11 @@ submit_attestation → init feed if needed → verify bitmap + signature → upd
         ↓
 Consumers read Feed account OR CPI verify_attestation (no write)
         ↓
-Gateway settle_subscription_round (subscription draw) OR
-Gateway settle_x402_round (pays price from its canonical USDC ATA, any rail)
+Sampled rounds → submit_ticket (dispatch sig + full verify) → EpochState counters
+        ↓
+x402 payments and subscriptions land in the treasury → sweep_treasury_revenue → open epoch pool
+        ↓
+finalize_epoch → credit_epoch_rewards → claim_node_rewards
 ```
 
 ### PDA seeds
@@ -289,14 +307,14 @@ Gateway settle_x402_round (pays price from its canonical USDC ATA, any rail)
 | Delegate            | `molpha_delegate`      | owner, delegate                                               |
 | Feed                | `molpha_feed`          | `source_id` (32), `signatures_required` (u8), submitter       |
 | Gateway             | `molpha_gateway`       | gateway authority                                             |
-| Subscription round  | `molpha_round`         | subscription owner, gateway, `source_id`, `signatures_required` (u8), ts (`u64` LE) |
-| x402 round          | `molpha_x402_round`    | `payer_id` (32), gateway, `source_id`, `signatures_required` (u8), ts (`u64` LE) |
+| Epoch state         | `molpha_epoch`         | epoch index (`u64` LE)                                        |
+| Ticket marker       | `molpha_ticket`        | `keccak("MOLPHA_TICKET_ID_V1" ‖ source_id ‖ k ‖ ts BE)`        |
 
 **Derived token accounts** (not PDAs, but program-enforced):
 
 | Account             | Owner / authority      | Notes                                                         |
 | ------------------- | ---------------------- | ------------------------------------------------------------- |
-| Protocol treasury   | `protocol_config` PDA  | USDC ATA for protocol revenue and node rewards                |
+| Protocol treasury   | `protocol_config` PDA  | USDC ATA: x402 `payTo`, subscriptions, pools, rewards, reserve |
 | Node deposit vault  | `registry_state` PDA   | Shared USDC vault for all node security deposits              |
 
 Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_GUIDE.md#3-on-chain-accounts-and-pdas).
@@ -315,9 +333,9 @@ Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_G
 - `registry withdraw-deposit` releases a deactivated node's deposit after `withdrawable_at`, or
   the surviving balance of a tombstoned node after its punishment cooldown. Rewards remain on the
   separate `claim_node_rewards` path.
-- `gateway deactivate` immediately disables new settlement and records deactivation on the
-  permanent Gateway account. Gateway registration is bondless, and a deactivated identity cannot
-  re-register.
+- `gateway deactivate` immediately stops the gateway's dispatch signatures from admitting tickets
+  and records deactivation on the permanent Gateway account. Gateway registration is bondless,
+  and a deactivated identity cannot re-register.
 
 ## Contributing
 

@@ -10,11 +10,12 @@ use anchor_lang::{InstructionData, ToAccountMetas};
 use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
     AddDelegateArgs, InitializeArgs, RegisterGatewayArgs, RegisterNodeArgs, RemoveDelegateArgs,
-    SettleX402RoundArgs, SubmitAttestationArgs, UpdateConfigArgs, UpdateNodeEndpointArgs,
+    SubmitAttestationArgs, UpdateConfigArgs, UpdateNodeEndpointArgs,
 };
 use molpha::state::{
-    CommitmentReuseEvidence, EquivocationEvidence, InactivityEvidence, NonceReuseEvidence, Offence,
-    PlanConfig, PlanType, RegistryState, UnsolicitedSigningEvidence,
+    CommitmentReuseEvidence, EpochState, EquivocationEvidence, InactivityEvidence,
+    NonceReuseEvidence, Offence, PlanConfig, PlanType, ProtocolConfig, RegistryState,
+    UnsolicitedSigningEvidence, MAX_REGISTRY_NODES,
 };
 use molpha_verifier::{Attestation, AttestationPayload, CoalitionKey, SchnorrSignature};
 use solana_keypair::Keypair;
@@ -23,6 +24,9 @@ use solana_signer::Signer;
 use crate::crypto::{self, AggregateSignature, NodeKey};
 use crate::env::TestEnv;
 use crate::pda;
+
+/// Upper bound when scanning for epoch accounts; tests never create more.
+pub const MAX_EPOCH_SCAN: u64 = 64;
 
 /// Placeholder key for signer sets without a sum; every verifying instruction rejects it.
 pub const ZERO_COALITION_KEY: CoalitionKey = CoalitionKey {
@@ -173,14 +177,15 @@ pub fn default_initialize_args(usdc_mint: Pubkey) -> InitializeArgs {
         // a cooldown-length clock advance; freshness tests tighten it via the builder.
         max_settlement_delay_seconds: 604_800,
         challenger_bounty_bps: 500,
-        liveliness_freeze_threshold: 5_000,
-        // Break-even inclusion rate penalty / (penalty + recovery) = 10%, below the lowest
-        // average inclusion k / (k + b) any allowed config produces (3 / 11 at b = 8).
-        liveliness_penalty_per_miss: 10,
-        liveliness_recovery_per_sign: 90,
         usdc_mint,
         x402_round_base: 1_000_000,
         min_signers: 3,
+        epoch_len_seconds: 86_400,
+        ticket_grace_seconds: 21_600,
+        target_tickets_per_epoch: 2_000,
+        min_availability_bps: 8_000,
+        min_availability_samples: 50,
+        protocol_fee_bps: 500,
     }
 }
 
@@ -200,6 +205,8 @@ pub fn initialize_ix(
             usdc_mint: *usdc_mint_account,
             treasury: pda::ata(&pda::protocol_config(), usdc_mint_account),
             node_deposit_vault: pda::ata(&pda::registry_state(), usdc_mint_account),
+            epoch0: pda::epoch(0),
+            epoch1: pda::epoch(1),
             authority: *authority,
             token_program: pda::TOKEN_PROGRAM_ID,
             associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -263,18 +270,33 @@ impl ProtocolBuilder {
         self
     }
 
-    pub fn liveliness_penalty_per_miss(mut self, value: u16) -> Self {
-        self.args.liveliness_penalty_per_miss = value;
+    pub fn epoch_len_seconds(mut self, value: u64) -> Self {
+        self.args.epoch_len_seconds = value;
         self
     }
 
-    pub fn liveliness_recovery_per_sign(mut self, value: u16) -> Self {
-        self.args.liveliness_recovery_per_sign = value;
+    pub fn ticket_grace_seconds(mut self, value: u64) -> Self {
+        self.args.ticket_grace_seconds = value;
         self
     }
 
-    pub fn liveliness_freeze_threshold(mut self, value: u16) -> Self {
-        self.args.liveliness_freeze_threshold = value;
+    pub fn target_tickets_per_epoch(mut self, value: u32) -> Self {
+        self.args.target_tickets_per_epoch = value;
+        self
+    }
+
+    pub fn min_availability_bps(mut self, value: u16) -> Self {
+        self.args.min_availability_bps = value;
+        self
+    }
+
+    pub fn min_availability_samples(mut self, value: u16) -> Self {
+        self.args.min_availability_samples = value;
+        self
+    }
+
+    pub fn protocol_fee_bps(mut self, value: u16) -> Self {
+        self.args.protocol_fee_bps = value;
         self
     }
 
@@ -372,17 +394,26 @@ impl Protocol {
             .sum()
     }
 
+    pub fn config(&self) -> ProtocolConfig {
+        self.env.get::<ProtocolConfig>(&pda::protocol_config())
+    }
+
     /// `Σ Node.claimable_rewards` as the protocol tracks it.
     pub fn reward_liability(&self) -> u64 {
-        self.env
-            .get::<molpha::state::ProtocolConfig>(&pda::protocol_config())
-            .reward_liability
+        self.config().reward_liability
+    }
+
+    /// Epoch accounts that exist (created and not yet closed), ascending.
+    pub fn live_epochs(&self) -> Vec<u64> {
+        (0..MAX_EPOCH_SCAN)
+            .filter(|epoch| self.env.account_exists(&pda::epoch(*epoch)))
+            .collect()
     }
 
     /// Assert the custody invariants the treasury separation exists to guarantee.
     ///
     /// Cheap enough to call at the end of any test that moves money, and the fastest way to
-    /// notice a payout path that broke principal custody or reward accounting.
+    /// notice a payout path that broke principal custody, reward accounting or pool accounting.
     pub fn assert_solvent(&self) {
         assert!(
             self.node_deposit_balance() >= self.total_locked_deposits(),
@@ -401,11 +432,22 @@ impl Protocol {
             owed_rewards,
             "reward_liability is not the sum of every claimable_rewards"
         );
+        let config = self.config();
+        let live_pools: u64 = self
+            .live_epochs()
+            .into_iter()
+            .map(|epoch| self.env.epoch(epoch).residual())
+            .sum();
+        assert_eq!(
+            config.pool_liability, live_pools,
+            "pool_liability is not the sum of every live epoch's pool - paid"
+        );
+        let committed = config.committed().expect("committed fits u64");
         assert!(
-            self.treasury_balance() >= self.reward_liability(),
-            "treasury {} cannot back the {} it owes nodes",
+            self.treasury_balance() >= committed,
+            "treasury {} cannot back the {} it owes (rewards + pools + reserve)",
             self.treasury_balance(),
-            self.reward_liability()
+            committed
         );
     }
 
@@ -693,10 +735,9 @@ impl Protocol {
         }
     }
 
-    /// A registered gateway whose authority also holds a USDC float for x402 settlement.
-    pub fn register_gateway(&mut self, float: u64) -> Keypair {
+    /// A registered gateway. Its authority signs round dispatches.
+    pub fn register_gateway(&mut self) -> Keypair {
         let gateway_authority = self.env.keypair();
-        self.fund_usdc(&gateway_authority.pubkey(), float);
         let args = RegisterGatewayArgs {
             authority: gateway_authority.pubkey(),
             ip: [10, 0, 0, 7],
@@ -848,184 +889,8 @@ impl Protocol {
     }
 
     // -----------------------------------------------------------------------
-    // settlement
+    // node rewards
     // -----------------------------------------------------------------------
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn settle_subscription_round_ix(
-        &self,
-        gateway_authority: &Pubkey,
-        subscription_owner: &Pubkey,
-        consumer_authority: &Pubkey,
-        consumer_delegate: Option<Pubkey>,
-        attestation: &SignedAttestation,
-    ) -> Instruction {
-        let duty = attestation.duty;
-        let gateway = pda::gateway(gateway_authority);
-        let mut accounts = molpha::accounts::SettleSubscriptionRound {
-            authority: *gateway_authority,
-            config: pda::protocol_config(),
-            registry: pda::registry(duty.registry_version),
-            subscription: pda::subscription(subscription_owner),
-            treasury: self.treasury(),
-            consumer_delegate,
-            gateway,
-            // Markers are scoped to the signing consumer, not the subscription owner.
-            round_replay: pda::subscription_round(
-                consumer_authority,
-                &gateway,
-                &duty.source_id,
-                duty.signatures_required,
-                duty.canonical_timestamp,
-            ),
-            instructions_sysvar: pda::INSTRUCTIONS_SYSVAR_ID,
-            system_program: anchor_lang::solana_program::system_program::ID,
-            token_program: pda::TOKEN_PROGRAM_ID,
-        }
-        .to_account_metas(None);
-        accounts.extend(crate::env::writable_metas(
-            self.settlement_node_pdas(&attestation.attestation()),
-        ));
-        Instruction {
-            program_id: molpha::ID,
-            accounts,
-            data: molpha::instruction::SettleSubscriptionRound {
-                attestation: attestation.attestation(),
-                consumer_authority: *consumer_authority,
-                coalition_key: self.coalition_key_for(&attestation.attestation()),
-            }
-            .data(),
-        }
-    }
-
-    /// The Ed25519 instruction that must sit immediately before a subscription settlement.
-    ///
-    /// `gateway_authority` names the gateway the authorization is scoped to; the preimage commits
-    /// to that gateway's PDA, so no other gateway can redeem the signature.
-    pub fn consumer_authorization_ix(
-        &self,
-        consumer: &Keypair,
-        gateway_authority: &Pubkey,
-        duty: &Duty,
-    ) -> Instruction {
-        let request_auth_hash = molpha::state::hash_request_auth_fields(
-            &pda::gateway(gateway_authority),
-            &duty.payload(),
-        );
-        crate::ed25519::sign_ed25519(consumer, &request_auth_hash)
-    }
-
-    pub fn settle_x402_round_ix(
-        &self,
-        gateway_authority: &Pubkey,
-        attestation: &Attestation,
-        args: SettleX402RoundArgs,
-    ) -> Instruction {
-        let coalition_key = self.coalition_key_for(attestation);
-        self.settle_x402_round_ix_with_key(gateway_authority, attestation, args, coalition_key)
-    }
-
-    /// `settle_x402_round` with a caller-chosen coalition key — for wrong-key tests.
-    pub fn settle_x402_round_ix_with_key(
-        &self,
-        gateway_authority: &Pubkey,
-        attestation: &Attestation,
-        args: SettleX402RoundArgs,
-        coalition_key: CoalitionKey,
-    ) -> Instruction {
-        let gateway = pda::gateway(gateway_authority);
-        let payload = &attestation.payload;
-        let mut accounts = molpha::accounts::SettleX402Round {
-            authority: *gateway_authority,
-            config: pda::protocol_config(),
-            registry: pda::registry(payload.registry_version),
-            gateway,
-            gateway_usdc: pda::ata(gateway_authority, &self.usdc_mint),
-            treasury: self.treasury(),
-            round_replay: pda::x402_round(
-                &args.payer_id,
-                &gateway,
-                &payload.source_id,
-                payload.signatures_required,
-                payload.canonical_timestamp,
-            ),
-            token_program: pda::TOKEN_PROGRAM_ID,
-            system_program: anchor_lang::solana_program::system_program::ID,
-        }
-        .to_account_metas(None);
-        accounts.extend(crate::env::writable_metas(
-            self.settlement_node_pdas(attestation),
-        ));
-        Instruction {
-            program_id: molpha::ID,
-            accounts,
-            data: molpha::instruction::SettleX402Round {
-                attestation: attestation.clone(),
-                args,
-                coalition_key,
-            }
-            .data(),
-        }
-    }
-
-    /// `close_round_replay` with an explicit marker account — for mismatch tests.
-    pub fn close_round_replay_ix_for(
-        &self,
-        gateway: &Pubkey,
-        rent_receiver: &Pubkey,
-        round_replay: &Pubkey,
-    ) -> Instruction {
-        Instruction {
-            program_id: molpha::ID,
-            accounts: molpha::accounts::CloseRoundReplay {
-                gateway: *gateway,
-                rent_receiver: *rent_receiver,
-                round_replay: *round_replay,
-            }
-            .to_account_metas(None),
-            data: molpha::instruction::CloseRoundReplay.data(),
-        }
-    }
-
-    /// Writable node accounts for immediate settlement: signers first for verification and
-    /// crediting, followed by selected non-signers for liveliness penalties.
-    pub fn settlement_node_pdas(&self, attestation: &Attestation) -> Vec<Pubkey> {
-        let duty = Duty {
-            source_id: attestation.payload.source_id,
-            registry_version: attestation.payload.registry_version,
-            canonical_timestamp: attestation.payload.canonical_timestamp,
-            signatures_required: attestation.payload.signatures_required,
-            value: attestation.payload.value,
-        };
-        let registry = self.env.registry(duty.registry_version);
-        let signer_bits = crypto::bitmap_bits(&attestation.signature.signers_bitmap);
-        let mut nodes: Vec<Pubkey> = signer_bits.iter().map(|bit| registry.nodes[*bit]).collect();
-        nodes.extend(
-            self.selection_bits(&duty)
-                .into_iter()
-                .filter(|bit| !signer_bits.contains(bit))
-                .map(|bit| registry.nodes[bit]),
-        );
-        nodes
-    }
-
-    /// Well-formed x402 args at the protocol's own price.
-    pub fn x402_args(
-        &self,
-        attestation: &SignedAttestation,
-        payer_id: [u8; 32],
-    ) -> SettleX402RoundArgs {
-        let duty = attestation.duty;
-        let price = self.args.x402_round_base
-            + u64::from(duty.signatures_required + self.args.redundancy_buffer)
-                * self.args.reward_per_signature;
-        SettleX402RoundArgs {
-            payer_id,
-            amount: price,
-            payment_rail: 1,
-            payment_ref: b"test-payment-ref".to_vec(),
-        }
-    }
 
     pub fn claim_node_rewards_ix(&self, owner: &Pubkey) -> Instruction {
         Instruction {
@@ -1223,6 +1088,10 @@ impl Protocol {
             Offence::NonceReuse(e) => crypto::bitmap_from_bits(&[e.node_index as usize]),
             Offence::Inactivity(e) => crypto::bitmap_from_bits(&[e.node_index as usize]),
         };
+        let inactivity_epoch = match &offence {
+            Offence::Inactivity(e) => Some(pda::epoch(e.epoch)),
+            _ => None,
+        };
         let mut accounts = molpha::accounts::SlashOffence {
             reporter: *reporter,
             protocol_config: pda::protocol_config(),
@@ -1241,6 +1110,7 @@ impl Protocol {
         accounts.extend(crate::env::writable_metas(
             self.node_pdas_for_bitmap(offence.registry_version(), &bitmap),
         ));
+        accounts.extend(crate::env::readonly_metas(inactivity_epoch));
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -1248,13 +1118,33 @@ impl Protocol {
         }
     }
 
-    pub fn slash_inactivity_ix(&self, reporter: &Pubkey, node_index: u32) -> Instruction {
+    /// Inactivity evidence for `node_pda` in finalized `epoch`, located in the current registry.
+    pub fn inactivity_evidence(&self, epoch: u64, node_pda: &Pubkey) -> InactivityEvidence {
+        let version = self.current_version();
+        InactivityEvidence {
+            epoch,
+            roster_slot: self
+                .roster_slot_of(epoch, node_pda)
+                .expect("node is on the epoch roster"),
+            registry_version: version,
+            node_index: u32::from(
+                self.env
+                    .registry(version)
+                    .index_of(node_pda)
+                    .expect("node is in the current registry"),
+            ),
+        }
+    }
+
+    pub fn slash_inactivity_ix(
+        &self,
+        reporter: &Pubkey,
+        epoch: u64,
+        node_pda: &Pubkey,
+    ) -> Instruction {
         self.slash_offence_ix(
             reporter,
-            Offence::Inactivity(InactivityEvidence {
-                registry_version: self.current_version(),
-                node_index,
-            }),
+            Offence::Inactivity(self.inactivity_evidence(epoch, node_pda)),
         )
     }
 
@@ -1390,7 +1280,7 @@ impl Protocol {
     /// Rewrite a `Node` account in place.
     ///
     /// Use this only to create focused test states that would otherwise require many rounds, such
-    /// as a partially depleted liveliness score.
+    /// as a frozen node.
     ///
     /// Writing `locked_amount` or `claimable_rewards` here desynchronises the node from its
     /// deposit vault and from `ProtocolConfig.reward_liability`, which the program maintains but
@@ -1430,5 +1320,395 @@ impl Protocol {
         assert_eq!(&data[..8], molpha::state::ProtocolConfig::DISCRIMINATOR);
         data.resize(molpha::state::ProtocolConfig::SPACE, 0);
         self.env.overwrite_account(&key, data);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// epochs, tickets and revenue
+// ---------------------------------------------------------------------------
+
+impl Protocol {
+    /// A duty stamped at the current cluster time against the current registry, the way a live
+    /// round looks, so it falls in the epoch open now.
+    pub fn live_duty(&self, signatures_required: u8) -> Duty {
+        Duty::new(self.current_version(), signatures_required).at(self.env.unix_timestamp() as u64)
+    }
+
+    /// Sign `duty` with the first `k` selected nodes: the canonical set a live round produces.
+    pub fn sign_canonical(&self, duty: Duty) -> SignedAttestation {
+        let bits = self.selection_bits(&duty);
+        let k = usize::from(duty.signatures_required);
+        self.sign_duty_with_bits(duty, &bits[..k.min(bits.len())], None)
+    }
+
+    /// The epoch whose window contains `unix_timestamp`, among existing epoch accounts.
+    pub fn epoch_containing(&self, unix_timestamp: i64) -> u64 {
+        self.live_epochs()
+            .into_iter()
+            .find(|epoch| {
+                let state = self.env.epoch(*epoch);
+                state.start <= unix_timestamp && unix_timestamp < state.end
+            })
+            .unwrap_or_else(|| panic!("no epoch account covers {unix_timestamp}"))
+    }
+
+    /// The epoch open at the current cluster time.
+    pub fn open_epoch(&self) -> u64 {
+        self.epoch_containing(self.env.unix_timestamp())
+    }
+
+    pub fn roster_slot_of(&self, epoch: u64, node_pda: &Pubkey) -> Option<u16> {
+        let state = self.env.epoch(epoch);
+        state.roster[..usize::from(state.roster_len)]
+            .iter()
+            .position(|key| key == &node_pda.to_bytes())
+            .map(|slot| slot as u16)
+    }
+
+    /// Roster slot hints for `duty`'s selection against `epoch`'s current roster: existing slots
+    /// for known nodes, appended slots for new ones.
+    pub fn roster_slots(&self, epoch: u64, duty: &Duty) -> Vec<u16> {
+        let state = self.env.epoch(epoch);
+        let registry = self.env.registry(duty.registry_version);
+        let mut roster: Vec<[u8; 32]> = state.roster[..usize::from(state.roster_len)].to_vec();
+        self.selection_bits(duty)
+            .into_iter()
+            .map(|bit| {
+                let node = registry.nodes[bit].to_bytes();
+                match roster.iter().position(|key| *key == node) {
+                    Some(slot) => slot as u16,
+                    None if roster.len() == MAX_REGISTRY_NODES => MAX_REGISTRY_NODES as u16,
+                    None => {
+                        roster.push(node);
+                        (roster.len() - 1) as u16
+                    }
+                }
+            })
+            .collect()
+    }
+
+    /// The gateway's dispatch signature over `duty`, as the Ed25519 instruction that must sit
+    /// immediately before `submit_ticket`.
+    pub fn dispatch_ix(&self, gateway_authority: &Keypair, duty: &Duty) -> Instruction {
+        crate::ed25519::sign_ed25519(
+            gateway_authority,
+            &molpha::state::dispatch_message(&molpha::ID, &duty.payload()),
+        )
+    }
+
+    pub fn submit_ticket_ix(
+        &self,
+        submitter: &Pubkey,
+        gateway_authority: &Pubkey,
+        epoch: u64,
+        signed: &SignedAttestation,
+    ) -> Instruction {
+        self.submit_ticket_raw_ix(
+            submitter,
+            gateway_authority,
+            epoch,
+            signed.attestation(),
+            self.roster_slots(epoch, &signed.duty),
+            signed.coalition_key,
+            &signed.signer_pdas,
+        )
+    }
+
+    /// `submit_ticket` with caller-built arguments — for tampered hints, keys and payloads.
+    #[allow(clippy::too_many_arguments)]
+    pub fn submit_ticket_raw_ix(
+        &self,
+        submitter: &Pubkey,
+        gateway_authority: &Pubkey,
+        epoch: u64,
+        attestation: Attestation,
+        roster_slots: Vec<u16>,
+        coalition_key: CoalitionKey,
+        signer_pdas: &[Pubkey],
+    ) -> Instruction {
+        let payload = &attestation.payload;
+        let mut accounts = molpha::accounts::SubmitTicket {
+            submitter: *submitter,
+            protocol_config: pda::protocol_config(),
+            registry: pda::registry(payload.registry_version),
+            epoch_state: pda::epoch(epoch),
+            gateway: pda::gateway(gateway_authority),
+            ticket_marker: pda::ticket_marker(&molpha::state::ticket_id(payload)),
+            instructions_sysvar: pda::INSTRUCTIONS_SYSVAR_ID,
+            system_program: anchor_lang::solana_program::system_program::ID,
+        }
+        .to_account_metas(None);
+        accounts.extend(crate::env::readonly_metas(signer_pdas.iter().copied()));
+        Instruction {
+            program_id: molpha::ID,
+            accounts,
+            data: molpha::instruction::SubmitTicket {
+                epoch,
+                attestation,
+                roster_slots,
+                coalition_key,
+            }
+            .data(),
+        }
+    }
+
+    /// `[dispatch, submit_ticket]` for `signed`, in the epoch containing its timestamp.
+    pub fn ticket_ixs(
+        &self,
+        submitter: &Pubkey,
+        gateway_authority: &Keypair,
+        signed: &SignedAttestation,
+    ) -> Vec<Instruction> {
+        let epoch = self.epoch_containing(signed.duty.canonical_timestamp as i64);
+        vec![
+            self.dispatch_ix(gateway_authority, &signed.duty),
+            self.submit_ticket_ix(submitter, &gateway_authority.pubkey(), epoch, signed),
+        ]
+    }
+
+    pub fn submit_ticket(
+        &mut self,
+        submitter: &Keypair,
+        gateway_authority: &Keypair,
+        signed: &SignedAttestation,
+    ) -> TransactionMetadata {
+        let ixs = self.ticket_ixs(&submitter.pubkey(), gateway_authority, signed);
+        self.env.send_ok(&ixs, &[submitter])
+    }
+
+    pub fn close_ticket_marker_ix(&self, marker: &Pubkey, submitter: &Pubkey) -> Instruction {
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::CloseTicketMarker {
+                ticket_marker: *marker,
+                submitter: *submitter,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::CloseTicketMarker {}.data(),
+        }
+    }
+
+    pub fn finalize_epoch_ix(&self, payer: &Pubkey, epoch: u64) -> Instruction {
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::FinalizeEpoch {
+                payer: *payer,
+                protocol_config: pda::protocol_config(),
+                target: pda::epoch(epoch),
+                next: pda::epoch(epoch + 1),
+                successor: pda::epoch(epoch + 2),
+                system_program: anchor_lang::solana_program::system_program::ID,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::FinalizeEpoch { epoch }.data(),
+        }
+    }
+
+    /// Warp to `epoch`'s ticket deadline and finalize it, paid by the fee payer.
+    pub fn finalize_epoch(&mut self, epoch: u64) -> TransactionMetadata {
+        let state = self.env.epoch(epoch);
+        let deadline = state.end + state.ticket_grace;
+        if self.env.unix_timestamp() < deadline {
+            self.env.warp_to(deadline);
+        }
+        let ix = self.finalize_epoch_ix(&self.env.payer_pubkey(), epoch);
+        self.env.send_ok(&[ix], &[])
+    }
+
+    pub fn credit_epoch_rewards_ix(&self, epoch: u64, slots: &[u16]) -> Instruction {
+        let state = self.env.epoch(epoch);
+        let mut accounts = molpha::accounts::CreditEpochRewards {
+            protocol_config: pda::protocol_config(),
+            epoch_state: pda::epoch(epoch),
+        }
+        .to_account_metas(None);
+        accounts.extend(crate::env::writable_metas(
+            slots
+                .iter()
+                .map(|slot| Pubkey::new_from_array(state.roster[usize::from(*slot)])),
+        ));
+        Instruction {
+            program_id: molpha::ID,
+            accounts,
+            data: molpha::instruction::CreditEpochRewards {
+                epoch,
+                slots: slots.to_vec(),
+            }
+            .data(),
+        }
+    }
+
+    /// Roster slots of a finalized epoch that carry weight and are not yet credited.
+    pub fn creditable_slots(&self, epoch: u64) -> Vec<u16> {
+        let state = self.env.epoch(epoch);
+        (0..state.roster_len)
+            .filter(|slot| {
+                let slot = usize::from(*slot);
+                state.weight(slot) > 0 && !state.is_credited(slot)
+            })
+            .collect()
+    }
+
+    /// Credit every weighted slot of a finalized epoch.
+    pub fn credit_all(&mut self, epoch: u64) {
+        let slots = self.creditable_slots(epoch);
+        for chunk in slots.chunks(16) {
+            let ix = self.credit_epoch_rewards_ix(epoch, chunk);
+            self.env.send_ok(&[ix], &[]);
+        }
+    }
+
+    pub fn close_epoch_ix(&self, epoch: u64, open_epoch: u64) -> Instruction {
+        let state = self.env.epoch(epoch);
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::CloseEpoch {
+                epoch_state: pda::epoch(epoch),
+                open_epoch_state: pda::epoch(open_epoch),
+                rent_payer: Pubkey::new_from_array(state.rent_payer),
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::CloseEpoch { epoch, open_epoch }.data(),
+        }
+    }
+
+    /// The instant `epoch` becomes closable: one epoch length after its ticket deadline.
+    pub fn close_deadline(state: &EpochState) -> i64 {
+        state.end + state.ticket_grace + (state.end - state.start)
+    }
+
+    pub fn sweep_treasury_revenue_ix(&self, open_epoch: u64) -> Instruction {
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::SweepTreasuryRevenue {
+                protocol_config: pda::protocol_config(),
+                treasury: self.treasury(),
+                epoch_state: pda::epoch(open_epoch),
+                token_program: pda::TOKEN_PROGRAM_ID,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::SweepTreasuryRevenue { open_epoch }.data(),
+        }
+    }
+
+    pub fn withdraw_protocol_reserve_ix(
+        &self,
+        authority: &Pubkey,
+        destination: &Pubkey,
+        amount: u64,
+    ) -> Instruction {
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::WithdrawProtocolReserve {
+                authority: *authority,
+                protocol_config: pda::protocol_config(),
+                treasury: self.treasury(),
+                destination: *destination,
+                token_program: pda::TOKEN_PROGRAM_ID,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::WithdrawProtocolReserve { amount }.data(),
+        }
+    }
+
+    /// An x402 payment of `income` into the treasury, swept into the open epoch.
+    pub fn earn_income(&mut self, income: u64) {
+        let epoch = self.open_epoch();
+        self.fund_treasury(income);
+        let ix = self.sweep_treasury_revenue_ix(epoch);
+        self.env.send_ok(&[ix], &[]);
+    }
+
+    /// One full reward cycle for the open epoch: `income` swept from the treasury, `rounds` canonical
+    /// tickets dispatched by `gateway` on distinct sources, then finalize and credit. Returns the epoch index.
+    pub fn run_reward_epoch(
+        &mut self,
+        gateway_authority: &Keypair,
+        income: u64,
+        rounds: u8,
+    ) -> u64 {
+        let epoch = self.open_epoch();
+        if income > 0 {
+            self.earn_income(income);
+        }
+        let submitter = self.env.keypair();
+        for round in 0..rounds {
+            let duty = self
+                .live_duty(self.args.min_signers)
+                .source_id([round.wrapping_add(1); 32]);
+            let signed = self.sign_canonical(duty);
+            self.submit_ticket(&submitter, gateway_authority, &signed);
+        }
+        self.finalize_epoch(epoch);
+        self.credit_all(epoch);
+        epoch
+    }
+}
+
+impl Protocol {
+    /// Sign `duty` with the first `k` selected nodes other than `excluded`, so the excluded
+    /// nodes count as selected-but-missing in a ticket.
+    pub fn sign_excluding(&self, duty: Duty, excluded: &[Pubkey]) -> SignedAttestation {
+        let registry = self.env.registry(duty.registry_version);
+        let k = usize::from(duty.signatures_required);
+        let bits: Vec<usize> = self
+            .selection_bits(&duty)
+            .into_iter()
+            .filter(|bit| !excluded.contains(&registry.nodes[*bit]))
+            .take(k)
+            .collect();
+        assert_eq!(
+            bits.len(),
+            k,
+            "not enough selected signers outside the excluded set"
+        );
+        self.sign_duty_with_bits(duty, &bits, None)
+    }
+
+    /// Live duties (distinct sources) whose selection includes `node_pda`.
+    pub fn duties_selecting(&self, node_pda: &Pubkey, count: usize, salt: u8) -> Vec<Duty> {
+        let version = self.current_version();
+        let index = self
+            .env
+            .registry(version)
+            .index_of(node_pda)
+            .expect("node is in the current registry") as usize;
+        (0u16..=u16::MAX)
+            .map(|i| {
+                let mut source = [salt; 32];
+                source[..2].copy_from_slice(&i.to_be_bytes());
+                self.live_duty(self.args.min_signers).source_id(source)
+            })
+            .filter(|duty| self.selection_bits(duty).contains(&index))
+            .take(count)
+            .collect()
+    }
+
+    /// Put `node_pda` below the availability floor of the open epoch with `rounds` tickets that
+    /// select it but leave it out, then finalize that epoch. Returns the epoch index.
+    pub fn run_epoch_missing(
+        &mut self,
+        gateway_authority: &Keypair,
+        node_pda: &Pubkey,
+        rounds: usize,
+    ) -> u64 {
+        let epoch = self.open_epoch();
+        let submitter = self.env.keypair();
+        for duty in self.duties_selecting(node_pda, rounds, 0x5a) {
+            let signed = self.sign_excluding(duty, &[*node_pda]);
+            self.submit_ticket(&submitter, gateway_authority, &signed);
+        }
+        self.finalize_epoch(epoch);
+        epoch
+    }
+
+    /// Freeze `node_pda` through a genuine inactivity filing on an epoch it missed.
+    pub fn freeze_via_inactivity(&mut self, gateway_authority: &Keypair, node_pda: &Pubkey) -> u64 {
+        let rounds = usize::from(self.args.min_availability_samples);
+        let epoch = self.run_epoch_missing(gateway_authority, node_pda, rounds);
+        let reporter = self.reporter();
+        let ix = self.slash_inactivity_ix(&reporter.pubkey(), epoch, node_pda);
+        self.env.send_ok(&[ix], &[&reporter]);
+        epoch
     }
 }

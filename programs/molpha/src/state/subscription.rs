@@ -9,7 +9,7 @@ pub struct Subscription {
     pub owner: Pubkey,
     pub plan_type: PlanType,
     pub valid_until: i64,
-    pub used_rounds: u64,
+    /// Round quota per plan snapshot. Enforced by the gateway at admission, not on chain.
     pub max_rounds: u64,
     pub delegate_count: u32,
     pub max_delegates: u32,
@@ -41,18 +41,6 @@ impl Subscription {
 
     pub fn is_active(&self) -> bool {
         self.is_active_at(Clock::get().map(|c| c.unix_timestamp).unwrap_or(0))
-    }
-
-    pub fn has_round_quota(&self) -> bool {
-        self.used_rounds < self.max_rounds
-    }
-
-    pub fn consume_round(&mut self) -> Result<()> {
-        self.used_rounds = self
-            .used_rounds
-            .checked_add(1)
-            .ok_or(crate::error::MolphaError::SubscriptionInactiveOrExhausted)?;
-        Ok(())
     }
 
     pub fn try_add_delegate(&mut self) -> Result<()> {

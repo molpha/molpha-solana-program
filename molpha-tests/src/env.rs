@@ -599,6 +599,40 @@ impl TestEnv {
             .unwrap_or(0)
     }
 
+    /// Zero-copy `EpochState`, copied out unaligned.
+    pub fn epoch(&self, epoch: u64) -> molpha::state::EpochState {
+        let data = self.account_data(&pda::epoch(epoch));
+        assert_eq!(
+            data.len(),
+            molpha::state::EpochState::SPACE,
+            "unexpected EpochState account size"
+        );
+        bytemuck::pod_read_unaligned(&data[8..])
+    }
+
+    /// Rewrite an `EpochState` in place, for thresholds and counters no instruction sequence
+    /// reaches cheaply.
+    pub fn overwrite_epoch<F: FnOnce(&mut molpha::state::EpochState)>(
+        &mut self,
+        epoch: u64,
+        edit: F,
+    ) {
+        let key = pda::epoch(epoch);
+        let mut state = self.epoch(epoch);
+        edit(&mut state);
+        let mut data = self.account_data(&key);
+        data[8..].copy_from_slice(bytemuck::bytes_of(&state));
+        self.overwrite_account(&key, data);
+    }
+
+    /// Set cluster time to `unix_timestamp` (and advance one slot).
+    pub fn warp_to(&mut self, unix_timestamp: i64) {
+        let mut clock = self.clock();
+        clock.unix_timestamp = unix_timestamp;
+        clock.slot += 1;
+        self.set_clock(clock);
+    }
+
     /// Zero-copy `Registry` snapshot, parsed field by field (no bytemuck alignment concerns).
     pub fn registry(&self, version: u32) -> RegistrySnapshot {
         RegistrySnapshot::parse(&self.account_data(&pda::registry(version)))

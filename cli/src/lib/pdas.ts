@@ -14,10 +14,10 @@ export const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 export const FEED_SEED = Buffer.from("molpha_feed");
 export const DELEGATE_SEED = Buffer.from("molpha_delegate");
 export const GATEWAY_SEED = Buffer.from("molpha_gateway");
-/** Settlement replay-marker seed prefix: `[ROUND_SEED, gatewayPda, roundId]`. */
-export const ROUND_SEED = Buffer.from("molpha_round");
-/** Domain tag of `RoundReplayMarker::round_id`. */
-export const ROUND_ID_DOMAIN = Buffer.from("MOLPHA_ROUND_ID_V1");
+/** `EpochState` seed prefix: `[EPOCH_SEED, epoch_u64_le]`. */
+export const EPOCH_SEED = Buffer.from("molpha_epoch");
+/** `TicketMarker` seed prefix: `[TICKET_SEED, ticketId]`. */
+export const TICKET_SEED = Buffer.from("molpha_ticket");
 export const PUNISHMENT_CASE_SEED = Buffer.from("molpha_punishment");
 
 export function findProtocolConfigPda(
@@ -146,113 +146,25 @@ export function findGatewayPda(
   );
 }
 
-/**
- * Rail-scoped payer identity — `keccak256(rail_id_be ‖ payer_address_bytes)`. `railId` is the
- * payment-rail registry id (0 = none/subscription, 1 = solana, 2 = base).
- */
-export function derivePayerId(
-  railId: number,
-  addressBytes: Uint8Array | Buffer,
-): Uint8Array {
-  const railIdBe = Buffer.alloc(2);
-  railIdBe.writeUInt16BE(railId, 0);
-  return keccak_256(Buffer.concat([railIdBe, Buffer.from(addressBytes)]));
-}
-
-/** Settlement path tag inside the round id (mirrors `RoundReplayKind`). */
-export enum RoundReplayKind {
-  Subscription = 0,
-  X402 = 1,
-}
-
-/**
- * `keccak256(DOMAIN || kind || sourceId || signaturesRequired || canonicalTimestamp_le || initiator)`,
- * matching `RoundReplayMarker::round_id` in the program.
- */
-export function deriveRoundId(
-  kind: RoundReplayKind,
-  sourceId: Uint8Array,
-  signaturesRequired: number,
-  canonicalTimestamp: number | bigint,
-  initiator: Uint8Array | Buffer,
-): Uint8Array {
-  if (sourceId.length !== 32) throw new Error("source id must be 32 bytes");
-  if (initiator.length !== 32) throw new Error("initiator must be 32 bytes");
-  if (
-    !Number.isInteger(signaturesRequired) ||
-    signaturesRequired < 0 ||
-    signaturesRequired > 255
-  ) {
-    throw new Error("signatures required must fit u8");
-  }
-  return keccak_256(
-    Buffer.concat([
-      ROUND_ID_DOMAIN,
-      Buffer.from([kind]),
-      Buffer.from(sourceId),
-      Buffer.from([signaturesRequired]),
-      u64Le(canonicalTimestamp),
-      Buffer.from(initiator),
-    ]),
-  );
-}
-
-/** Replay-marker PDA for a round settled through `gatewayPda` under `roundId`. */
-export function findRoundReplayPda(
+export function findEpochPda(
   programId: PublicKey,
-  gatewayPda: PublicKey,
-  roundId: Uint8Array,
+  epoch: number | bigint,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [ROUND_SEED, gatewayPda.toBuffer(), Buffer.from(roundId)],
+    [EPOCH_SEED, u64Le(epoch)],
     programId,
   );
 }
 
-/**
- * Subscription-path replay marker. Scoped to the consumer that signed the request (the owner or a
- * delegate), not to the subscription owner.
- */
-export function findSubscriptionRoundPda(
+/** Marker of a submitted ticket, keyed by round identity (`deriveTicketId`). */
+export function findTicketMarkerPda(
   programId: PublicKey,
-  consumerAuthority: PublicKey,
-  gatewayPda: PublicKey,
-  sourceId: Uint8Array,
-  signaturesRequired: number,
-  canonicalTimestamp: number | bigint,
+  ticketId: Uint8Array,
 ): [PublicKey, number] {
-  return findRoundReplayPda(
+  if (ticketId.length !== 32) throw new Error("ticket id must be 32 bytes");
+  return PublicKey.findProgramAddressSync(
+    [TICKET_SEED, Buffer.from(ticketId)],
     programId,
-    gatewayPda,
-    deriveRoundId(
-      RoundReplayKind.Subscription,
-      sourceId,
-      signaturesRequired,
-      canonicalTimestamp,
-      consumerAuthority.toBuffer(),
-    ),
-  );
-}
-
-/** x402-path replay marker, scoped to the rail-scoped `payerId`. */
-export function findX402RoundPda(
-  programId: PublicKey,
-  payerId: Uint8Array | Buffer,
-  gatewayPda: PublicKey,
-  sourceId: Uint8Array,
-  signaturesRequired: number,
-  canonicalTimestamp: number | bigint,
-): [PublicKey, number] {
-  return findRoundReplayPda(
-    programId,
-    gatewayPda,
-    deriveRoundId(
-      RoundReplayKind.X402,
-      sourceId,
-      signaturesRequired,
-      canonicalTimestamp,
-      payerId,
-    ),
   );
 }
 

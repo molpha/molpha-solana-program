@@ -2,9 +2,9 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { Command } = require("commander");
 const { registerGatewayCommands } = require("../dist/commands/gateway");
-const { registerRoundCommands } = require("../dist/commands/round");
+const { registerEpochCommands } = require("../dist/commands/epoch");
 
-test("gateway CLI exposes only registration and deactivation", () => {
+test("gateway CLI exposes registration and deactivation only", () => {
   const program = new Command();
   registerGatewayCommands(program);
   const gateway = program.commands.find(
@@ -22,20 +22,25 @@ test("gateway CLI exposes only registration and deactivation", () => {
   assert.ok(!flags.includes("--bond-amount"));
 });
 
-test("round CLI exposes immediate settlement commands that require aggregate signatures", () => {
+test("epoch reward commands replace per-round settlement", () => {
   const program = new Command();
-  registerRoundCommands(program);
-  const round = program.commands.find((command) => command.name() === "round");
-  assert.deepEqual(
-    round.commands.map((command) => command.name()),
-    ["settle-subscription", "settle-x402", "close-replay"],
+  registerEpochCommands(program);
+  const groups = Object.fromEntries(
+    program.commands.map((group) => [
+      group.name(),
+      group.commands.map((command) => command.name()),
+    ]),
   );
-  for (const command of round.commands.filter(
-    (c) => c.name() !== "close-replay",
-  )) {
-    const aggregateSignature = command.options.find(
-      (option) => option.long === "--agg-sig",
-    );
-    assert.equal(aggregateSignature.required, true);
+  assert.deepEqual(groups, {
+    epoch: ["show", "finalize", "credit", "close"],
+    ticket: ["submit", "close"],
+    revenue: ["sweep-treasury", "withdraw-reserve"],
+  });
+  const submit = program.commands
+    .find((group) => group.name() === "ticket")
+    .commands.find((command) => command.name() === "submit");
+  for (const flag of ["--agg-sig", "--epoch", "--gateway-authority"]) {
+    const option = submit.options.find((o) => o.long === flag);
+    assert.equal(option.required, true, flag);
   }
 });

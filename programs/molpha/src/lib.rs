@@ -87,15 +87,6 @@ pub mod molpha {
         instructions::register_gateway(ctx, args)
     }
 
-    pub fn settle_subscription_round<'info>(
-        ctx: Context<'info, SettleSubscriptionRound<'info>>,
-        attestation: Attestation,
-        consumer_authority: Pubkey,
-        coalition_key: CoalitionKey,
-    ) -> Result<()> {
-        instructions::settle_subscription_round(ctx, attestation, consumer_authority, coalition_key)
-    }
-
     pub fn claim_node_rewards(ctx: Context<ClaimNodeRewards>) -> Result<()> {
         instructions::claim_node_rewards(ctx)
     }
@@ -108,17 +99,48 @@ pub mod molpha {
         instructions::deactivate_gateway(ctx)
     }
 
-    pub fn settle_x402_round<'info>(
-        ctx: Context<'info, SettleX402Round<'info>>,
-        attestation: Attestation,
-        args: SettleX402RoundArgs,
-        coalition_key: CoalitionKey,
+    pub fn sweep_treasury_revenue(
+        ctx: Context<SweepTreasuryRevenue>,
+        open_epoch: u64,
     ) -> Result<()> {
-        instructions::settle_x402_round(ctx, attestation, args, coalition_key)
+        instructions::sweep_treasury_revenue(ctx, open_epoch)
     }
 
-    pub fn close_round_replay(ctx: Context<CloseRoundReplay>) -> Result<()> {
-        instructions::close_round_replay(ctx)
+    pub fn withdraw_protocol_reserve(
+        ctx: Context<WithdrawProtocolReserve>,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::withdraw_protocol_reserve(ctx, amount)
+    }
+
+    pub fn submit_ticket<'info>(
+        ctx: Context<'info, SubmitTicket<'info>>,
+        epoch: u64,
+        attestation: Attestation,
+        roster_slots: Vec<u16>,
+        coalition_key: CoalitionKey,
+    ) -> Result<()> {
+        instructions::submit_ticket(ctx, epoch, attestation, roster_slots, coalition_key)
+    }
+
+    pub fn close_ticket_marker(ctx: Context<CloseTicketMarker>) -> Result<()> {
+        instructions::close_ticket_marker(ctx)
+    }
+
+    pub fn finalize_epoch(ctx: Context<FinalizeEpoch>, epoch: u64) -> Result<()> {
+        instructions::finalize_epoch(ctx, epoch)
+    }
+
+    pub fn credit_epoch_rewards<'info>(
+        ctx: Context<'info, CreditEpochRewards<'info>>,
+        epoch: u64,
+        slots: Vec<u16>,
+    ) -> Result<()> {
+        instructions::credit_epoch_rewards(ctx, epoch, slots)
+    }
+
+    pub fn close_epoch(ctx: Context<CloseEpoch>, epoch: u64, open_epoch: u64) -> Result<()> {
+        instructions::close_epoch(ctx, epoch, open_epoch)
     }
 
     pub fn slash_offence<'info>(
