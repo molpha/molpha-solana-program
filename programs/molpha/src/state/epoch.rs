@@ -67,9 +67,12 @@ pub struct EpochState {
     pub signed: [u16; MAX_REGISTRY_NODES],
     pub selected: [u16; MAX_REGISTRY_NODES],
     pub roster: [[u8; 32]; MAX_REGISTRY_NODES],
+    /// Snapshot of the admission quorum floor for rounds counted in this epoch.
+    pub min_signers: u8,
+    pub _reserved: [u8; 7],
 }
 
-const _: () = assert!(core::mem::size_of::<EpochState>() == 9_368);
+const _: () = assert!(core::mem::size_of::<EpochState>() == 9_376);
 const _: () = assert!(EpochState::SPACE <= 10_240);
 
 /// Where a roster hint resolved to.
@@ -93,6 +96,7 @@ impl EpochState {
         tau: u64,
         min_availability_bps: u16,
         min_samples: u16,
+        min_signers: u8,
         rent_payer: Pubkey,
         bump: u8,
     ) {
@@ -103,6 +107,7 @@ impl EpochState {
         self.tau = tau;
         self.min_availability_bps = min_availability_bps;
         self.min_samples = min_samples;
+        self.min_signers = min_signers;
         self.rent_payer = rent_payer.to_bytes();
         self.bump = bump;
     }

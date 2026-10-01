@@ -74,10 +74,11 @@ pub fn submit_ticket<'info>(
         MolphaError::DispatchSigInvalid
     );
 
+    let min_signers = ctx.accounts.epoch_state.load()?.min_signers;
     verify_attestation_core(
         ctx.remaining_accounts,
         &ctx.accounts.registry,
-        ctx.accounts.protocol_config.min_signers,
+        min_signers,
         &attestation,
         &coalition_key,
     )?;

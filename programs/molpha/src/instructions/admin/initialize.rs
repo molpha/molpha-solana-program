@@ -57,10 +57,11 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     );
 
     ctx.accounts.registry_state.init(ctx.bumps.registry_state);
-    ctx.accounts
-        .registry
-        .load_init()?
-        .init_genesis(args.redundancy_buffer, ctx.bumps.registry);
+    ctx.accounts.registry.load_init()?.init_genesis(
+        args.redundancy_buffer,
+        clock.unix_timestamp,
+        ctx.bumps.registry,
+    );
 
     // Genesis epochs: every later epoch is created two ahead by `finalize_epoch`, and starts
     // where its predecessor ends. Genesis samples every round until the threshold adapts.
@@ -84,6 +85,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
             u64::MAX,
             config.min_availability_bps,
             config.min_availability_samples,
+            config.min_signers,
             authority,
             bump,
         );

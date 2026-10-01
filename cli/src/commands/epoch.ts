@@ -78,27 +78,27 @@ async function clusterTime(ctx: CliContext): Promise<number> {
   return time;
 }
 
-/** The epoch open at cluster time, searched upward from `from`. */
-async function findOpenEpoch(ctx: CliContext, from: number): Promise<number> {
+/** Find the epoch open at cluster time among retained epoch accounts. */
+export async function findOpenEpoch(
+  ctx: CliContext,
+  from: number,
+): Promise<number> {
   const now = await clusterTime(ctx);
-  for (let epoch = from; epoch < from + 64; epoch += 1) {
-    const [address] = findEpochPda(ctx.programId, epoch);
-    const state = await fetchAccountOrNull<any>(
-      ctx.program,
-      "epochState",
-      address,
+  const accounts = await (ctx.program.account as any).epochState.all();
+  const open = accounts
+    .map(({ account }: { account: any }) => account)
+    .filter(
+      (state: any) =>
+        Number(state.epoch) >= from &&
+        state.finalized === 0 &&
+        Number(state.start) <= now &&
+        now < Number(state.end),
     );
-    if (!state) break;
-    if (
-      state.finalized === 0 &&
-      Number(state.start) <= now &&
-      now < Number(state.end)
-    ) {
-      return epoch;
-    }
-  }
+  if (open.length === 1) return Number(open[0].epoch);
+  if (open.length > 1)
+    throw new Error(`Multiple epochs appear open at cluster time ${now}`);
   throw new Error(
-    `No open epoch at cluster time ${now} from ${from}; finalize earlier epochs first`,
+    `No open epoch at cluster time ${now} from ${from}; check the epoch lifecycle`,
   );
 }
 
@@ -116,6 +116,7 @@ function epochSummary(epoch: number, address: PublicKey, state: any) {
     start: state.start.toString(),
     end: state.end.toString(),
     ticketGrace: state.ticketGrace.toString(),
+    minSigners: state.minSigners,
     tau: state.tau.toString(),
     pool: state.pool.toString(),
     paid: state.paid.toString(),
@@ -158,7 +159,7 @@ export function registerEpochCommands(program: Command): void {
       const index = parseInteger(options.epoch, "epoch");
       const [protocolConfig] = findProtocolConfigPda(ctx.programId);
       const signature = await (ctx.program.methods as any)
-        .finalizeEpoch(index)
+        .finalizeEpoch(bn(index, "epoch"))
         .accountsPartial({
           payer: ctx.wallet.publicKey,
           protocolConfig,
@@ -193,7 +194,7 @@ export function registerEpochCommands(program: Command): void {
       for (let i = 0; i < slots.length; i += CREDIT_BATCH) {
         const batch = slots.slice(i, i + CREDIT_BATCH);
         const signature = await (ctx.program.methods as any)
-          .creditEpochRewards(index, batch)
+          .creditEpochRewards(bn(index, "epoch"), batch)
           .accountsPartial({ protocolConfig, epochState: address })
           .remainingAccounts(
             batch.map((slot) => ({
@@ -225,7 +226,7 @@ export function registerEpochCommands(program: Command): void {
           : await findOpenEpoch(ctx, index + 1);
       const rentPayer = new PublicKey(Uint8Array.from(state.rentPayer));
       const signature = await (ctx.program.methods as any)
-        .closeEpoch(index, open)
+        .closeEpoch(bn(index, "epoch"), bn(open, "open epoch"))
         .accountsPartial({
           epochState: address,
           openEpochState: findEpochPda(ctx.programId, open)[0],
@@ -380,7 +381,7 @@ export function registerEpochCommands(program: Command): void {
       const [ticketMarker] = findTicketMarkerPda(ctx.programId, ticketId);
 
       const signature = await (ctx.program.methods as any)
-        .submitTicket(epochIndex, attestation, slots, coalitionKey)
+        .submitTicket(bn(epochIndex, "epoch"), attestation, slots, coalitionKey)
         .accountsPartial({
           submitter: ctx.wallet.publicKey,
           protocolConfig,
@@ -465,7 +466,7 @@ export function registerEpochCommands(program: Command): void {
           ? parseInteger(options.epoch, "epoch")
           : await findOpenEpoch(ctx, 0);
       const signature = await (ctx.program.methods as any)
-        .sweepTreasuryRevenue(open)
+        .sweepTreasuryRevenue(bn(open, "epoch"))
         .accountsPartial({
           protocolConfig,
           treasury: findTreasuryAta(ctx.programId, config.usdcMint),

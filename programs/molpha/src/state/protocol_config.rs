@@ -31,6 +31,7 @@ pub struct ProtocolConfig {
     pub x402_round_base: u64,
     /// Sum of every `Node.claimable_rewards`.
     pub reward_liability: u64,
+    /// Current feed-admission floor; copied into each new epoch for ticket verification.
     pub min_signers: u8,
     /// Length of epochs created from now on.
     pub epoch_len_seconds: u64,

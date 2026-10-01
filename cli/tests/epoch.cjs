@@ -1,6 +1,9 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { PublicKey } = require("@solana/web3.js");
+const { BorshInstructionCoder } = require("@coral-xyz/anchor");
+const fs = require("node:fs");
+const path = require("node:path");
 const {
   deriveDispatchMessage,
   deriveTicketHash,
@@ -12,6 +15,8 @@ const {
 const { computeMessageHash } = require("../dist/lib/signing/attestation");
 const { inactivityEvidenceHash } = require("../dist/lib/slash");
 const { findEpochPda } = require("../dist/lib/pdas");
+const { bn } = require("../dist/lib/utils");
+const { findOpenEpoch } = require("../dist/commands/epoch");
 
 const PROGRAM_ID = new PublicKey("MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3");
 const hex = (bytes) => Buffer.from(bytes).toString("hex");
@@ -112,3 +117,78 @@ test("epoch PDAs use a little-endian u64 index", () => {
   );
   assert.ok(pda.equals(expected));
 });
+
+test("open epoch discovery survives closed accounts and index 64", async () => {
+  const states = [
+    {
+      epoch: bn(3, "epoch"),
+      start: bn(300, "start"),
+      end: bn(400, "end"),
+      finalized: 0,
+    },
+    {
+      epoch: bn(64, "epoch"),
+      start: bn(6400, "start"),
+      end: bn(6500, "end"),
+      finalized: 0,
+    },
+  ];
+  const context = (now) => ({
+    connection: { getSlot: async () => 1, getBlockTime: async () => now },
+    program: {
+      account: {
+        epochState: { all: async () => states.map((account) => ({ account })) },
+      },
+    },
+  });
+  assert.equal(await findOpenEpoch(context(301), 0), 3);
+  assert.equal(await findOpenEpoch(context(6401), 0), 64);
+  await assert.rejects(findOpenEpoch(context(301), 4), /No open epoch/);
+});
+
+test(
+  "epoch instructions encode u64 indices with Anchor BN",
+  {
+    skip: !fs.existsSync(
+      path.resolve(__dirname, "../../target/idl/molpha.json"),
+    ),
+  },
+  () => {
+    const idl = require("../../target/idl/molpha.json");
+    const coder = new BorshInstructionCoder(idl);
+    const epoch = bn(64, "epoch");
+    const next = bn(65, "epoch");
+    const attestation = {
+      payload: {
+        value: Array(32).fill(0),
+        sourceId: Array(32).fill(0),
+        registryVersion: 0,
+        signaturesRequired: 3,
+        canonicalTimestamp: bn(6401, "timestamp"),
+      },
+      signature: {
+        aggSigS: Array(32).fill(0),
+        commitment: Array(20).fill(0),
+        signersBitmap: Array(32).fill(0),
+      },
+    };
+    const commands = [
+      ["finalize_epoch", { epoch }],
+      ["credit_epoch_rewards", { epoch, slots: [] }],
+      ["close_epoch", { epoch, openEpoch: next }],
+      [
+        "submit_ticket",
+        {
+          epoch,
+          attestation,
+          rosterSlots: [],
+          coalitionKey: { x: Array(32).fill(0), y: Array(32).fill(0) },
+        },
+      ],
+      ["sweep_treasury_revenue", { openEpoch: next }],
+    ];
+    for (const [name, args] of commands) {
+      assert.ok(coder.encode(name, args).length > 8, `${name} should encode`);
+    }
+  },
+);

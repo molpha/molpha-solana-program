@@ -213,7 +213,8 @@ registration no longer transfers or tracks a bond.
 - `ticket submit` needs the dispatch signature immediately before the ticket instruction. Pass
   `--dispatch-sig` (from the gateway), or `--gateway-wallet` to sign locally in tests.
 
-Epoch parameters apply to epochs created after an update, never to existing ones. Updates
+Epoch parameters, including the ticket `min_signers` floor, apply to epochs created after an
+update. Existing epochs keep their ticket rules; feed submission uses the current floor. Updates
 preserve omitted values.
 
 Both admin instructions require positive withdrawal cooldown, attestation delay, and node deposit.
@@ -224,8 +225,9 @@ initialization redundancy is 1–8. Zero reward and base price are allowed. Slot
 the base price plus rewards for 256 signers must not overflow. The CLI checks static
 bounds before sending; the program also checks deadlines against its current clock.
 
-The removed config fields change the account layout and instruction encoding. Rebuild the
-program and IDL before using this CLI; existing config accounts require migration or
-reinitialization in a fresh deployment.
+The removed config fields and the new registry activation and epoch quorum snapshots change
+account layouts and instruction encoding. Rebuild the program and IDL before using this CLI;
+existing config, registry and epoch accounts require migration or reinitialization in a fresh
+deployment.
 
 Run the CLI config tests with `yarn test:cli`.

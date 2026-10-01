@@ -69,14 +69,16 @@ gone. Three flows replace it, and none of them writes an account per round:
 - **Measurement.** A round is a **ticket** when the big-endian `u64` prefix of
   `keccak("MOLPHA_TICKET_V1" ‖ m ‖ s ‖ commitment)` is below its epoch's threshold `tau`.
   Anyone may `submit_ticket`: the round must fall in the epoch window, arrive before
-  `end + ticket_grace`, use a registry version that was live at its `canonical_timestamp`, carry
+  `end + ticket_grace`, use a registry version created no later than its
+  `canonical_timestamp` and still live then, carry
   the dispatching gateway's Ed25519 signature over
   `keccak("MOLPHA_DISPATCH_V1" ‖ program_id ‖ source_id ‖ k ‖ version ‖ ts)` in the immediately
   preceding instruction, and verify in full. Its whole selection is re-derived and counted in the
   epoch's `EpochState` (selected / signed per node, keyed by an epoch roster of `Node` PDAs because
   registry positions move between versions). A `TicketMarker` keyed by round identity
   `(source_id, k, ts)` stops any aggregate of the same round counting twice; it is closable once
-  the epoch stops accepting tickets.
+  the epoch stops accepting tickets. The epoch also pins `min_signers` when it is created;
+  later config updates do not invalidate its pending tickets.
 - **Payout.** After the ticket deadline anyone may `finalize_epoch`: weights freeze and the epoch
   two ahead is created with `tau` rescaled toward `target_tickets_per_epoch` (at most 8x per step).
   A node's weight is its sampled signature count, or zero when it has at least

@@ -18,14 +18,17 @@ pub struct Registry {
     pub bump: u8,
     pub nodes: [[u8; 32]; MAX_REGISTRY_NODES],
     pub grace_active_until: i64,
+    /// Inclusive creation time. A version cannot verify a round dated before it existed.
+    pub active_from: i64,
 }
 
 impl Registry {
     pub const SEED_PREFIX: &'static [u8] = b"molpha_registry";
     pub const SPACE: usize = 8 + core::mem::size_of::<Self>();
 
-    pub fn init_genesis(&mut self, redundancy_buffer: u8, bump: u8) {
+    pub fn init_genesis(&mut self, redundancy_buffer: u8, active_from: i64, bump: u8) {
         self.set_redundancy_buffer(redundancy_buffer).unwrap();
+        self.active_from = active_from;
         self.bump = bump;
         self.nodes = [[0u8; 32]; MAX_REGISTRY_NODES];
     }
@@ -52,6 +55,7 @@ impl Registry {
         &mut self,
         previous: &mut Registry,
         grace_active_until: i64,
+        active_from: i64,
         bump: u8,
     ) {
         self.version = previous.version + 1;
@@ -59,6 +63,7 @@ impl Registry {
         self.redundancy_buffer = previous.redundancy_buffer;
         self.bump = bump;
         self.nodes.copy_from_slice(&previous.nodes);
+        self.active_from = active_from;
         previous.grace_active_until = grace_active_until;
     }
 
@@ -118,8 +123,8 @@ impl Registry {
         (0..usize::from(self.node_count)).any(|i| Pubkey::new_from_array(self.nodes[i]) == node)
     }
 
-    pub fn is_active(&self, now: i64) -> bool {
-        self.grace_active_until == 0 || self.grace_active_until > now
+    pub fn is_active(&self, at: i64) -> bool {
+        self.active_from <= at && (self.grace_active_until == 0 || self.grace_active_until > at)
     }
 
     fn swap_remove_index(&mut self, index: usize) -> Result<()> {
@@ -131,4 +136,4 @@ impl Registry {
     }
 }
 
-const _: () = assert!(Registry::SPACE == 8_216);
+const _: () = assert!(Registry::SPACE == 8_224);

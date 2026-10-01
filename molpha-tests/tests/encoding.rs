@@ -256,7 +256,8 @@ fn node_layout_matches_the_verifier() {
 /// Off-chain clients read `EpochState` as raw zero-copy bytes and derive roster hints from it.
 #[test]
 fn epoch_and_ticket_layouts_are_pinned() {
-    assert_eq!(EpochState::SPACE, 9_376);
+    assert_eq!(EpochState::SPACE, 9_384);
+    assert_eq!(molpha::state::Registry::SPACE, 8_224);
     assert_eq!(TicketMarker::SPACE, 8 + 8 + 32 + 1);
 }
 

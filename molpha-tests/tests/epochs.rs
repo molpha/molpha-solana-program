@@ -66,6 +66,7 @@ fn finalize_waits_for_the_ticket_deadline_and_creates_the_epoch_two_ahead() {
     assert_eq!(e2.tau, e0.next_tau(p.args.target_tickets_per_epoch));
     assert_eq!(e2.rent_payer, payer.pubkey().to_bytes());
     assert_eq!(e2.min_samples, p.args.min_availability_samples);
+    assert_eq!(e2.min_signers, p.args.min_signers);
 
     let finalized: EpochFinalized = only_event(&meta);
     assert_eq!(finalized.epoch, 0);
@@ -116,6 +117,7 @@ fn config_changes_only_reach_epochs_not_yet_created() {
     args.epoch_len_seconds = 43_200;
     args.ticket_grace_seconds = 3_600;
     args.min_availability_samples = 7;
+    args.min_signers = 4;
     let authority = p.authority.insecure_clone();
     p.env.send_ok(
         &[update_config_ix(&authority.pubkey(), &args)],
@@ -132,12 +134,14 @@ fn config_changes_only_reach_epochs_not_yet_created() {
         (before.1.end, before.1.ticket_grace)
     );
     assert_eq!(e1.min_samples, before.1.min_samples);
+    assert_eq!(e1.min_signers, before.1.min_signers);
 
     p.finalize_epoch(0);
     let e2 = p.env.epoch(2);
     assert_eq!(e2.end - e2.start, 43_200);
     assert_eq!(e2.ticket_grace, 3_600);
     assert_eq!(e2.min_samples, 7);
+    assert_eq!(e2.min_signers, 4);
 }
 
 /// A new epoch must outlast its predecessor's ticket grace. Otherwise the predecessor could only

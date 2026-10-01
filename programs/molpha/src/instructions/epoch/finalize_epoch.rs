@@ -42,6 +42,7 @@ pub fn finalize_epoch(ctx: Context<FinalizeEpoch>, epoch: u64) -> Result<()> {
         tau,
         config.min_availability_bps,
         config.min_availability_samples,
+        config.min_signers,
         ctx.accounts.payer.key(),
         ctx.bumps.successor,
     );

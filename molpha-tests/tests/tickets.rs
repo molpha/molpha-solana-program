@@ -9,7 +9,7 @@ use molpha_tests::env::{
     assert_anchor_error, assert_molpha_error, only_event, set_compute_unit_price,
 };
 use molpha_tests::pda;
-use molpha_tests::scenario::{Duty, Protocol, SignedAttestation};
+use molpha_tests::scenario::{update_config_ix, Duty, Protocol, SignedAttestation};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 
@@ -188,6 +188,52 @@ fn the_registry_version_must_have_been_live_at_the_round() {
     let stale = p.sign_canonical(Duty::new(version, 3).at(p.env.unix_timestamp() as u64));
     let failed = send(&mut p, &submitter, &gateway, &stale).unwrap_err();
     assert_molpha_error(&failed, MolphaError::RegistryNotActive);
+}
+
+#[test]
+fn a_registry_cannot_count_a_round_dated_before_its_creation() {
+    let mut p = Protocol::start();
+    let timestamp = p.env.unix_timestamp() as u64;
+    p.env.advance_seconds(120);
+    p.register_nodes("ticket-backdate", NODE_COUNT);
+    let gateway = p.register_gateway();
+    let submitter = p.env.keypair();
+    let signed = p.sign_canonical(p.live_duty(3).at(timestamp));
+    let failed = send(&mut p, &submitter, &gateway, &signed).unwrap_err();
+    assert_molpha_error(&failed, MolphaError::RegistryNotActive);
+    assert_eq!(p.env.epoch(0).tickets, 0);
+}
+
+#[test]
+fn a_quorum_floor_update_does_not_invalidate_an_existing_epochs_tickets() {
+    let (mut p, gateway, submitter) = setup();
+    let signed = p.sign_canonical(p.live_duty(3));
+    let a = &p.args;
+    let args = molpha::instructions::UpdateConfigArgs {
+        withdrawal_cooldown_slots: a.withdrawal_cooldown_slots,
+        minimum_node_deposit: a.minimum_node_deposit,
+        reward_per_signature: a.reward_per_signature,
+        max_settlement_delay_seconds: a.max_settlement_delay_seconds,
+        challenger_bounty_bps: a.challenger_bounty_bps,
+        x402_round_base: a.x402_round_base,
+        min_signers: 4,
+        epoch_len_seconds: a.epoch_len_seconds,
+        ticket_grace_seconds: a.ticket_grace_seconds,
+        target_tickets_per_epoch: a.target_tickets_per_epoch,
+        min_availability_bps: a.min_availability_bps,
+        min_availability_samples: a.min_availability_samples,
+        protocol_fee_bps: a.protocol_fee_bps,
+    };
+    let authority = p.authority.insecure_clone();
+    p.env.send_ok(
+        &[update_config_ix(&authority.pubkey(), &args)],
+        &[&authority],
+    );
+    p.submit_ticket(&submitter, &gateway, &signed);
+    assert_eq!(p.env.epoch(0).tickets, 1);
+    assert_eq!(p.env.epoch(0).min_signers, 3);
+    p.finalize_epoch(0);
+    assert_eq!(p.env.epoch(2).min_signers, 4);
 }
 
 #[test]

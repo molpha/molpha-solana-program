@@ -38,7 +38,12 @@ impl RegistryState {
     {
         let mut current = transition.current.load_mut()?;
         let mut next = transition.next.load_init()?;
-        next.copy_from_previous(&mut current, transition.grace_active_until, transition.bump);
+        next.copy_from_previous(
+            &mut current,
+            transition.grace_active_until,
+            Clock::get()?.unix_timestamp,
+            transition.bump,
+        );
         self.current_version = self.next_version;
         self.next_version = self.next_version.checked_add(1).unwrap();
         apply(&current, &mut next)
