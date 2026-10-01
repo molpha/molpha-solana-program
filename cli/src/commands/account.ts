@@ -3,6 +3,7 @@ import { accountJson, fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import {
   findDelegatePda,
+  findEpochPda,
   findFeedPda,
   findGatewayPda,
   findNodePda,
@@ -13,6 +14,7 @@ import {
   findRegistryStatePda,
   findSecp256k1KeyClaimPda,
   findSubscriptionPda,
+  findTicketMarkerPda,
 } from "../lib/pdas";
 import {
   hexToBytes,
@@ -212,11 +214,39 @@ export function registerAccountCommands(program: Command): void {
     });
 
   account
-    .command("round-replay")
-    .description("Fetch a round replay marker by address")
-    .requiredOption("--address <pubkey>", "round replay marker address")
+    .command("epoch")
+    .description("Fetch an epoch state by index or address")
+    .option("--address <pubkey>", "epoch state address")
+    .option("--epoch <number>", "epoch index")
     .action(async (options, command: Command) => {
-      await printNamedAccount(command, "roundReplayMarker", options.address);
+      const ctx = await getCliContext(command);
+      const address =
+        options.address ??
+        findEpochPda(
+          ctx.programId,
+          parseInteger(requireValue(options.epoch, "Missing --epoch"), "epoch"),
+        )[0].toBase58();
+      await printNamedAccount(command, "epochState", address);
+    });
+
+  account
+    .command("ticket-marker")
+    .description("Fetch a ticket marker by address or ticket id")
+    .option("--address <pubkey>", "ticket marker address")
+    .option("--ticket-id <hex>", "32-byte ticket id")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const address =
+        options.address ??
+        findTicketMarkerPda(
+          ctx.programId,
+          hexToBytes(
+            requireValue(options.ticketId, "Missing --ticket-id"),
+            32,
+            "ticket id",
+          ),
+        )[0].toBase58();
+      await printNamedAccount(command, "ticketMarker", address);
     });
 
   account

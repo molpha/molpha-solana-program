@@ -54,29 +54,53 @@ fn submit_attestation_stays_inside_the_compute_budget() {
     }
 }
 
+/// Largest coalition whose `[dispatch Ed25519, submit_ticket]` pair fits a legacy packet with
+/// the compute-budget instruction. Larger coalitions need a v0 transaction with a lookup table.
+const MAX_LEGACY_TICKET_COALITION: usize = 10;
+
+/// A ticket duty at the start of the open epoch, distinct per coalition size.
+fn ticket_duty_for(p: &Protocol, coalition: usize) -> Duty {
+    duty_for(coalition).at(p.env.unix_timestamp() as u64 + coalition as u64)
+}
+
 #[test]
-fn immediate_settlement_names_the_whole_selection_and_fits_v0() {
+fn submit_ticket_legacy_size_ceiling_is_pinned() {
     let mut p = protocol();
-    let gateway = p.register_gateway(5_000_000_000);
-    let signed = p.sign_duty(duty_for(20).at(1_700_200_000));
-    let ix = p.settle_x402_round_ix(
-        &gateway.pubkey(),
-        &signed.attestation(),
-        p.x402_args(&signed, [0xaa; 32]),
-    );
-    let lookup = molpha_tests::env::TestEnv::lookup_candidates(std::slice::from_ref(&ix));
+    let gateway = p.register_gateway();
+    let submitter = p.env.keypair();
+    let mut largest_fitting = 0usize;
+    for coalition in 3..=NODE_COUNT {
+        let signed = p.sign_duty(ticket_duty_for(&p, coalition));
+        let ixs = p.ticket_ixs(&submitter.pubkey(), &gateway, &signed);
+        if p.env.transaction_size_as(&submitter.pubkey(), &ixs) <= PACKET_DATA_SIZE {
+            largest_fitting = coalition;
+        }
+    }
+    assert_eq!(largest_fitting, MAX_LEGACY_TICKET_COALITION);
+}
+
+/// A 20-signer ticket (quorum 18, buffer 2) only fits with the signer accounts in a lookup table;
+/// the marker, epoch and payer stay static.
+#[test]
+fn a_twenty_signer_ticket_fits_v0_and_the_compute_budget() {
+    let mut p = protocol();
+    let gateway = p.register_gateway();
+    let signed = p.sign_duty(ticket_duty_for(&p, 20));
+    let ixs = p.ticket_ixs(&gateway.pubkey(), &gateway, &signed);
+    let lookup: Vec<_> = signed.signer_pdas.clone();
     let table = p.env.plant_lookup_table(&lookup);
     let signers = [&gateway];
-    assert!(
-        p.env.transaction_size_v0(
-            &gateway.pubkey(),
-            std::slice::from_ref(&ix),
-            std::slice::from_ref(&table),
-            &signers,
-        ) <= PACKET_DATA_SIZE
+    let size = p.env.transaction_size_v0(
+        &gateway.pubkey(),
+        &ixs,
+        std::slice::from_ref(&table),
+        &signers,
     );
+    println!("TICKET_V0 signers=20 size={size}");
+    assert!(size <= PACKET_DATA_SIZE);
     let meta = p
         .env
-        .send_v0_ok(&gateway.pubkey(), &[ix], &[table], &signers);
+        .send_v0_ok(&gateway.pubkey(), &ixs, &[table], &signers);
+    println!("TICKET_V0 signers=20 cu={}", meta.compute_units_consumed);
     assert!(meta.compute_units_consumed < MAX_COMPUTE_UNITS);
 }

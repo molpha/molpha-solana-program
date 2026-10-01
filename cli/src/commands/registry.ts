@@ -554,7 +554,6 @@ function formatNode(address: PublicKey, node: any) {
     port: Number(node.port),
     lockedAmount: amountString(node.lockedAmount),
     claimableRewards: amountString(node.claimableRewards),
-    livelinessScore: Number(node.livelinessScore),
     registeredAt: amountString(node.registeredAt),
     withdrawableSlot: amountString(node.withdrawableSlot),
     frozenUntil: amountString(node.frozenUntil),

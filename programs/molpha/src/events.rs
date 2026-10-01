@@ -9,11 +9,14 @@ pub struct ProtocolConfigUpdated {
     pub challenger_bounty_bps: u16,
     pub minimum_node_deposit: u64,
     pub withdrawal_cooldown_slots: u64,
-    pub liveliness_freeze_threshold: u16,
-    pub liveliness_penalty_per_miss: u16,
-    pub liveliness_recovery_per_sign: u16,
     pub x402_round_base: u64,
     pub min_signers: u8,
+    pub epoch_len_seconds: u64,
+    pub ticket_grace_seconds: u64,
+    pub target_tickets_per_epoch: u32,
+    pub min_availability_bps: u16,
+    pub min_availability_samples: u16,
+    pub protocol_fee_bps: u16,
 }
 
 #[event]
@@ -55,13 +58,6 @@ pub struct NodeDeactivated {
     pub node_authority: Pubkey,
     pub new_registry_version: u32,
     pub deactivated_at: i64,
-}
-
-#[event]
-pub struct NodeLivelinessPenalized {
-    pub node: Pubkey,
-    pub round_replay: Pubkey,
-    pub score: u16,
 }
 
 #[event]
@@ -181,34 +177,10 @@ pub struct FeedUpdated {
 }
 
 #[event]
-pub struct RoundSettled {
-    pub gateway: Pubkey,
-    pub source_id: [u8; 32],
-    pub canonical_timestamp: u64,
-    pub signers_bitmap: [u8; 32],
-    pub reward_per_signature: u64,
-    pub recorded_slot: u64,
-    pub recorded_at: i64,
-}
-
-#[event]
 pub struct RewardsClaimed {
     pub beneficiary: Pubkey,
     pub amount: u64,
     pub claimed_at: i64,
-}
-
-#[event]
-pub struct X402RoundSettled {
-    pub payer_id: [u8; 32],
-    pub payment_rail: u16,
-    pub price: u64,
-    pub source_id: [u8; 32],
-    pub canonical_timestamp: u64,
-    pub gateway: Pubkey,
-    pub signers_bitmap: [u8; 32],
-    pub recorded_slot: u64,
-    pub recorded_at: i64,
 }
 
 #[event]
@@ -243,11 +215,81 @@ pub struct NodeReinstated {
 }
 
 #[event]
-pub struct RoundReplayClosed {
-    pub round_replay: Pubkey,
-    pub round_id: [u8; 32],
+pub struct RevenueSwept {
+    pub epoch: u64,
+    pub gross: u64,
+    pub protocol_fee: u64,
+    pub pool_share: u64,
+    pub swept_at: i64,
+}
+
+#[event]
+pub struct TicketSubmitted {
+    pub epoch: u64,
+    pub ticket_id: [u8; 32],
+    /// Gateway PDA whose authority signed the round dispatch.
     pub gateway: Pubkey,
-    pub rent_receiver: Pubkey,
-    pub canonical_timestamp: u64,
+    pub submitter: Pubkey,
+    pub registry_version: u32,
+    pub signers_bitmap: [u8; 32],
+}
+
+/// Selected nodes left uncounted because the epoch roster was full.
+#[event]
+pub struct TicketRosterOverflow {
+    pub epoch: u64,
+    pub ticket_id: [u8; 32],
+    pub uncounted: u32,
+}
+
+#[event]
+pub struct TicketMarkerClosed {
+    pub ticket_marker: Pubkey,
+    pub submitter: Pubkey,
     pub closed_at: i64,
+}
+
+#[event]
+pub struct EpochCreated {
+    pub epoch: u64,
+    pub start: i64,
+    pub end: i64,
+    pub ticket_grace: i64,
+    pub tau: u64,
+}
+
+#[event]
+pub struct EpochFinalized {
+    pub epoch: u64,
+    pub pool: u64,
+    pub tickets: u32,
+    pub roster_len: u16,
+    pub weight_total: u64,
+    pub weighted_count: u16,
+    pub finalized_at: i64,
+}
+
+#[event]
+pub struct EpochRewardCredited {
+    pub epoch: u64,
+    pub node: Pubkey,
+    pub weight: u64,
+    pub amount: u64,
+    /// The node was tombstoned; its share stays in the epoch residual.
+    pub forfeited: bool,
+}
+
+#[event]
+pub struct EpochClosed {
+    pub epoch: u64,
+    pub residual: u64,
+    pub rolled_into: u64,
+    pub closed_at: i64,
+}
+
+#[event]
+pub struct ProtocolReserveWithdrawn {
+    pub destination: Pubkey,
+    pub amount: u64,
+    pub withdrawn_at: i64,
 }

@@ -96,7 +96,7 @@ fn registration_requires_the_protocol_authority() {
 #[test]
 fn a_gateway_authority_can_only_be_registered_once() {
     let mut p = Protocol::start();
-    let gateway_authority = p.register_gateway(0);
+    let gateway_authority = p.register_gateway();
     let ix = p.register_gateway_ix(
         &gateway_authority.pubkey(),
         &args(gateway_authority.pubkey()),
@@ -113,7 +113,7 @@ fn a_gateway_authority_can_only_be_registered_once() {
 #[test]
 fn protocol_authority_deactivates_a_gateway() {
     let mut p = Protocol::start();
-    let gateway_authority = p.register_gateway(0);
+    let gateway_authority = p.register_gateway();
     let authority = p.authority.insecure_clone();
     let ix = p.deactivate_gateway_ix(&authority.pubkey(), &gateway_authority.pubkey());
     let meta = p.env.send_ok(&[ix], &[&authority]);
@@ -131,7 +131,7 @@ fn protocol_authority_deactivates_a_gateway() {
 #[test]
 fn gateway_authority_cannot_deactivate_itself() {
     let mut p = Protocol::start();
-    let gateway_authority = p.register_gateway(0);
+    let gateway_authority = p.register_gateway();
     let ix = p.deactivate_gateway_ix(&gateway_authority.pubkey(), &gateway_authority.pubkey());
     let failed = p.env.send_err(&[ix], &[&gateway_authority]);
     assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintHasOne);

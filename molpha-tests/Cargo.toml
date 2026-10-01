@@ -41,4 +41,5 @@ solana-address-lookup-table-interface = { version = "*", features = ["bincode"] 
 agave-feature-set = "*"
 base64 = "0.23.1"
 borsh = "1.7.0"
+bytemuck = { version = "1.24", features = ["derive", "min_const_generics"] }
 bincode = "1.3"

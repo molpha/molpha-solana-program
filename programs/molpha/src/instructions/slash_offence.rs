@@ -107,13 +107,19 @@ pub fn slash_offence<'info>(
             ),
             bounty,
         )?;
-
-        ctx.accounts.treasury.reload()?;
-        require!(
-            ctx.accounts.treasury.amount >= config.reward_liability,
-            MolphaError::TreasuryInsolvent
-        );
     }
+
+    // What the punishment recovered, net of the bounty, belongs to the protocol. Tracking it keeps
+    // `sweep_treasury_revenue` from recognizing it as income.
+    config.protocol_reserved = config
+        .protocol_reserved
+        .checked_add(slashed_total - bounty)
+        .ok_or(MolphaError::RewardOverflow)?;
+    ctx.accounts.treasury.reload()?;
+    require!(
+        ctx.accounts.treasury.amount >= config.committed()?,
+        MolphaError::TreasuryInsolvent
+    );
 
     ctx.accounts.punishment_case.init(
         &offence,

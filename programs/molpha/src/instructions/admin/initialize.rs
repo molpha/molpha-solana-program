@@ -6,8 +6,8 @@ use anchor_spl::{
 
 use crate::{
     error::MolphaError,
-    events::ProtocolInitialized,
-    state::{ProtocolConfig, Registry, RegistryState},
+    events::{EpochCreated, ProtocolInitialized},
+    state::{EpochState, ProtocolConfig, Registry, RegistryState},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -18,12 +18,15 @@ pub struct InitializeArgs {
     pub reward_per_signature: u64,
     pub max_settlement_delay_seconds: u64,
     pub challenger_bounty_bps: u16,
-    pub liveliness_freeze_threshold: u16,
-    pub liveliness_penalty_per_miss: u16,
-    pub liveliness_recovery_per_sign: u16,
     pub usdc_mint: Pubkey,
     pub x402_round_base: u64,
     pub min_signers: u8,
+    pub epoch_len_seconds: u64,
+    pub ticket_grace_seconds: u64,
+    pub target_tickets_per_epoch: u32,
+    pub min_availability_bps: u16,
+    pub min_availability_samples: u16,
+    pub protocol_fee_bps: u16,
 }
 
 pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> {
@@ -37,11 +40,14 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.challenger_bounty_bps = args.challenger_bounty_bps;
     protocol_config.minimum_node_deposit = args.minimum_node_deposit;
     protocol_config.withdrawal_cooldown_slots = args.withdrawal_cooldown_slots;
-    protocol_config.liveliness_freeze_threshold = args.liveliness_freeze_threshold;
-    protocol_config.liveliness_penalty_per_miss = args.liveliness_penalty_per_miss;
-    protocol_config.liveliness_recovery_per_sign = args.liveliness_recovery_per_sign;
     protocol_config.x402_round_base = args.x402_round_base;
     protocol_config.min_signers = args.min_signers;
+    protocol_config.epoch_len_seconds = args.epoch_len_seconds;
+    protocol_config.ticket_grace_seconds = args.ticket_grace_seconds;
+    protocol_config.target_tickets_per_epoch = args.target_tickets_per_epoch;
+    protocol_config.min_availability_bps = args.min_availability_bps;
+    protocol_config.min_availability_samples = args.min_availability_samples;
+    protocol_config.protocol_fee_bps = args.protocol_fee_bps;
     protocol_config.validate()?;
     protocol_config.bump = ctx.bumps.protocol_config;
 
@@ -51,10 +57,47 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     );
 
     ctx.accounts.registry_state.init(ctx.bumps.registry_state);
-    ctx.accounts
-        .registry
-        .load_init()?
-        .init_genesis(args.redundancy_buffer, ctx.bumps.registry);
+    ctx.accounts.registry.load_init()?.init_genesis(
+        args.redundancy_buffer,
+        clock.unix_timestamp,
+        ctx.bumps.registry,
+    );
+
+    // Genesis epochs: every later epoch is created two ahead by `finalize_epoch`, and starts
+    // where its predecessor ends. Genesis samples every round until the threshold adapts.
+    let config = &ctx.accounts.protocol_config;
+    let len = config.epoch_len_seconds as i64;
+    let grace = config.ticket_grace_seconds as i64;
+    let authority = ctx.accounts.authority.key();
+    let mut start = clock.unix_timestamp;
+    for (epoch, loader, bump) in [
+        (0u64, &ctx.accounts.epoch0, ctx.bumps.epoch0),
+        (1u64, &ctx.accounts.epoch1, ctx.bumps.epoch1),
+    ] {
+        let end = start
+            .checked_add(len)
+            .ok_or(MolphaError::InvalidEpochLength)?;
+        loader.load_init()?.init(
+            epoch,
+            start,
+            end,
+            grace,
+            u64::MAX,
+            config.min_availability_bps,
+            config.min_availability_samples,
+            config.min_signers,
+            authority,
+            bump,
+        );
+        emit!(EpochCreated {
+            epoch,
+            start,
+            end,
+            ticket_grace: grace,
+            tau: u64::MAX,
+        });
+        start = end;
+    }
 
     emit!(ProtocolInitialized {
         protocol_config: ctx.accounts.protocol_config.key(),
@@ -80,7 +123,7 @@ pub struct Initialize<'info> {
         seeds = [ProtocolConfig::SEED_PREFIX],
         bump
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(
         init,
@@ -103,26 +146,46 @@ pub struct Initialize<'info> {
     #[account(
         constraint = usdc_mint.key() == args.usdc_mint @ MolphaError::InvalidMint
     )]
-    pub usdc_mint: Account<'info, Mint>,
+    pub usdc_mint: Box<Account<'info, Mint>>,
 
+    // `init_if_needed`: both vault addresses are predictable, and anyone may create an ATA for any
+    // owner, so a plain `init` could be front-run into a permanent failure.
     #[account(
-        init,
+        init_if_needed,
         payer = authority,
         associated_token::mint = usdc_mint,
         associated_token::authority = protocol_config,
         associated_token::token_program = token_program,
     )]
-    pub treasury: Account<'info, TokenAccount>,
+    pub treasury: Box<Account<'info, TokenAccount>>,
 
     /// One vault for every node's security deposit, held apart from protocol revenue.
     #[account(
-        init,
+        init_if_needed,
         payer = authority,
         associated_token::mint = usdc_mint,
         associated_token::authority = registry_state,
         associated_token::token_program = token_program,
     )]
-    pub node_deposit_vault: Account<'info, TokenAccount>,
+    pub node_deposit_vault: Box<Account<'info, TokenAccount>>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = EpochState::SPACE,
+        seeds = [EpochState::SEED_PREFIX, 0u64.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub epoch0: AccountLoader<'info, EpochState>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = EpochState::SPACE,
+        seeds = [EpochState::SEED_PREFIX, 1u64.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub epoch1: AccountLoader<'info, EpochState>,
 
     #[account(mut)]
     pub authority: Signer<'info>,

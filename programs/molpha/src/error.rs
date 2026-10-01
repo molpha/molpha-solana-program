@@ -37,8 +37,6 @@ pub enum MolphaError {
     InvalidGatewayEndpoint,
     #[msg("Node endpoint is invalid")]
     InvalidNodeEndpoint,
-    #[msg("owner_usdc token account mismatch")]
-    InvalidOwnerUsdc,
     #[msg("Invalid aggregate signature")]
     InvalidSignature,
     #[msg("Could not derive group bitmap")]
@@ -53,20 +51,12 @@ pub enum MolphaError {
     InvalidDelegateLimits,
     #[msg("delegate cannot be the owner")]
     DelegateCannotBeOwner,
-    #[msg("delegate account required for non-owner action")]
-    DelegateAccountRequired,
-    #[msg("delegate account must not be supplied for owner action")]
-    UnexpectedDelegateAccount,
-    #[msg("delegate data_requests_used >= max_data_requests")]
-    DelegateDataRequestLimitReached,
     #[msg("subscription delegate_count >= plan.max_delegates")]
     DelegateCapReached,
     #[msg("registration_salt must not be zero")]
     InvalidRegistrationSalt,
     #[msg("popcount(signers_bitmap) < signatures_required")]
     InsufficientSigners,
-    #[msg("signatures_required exceeds subscription.max_signers")]
-    SignaturesExceedSubscriptionMax,
     #[msg("signatures_required is below protocol min_signers")]
     SignaturesBelowMinSigners,
     #[msg("Signer bits outside selection bitmap")]
@@ -82,16 +72,10 @@ pub enum MolphaError {
     #[msg("subscription has expired")]
     SubscriptionNotActive,
 
-    #[msg("consumer Ed25519 signature missing or invalid")]
-    ConsumerSigInvalid,
     #[msg("popcount(signers_bitmap) < signatures_required")]
     QuorumBelowThreshold,
     #[msg("gateway is not active")]
     GatewayNotActive,
-    #[msg("caller is not gateway.authority or protocol_config.authority")]
-    UnauthorizedGatewayAuthority,
-    #[msg("subscription inactive or round quota exhausted")]
-    SubscriptionInactiveOrExhausted,
     #[msg("no claimable rewards")]
     NothingToClaim,
     #[msg("account is not in a state that permits withdrawal")]
@@ -106,19 +90,7 @@ pub enum MolphaError {
     InvalidWithdrawalCooldown,
     #[msg("instructions sysvar account is invalid")]
     InvalidInstructionsSysvar,
-    #[msg("consumer authority is not the delegate authority")]
-    UnauthorisedConsumer,
-    #[msg("mismatched or missing credited node account")]
-    InvalidCreditNodeAccount,
-    #[msg("mismatched or missing missed node account")]
-    InvalidMissedNodeAccount,
 
-    #[msg("computed price does not match the gateway-signed amount")]
-    AmountMismatch,
-    #[msg("gateway USDC float balance below computed price")]
-    InsufficientGatewayFloat,
-    #[msg("payment_ref exceeds 64 bytes")]
-    PaymentRefTooLong,
     #[msg("credited signer count exceeds signatures_required + redundancy_buffer")]
     CreditedExceedsSelection,
     #[msg(
@@ -142,8 +114,6 @@ pub enum MolphaError {
     NodeStillFrozen,
     #[msg("node is already present in the current registry")]
     NodeAlreadyInRegistry,
-    #[msg("node liveliness score is not below the freeze threshold")]
-    LivelinessAboveThreshold,
     #[msg("every signer was within the derived selection - no unsolicited signer")]
     SignersFullySelected,
     #[msg("every guilty node is already tombstoned")]
@@ -186,26 +156,61 @@ pub enum MolphaError {
     InvalidNoncePoint,
     #[msg("minimum node deposit must be positive")]
     InvalidMinimumNodeDeposit,
-    #[msg("liveliness freeze threshold must be between 1 and 10000")]
-    InvalidLivelinessFreezeThreshold,
-    #[msg("liveliness penalty per miss must be between 1 and 10000")]
-    InvalidLivelinessPenalty,
-    #[msg("liveliness recovery per sign must be between 1 and 10000")]
-    InvalidLivelinessRecovery,
     #[msg("base price plus rewards for the maximum signer count must fit u64")]
     InvalidRoundPrice,
     #[msg("reward or reward liability arithmetic overflowed")]
     RewardOverflow,
-    #[msg("round replay marker is still inside the maximum settlement window")]
-    RoundReplayNotExpired,
-    #[msg("round replay marker does not match the supplied round identity")]
-    InvalidRoundReplayAccount,
-    #[msg("rent receiver must be the gateway authority that paid for the marker")]
-    InvalidRentReceiver,
     #[msg("signer account list must contain exactly one account per signer")]
     UnexpectedSignerAccounts,
     #[msg("coalition key is not the sum of the signer keys")]
     InvalidCoalitionKey,
+
+    #[msg("epoch_len_seconds is outside the allowed bounds")]
+    InvalidEpochLength,
+    #[msg("ticket_grace_seconds must be positive and shorter than the epoch")]
+    InvalidTicketGrace,
+    #[msg("target_tickets_per_epoch is outside the allowed bounds")]
+    InvalidTicketTarget,
+    #[msg("availability floor must not exceed 10000 bps and needs a positive sample minimum")]
+    InvalidAvailabilityFloor,
+    #[msg("protocol_fee_bps must not exceed 10000")]
+    InvalidProtocolFee,
+    #[msg("epoch is not open at the current cluster time")]
+    EpochNotOpen,
+    #[msg("epoch no longer accepts tickets")]
+    TicketWindowClosed,
+    #[msg("canonical_timestamp is outside the epoch window")]
+    RoundOutsideEpoch,
+    #[msg("round does not fall under the epoch ticket threshold")]
+    NotATicket,
+    #[msg("gateway dispatch signature missing or invalid")]
+    DispatchSigInvalid,
+    #[msg("roster slot hint does not match the epoch roster")]
+    InvalidRosterSlot,
+    #[msg("epoch ticket cap reached")]
+    TicketCapReached,
+    #[msg("ticket marker is still inside its epoch ticket window")]
+    TicketMarkerNotExpired,
+    #[msg("epoch ticket window has not ended")]
+    EpochNotFinalizable,
+    #[msg("epoch is not finalized")]
+    EpochNotFinalized,
+    #[msg("next epoch account does not follow the finalized epoch")]
+    InvalidEpochSequence,
+    #[msg("roster slot has no weight or was already credited")]
+    NothingToCredit,
+    #[msg("epoch still has uncredited nodes or is inside its evidence window")]
+    EpochNotClosable,
+    #[msg("treasury holds no unswept income")]
+    NothingToSweep,
+    #[msg("amount exceeds the protocol reserve")]
+    InsufficientProtocolReserve,
+    #[msg("node availability is not below the epoch payout floor")]
+    AvailabilityAboveFloor,
+    #[msg("node was already frozen during this epoch")]
+    InactivityAlreadyPunished,
+    #[msg("rent receiver must be the account that paid for the closed account")]
+    InvalidRentReceiver,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {

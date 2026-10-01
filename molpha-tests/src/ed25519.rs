@@ -1,4 +1,5 @@
-//! Self-contained Ed25519 precompile instruction, as `settle_subscription_round` expects it.
+//! Self-contained Ed25519 precompile instruction, as `submit_ticket` expects the gateway's
+//! dispatch signature.
 //!
 //! `utils::ed25519::verify_ed25519_signature` re-parses this layout out of the instructions
 //! sysvar, so the encoding is spelled out here instead of delegating to an SDK helper — a test

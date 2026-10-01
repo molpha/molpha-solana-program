@@ -19,6 +19,7 @@ fn registry_with(nodes: &[Pubkey]) -> Registry {
         bump: 0,
         nodes: nodes_arr,
         grace_active_until: 0,
+        active_from: 0,
     }
 }
 
@@ -34,6 +35,7 @@ fn snapshot_copy_and_swap_remove_do_not_mutate_source() {
         bump: 1,
         nodes: [[0; 32]; MAX_REGISTRY_NODES],
         grace_active_until: 0,
+        active_from: 0,
     };
     source.nodes[0] = first.to_bytes();
     source.nodes[1] = second.to_bytes();
@@ -46,14 +48,16 @@ fn snapshot_copy_and_swap_remove_do_not_mutate_source() {
         bump: 0,
         nodes: [[0; 32]; MAX_REGISTRY_NODES],
         grace_active_until: 0,
+        active_from: 0,
     };
-    next.copy_from_previous(&mut source, 8, 2);
+    next.copy_from_previous(&mut source, 8, 3, 2);
     next.swap_remove_node(second).unwrap();
 
     assert_eq!(source.node_count, 3);
     assert_eq!(source.node(1).unwrap(), second);
     assert_eq!(source.grace_active_until, 8);
     assert_eq!(next.version, 8);
+    assert_eq!(next.active_from, 3);
     assert_eq!(next.node_count, 2);
     assert_eq!(next.node(1).unwrap(), third);
     assert_eq!(next.nodes[2], [0; 32]);
@@ -68,7 +72,7 @@ fn swap_remove_batch_handles_swap_index_hazard() {
     let mut current = registry_with(&[n0, n1, n2, n3]);
     let mut next = registry_with(&[]);
 
-    next.copy_from_previous(&mut current, 1, 0);
+    next.copy_from_previous(&mut current, 1, 1, 0);
     next.swap_remove_nodes(&[n0, n3]).unwrap();
     assert_eq!(next.node_count, 2);
     let remaining: Vec<Pubkey> = (0..usize::from(next.node_count))
@@ -86,7 +90,7 @@ fn swap_remove_batch_skips_absent_victim() {
     let mut current = registry_with(&[n0]);
     let mut next = registry_with(&[]);
 
-    next.copy_from_previous(&mut current, 1, 0);
+    next.copy_from_previous(&mut current, 1, 1, 0);
     next.swap_remove_nodes(&[ghost]).unwrap();
     assert_eq!(next.node_count, 1);
 }
@@ -105,4 +109,8 @@ fn registry_is_active_until_grace_expires() {
     assert!(expired.is_active(99));
     assert!(!expired.is_active(100));
     assert!(!expired.is_active(101));
+
+    expired.active_from = 20;
+    assert!(!expired.is_active(19));
+    assert!(expired.is_active(20));
 }

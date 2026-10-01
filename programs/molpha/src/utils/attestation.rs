@@ -2,45 +2,35 @@ use anchor_lang::prelude::*;
 
 use crate::{
     error::{map_attestation_accounts_err, MolphaError},
-    state::{ProtocolConfig, Registry},
-    utils::require_fresh_canonical_timestamp,
+    state::Registry,
 };
 use molpha_verifier::{
     solana::verify_attestation_with_coalition_key, Attestation, Bitmap, CoalitionKey,
 };
 
-/// How the caller lays out node accounts in `remaining_accounts`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum NodeAccountLayout {
-    /// Exactly one account per signer, nothing else (`submit_attestation`).
-    SignersOnly,
-    /// Signers first, then further accounts the caller validates itself (settlement appends the
-    /// missed selected nodes and checks the full length against the selection).
-    SignersThenOthers,
+/// Registry-version liveness at a point in time: the current version, or a superseded one whose
+/// grace had not expired at `at`.
+pub(crate) fn require_registry_active_at(registry: &Registry, at: i64) -> Result<()> {
+    require!(registry.is_active(at), MolphaError::RegistryNotActive);
+    Ok(())
 }
 
-pub(crate) fn validate_attestation<'info>(
+/// Checks shared by every instruction that accepts an attestation: threshold floor, signer count
+/// bounds, exactly one `Node` account per signer (ascending bit order), and the aggregate
+/// signature itself. Callers add their own time and registry-liveness checks.
+pub(crate) fn verify_attestation_core<'info>(
     node_accounts: &'info [AccountInfo<'info>],
-    layout: NodeAccountLayout,
     registry_acc: &AccountLoader<'info, Registry>,
-    config: &ProtocolConfig,
+    min_signers: u8,
     attestation: &Attestation,
     coalition_key: &CoalitionKey,
-    now: i64,
 ) -> Result<()> {
-    let registry = registry_acc.load()?;
+    let redundancy_buffer = registry_acc.load()?.redundancy_buffer;
 
-    require!(registry.is_active(now), MolphaError::RegistryNotActive);
     require!(
-        attestation.payload.signatures_required >= config.min_signers,
+        attestation.payload.signatures_required >= min_signers,
         MolphaError::SignaturesBelowMinSigners
     );
-
-    require_fresh_canonical_timestamp(
-        attestation.payload.canonical_timestamp,
-        now,
-        config.max_settlement_delay_seconds,
-    )?;
 
     let signers = Bitmap::load(&attestation.signature.signers_bitmap);
     let signer_count = signers.popcount();
@@ -48,11 +38,9 @@ pub(crate) fn validate_attestation<'info>(
         signer_count >= u32::from(attestation.payload.signatures_required),
         MolphaError::QuorumBelowThreshold
     );
-
     require!(
         signer_count
-            <= u32::from(attestation.payload.signatures_required)
-                + u32::from(registry.redundancy_buffer),
+            <= u32::from(attestation.payload.signatures_required) + u32::from(redundancy_buffer),
         MolphaError::CreditedExceedsSelection
     );
     require!(
@@ -60,18 +48,14 @@ pub(crate) fn validate_attestation<'info>(
         MolphaError::MissingSignerAccount
     );
     require!(
-        layout == NodeAccountLayout::SignersThenOthers
-            || node_accounts.len() == signer_count as usize,
+        node_accounts.len() == signer_count as usize,
         MolphaError::UnexpectedSignerAccounts
     );
 
-    // Settlement also receives the missed selected nodes after the signer accounts so it can
-    // update liveliness in the same instruction. The verifier expects exactly one account per
-    // signer, so only pass the signer prefix here.
     verify_attestation_with_coalition_key(
         attestation,
         &registry_acc.to_account_info(),
-        &node_accounts[..signer_count as usize],
+        node_accounts,
         coalition_key,
     )
     .map_err(map_attestation_accounts_err)?;

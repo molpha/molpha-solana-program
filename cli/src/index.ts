@@ -5,12 +5,12 @@ import { registerAccountCommands } from "./commands/account";
 import { registerAdminCommands } from "./commands/admin";
 import { registerAttestationCommands } from "./commands/attestation";
 import { registerDelegateCommands } from "./commands/delegate";
+import { registerEpochCommands } from "./commands/epoch";
 import { registerGatewayCommands } from "./commands/gateway";
 import { registerInitCommand } from "./commands/init";
 import { registerPlanCommands } from "./commands/plan";
 import { registerRegistryCommands } from "./commands/registry";
 import { registerRewardsCommands } from "./commands/rewards";
-import { registerRoundCommands } from "./commands/round";
 import { registerSlashCommands } from "./commands/slash";
 import { registerSubscriptionCommands } from "./commands/subscription";
 
@@ -39,7 +39,7 @@ async function main() {
   registerSubscriptionCommands(program);
   registerDelegateCommands(program);
   registerGatewayCommands(program);
-  registerRoundCommands(program);
+  registerEpochCommands(program);
   registerRewardsCommands(program);
   registerAttestationCommands(program);
   registerSlashCommands(program);

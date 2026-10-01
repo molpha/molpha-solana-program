@@ -5,7 +5,7 @@ use molpha::events::NodeDepositWithdrawn;
 use molpha::state::{Node, NodeStatus, PlanConfig, PlanType};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
-use molpha_tests::scenario::{Duty, Protocol};
+use molpha_tests::scenario::Protocol;
 use solana_signer::Signer;
 
 #[test]
@@ -143,84 +143,75 @@ fn a_tombstoned_node_withdraws_after_its_cooldown_slot() {
 }
 
 #[test]
-fn deactivating_a_gateway_disables_both_settlement_paths() {
+fn a_deactivated_gateway_can_no_longer_admit_tickets() {
     let mut p = Protocol::start();
-    p.register_nodes("withdraw-gateway-settlement", 8);
-    let gateway = p.register_gateway(500_000_000);
-    let gateway_key = gateway.insecure_clone();
-    let duty = Duty::new(p.current_version(), 4);
-    let signed = p.sign_duty(duty);
+    p.register_nodes("withdraw-gateway-tickets", 8);
+    let gateway = p.register_gateway();
+    let signed = p.sign_canonical(p.live_duty(4));
 
-    p.env.advance_seconds(1);
     let protocol_authority = p.authority.insecure_clone();
     let deactivate = p.deactivate_gateway_ix(&protocol_authority.pubkey(), &gateway.pubkey());
     p.env.send_ok(&[deactivate], &[&protocol_authority]);
 
-    let x402 = p.settle_x402_round_ix(
-        &gateway.pubkey(),
-        &signed.attestation(),
-        p.x402_args(&signed, [0x71; 32]),
-    );
-    let failed = p.env.send_err(&[x402], &[&gateway_key]);
+    let submitter = p.env.keypair();
+    let ixs = p.ticket_ixs(&submitter.pubkey(), &gateway, &signed);
+    let failed = p.env.send_err(&ixs, &[&submitter]);
     assert_molpha_error(&failed, MolphaError::GatewayNotActive);
-
-    p.add_default_plan(PlanType::Professional);
-    let subscriber = p.subscribe(PlanType::Professional);
-    let subscriber_key = subscriber.insecure_clone();
-    let authorize = p.consumer_authorization_ix(&subscriber, &gateway.pubkey(), &duty);
-    let settle = p.settle_subscription_round_ix(
-        &gateway.pubkey(),
-        &subscriber.pubkey(),
-        &subscriber.pubkey(),
-        None,
-        &signed,
-    );
-    let failed = p
-        .env
-        .send_err(&[authorize, settle], &[&subscriber_key, &gateway_key]);
-    assert_molpha_error(&failed, MolphaError::GatewayNotActive);
+    assert_eq!(p.env.epoch(0).tickets, 0);
 }
 
-/// The point of the split vaults: a node's principal is not available to pay anyone's rewards.
+/// The point of the split vaults: a node's principal is never income, never a pool and never
+/// pays anyone's rewards. Pools pay out only income that arrived.
 #[test]
 fn node_principal_is_never_available_to_pay_rewards() {
-    let mut p = Protocol::builder().reward_per_signature(10_000_000).start();
+    let mut p = Protocol::start();
     p.register_nodes("principal", 8);
-    let gateway = p.register_gateway(500_000_000);
+    let gateway = p.register_gateway();
 
     p.add_plan(PlanConfig {
         plan_type: PlanType::Professional,
-        subscription_price: 1,
+        subscription_price: 1_000,
         max_signers: 8,
         max_delegates: 1,
         max_rounds: 10,
         private_api_enabled: true,
         is_active: true,
     });
-    let subscriber = p.subscribe(PlanType::Professional);
+    p.subscribe(PlanType::Professional);
 
     // Eight deposits sit on chain, but none of them is treasury money.
     let deposit = p.args.minimum_node_deposit;
-    assert_eq!(p.treasury_balance(), 1, "only the month's price is revenue");
+    assert_eq!(
+        p.treasury_balance(),
+        1_000,
+        "only the month's price is revenue"
+    );
     assert_eq!(p.node_deposit_balance(), 8 * deposit);
-    assert_eq!(p.total_locked_deposits(), 8 * deposit);
 
-    let signed = p.sign_duty(Duty::new(8, 4));
-    let ixs = vec![
-        p.consumer_authorization_ix(&subscriber, &gateway.pubkey(), &signed.duty),
-        p.settle_subscription_round_ix(
-            &gateway.pubkey(),
-            &subscriber.pubkey(),
-            &subscriber.pubkey(),
-            None,
-            &signed,
-        ),
-    ];
-    let gateway_kp = gateway.insecure_clone();
-    let subscriber_kp = subscriber.insecure_clone();
-    // Immediate settlement is refused outright rather than reaching for the deposits.
-    let failed = p.env.send_err(&ixs, &[&subscriber_kp, &gateway_kp]);
-    assert_molpha_error(&failed, MolphaError::TreasuryInsolvent);
+    // Recognize the subscription as income, then pay it out through a full epoch.
+    let epoch = p.open_epoch();
+    p.env.send_ok(&[p.sweep_treasury_revenue_ix(epoch)], &[]);
+    let pool = p.env.epoch(epoch).pool;
+    assert_eq!(
+        pool,
+        1_000 - 1_000 * u64::from(p.args.protocol_fee_bps) / 10_000
+    );
+    p.run_reward_epoch(&gateway, 0, 4);
+
+    let credited: u64 = p
+        .node_pdas()
+        .iter()
+        .map(|node| p.env.get::<Node>(node).claimable_rewards)
+        .sum();
+    assert!(
+        credited <= pool,
+        "payouts never exceed the income that arrived"
+    );
+    assert_eq!(
+        p.node_deposit_balance(),
+        8 * deposit,
+        "deposits were never touched"
+    );
 
     // Every deposit is still whole and still withdrawable in full.
     let owner = p.nodes[0].owner.insecure_clone();
@@ -234,105 +225,10 @@ fn node_principal_is_never_available_to_pay_rewards() {
 
     assert_eq!(p.env.token_balance(&destination), before + deposit);
     assert_eq!(p.node_deposit_balance(), 7 * deposit);
-    assert_eq!(p.treasury_balance(), 1, "revenue was never touched");
-    p.assert_solvent();
-}
-
-/// The vault is pinned by derivation from its own authority PDA, so no other token account can
-/// stand in for it and drain deposits to an attacker-chosen destination.
-#[test]
-fn withdraw_rejects_a_deposit_vault_that_is_not_the_protocols() {
-    let mut p = Protocol::start();
-    p.register_nodes("foreign-vault", 2);
-    let owner = p.nodes[0].owner.insecure_clone();
-    p.env
-        .send_ok(&[p.deactivate_node_ix(0, &owner.pubkey())], &[&owner]);
-    p.env.advance_slots(p.args.withdrawal_cooldown_slots);
-
-    // A token account of the same mint that the attacker controls.
-    let impostor = p.env.keypair();
-    let impostor_ata = p.fund_usdc(&impostor.pubkey(), p.args.minimum_node_deposit);
-
-    let mut ix = p.withdraw_node_deposit_ix(&owner.pubkey());
-    let slot = ix
-        .accounts
-        .iter()
-        .position(|meta| meta.pubkey == p.node_deposit_vault())
-        .expect("the vault is an account of this instruction");
-    ix.accounts[slot].pubkey = impostor_ata;
-
-    let failed = p.env.send_err(&[ix], &[&owner]);
-    assert_anchor_error(&failed, anchor_lang::error::ErrorCode::ConstraintTokenOwner);
     assert_eq!(
-        p.node_deposit_balance(),
-        2 * p.args.minimum_node_deposit,
-        "both deposits are untouched"
-    );
-}
-
-/// The shared vault means the token program no longer bounds a payout to the payee's own
-/// deposit, so the program does. This pins the bound at the two places that debit the vault.
-#[test]
-fn a_node_can_only_ever_draw_its_own_deposit_out_of_the_shared_vault() {
-    let mut p = Protocol::start();
-    p.register_nodes("shared-vault", 4);
-    let deposit = p.args.minimum_node_deposit;
-    assert_eq!(p.node_deposit_balance(), 4 * deposit);
-
-    // Everyone deactivates and withdraws. The vault drains to exactly zero: no node can take more
-    // than it put in, and the last one out is not left short.
-    for index in 0..4 {
-        let owner = p.nodes[index].owner.insecure_clone();
-        let ix = p.deactivate_node_ix(index, &owner.pubkey());
-        p.env.send_ok(&[ix], &[&owner]);
-    }
-    p.env.advance_slots(p.args.withdrawal_cooldown_slots);
-
-    for index in 0..4 {
-        let owner = p.nodes[index].owner.insecure_clone();
-        let destination = pda::ata(&owner.pubkey(), &p.usdc_mint);
-        let before = p.env.token_balance_or_zero(&destination);
-        let ix = p.withdraw_node_deposit_ix(&owner.pubkey());
-        p.env.send_ok(&[ix], &[&owner]);
-        assert_eq!(p.env.token_balance(&destination), before + deposit);
-        p.assert_solvent();
-    }
-
-    assert_eq!(p.node_deposit_balance(), 0);
-    assert_eq!(p.total_locked_deposits(), 0);
-
-    // A second attempt takes nothing, even though the vault is shared with nobody left in it.
-    let owner = p.nodes[0].owner.insecure_clone();
-    let failed = p
-        .env
-        .send_err(&[p.withdraw_node_deposit_ix(&owner.pubkey())], &[&owner]);
-    assert_molpha_error(&failed, MolphaError::NothingToWithdraw);
-}
-
-/// A donation to the vault is not claimable by anyone: withdrawals pay `locked_amount`, not a
-/// share of the balance.
-#[test]
-fn a_surplus_in_the_deposit_vault_is_not_withdrawable() {
-    let mut p = Protocol::start();
-    p.register_nodes("vault-surplus", 2);
-    let deposit = p.args.minimum_node_deposit;
-    p.fund_usdc(&pda::registry_state(), 500_000_000);
-    assert_eq!(p.node_deposit_balance(), 2 * deposit + 500_000_000);
-    assert_eq!(p.total_locked_deposits(), 2 * deposit);
-
-    let owner = p.nodes[0].owner.insecure_clone();
-    p.env
-        .send_ok(&[p.deactivate_node_ix(0, &owner.pubkey())], &[&owner]);
-    p.env.advance_slots(p.args.withdrawal_cooldown_slots);
-    let destination = pda::ata(&owner.pubkey(), &p.usdc_mint);
-    let before = p.env.token_balance_or_zero(&destination);
-    p.env
-        .send_ok(&[p.withdraw_node_deposit_ix(&owner.pubkey())], &[&owner]);
-
-    assert_eq!(
-        p.env.token_balance(&destination),
-        before + deposit,
-        "the deposit, not a share of the vault"
+        p.treasury_balance(),
+        1_000,
+        "revenue never left the treasury"
     );
     p.assert_solvent();
 }

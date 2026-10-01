@@ -14,6 +14,7 @@ import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import { withOffenceCoalitionKeys } from "../lib/coalition";
 import {
+  findEpochPda,
   findNodeDepositVault,
   findNodePda,
   findProtocolConfigPda,
@@ -26,6 +27,7 @@ import {
   equalBytes,
   inactivityEvidenceHash,
   offenceEvidenceHash,
+  offenceVariant,
   registryVersionFromOffence,
   remainingBitsFromOffence,
 } from "../lib/slash";
@@ -94,6 +96,15 @@ async function sendSlashOffence(
     isWritable: true,
     isSigner: false,
   }));
+  // Inactivity is proven from a finalized epoch's counters: the epoch account trails the node.
+  const variant = offenceVariant(offence);
+  if (variant.kind === "inactivity") {
+    remaining.push({
+      pubkey: findEpochPda(ctx.programId, Number(variant.epoch))[0],
+      isWritable: false,
+      isSigner: false,
+    });
+  }
 
   const reporterUsdc = getAssociatedTokenAddressSync(
     config.usdcMint,
@@ -148,16 +159,11 @@ export function registerSlashCommands(program: Command): void {
 
   slash
     .command("inactivity")
-    .description("Freeze a node whose liveliness score is below the threshold")
-    .option("--node-index <number>", "registry index of the inactive node")
-    .option(
-      "--node-owner <pubkey>",
-      "node owner; used to find the current-registry index",
+    .description(
+      "Freeze a node whose availability in a finalized epoch fell below the payout floor",
     )
-    .option(
-      "--registry-version <number>",
-      "defaults to the current registry version",
-    )
+    .requiredOption("--epoch <number>", "finalized epoch the node missed")
+    .requiredOption("--node-owner <pubkey>", "owner of the inactive node")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const [registryState] = findRegistryStatePda(ctx.programId);
@@ -167,10 +173,7 @@ export function registerSlashCommands(program: Command): void {
         registryState,
       );
       if (!state) throw new Error("Registry state is not initialized");
-      const registryVersion =
-        options.registryVersion !== undefined
-          ? parseInteger(options.registryVersion, "registry version")
-          : Number(state.currentVersion);
+      const registryVersion = Number(state.currentVersion);
       const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
       const registry = await fetchAccountOrNull<any>(
         ctx.program,
@@ -179,36 +182,44 @@ export function registerSlashCommands(program: Command): void {
       );
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
 
-      let nodeIndex: number;
-      if (options.nodeIndex !== undefined) {
-        nodeIndex = parseInteger(options.nodeIndex, "node index");
-      } else if (options.nodeOwner) {
-        const owner = parsePublicKey(options.nodeOwner, "node owner");
-        const [node] = findNodePda(ctx.programId, owner);
-        nodeIndex = -1;
-        for (let index = 0; index < Number(registry.nodeCount); index++) {
-          if (registryNode(registry, index).equals(node)) {
-            nodeIndex = index;
-            break;
-          }
+      const owner = parsePublicKey(options.nodeOwner, "node owner");
+      const [node] = findNodePda(ctx.programId, owner);
+      let nodeIndex = -1;
+      for (let index = 0; index < Number(registry.nodeCount); index++) {
+        if (registryNode(registry, index).equals(node)) {
+          nodeIndex = index;
+          break;
         }
-        if (nodeIndex < 0) {
-          throw new Error("Node is not a current registry member");
-        }
-      } else {
-        throw new Error("Missing --node-index or --node-owner");
       }
+      if (nodeIndex < 0)
+        throw new Error("Node is not a current registry member");
+
+      const epoch = parseInteger(options.epoch, "epoch");
+      const epochState = await fetchAccountOrNull<any>(
+        ctx.program,
+        "epochState",
+        findEpochPda(ctx.programId, epoch)[0],
+      );
+      if (!epochState) throw new Error(`Epoch ${epoch} is missing`);
+      let rosterSlot = -1;
+      for (let slot = 0; slot < Number(epochState.rosterLen); slot++) {
+        if (
+          new PublicKey(Uint8Array.from(epochState.roster[slot])).equals(node)
+        ) {
+          rosterSlot = slot;
+          break;
+        }
+      }
+      if (rosterSlot < 0)
+        throw new Error(`Node is not on epoch ${epoch}'s roster`);
 
       const offence = {
-        inactivity: {
-          registryVersion,
-          nodeIndex,
-        },
+        inactivity: { epoch, rosterSlot, registryVersion, nodeIndex },
       };
       await sendSlashOffence(
         command,
         offence,
-        inactivityEvidenceHash(registryVersion, nodeIndex),
+        inactivityEvidenceHash(epoch, rosterSlot),
       );
     });
 

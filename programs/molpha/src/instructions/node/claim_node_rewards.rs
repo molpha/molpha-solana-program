@@ -1,4 +1,4 @@
-//! Withdraw accrued settlement rewards from a permanent Node account.
+//! Withdraw epoch rewards credited to a permanent Node account.
 
 use anchor_lang::prelude::*;
 use anchor_spl::{

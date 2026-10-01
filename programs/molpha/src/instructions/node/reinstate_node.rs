@@ -5,10 +5,7 @@ use anchor_lang::prelude::*;
 use crate::{
     error::MolphaError,
     events::NodeReinstated,
-    state::{
-        Node, NodeStatus, ProtocolConfig, Registry, RegistryState, RegistryTransition,
-        LIVELINESS_SCORE_MAX,
-    },
+    state::{Node, NodeStatus, ProtocolConfig, Registry, RegistryState, RegistryTransition},
 };
 
 pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
@@ -35,7 +32,6 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
 
     let node = &mut ctx.accounts.node;
     node.status = NodeStatus::Active;
-    node.liveliness_score = LIVELINESS_SCORE_MAX;
 
     emit!(NodeReinstated {
         node: node_key,

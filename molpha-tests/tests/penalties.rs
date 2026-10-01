@@ -15,7 +15,6 @@ fn node_fixture(locked: u64, rewards: u64, status: NodeStatus) -> Node {
         port: 0,
         locked_amount: locked,
         claimable_rewards: rewards,
-        liveliness_score: molpha::state::LIVELINESS_SCORE_MAX,
         registered_at: 0,
         withdrawable_slot: 0,
         frozen_until: 0,

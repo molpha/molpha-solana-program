@@ -5,10 +5,9 @@
 
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{
-    Delegate, Feed, Gateway, Node, Plan, PlanType, ProtocolConfig, PunishmentCase, Registry,
-    RegistryState, RoundReplayKind, RoundReplayMarker, Secp256k1KeyClaim, Subscription,
+    Delegate, EpochState, Feed, Gateway, Node, Plan, PlanType, ProtocolConfig, PunishmentCase,
+    Registry, RegistryState, Secp256k1KeyClaim, Subscription, TicketMarker,
 };
-use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
 use solana_keccak_hasher::hashv;
 
 pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey =
@@ -72,69 +71,13 @@ pub fn feed(source_id: &[u8; 32], signatures_required: u8, submitter: &Pubkey) -
     ])
 }
 
-/// Replay marker for a round settled through `gateway` (a gateway PDA) under `round_id`.
-pub fn round_replay(gateway: &Pubkey, round_id: &[u8; 32]) -> Pubkey {
-    pda(&[
-        RoundReplayMarker::SEED_PREFIX,
-        gateway.as_ref(),
-        round_id.as_ref(),
-    ])
+pub fn epoch(epoch: u64) -> Pubkey {
+    pda(&[EpochState::SEED_PREFIX, &epoch.to_le_bytes()])
 }
 
-/// Subscription-path marker: scoped to the consumer that signed the request (owner or delegate).
-pub fn subscription_round(
-    consumer_authority: &Pubkey,
-    gateway: &Pubkey,
-    source_id: &[u8; 32],
-    signatures_required: u8,
-    canonical_timestamp: u64,
-) -> Pubkey {
-    let attestation = round_attestation(source_id, signatures_required, canonical_timestamp);
-    round_replay(
-        gateway,
-        &RoundReplayMarker::round_id(
-            RoundReplayKind::Subscription,
-            &attestation,
-            &consumer_authority.to_bytes(),
-        ),
-    )
-}
-
-/// x402-path marker: scoped to the rail-scoped `payer_id`.
-pub fn x402_round(
-    payer_id: &[u8; 32],
-    gateway: &Pubkey,
-    source_id: &[u8; 32],
-    signatures_required: u8,
-    canonical_timestamp: u64,
-) -> Pubkey {
-    let attestation = round_attestation(source_id, signatures_required, canonical_timestamp);
-    round_replay(
-        gateway,
-        &RoundReplayMarker::round_id(RoundReplayKind::X402, &attestation, payer_id),
-    )
-}
-
-/// `round_id` reads only `source_id`, `signatures_required`, and `canonical_timestamp`.
-fn round_attestation(
-    source_id: &[u8; 32],
-    signatures_required: u8,
-    canonical_timestamp: u64,
-) -> Attestation {
-    Attestation {
-        payload: AttestationPayload {
-            value: [0; 32],
-            source_id: *source_id,
-            registry_version: 0,
-            signatures_required,
-            canonical_timestamp,
-        },
-        signature: SchnorrSignature {
-            agg_sig_s: [0; 32],
-            commitment: [0; 20],
-            signers_bitmap: [0; 32],
-        },
-    }
+/// Marker for a submitted ticket, keyed by round identity (`molpha::state::ticket_id`).
+pub fn ticket_marker(ticket_id: &[u8; 32]) -> Pubkey {
+    pda(&[TicketMarker::SEED_PREFIX, ticket_id.as_ref()])
 }
 
 pub fn punishment_case(evidence_hash: &[u8; 32]) -> Pubkey {

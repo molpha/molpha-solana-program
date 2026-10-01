@@ -1,5 +1,5 @@
-//! Domain-separated hashes: the consumer request authorization and the punishment evidence
-//! hashes, which double as `PunishmentCase` PDA seeds.
+//! Domain-separated hashes: ticket identity, lottery and gateway dispatch messages, and the
+//! punishment evidence hashes, which double as `PunishmentCase` PDA seeds.
 //!
 //! Pure unit tests — no VM. Each hash is asserted sensitive to every field it commits to, and
 //! each domain is asserted distinct from the others, so no offence can be filed under another's
@@ -7,38 +7,32 @@
 
 use anchor_lang::prelude::Pubkey;
 use molpha::state::{
-    attestation_hash, commitment_batch_message_hash, commitment_leaf_hash, hash_request_auth,
-    hash_request_auth_fields, verify_commitment_merkle_proof, CommitmentReuseEvidence,
+    attestation_hash, commitment_batch_message_hash, commitment_leaf_hash, dispatch_message,
+    ticket_hash, ticket_id, verify_commitment_merkle_proof, CommitmentReuseEvidence,
     CommittedNoncePair, EquivocationEvidence, Evidence, InactivityEvidence, NonceReuseEvidence,
-    PartialTranscript, RequestAuth, UnsolicitedSigningEvidence, COMMITMENT_MERKLE_NODE_PREFIX,
-    DOMAIN_COMMITMENT_BATCH, DOMAIN_COMMITMENT_REUSE, DOMAIN_EQUIVOCATION, DOMAIN_INACTIVITY,
-    DOMAIN_NONCE_REUSE, DOMAIN_REQAUTH, DOMAIN_UNSOLICITED_SIGNING,
+    PartialTranscript, UnsolicitedSigningEvidence, COMMITMENT_MERKLE_NODE_PREFIX,
+    DOMAIN_COMMITMENT_BATCH, DOMAIN_COMMITMENT_REUSE, DOMAIN_DISPATCH, DOMAIN_EQUIVOCATION,
+    DOMAIN_INACTIVITY, DOMAIN_NONCE_REUSE, DOMAIN_TICKET, DOMAIN_TICKET_ID,
+    DOMAIN_UNSOLICITED_SIGNING,
 };
 use molpha_tests::scenario::ZERO_COALITION_KEY;
 use molpha_verifier::{Attestation, AttestationPayload, SchnorrSignature};
 use solana_keccak_hasher::hashv;
 
-const GATEWAY: Pubkey = Pubkey::new_from_array([0x22; 32]);
-
-fn fixture_request_auth() -> RequestAuth {
-    RequestAuth {
-        program_id: molpha::ID,
-        gateway: GATEWAY,
-        source_id: [0x11; 32],
-        signatures_required: 3,
-        timestamp: 1_700_000_000,
-    }
-}
-
-/// The attested payload `fixture_request_auth` authorizes. `value` and `registry_version` are
-/// not part of the authorization.
-fn fixture_authorized_payload(auth: &RequestAuth) -> AttestationPayload {
-    AttestationPayload {
-        value: [0x42; 32],
-        source_id: auth.source_id,
-        registry_version: 4,
-        signatures_required: auth.signatures_required,
-        canonical_timestamp: auth.timestamp,
+fn fixture_ticket_attestation() -> Attestation {
+    Attestation {
+        payload: AttestationPayload {
+            value: [0x42; 32],
+            source_id: [0x11; 32],
+            registry_version: 4,
+            signatures_required: 3,
+            canonical_timestamp: 1_700_000_000,
+        },
+        signature: SchnorrSignature {
+            agg_sig_s: [0x66; 32],
+            commitment: [0x77; 20],
+            signers_bitmap: [0x07; 32],
+        },
     }
 }
 
@@ -99,51 +93,158 @@ fn nonce_reuse_evidence_hash(
     .hash()
 }
 
+/// Golden vectors shared with the CLI and the node client, which derive the same values
+/// off-chain. A change here is a wire break.
 #[test]
-fn hash_request_auth_fields_matches_struct_hash() {
-    let auth = fixture_request_auth();
+fn ticket_hashes_match_golden_vectors() {
+    let attestation = fixture_ticket_attestation();
     assert_eq!(
-        hash_request_auth_fields(&auth.gateway, &fixture_authorized_payload(&auth)),
-        hash_request_auth(&auth)
+        hex(&ticket_id(&attestation.payload)),
+        TICKET_ID_GOLDEN,
+        "ticket_id"
+    );
+    assert_eq!(
+        hex(&ticket_hash(&attestation)),
+        TICKET_HASH_GOLDEN,
+        "ticket_hash"
+    );
+    assert_eq!(
+        hex(&dispatch_message(&molpha::ID, &attestation.payload)),
+        DISPATCH_MESSAGE_GOLDEN,
+        "dispatch_message"
     );
 }
 
+const TICKET_ID_GOLDEN: &str = "859d832c8a492a6d0b04abdd1c4ea66c8473ed4879c644e8b9f4a28629edf196";
+const TICKET_HASH_GOLDEN: &str = "e99e3d17eba0eefa7bd0cac0760f3092d28b467714b3f8f3bbd1643133bcf2e5";
+const DISPATCH_MESSAGE_GOLDEN: &str =
+    "73b2adeadd7b47a21b53811238619e453501035fa2c178c293dc02ed1dc6a6e9";
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 #[test]
-fn hash_request_auth_fields_commits_to_this_program() {
-    // The field-level helper is what the program calls; it must never let a caller name another
-    // deployment's program id.
-    let mut foreign = fixture_request_auth();
-    foreign.program_id = Pubkey::new_from_array([0x99; 32]);
+fn ticket_hashes_match_their_documented_preimages() {
+    let attestation = fixture_ticket_attestation();
+    let payload = &attestation.payload;
+    assert_eq!(
+        ticket_id(payload),
+        hashv(&[
+            DOMAIN_TICKET_ID,
+            payload.source_id.as_ref(),
+            &[payload.signatures_required],
+            &payload.canonical_timestamp.to_be_bytes(),
+        ])
+        .to_bytes()
+    );
+    assert_eq!(
+        ticket_hash(&attestation),
+        hashv(&[
+            DOMAIN_TICKET,
+            attestation.message_hash().as_ref(),
+            attestation.signature.agg_sig_s.as_ref(),
+            attestation.signature.commitment.as_ref(),
+        ])
+        .to_bytes()
+    );
+    assert_eq!(
+        dispatch_message(&molpha::ID, payload),
+        hashv(&[
+            DOMAIN_DISPATCH,
+            molpha::ID.as_ref(),
+            payload.source_id.as_ref(),
+            &[payload.signatures_required],
+            &payload.registry_version.to_be_bytes(),
+            &payload.canonical_timestamp.to_be_bytes(),
+        ])
+        .to_bytes()
+    );
+}
+
+/// `ticket_id` is round identity: alternative aggregates of one round (other signers, another
+/// value, another nonce, another registry version) share it, so a round counts once.
+#[test]
+fn ticket_id_ignores_everything_but_the_round_identity() {
+    let base = fixture_ticket_attestation();
+    let id = ticket_id(&base.payload);
+
+    let mut other_aggregate = base.clone();
+    other_aggregate.payload.value = [0x43; 32];
+    other_aggregate.payload.registry_version = 5;
+    other_aggregate.signature.signers_bitmap = [0x0b; 32];
+    other_aggregate.signature.agg_sig_s = [0x01; 32];
+    assert_eq!(ticket_id(&other_aggregate.payload), id);
+
+    let mut source = base.clone();
+    source.payload.source_id[0] ^= 1;
+    assert_ne!(ticket_id(&source.payload), id, "source_id");
+    let mut quorum = base.clone();
+    quorum.payload.signatures_required += 1;
+    assert_ne!(ticket_id(&quorum.payload), id, "signatures_required");
+    let mut time = base.clone();
+    time.payload.canonical_timestamp += 1;
+    assert_ne!(ticket_id(&time.payload), id, "canonical_timestamp");
+}
+
+/// The lottery covers the whole aggregate, so only the signers can know a round's outcome.
+#[test]
+fn ticket_hash_covers_message_and_signature() {
+    let base = fixture_ticket_attestation();
+    let hash = ticket_hash(&base);
+
+    let mut value = base.clone();
+    value.payload.value[0] ^= 1;
+    assert_ne!(ticket_hash(&value), hash, "value");
+    let mut bitmap = base.clone();
+    bitmap.signature.signers_bitmap[0] ^= 1;
+    assert_ne!(ticket_hash(&bitmap), hash, "signers_bitmap");
+    let mut s = base.clone();
+    s.signature.agg_sig_s[0] ^= 1;
+    assert_ne!(ticket_hash(&s), hash, "agg_sig_s");
+    let mut commitment = base.clone();
+    commitment.signature.commitment[0] ^= 1;
+    assert_ne!(ticket_hash(&commitment), hash, "commitment");
+}
+
+/// The dispatch signature binds the round a gateway admitted, on this deployment only. It is
+/// fixed before signing, so it covers neither the value nor the signer set.
+#[test]
+fn dispatch_message_commits_to_the_admitted_round() {
+    let base = fixture_ticket_attestation();
+    let message = dispatch_message(&molpha::ID, &base.payload);
+
+    let mut value = base.clone();
+    value.payload.value[0] ^= 1;
+    assert_eq!(dispatch_message(&molpha::ID, &value.payload), message);
+
+    let mut version = base.clone();
+    version.payload.registry_version += 1;
     assert_ne!(
-        hash_request_auth(&foreign),
-        hash_request_auth_fields(&foreign.gateway, &fixture_authorized_payload(&foreign))
+        dispatch_message(&molpha::ID, &version.payload),
+        message,
+        "registry_version"
     );
-}
-
-#[test]
-fn request_auth_hash_is_field_sensitive() {
-    let base = hash_request_auth(&fixture_request_auth());
-    let mut a = fixture_request_auth();
-    a.timestamp += 1;
-    assert_ne!(hash_request_auth(&a), base);
-    let mut b = fixture_request_auth();
-    b.source_id[0] ^= 0x01;
-    assert_ne!(hash_request_auth(&b), base);
-    let mut c = fixture_request_auth();
-    c.signatures_required += 1;
-    assert_ne!(hash_request_auth(&c), base);
-    // An authorization is redeemable by exactly one gateway on exactly one deployment.
-    let mut d = fixture_request_auth();
-    d.gateway = Pubkey::new_from_array([0x33; 32]);
-    assert_ne!(hash_request_auth(&d), base);
-    let mut e = fixture_request_auth();
-    e.program_id = Pubkey::new_from_array([0x44; 32]);
-    assert_ne!(hash_request_auth(&e), base);
+    let mut time = base.clone();
+    time.payload.canonical_timestamp += 1;
+    assert_ne!(
+        dispatch_message(&molpha::ID, &time.payload),
+        message,
+        "canonical_timestamp"
+    );
+    assert_ne!(
+        dispatch_message(&Pubkey::new_from_array([0x99; 32]), &base.payload),
+        message,
+        "program_id"
+    );
 }
 
 #[test]
 fn distinct_domains_separate_hashes() {
-    assert_ne!(DOMAIN_REQAUTH, DOMAIN_EQUIVOCATION);
+    assert_ne!(DOMAIN_TICKET, DOMAIN_TICKET_ID);
+    assert_ne!(DOMAIN_TICKET, DOMAIN_DISPATCH);
+    assert_ne!(DOMAIN_TICKET_ID, DOMAIN_DISPATCH);
+    assert_ne!(DOMAIN_DISPATCH, DOMAIN_EQUIVOCATION);
 }
 
 fn fixture_attestation(value: u8, bitmap_byte: u8) -> Attestation {
@@ -323,25 +424,42 @@ fn offence_evidence_domains_do_not_collide() {
     assert_ne!(DOMAIN_INACTIVITY, DOMAIN_NONCE_REUSE);
 
     let inactivity = inactivity_evidence_hash(4, 1);
+    assert_ne!(DOMAIN_INACTIVITY, DOMAIN_TICKET);
     assert_ne!(equivocation, inactivity);
     assert_ne!(unsolicited, inactivity);
     assert_ne!(commitment_reuse, inactivity);
     assert_ne!(nonce_reuse, inactivity);
 }
 
-fn inactivity_evidence_hash(registry_version: u32, node_index: u32) -> [u8; 32] {
+fn inactivity_evidence_hash(epoch: u64, roster_slot: u16) -> [u8; 32] {
     InactivityEvidence {
-        registry_version,
-        node_index,
+        epoch,
+        roster_slot,
+        registry_version: 9,
+        node_index: 2,
     }
     .hash()
 }
 
+/// One case per node per epoch: the hash names the epoch and roster slot only, so the same
+/// outage cannot be refiled after reinstatement moves the node to a new version and index.
 #[test]
-fn inactivity_hash_commits_to_the_registry_version_and_node_index() {
+fn inactivity_hash_commits_to_the_epoch_and_roster_slot_only() {
     let base = inactivity_evidence_hash(4, 1);
-    assert_ne!(inactivity_evidence_hash(5, 1), base, "registry_version");
-    assert_ne!(inactivity_evidence_hash(4, 2), base, "node_index");
+    assert_ne!(inactivity_evidence_hash(5, 1), base, "epoch");
+    assert_ne!(inactivity_evidence_hash(4, 2), base, "roster_slot");
+
+    let relocated = InactivityEvidence {
+        epoch: 4,
+        roster_slot: 1,
+        registry_version: 12,
+        node_index: 7,
+    };
+    assert_eq!(
+        relocated.hash(),
+        base,
+        "registry location is not part of the case"
+    );
 }
 
 fn fixture_nonces() -> CommittedNoncePair {

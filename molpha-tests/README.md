@@ -21,7 +21,7 @@ stale `.so` silently tests the old binary.
 | `src/env.rs`        | `TestEnv`: the VM, transaction sending, account/event/error assertions  |
 | `src/scenario.rs`   | `Protocol`: initialized protocol, registered nodes, gateways, duties    |
 | `src/crypto.rs`     | secp256k1 signer: node keys, proofs of possession, coalition Schnorr    |
-| `src/ed25519.rs`    | the Ed25519 precompile instruction `settle_subscription_round` parses   |
+| `src/ed25519.rs`    | the Ed25519 precompile instruction `submit_ticket` parses (dispatch sig) |
 | `src/pda.rs`        | PDA derivations, built from the program's own `SEED_PREFIX` constants   |
 | `src/token.rs`      | hand-encoded SPL Token / ATA instructions and account readers           |
 | `fixtures/`         | the cross-chain golden vector shared with the EVM validator             |
@@ -29,9 +29,10 @@ stale `.so` silently tests the old binary.
 The files are modules of one `suite` binary (`tests/suite.rs`), so `cargo test` links LiteSVM
 once. Filter an area with `cargo test -p molpha-tests --test suite <file>`. One file per
 instruction group: `protocol_config`, `plans_and_subscriptions`, `delegates`,
-`node_registry`, `reinstate_node`, `liveliness`, `gateway`, `attestation`, `settle_subscription`, `settle_x402`,
-`rounds`, `punish_equivocation`, `punish_unsolicited_signing`, `punish_commitment_reuse`,
-`punish_nonce_reuse`, `slash_offence`, plus `evm_compatibility` and `limits`.
+`node_registry`, `reinstate_node`, `gateway`, `attestation`, `revenue`, `tickets`, `epochs`,
+`epoch_rewards`, `punish_equivocation`, `punish_unsolicited_signing`, `punish_commitment_reuse`,
+`punish_nonce_reuse`, `slash_offence` (epoch inactivity), plus `evm_compatibility`, `limits` and
+`compute_bench`.
 
 Four files hold the program's pure unit tests — no VM, no `.so`, they exercise the `molpha` crate
 as a library. They live here rather than in `#[cfg(test)]` modules so the whole suite is in one
@@ -40,7 +41,7 @@ place:
 | File                    | What it pins                                                      |
 | ----------------------- | ----------------------------------------------------------------- |
 | `encoding.rs`           | argument wire formats, `Attestation` mirror, `Node`/`Feed` layouts |
-| `hashing.rs`            | request-auth and punishment evidence hashes, domain separation     |
+| `hashing.rs`            | ticket / dispatch hashes and punishment evidence hashes, domain separation |
 | `registry_snapshot.rs`  | version succession, snapshot copy / `swap_remove`, `evict_nodes`   |
 | `penalties.rs`          | the fixed penalty table and `Penalty::apply` arithmetic            |
 

@@ -1,10 +1,10 @@
 //! `reinstate_node`: bringing a frozen node back into the registry.
 //!
-//! The node is frozen through the permissionless liveliness crank before each reinstatement.
+//! The node is frozen through a genuine epoch inactivity filing before each reinstatement.
 
 use molpha::error::MolphaError;
 use molpha::events::NodeReinstated;
-use molpha::state::{Node, NodeStatus, OffenceKind, LIVELINESS_SCORE_MAX};
+use molpha::state::{Node, NodeStatus, OffenceKind};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::scenario::Protocol;
 use solana_signer::Signer;
@@ -17,15 +17,13 @@ const INACTIVITY_FREEZE_SECS: i64 = OffenceKind::Inactivity
     .expect("freeze_secs is Some");
 
 fn frozen_protocol() -> (Protocol, usize) {
-    let mut p = Protocol::start();
+    let mut p = Protocol::builder().min_availability_samples(3).start();
     p.register_nodes("reinstate", NODE_COUNT);
+    let gateway = p.register_gateway();
     let index = 1;
     let node_pda = p.nodes[index].pda;
-    let score = p.args.liveliness_freeze_threshold - 1;
-    p.overwrite_node(&node_pda, |node| node.liveliness_score = score);
-    let caller = p.reporter();
-    let ix = p.slash_inactivity_ix(&caller.pubkey(), index as u32);
-    p.env.send_ok(&[ix], &[&caller]);
+    p.freeze_via_inactivity(&gateway, &node_pda);
+    assert_eq!(p.env.get::<Node>(&node_pda).status, NodeStatus::Frozen);
     (p, index)
 }
 
@@ -48,7 +46,6 @@ fn a_thawed_node_is_reinstated_by_anyone_and_rejoins_the_registry() {
 
     let node: Node = p.env.get(&node_pda);
     assert_eq!(node.status, NodeStatus::Active);
-    assert_eq!(node.liveliness_score, LIVELINESS_SCORE_MAX);
     let registry = p.env.registry(expected_version);
     assert_eq!(registry.node_count as usize, NODE_COUNT);
     assert!(registry.nodes.contains(&node_pda));
