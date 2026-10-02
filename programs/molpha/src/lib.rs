@@ -13,7 +13,7 @@ use instructions::*;
 use molpha_verifier::{Attestation, CoalitionKey};
 use state::{PlanConfig, PlanType};
 
-declare_id!("MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3");
+declare_id!("chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt");
 
 #[program]
 pub mod molpha {

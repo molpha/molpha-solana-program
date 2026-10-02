@@ -118,7 +118,7 @@ fn ticket_hashes_match_golden_vectors() {
 const TICKET_ID_GOLDEN: &str = "859d832c8a492a6d0b04abdd1c4ea66c8473ed4879c644e8b9f4a28629edf196";
 const TICKET_HASH_GOLDEN: &str = "e99e3d17eba0eefa7bd0cac0760f3092d28b467714b3f8f3bbd1643133bcf2e5";
 const DISPATCH_MESSAGE_GOLDEN: &str =
-    "73b2adeadd7b47a21b53811238619e453501035fa2c178c293dc02ed1dc6a6e9";
+    "db97d7fce1ed5d665426ddecc4d85e74ec55a1be4a98e2dbf820b363e30fb8bb";
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()

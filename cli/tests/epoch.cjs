@@ -18,7 +18,7 @@ const { findEpochPda } = require("../dist/lib/pdas");
 const { bn } = require("../dist/lib/utils");
 const { findOpenEpoch } = require("../dist/commands/epoch");
 
-const PROGRAM_ID = new PublicKey("MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3");
+const PROGRAM_ID = new PublicKey("chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt");
 const hex = (bytes) => Buffer.from(bytes).toString("hex");
 
 // Shared with `molpha-tests/tests/hashing.rs::ticket_hashes_match_golden_vectors`.
