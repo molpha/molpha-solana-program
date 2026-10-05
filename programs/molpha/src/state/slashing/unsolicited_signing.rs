@@ -27,7 +27,7 @@ impl Evidence for UnsolicitedSigningEvidence {
         let signers_bitmap = Bitmap::load(&attestation.signature.signers_bitmap);
         let selection = derive_selection_bitmap(
             &attestation.payload.source_id,
-            attestation.payload.canonical_timestamp,
+            attestation.payload.timestamp,
             attestation.payload.signatures_required,
             &ctx.evidence_registry.load()?.view(),
         )

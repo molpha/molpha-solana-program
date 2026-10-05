@@ -27,7 +27,7 @@ fn duty(signers: usize, timestamp: u64) -> Duty {
     // A selected coalition is quorum + redundancy_buffer (one here).
     Duty::new(18, (signers - 1) as u8)
         .source_id([signers as u8; 32])
-        .at(timestamp)
+        .at_secs(timestamp)
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn submit_attestation_cu_matrix() {
 
         // Includes Clock, registry/config checks, bitmap work, but stops before the aggregate
         // verifier because the timestamp is stale.
-        let stale = protocol.sign_duty(base.at(1));
+        let stale = protocol.sign_duty(base.at_secs(1));
         let ix = protocol.submit_attestation_ix(&submitter.pubkey(), &stale);
         let pre_verify = protocol.env.send_err(&[ix], &[&submitter]);
 
@@ -69,7 +69,7 @@ fn submit_attestation_cu_matrix() {
         let create = protocol.env.send_ok(&[ix], &[&submitter]);
 
         // Same signer set, existing feed: steady-state write path.
-        let update = protocol.sign_duty(base.at(base.canonical_timestamp + 1));
+        let update = protocol.sign_duty(base.at(base.timestamp + 1));
         let ix = protocol.submit_attestation_ix(&submitter.pubkey(), &update);
         let update = protocol.env.send_ok(&[ix], &[&submitter]);
 
@@ -88,11 +88,13 @@ fn submit_attestation_cu_matrix() {
 fn submit_attestation_18_signer_verifier_phases() {
     let mut protocol = phase_protocol();
     let submitter = protocol.env.keypair();
-    let duty = Duty::new(30, 17).source_id([0x18; 32]).at(1_700_010_000);
+    let duty = Duty::new(30, 17)
+        .source_id([0x18; 32])
+        .at_secs(1_700_010_000);
     let signed = protocol.sign_duty(duty);
     assert_eq!(signed.signer_pdas.len(), 18);
 
-    let stale = protocol.sign_duty(duty.at(1));
+    let stale = protocol.sign_duty(duty.at_secs(1));
     let ix = protocol.submit_attestation_ix(&submitter.pubkey(), &stale);
     let pre_verify = protocol.env.send_err(&[ix], &[&submitter]);
 
@@ -102,7 +104,7 @@ fn submit_attestation_18_signer_verifier_phases() {
     let scalar_fail = protocol.env.send_err(&[ix], &[&submitter]);
 
     let mut invalid_selection = signed.submit_args();
-    invalid_selection.attestation.payload.canonical_timestamp += 1;
+    invalid_selection.attestation.payload.timestamp += 1;
     let ix = protocol.submit_attestation_ix_with_args(
         &submitter.pubkey(),
         invalid_selection,

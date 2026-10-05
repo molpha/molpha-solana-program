@@ -4,17 +4,18 @@ import * as crypto from "crypto";
 import * as secp256k1 from "@noble/secp256k1";
 import { Point } from "@noble/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3.js";
-import {
-  bytesToHex,
-  fixedBytes,
-  hexToBytes,
-  parseBigIntString,
-} from "../utils";
+import { bytesToHex, fixedBytes, hexToBytes } from "../utils";
 import { fixtureSourceId, VerifyAttestationFixture } from "./fixtures";
 
 const MESSAGE_PREFIX = Buffer.from(
   keccak_256(Buffer.from("MOLPHA_MESSAGE_V1")),
 );
+/**
+ * Width of the selection window in milliseconds. `timestamp` is unix milliseconds;
+ * selection reads only `floor(timestamp / SELECTION_WINDOW_MS)`, so sub-second
+ * precision never changes who is selected. Mirrors `SELECTION_WINDOW_MS` in `molpha-verifier`.
+ */
+export const SELECTION_WINDOW_MS = 1000;
 const SELECTION_SEED_PREFIX = Buffer.from(
   keccak_256(Buffer.from("MOLPHA_SELECTION_V1")),
 );
@@ -24,7 +25,6 @@ const DERIVE_GROUP_BITMAP_MAX_ROUNDS = 65_536;
 const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
 );
-export const VERIFY_ATTESTATION_RETURN_LEN = 72;
 /** `Feed::MAX_VALUE_LEN` — upper bound on a `raw_value` preimage. */
 export const MAX_RAW_VALUE_LEN = 256;
 
@@ -35,7 +35,7 @@ export type E2eSignerMaterial = {
 
 export type E2eAttestationFields = {
   value: Uint8Array;
-  canonicalTimestamp: number;
+  timestamp: number;
   /** Preimage of `value`; submitted as `raw_value` so the feed stores `FeedValueKind::Hash`. */
   rawValue?: Uint8Array;
 };
@@ -54,7 +54,7 @@ export type AttestationArgs = {
     sourceId: number[];
     registryVersion: number;
     signaturesRequired: number;
-    canonicalTimestamp: BN;
+    timestamp: BN;
   };
   signature: {
     aggSigS: number[];
@@ -93,7 +93,7 @@ export function buildAttestation(
     sourceId: Uint8Array;
     registryVersion: number;
     signaturesRequired: number;
-    canonicalTimestamp: number | BN;
+    timestamp: number | BN;
   } & SchnorrSignatureBytes,
 ): AttestationArgs {
   if (fields.signaturesRequired < 0 || fields.signaturesRequired > 0xff) {
@@ -107,7 +107,7 @@ export function buildAttestation(
       sourceId: Array.from(fixedBytes(fields.sourceId, 32, "source id")),
       registryVersion: fields.registryVersion,
       signaturesRequired: fields.signaturesRequired,
-      canonicalTimestamp: new BN(fields.canonicalTimestamp.toString()),
+      timestamp: new BN(fields.timestamp.toString()),
     },
     signature: {
       aggSigS: Array.from(
@@ -231,28 +231,6 @@ function sampleWithoutReplacement(
   return bitmap;
 }
 
-function modReduceOnce32(hash: Uint8Array): Uint8Array {
-  return bytes32FromBigintBE(bigintFromBytesBE(hash));
-}
-
-function isZero32(bytes: Uint8Array): boolean {
-  return bytes.every((byte) => byte === 0);
-}
-
-function subBE256(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const av = bigintFromBytesBE(a);
-  const bv = bigintFromBytesBE(b);
-  const mod = 1n << 256n;
-  return bytes32FromBigintBE((av - bv + mod) % mod);
-}
-
-function mulMod256(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const mod = 1n << 256n;
-  const av = bigintFromBytesBE(a) % mod;
-  const bv = bigintFromBytesBE(b) % mod;
-  return bytes32FromBigintBE((av * bv) % mod);
-}
-
 export function evmUint256BitmapForFirstN(count: number): Uint8Array {
   const bitmap = new Uint8Array(32);
   for (let index = 0; index < count; index += 1) {
@@ -312,17 +290,18 @@ export function deriveGroupBitmap(
   return bigintToEvmBytes32(bitmap);
 }
 
+/** `timestamp` is unix milliseconds; the seed reads its 1 s window index. */
 export function deriveSelectionSeed(
   sourceId: Uint8Array,
   registryVersion: number,
-  canonicalTimestamp: number,
+  timestamp: number,
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
       SELECTION_SEED_PREFIX,
       Buffer.from(sourceId),
       Buffer.from(u32be(registryVersion)),
-      Buffer.from(u64be(canonicalTimestamp)),
+      Buffer.from(u64be(Math.floor(timestamp / SELECTION_WINDOW_MS))),
     ]),
   );
 }
@@ -342,7 +321,7 @@ export function deriveSignersBitmap(
   nodeCount: number,
   signaturesRequired: number,
   redundancyBuffer = 2,
-  canonicalTimestamp = 0,
+  timestamp = 0,
 ): Uint8Array {
   const selectionSize = effectiveSelectionSize(
     signaturesRequired,
@@ -350,7 +329,7 @@ export function deriveSignersBitmap(
     nodeCount,
   );
   return deriveGroupBitmap(
-    deriveSelectionSeed(sourceId, registryVersion, canonicalTimestamp),
+    deriveSelectionSeed(sourceId, registryVersion, timestamp),
     nodeCount,
     selectionSize,
   );
@@ -388,7 +367,7 @@ export function computeMessageHash(params: {
   signaturesRequired: number;
   signersBitmap: Uint8Array;
   value: Uint8Array;
-  canonicalTimestamp: number;
+  timestamp: number;
 }): Uint8Array {
   return keccakConcat([
     MESSAGE_PREFIX,
@@ -396,7 +375,7 @@ export function computeMessageHash(params: {
     params.sourceId,
     u32be(params.registryVersion),
     Uint8Array.from([params.signaturesRequired]),
-    u64be(params.canonicalTimestamp),
+    u64be(params.timestamp),
     params.signersBitmap,
   ]);
 }
@@ -451,7 +430,7 @@ export function signE2eAttestation(
     signaturesRequired: required,
     signersBitmap,
     value: attestation.value,
-    canonicalTimestamp: attestation.canonicalTimestamp,
+    timestamp: attestation.timestamp,
   });
 
   let coalitionPoint = Point.ZERO;
@@ -488,7 +467,7 @@ export function signE2eAttestation(
         sourceId,
         registryVersion,
         signaturesRequired: required,
-        canonicalTimestamp: attestation.canonicalTimestamp,
+        timestamp: attestation.timestamp,
         signersBitmap,
         aggSigS: s,
         commitment,
@@ -519,7 +498,7 @@ export function buildSubmitArgsFromFixture(
       sourceId: hexToBytes(fixtureSourceId(fixture), 32, "source id"),
       registryVersion: fixture.dataUpdate.registryVersion,
       signaturesRequired,
-      canonicalTimestamp: fixture.dataUpdate.canonicalTimestamp,
+      timestamp: fixture.dataUpdate.timestamp,
       signersBitmap,
       aggSigS: hexToBytes(fixture.schnorrSignature.signature, 32, "signature"),
       commitment: hexToBytes(
@@ -539,16 +518,6 @@ function uint256BE(value: bigint): Uint8Array {
     out[index] = Number(next & 0xffn);
     next >>= 8n;
   }
-  return out;
-}
-
-export function expectedVerifyAttestationReturnBytes(
-  value: Uint8Array,
-  canonicalTimestamp: number,
-): Uint8Array {
-  const out = new Uint8Array(VERIFY_ATTESTATION_RETURN_LEN);
-  out.set(value.subarray(0, 32), 0);
-  out.set(u64be(canonicalTimestamp), 32);
   return out;
 }
 
@@ -575,26 +544,6 @@ export function signerRemainingAccounts(
   return remaining;
 }
 
-export function signerMaterialFromFixture(
-  fixture: VerifyAttestationFixture,
-): E2eSignerMaterial {
-  const compressedPubkeys = fixture.nodePubkeys.map((value) =>
-    hexToBytes(value, 33, "node pubkey"),
-  );
-  const scalarStrings = fixture.secretKeys ?? fixture.nodePrivkeys;
-  if (!scalarStrings || scalarStrings.length === 0) {
-    throw new Error("Fixture must contain secretKeys or nodePrivkeys");
-  }
-
-  const privKeys = scalarStrings.map((value) =>
-    value.startsWith("0x")
-      ? bigintFromBytesBE(hexToBytes(value, 32, "node privkey"))
-      : parseBigIntString(value, "secret key"),
-  );
-
-  return { privKeys, compressedPubkeys };
-}
-
 export function describeSignedPayload(signed: SignedAttestation) {
   return {
     submitArgs: signed.submitArgs,
@@ -606,51 +555,4 @@ export function describeSignedPayload(signed: SignedAttestation) {
 
 export function buildBitmapFromFlag(value: string): Uint8Array {
   return hexToBytes(value, 32, "signers bitmap");
-}
-
-const SECP256K1_ORDER_BYTES = Uint8Array.from(
-  Buffer.from(
-    "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141",
-    "hex",
-  ),
-);
-
-export function evmSchnorrEcdsaInputs(params: {
-  coalitionPubkeyCompressed: Uint8Array;
-  messageHash: Uint8Array;
-  signature: Uint8Array;
-  commitment: Uint8Array;
-}): { recoveryId: number; ecdsaSig: Uint8Array; ecdsaHash: Uint8Array } {
-  const parityPrefix = params.coalitionPubkeyCompressed[0];
-  if (parityPrefix !== 0x02 && parityPrefix !== 0x03) {
-    throw new Error("invalid compressed pubkey prefix");
-  }
-
-  const recoveryId = parityPrefix & 1;
-  const px = params.coalitionPubkeyCompressed.subarray(1, 33);
-  const pxModN = modReduceOnce32(px);
-  if (isZero32(pxModN)) {
-    throw new Error("px mod n is zero");
-  }
-
-  const challengeHash = keccakConcat([
-    px,
-    Uint8Array.from([recoveryId]),
-    params.messageHash,
-    params.commitment,
-  ]);
-  const challenge = modReduceOnce32(challengeHash);
-  const sigReduced = modReduceOnce32(params.signature);
-  const msgMul = mulMod256(sigReduced, pxModN);
-  const eEcdsa = subBE256(SECP256K1_ORDER_BYTES, msgMul);
-  const ecdsaSMul = mulMod256(challenge, pxModN);
-  const sEcdsa = subBE256(SECP256K1_ORDER_BYTES, ecdsaSMul);
-  if (isZero32(sEcdsa)) {
-    throw new Error("ecdsa s is zero");
-  }
-
-  const ecdsaSig = new Uint8Array(64);
-  ecdsaSig.set(pxModN, 0);
-  ecdsaSig.set(sEcdsa, 32);
-  return { recoveryId, ecdsaSig, ecdsaHash: eEcdsa };
 }

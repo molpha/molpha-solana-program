@@ -28,7 +28,7 @@ pub fn is_equivocation(attestation_a: &Attestation, attestation_b: &Attestation)
     let same_duty = a.source_id == b.source_id
         && a.registry_version == b.registry_version
         && a.signatures_required == b.signatures_required
-        && a.canonical_timestamp == b.canonical_timestamp;
+        && a.timestamp == b.timestamp;
 
     same_duty && a.value != b.value
 }
@@ -40,7 +40,7 @@ pub fn attestation_hash(attestation: &Attestation) -> [u8; 32] {
         payload.source_id.as_slice(),
         payload.registry_version.to_be_bytes().as_slice(),
         payload.signatures_required.to_be_bytes().as_slice(),
-        payload.canonical_timestamp.to_be_bytes().as_slice(),
+        payload.timestamp.to_be_bytes().as_slice(),
         signature.agg_sig_s.as_slice(),
         signature.commitment.as_slice(),
         signature.signers_bitmap.as_slice(),
@@ -157,7 +157,7 @@ pub(crate) fn require_signers_selected(
 ) -> Result<()> {
     let selection = derive_selection_bitmap(
         &attestation.payload.source_id,
-        attestation.payload.canonical_timestamp,
+        attestation.payload.timestamp,
         attestation.payload.signatures_required,
         registry,
     )

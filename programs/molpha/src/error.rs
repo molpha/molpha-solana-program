@@ -63,7 +63,7 @@ pub enum MolphaError {
     SignersNotSubsetOfSelection,
     #[msg("PoP-Schnorr aggregate verification failed")]
     InvalidAggregateSignature,
-    #[msg("canonical_timestamp <= feed.canonical_timestamp")]
+    #[msg("timestamp <= feed.timestamp")]
     FeedNotNewer,
     #[msg("signatures_required does not match feed.signatures_required")]
     SignaturesRequiredMismatch,
@@ -126,9 +126,9 @@ pub enum MolphaError {
     NonceReuseSameMessage,
     #[msg("same duty with different values is equivocation - file it as one")]
     PreferEquivocation,
-    #[msg("canonical_timestamp is older than now - max_settlement_delay_seconds")]
+    #[msg("timestamp is older than now - max_settlement_delay_seconds")]
     AttestationTooStale,
-    #[msg("canonical_timestamp is further ahead of cluster time than the allowed drift")]
+    #[msg("timestamp is further ahead of cluster time than the allowed drift")]
     AttestationInFuture,
     #[msg("max_settlement_delay_seconds must be positive and fit a timestamp deadline")]
     InvalidMaxReceiptDelay,
@@ -179,7 +179,7 @@ pub enum MolphaError {
     EpochNotOpen,
     #[msg("epoch no longer accepts tickets")]
     TicketWindowClosed,
-    #[msg("canonical_timestamp is outside the epoch window")]
+    #[msg("timestamp is outside the epoch window")]
     RoundOutsideEpoch,
     #[msg("round does not fall under the epoch ticket threshold")]
     NotATicket,

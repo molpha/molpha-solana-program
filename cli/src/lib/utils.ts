@@ -95,30 +95,12 @@ export function parseInteger(value: string, label: string): number {
   return parsed;
 }
 
-export function parseBigIntString(value: string, label: string): bigint {
-  try {
-    return BigInt(value);
-  } catch (error) {
-    throw new Error(`Invalid ${label}: ${value}`);
-  }
-}
-
 export function bn(value: string | number | bigint, label: string): BN {
   try {
     return new BN(typeof value === "string" ? value : value.toString());
   } catch (error) {
     throw new Error(`Invalid ${label}: ${value}`);
   }
-}
-
-export function optionalNumber(
-  value: string | undefined,
-  fallback?: number,
-): number | undefined {
-  if (value === undefined) {
-    return fallback;
-  }
-  return parseInteger(value, "number");
 }
 
 export function hexToBytes(
@@ -139,17 +121,6 @@ export function hexToBytes(
   return bytes;
 }
 
-export function maybeHexToBytes(
-  value: string | undefined,
-  expectedLength?: number,
-  label?: string,
-): Uint8Array | undefined {
-  if (!value) {
-    return undefined;
-  }
-  return hexToBytes(value, expectedLength, label);
-}
-
 export function bytesToHex(bytes: Uint8Array): string {
   return `0x${Buffer.from(bytes).toString("hex")}`;
 }
@@ -163,29 +134,6 @@ export function fixedBytes(
     throw new Error(`${label} must be ${length} bytes, got ${bytes.length}`);
   }
   return bytes;
-}
-
-export function readHexFile(
-  filePath: string,
-  expectedLength?: number,
-  label?: string,
-): Uint8Array {
-  return hexToBytes(readUtf8(filePath).trim(), expectedLength, label);
-}
-
-export function parseHexOrFile(
-  value: string | undefined,
-  filePath: string | undefined,
-  expectedLength: number,
-  label: string,
-): Uint8Array {
-  if (value) {
-    return hexToBytes(value, expectedLength, label);
-  }
-  if (filePath) {
-    return readHexFile(filePath, expectedLength, label);
-  }
-  throw new Error(`Missing ${label}`);
 }
 
 export function u32Le(value: number): Buffer {
@@ -249,8 +197,4 @@ export function optionOrConfig<T>(
   configValue: T | undefined,
 ): T | undefined {
   return optionValue !== undefined ? optionValue : configValue;
-}
-
-export function isDefaultPubkey(value: PublicKey): boolean {
-  return value.equals(PublicKey.default);
 }

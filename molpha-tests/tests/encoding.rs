@@ -144,7 +144,7 @@ fn attestation() -> Attestation {
             source_id: [0x11; 32],
             registry_version: 7,
             signatures_required: 3,
-            canonical_timestamp: 1_700_000_000,
+            timestamp: 1_700_000_000,
         },
         signature: SchnorrSignature {
             agg_sig_s: [0x66; 32],

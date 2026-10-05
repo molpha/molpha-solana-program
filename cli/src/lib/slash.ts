@@ -98,10 +98,7 @@ function attestationHash(attestation: unknown, label: string): Uint8Array {
         ),
       ),
       Buffer.from([signaturesRequired & 0xff]),
-      u64Be(
-        pick(payload, "canonicalTimestamp", "canonical_timestamp") as
-          number | string | bigint,
-      ),
+      u64Be(pick(payload, "timestamp") as number | string | bigint),
       Buffer.from(
         bytesField(
           pick(signature, "aggSigS", "agg_sig_s"),

@@ -33,8 +33,3 @@ Prerequisites for registration: `anchor build`, `yarn molpha init`, funded admin
 | `compress-evm-pubkey.js`          | Compress uncompressed pubkey hex            |
 | `compressed-pubkey-to-address.js` | Derive EVM address from compressed pubkey   |
 | `verify-evm-point.js`             | Verify secp256k1 point / compression        |
-
-## Oracle client (TypeScript)
-
-- `oracle-client.ts` — off-chain feed reader client
-- `example-oracle-usage.ts` — usage examples

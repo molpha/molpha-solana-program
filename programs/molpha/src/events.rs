@@ -157,19 +157,10 @@ pub struct DelegateRemoved {
 }
 
 #[event]
-pub struct DelegateStatusChanged {
-    pub delegate: Pubkey,
-    pub owner: Pubkey,
-    pub old_status: u8,
-    pub new_status: u8,
-    pub updated_at: i64,
-}
-
-#[event]
 pub struct FeedUpdated {
     pub source_id: [u8; 32],
     pub registry_version: u32,
-    pub canonical_timestamp: u64,
+    pub timestamp: u64,
     pub value: [u8; 32],
     pub value_kind: FeedValueKind,
     pub signers_bitmap: [u8; 32],

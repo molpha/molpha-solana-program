@@ -119,10 +119,19 @@ fn a_round_belongs_to_the_epoch_its_timestamp_falls_in() {
     let e0 = p.env.epoch(0);
 
     // Before genesis.
-    let early = p.sign_canonical(p.live_duty(3).at(e0.start as u64 - 1));
+    let early = p.sign_canonical(p.live_duty(3).at_secs(e0.start as u64 - 1));
     let ixs = vec![
         p.dispatch_ix(&gateway, &early.duty),
         p.submit_ticket_ix(&submitter.pubkey(), &gateway.pubkey(), 0, &early),
+    ];
+    let failed = p.env.send_err(&ixs, &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::RoundOutsideEpoch);
+
+    // The epoch window is in seconds: the last millisecond before genesis is still outside it.
+    let edge = p.sign_canonical(p.live_duty(3).at(e0.start as u64 * 1_000 - 1));
+    let ixs = vec![
+        p.dispatch_ix(&gateway, &edge.duty),
+        p.submit_ticket_ix(&submitter.pubkey(), &gateway.pubkey(), 0, &edge),
     ];
     let failed = p.env.send_err(&ixs, &[&submitter]);
     assert_molpha_error(&failed, MolphaError::RoundOutsideEpoch);
@@ -157,10 +166,10 @@ fn late_tickets_are_accepted_until_the_ticket_deadline() {
 fn rounds_from_the_future_are_rejected() {
     let (mut p, gateway, submitter) = setup();
     let now = p.env.unix_timestamp() as u64;
-    let at_drift = p.sign_canonical(p.live_duty(3).at(now + 60));
+    let at_drift = p.sign_canonical(p.live_duty(3).at_secs(now + 60));
     p.submit_ticket(&submitter, &gateway, &at_drift);
 
-    let beyond = p.sign_canonical(p.live_duty(3).at(now + 61));
+    let beyond = p.sign_canonical(p.live_duty(3).at_secs(now + 61));
     let failed = send(&mut p, &submitter, &gateway, &beyond).unwrap_err();
     assert_molpha_error(&failed, MolphaError::AttestationInFuture);
 }
@@ -185,7 +194,7 @@ fn the_registry_version_must_have_been_live_at_the_round() {
     // A round claiming `version` after its grace expired is not.
     let after = p.sign_canonical(p.live_duty(3).source_id([0x44; 32]));
     assert_eq!(after.duty.registry_version, version + 1);
-    let stale = p.sign_canonical(Duty::new(version, 3).at(p.env.unix_timestamp() as u64));
+    let stale = p.sign_canonical(Duty::new(version, 3).at_secs(p.env.unix_timestamp() as u64));
     let failed = send(&mut p, &submitter, &gateway, &stale).unwrap_err();
     assert_molpha_error(&failed, MolphaError::RegistryNotActive);
 }
@@ -198,7 +207,7 @@ fn a_registry_cannot_count_a_round_dated_before_its_creation() {
     p.register_nodes("ticket-backdate", NODE_COUNT);
     let gateway = p.register_gateway();
     let submitter = p.env.keypair();
-    let signed = p.sign_canonical(p.live_duty(3).at(timestamp));
+    let signed = p.sign_canonical(p.live_duty(3).at_secs(timestamp));
     let failed = send(&mut p, &submitter, &gateway, &signed).unwrap_err();
     assert_molpha_error(&failed, MolphaError::RegistryNotActive);
     assert_eq!(p.env.epoch(0).tickets, 0);
@@ -281,7 +290,7 @@ fn a_ticket_needs_the_gateway_dispatch_signature() {
     assert_molpha_error(&failed, MolphaError::DispatchSigInvalid);
 
     // Over another round.
-    let other = signed.duty.at(signed.duty.canonical_timestamp - 1);
+    let other = signed.duty.at(signed.duty.timestamp - 1);
     let ixs = vec![p.dispatch_ix(&gateway, &other), ticket.clone()];
     let failed = p.env.send_err(&ixs, &[&submitter]);
     assert_molpha_error(&failed, MolphaError::DispatchSigInvalid);

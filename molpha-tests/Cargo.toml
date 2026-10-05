@@ -19,7 +19,7 @@ path = "tests/suite.rs"
 
 [dependencies]
 molpha = { path = "../programs/molpha", features = ["no-entrypoint"] }
-molpha-verifier = { version = "0.3.0-dev.14", features = ["anchor"] }
+molpha-verifier = { version = "0.3.0-dev.15", features = ["anchor"] }
 anchor-lang = "1.2.0"
 anchor-spl = { version = "1.2.0", default-features = false, features = [
     "associated_token",

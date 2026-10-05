@@ -21,7 +21,8 @@ use crate::{
 /// which binds it to a round a registered gateway admitted. Its full selection is re-derived and
 /// added to the epoch counters; signer `Node` accounts are read-only.
 ///
-/// - `epoch_index`: the epoch whose window contains `attestation.payload.canonical_timestamp`.
+/// - `epoch_index`: the epoch whose window contains `attestation.payload.timestamp`
+///   (unix milliseconds; the epoch window, drift bound and registry activity are in seconds).
 /// - `roster_slots`: epoch roster slot of each selected registry position, in ascending bit
 ///   order: an existing slot, or the current `roster_len` for a node the epoch has not seen yet.
 /// - `coalition_key`: affine sum of the signers' keys; untrusted, checked by the verifier.
@@ -33,7 +34,10 @@ pub fn submit_ticket<'info>(
     coalition_key: CoalitionKey,
 ) -> Result<()> {
     let payload = &attestation.payload;
-    let canonical_timestamp = payload.canonical_timestamp;
+    // Unix milliseconds. Selection and the signed message read it as is; every comparison
+    // with a clock, an epoch window or a registry activation time uses its whole seconds.
+    let timestamp = payload.timestamp;
+    let timestamp_secs = payload.timestamp_secs();
     let now = Clock::get()?.unix_timestamp;
 
     // Cheap window and lottery checks before any signature work.
@@ -41,7 +45,7 @@ pub fn submit_ticket<'info>(
         let epoch = ctx.accounts.epoch_state.load()?;
         require!(epoch.accepts_tickets(now), MolphaError::TicketWindowClosed);
         require!(
-            epoch.contains(canonical_timestamp),
+            epoch.contains(timestamp_secs),
             MolphaError::RoundOutsideEpoch
         );
         require!(
@@ -54,7 +58,7 @@ pub fn submit_ticket<'info>(
         );
     }
     require!(
-        canonical_timestamp
+        timestamp_secs
             <= u64::try_from(now)
                 .unwrap_or(0)
                 .saturating_add(MAX_FUTURE_DRIFT_SECONDS),
@@ -63,7 +67,7 @@ pub fn submit_ticket<'info>(
 
     // The version must have been live when the round ran, not when the ticket lands: tickets
     // arrive up to an epoch plus grace later.
-    require_registry_active_at(&*ctx.accounts.registry.load()?, canonical_timestamp as i64)?;
+    require_registry_active_at(&*ctx.accounts.registry.load()?, timestamp_secs as i64)?;
 
     require!(
         verify_ed25519_signature(
@@ -86,7 +90,7 @@ pub fn submit_ticket<'info>(
     let registry = ctx.accounts.registry.load()?;
     let selection = derive_selection_bitmap(
         &payload.source_id,
-        canonical_timestamp,
+        timestamp,
         payload.signatures_required,
         &registry.view(),
     )

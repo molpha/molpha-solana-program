@@ -5,13 +5,9 @@
 //! agree across chains for a Molpha attestation to be portable — the deterministic selection
 //! derivation and the attestation message hash — and both are pinned here.
 //!
-//! Note on the fixture file: its `messageHash` and `schnorrSignature` fields are a historical
-//! artifact. They are internally consistent (the recorded signature verifies over the recorded
-//! hash) but the recorded hash is not what `compute_message_hash` produces for the recorded
-//! payload any more, so the message encoding changed after the fixture was generated. The old
-//! TypeScript suite never caught that because it re-signed the fixture at call time and ignored
-//! the recorded signature. These tests therefore treat the key material, duty and coalition as
-//! live inputs, and pin the current message hash as [`FIXTURE_MESSAGE_HASH`] instead.
+//! The fixture's recorded `messageHash` is the digest the EVM validator signs and verifies for
+//! this duty; [`FIXTURE_MESSAGE_HASH`] pins the same value on the Solana side, and the test
+//! below checks the two agree. The key material, duty and coalition are live inputs.
 
 use molpha::state::{Feed, Node};
 use molpha_tests::crypto::{self, NodeKey};
@@ -23,21 +19,24 @@ use solana_signer::Signer;
 
 const REDUNDANCY_BUFFER: u8 = 2;
 
-/// `compute_message_hash` for the fixture duty and its derived coalition.
+/// `compute_message_hash` (millisecond timestamp) for the fixture duty and its derived
+/// coalition.
 ///
 /// The EVM validator must produce this same digest for the same inputs; a change on either side
 /// is a cross-chain break, not a local refactor.
 const FIXTURE_MESSAGE_HASH: [u8; 32] = [
-    0xa3, 0xe5, 0x8f, 0x5c, 0x15, 0x7c, 0x98, 0xca, 0xd4, 0xfd, 0x84, 0x78, 0xfd, 0x39, 0xb1, 0x8d,
-    0xa8, 0x5f, 0x4a, 0xd2, 0xd5, 0x81, 0xdb, 0x06, 0xb7, 0x24, 0xf5, 0x3b, 0x55, 0xaf, 0xc5, 0xb3,
+    0x58, 0x48, 0x9d, 0x3d, 0xed, 0x5f, 0x12, 0x9c, 0x6f, 0xca, 0x09, 0xa1, 0x74, 0xff, 0x0d, 0xcf,
+    0x35, 0xc5, 0x8f, 0x70, 0xc5, 0x60, 0xe2, 0xd5, 0xce, 0x53, 0x8e, 0xf1, 0x0c, 0x3b, 0xbb, 0x3e,
 ];
 
 struct Fixture {
     registry_version: u32,
     signatures_required: u8,
-    canonical_timestamp: u64,
+    timestamp: u64,
     source_id: [u8; 32],
     value: [u8; 32],
+    /// `messageHash` as recorded in the fixture file.
+    recorded_message_hash: [u8; 32],
     /// The coalition recorded in the fixture, as a 256-bit signer bitmap.
     signers_bitmap: [u8; 32],
     keys: Vec<NodeKey>,
@@ -122,9 +121,10 @@ fn load() -> Fixture {
     Fixture {
         registry_version: attestation["registryVersion"].as_u64().unwrap() as u32,
         signatures_required: attestation["signaturesRequired"].as_u64().unwrap() as u8,
-        canonical_timestamp: attestation["canonicalTimestamp"].as_u64().unwrap(),
+        timestamp: attestation["timestamp"].as_u64().unwrap(),
         source_id: hex32(attestation["sourceId"].as_str().unwrap()),
         value: hex32(attestation["value"].as_str().unwrap()),
+        recorded_message_hash: hex32(json["messageHash"].as_str().unwrap()),
         signers_bitmap,
         keys,
     }
@@ -134,7 +134,7 @@ impl Fixture {
     fn duty(&self) -> Duty {
         Duty::new(self.registry_version, self.signatures_required)
             .source_id(self.source_id)
-            .at(self.canonical_timestamp)
+            .at(self.timestamp)
             .value(self.value)
     }
 
@@ -155,7 +155,7 @@ fn the_fixture_coalition_is_exactly_the_selection_the_program_derives() {
     };
     let derived = molpha_verifier::derive_selection_bitmap(
         &fixture.source_id,
-        fixture.canonical_timestamp,
+        fixture.timestamp,
         fixture.signatures_required,
         &registry,
     )
@@ -179,6 +179,10 @@ fn the_message_hash_for_the_fixture_duty_is_pinned() {
         fixture.duty().message_hash(fixture.signers_bitmap),
         FIXTURE_MESSAGE_HASH,
         "the attestation message encoding changed; the EVM validator must be updated in step"
+    );
+    assert_eq!(
+        fixture.recorded_message_hash, FIXTURE_MESSAGE_HASH,
+        "the fixture's recorded messageHash is not the pinned digest"
     );
 }
 
@@ -216,6 +220,6 @@ fn the_program_accepts_an_attestation_from_the_fixture_coalition() {
         &submitter.pubkey(),
     ));
     assert_eq!(feed.value, fixture.value);
-    assert_eq!(feed.canonical_timestamp, fixture.canonical_timestamp);
+    assert_eq!(feed.timestamp, fixture.timestamp);
     assert_eq!(feed.signers_bitmap, fixture.signers_bitmap);
 }

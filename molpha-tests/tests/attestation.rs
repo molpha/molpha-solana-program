@@ -54,7 +54,7 @@ fn submit_attestation_creates_the_feed_and_records_the_round() {
     assert_eq!(feed.source_id, duty.source_id);
     assert_eq!(feed.value, duty.value);
     assert_eq!(feed.value_kind, FeedValueKind::Value);
-    assert_eq!(feed.canonical_timestamp, duty.canonical_timestamp);
+    assert_eq!(feed.timestamp, duty.timestamp);
     assert_eq!(feed.signatures_required, SIGS_REQUIRED);
     assert_eq!(feed.registry_version, duty.registry_version);
     assert_eq!(feed.signers_bitmap, signed.signers_bitmap);
@@ -62,7 +62,7 @@ fn submit_attestation_creates_the_feed_and_records_the_round() {
     let event: FeedUpdated = only_event(&meta);
     assert_eq!(event.source_id, duty.source_id);
     assert_eq!(event.value, duty.value);
-    assert_eq!(event.canonical_timestamp, duty.canonical_timestamp);
+    assert_eq!(event.timestamp, duty.timestamp);
     assert_eq!(event.signers_bitmap, signed.signers_bitmap);
     assert_eq!(event.last_updated_slot, p.env.slot());
 }
@@ -74,7 +74,7 @@ fn submit_attestation_overwrites_the_feed_with_a_newer_round() {
     let first = duty();
     submit(&mut p, &submitter, first);
 
-    let second = first.at(first.canonical_timestamp + 60).value([0x99; 32]);
+    let second = first.at(first.timestamp + 60_000).value([0x99; 32]);
     let signed = submit(&mut p, &submitter, second);
 
     let feed: Feed = p.env.get(&pda::feed(
@@ -82,7 +82,7 @@ fn submit_attestation_overwrites_the_feed_with_a_newer_round() {
         SIGS_REQUIRED,
         &submitter.pubkey(),
     ));
-    assert_eq!(feed.canonical_timestamp, second.canonical_timestamp);
+    assert_eq!(feed.timestamp, second.timestamp);
     assert_eq!(feed.value, second.value);
     assert_eq!(feed.signers_bitmap, signed.signers_bitmap);
 }
@@ -91,10 +91,10 @@ fn submit_attestation_overwrites_the_feed_with_a_newer_round() {
 fn submit_attestation_refuses_to_move_the_feed_backwards() {
     let mut p = with_nodes("submit-stale");
     let submitter = p.env.keypair();
-    let current = duty().at(1_700_000_500);
+    let current = duty().at_secs(1_700_000_500);
     submit(&mut p, &submitter, current);
 
-    for stale_timestamp in [current.canonical_timestamp - 1, current.canonical_timestamp] {
+    for stale_timestamp in [current.timestamp - 1, current.timestamp] {
         let stale = current.at(stale_timestamp).value([0xee; 32]);
         let signed = p.sign_duty(stale);
         let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
@@ -107,7 +107,7 @@ fn submit_attestation_refuses_to_move_the_feed_backwards() {
         SIGS_REQUIRED,
         &submitter.pubkey(),
     ));
-    assert_eq!(feed.canonical_timestamp, current.canonical_timestamp);
+    assert_eq!(feed.timestamp, current.timestamp);
     assert_eq!(feed.value, current.value);
 }
 
@@ -122,11 +122,11 @@ fn submit_attestation_refuses_to_move_the_registry_version_backwards() {
     let ix = p.update_registry_policy_ix(&authority.pubkey(), old_version + 1, 4);
     p.env.send_ok(&[ix], &[&authority]);
 
-    let current = Duty::new(old_version + 1, SIGS_REQUIRED).at(1_700_000_500);
+    let current = Duty::new(old_version + 1, SIGS_REQUIRED).at_secs(1_700_000_500);
     submit(&mut p, &submitter, current);
 
     let superseded = Duty::new(old_version, SIGS_REQUIRED)
-        .at(current.canonical_timestamp + 1)
+        .at(current.timestamp + 1)
         .value([0xee; 32]);
     let signed = p.sign_duty(superseded);
     let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
@@ -233,7 +233,7 @@ fn each_update_rewrites_the_value_kind() {
     submit_raw(&mut p, &submitter, duty(), vec![0x01; 64]).expect("hashed value submits");
     assert_eq!(p.env.get::<Feed>(&feed).value_kind, FeedValueKind::Hash);
 
-    let plain = duty().at(duty().canonical_timestamp + 1);
+    let plain = duty().at(duty().timestamp + 1);
     submit(&mut p, &submitter, plain);
     assert_eq!(p.env.get::<Feed>(&feed).value_kind, FeedValueKind::Value);
     assert_eq!(p.env.get::<Feed>(&feed).value, plain.value);
@@ -469,7 +469,7 @@ fn submit_attestation_rejects_a_registry_account_that_is_not_the_named_version()
 // ---------------------------------------------------------------------------
 
 #[test]
-fn submit_attestation_rejects_a_stale_canonical_timestamp() {
+fn submit_attestation_rejects_a_stale_timestamp() {
     let mut p = with_nodes("submit-too-stale");
     let submitter = p.env.keypair();
     let now = p.env.unix_timestamp() as u64;
@@ -477,7 +477,7 @@ fn submit_attestation_rejects_a_stale_canonical_timestamp() {
 
     // A virgin feed (fresh submitter) has no `FeedNotNewer` ratchet, so the window is the
     // only thing stopping a ground timestamp here.
-    let stale = duty().at(now - window - 1);
+    let stale = duty().at_secs(now - window - 1);
     let signed = p.sign_duty(stale);
     let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
     let failed = p.env.send_err(&[ix], &[&submitter]);
@@ -489,16 +489,16 @@ fn submit_attestation_rejects_a_stale_canonical_timestamp() {
     )));
 
     // The window is inclusive.
-    submit(&mut p, &submitter, duty().at(now - window));
+    submit(&mut p, &submitter, duty().at_secs(now - window));
 }
 
 #[test]
-fn submit_attestation_rejects_a_future_canonical_timestamp() {
+fn submit_attestation_rejects_a_future_timestamp() {
     let mut p = with_nodes("submit-future");
     let submitter = p.env.keypair();
     let now = p.env.unix_timestamp() as u64;
 
-    let future = duty().at(now + MAX_FUTURE_DRIFT_SECONDS + 1);
+    let future = duty().at_secs(now + MAX_FUTURE_DRIFT_SECONDS + 1);
     let signed = p.sign_duty(future);
     let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
     let failed = p.env.send_err(&[ix], &[&submitter]);
@@ -508,21 +508,78 @@ fn submit_attestation_rejects_a_future_canonical_timestamp() {
     submit(
         &mut p,
         &submitter,
-        duty().at(now + MAX_FUTURE_DRIFT_SECONDS),
+        duty().at_secs(now + MAX_FUTURE_DRIFT_SECONDS),
     );
+}
+
+/// `timestamp` is unix milliseconds; the clock bounds compare its whole seconds.
+#[test]
+fn the_clock_bounds_read_the_whole_second_of_the_millisecond_timestamp() {
+    let mut p = with_nodes("submit-ms-bounds");
+    let now = p.env.unix_timestamp() as u64;
+    let window = p.args.max_settlement_delay_seconds;
+    let drift_ms = (now + MAX_FUTURE_DRIFT_SECONDS) * 1_000;
+    let oldest_ms = (now - window) * 1_000;
+
+    // 999 ms into the last allowed future second is still inside the allowance ...
+    let submitter = p.env.keypair();
+    submit(&mut p, &submitter, duty().at(drift_ms + 999));
+    // ... and the first millisecond of the next second is not.
+    let submitter = p.env.keypair();
+    let signed = p.sign_duty(duty().at(drift_ms + 1_000));
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    let failed = p.env.send_err(&[ix], &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::AttestationInFuture);
+
+    // The oldest accepted second runs to its last millisecond; one millisecond earlier is the
+    // second before it.
+    let submitter = p.env.keypair();
+    submit(&mut p, &submitter, duty().at(oldest_ms + 999));
+    let submitter = p.env.keypair();
+    let signed = p.sign_duty(duty().at(oldest_ms - 1));
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    let failed = p.env.send_err(&[ix], &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::AttestationTooStale);
+}
+
+/// A feed can now update more than once a second: updates order on the full timestamp.
+#[test]
+fn two_rounds_in_one_second_order_by_milliseconds() {
+    let mut p = with_nodes("submit-same-second");
+    let submitter = p.env.keypair();
+    let second_start = p.env.unix_timestamp() as u64 * 1_000;
+
+    let first = duty().at(second_start + 100);
+    submit(&mut p, &submitter, first);
+    let later = first.at(second_start + 600).value([0x99; 32]);
+    submit(&mut p, &submitter, later);
+
+    let feed_address = pda::feed(&first.source_id, SIGS_REQUIRED, &submitter.pubkey());
+    let feed: Feed = p.env.get(&feed_address);
+    assert_eq!(feed.value, [0x99; 32]);
+    assert_eq!(feed.timestamp, second_start + 600);
+
+    // A round stamped between the two is older than the stored one, even in the same second.
+    let between = first.at(second_start + 300).value([0x98; 32]);
+    let signed = p.sign_duty(between);
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    let failed = p.env.send_err(&[ix], &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::FeedNotNewer);
+    let unchanged: Feed = p.env.get(&feed_address);
+    assert_eq!(unchanged.timestamp, second_start + 600);
 }
 
 #[test]
 fn submit_attestation_update_branch_enforces_freshness() {
     let mut p = with_nodes("submit-stale-update");
     let submitter = p.env.keypair();
-    let first = duty().at(p.env.unix_timestamp() as u64);
+    let first = duty().at_secs(p.env.unix_timestamp() as u64);
     submit(&mut p, &submitter, first);
 
     let window = p.args.max_settlement_delay_seconds;
     p.env.advance_seconds(window as i64 + 100);
     // Newer than the feed, so `FeedNotNewer` would pass — but stale against the clock.
-    let stale = first.at(first.canonical_timestamp + 1).value([0xee; 32]);
+    let stale = first.at(first.timestamp + 1).value([0xee; 32]);
     let signed = p.sign_duty(stale);
     let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
     let failed = p.env.send_err(&[ix], &[&submitter]);
@@ -538,13 +595,13 @@ fn the_freshness_window_comes_from_config() {
     let submitter = p.env.keypair();
     let now = p.env.unix_timestamp() as u64;
 
-    let stale = duty().at(now - 1_001);
+    let stale = duty().at_secs(now - 1_001);
     let signed = p.sign_duty(stale);
     let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
     let failed = p.env.send_err(&[ix], &[&submitter]);
     assert_molpha_error(&failed, MolphaError::AttestationTooStale);
 
-    submit(&mut p, &submitter, duty().at(now - 1_000));
+    submit(&mut p, &submitter, duty().at_secs(now - 1_000));
 }
 
 #[test]

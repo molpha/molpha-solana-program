@@ -8,7 +8,6 @@ import { Command } from "commander";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import {
-  findGatewayPda,
   findNodePda,
   findProtocolConfigPda,
   findTreasuryAta,

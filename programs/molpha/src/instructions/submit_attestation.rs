@@ -9,7 +9,7 @@ use crate::{
     state::{Feed, FeedValueKind, ProtocolConfig, Registry},
     utils::{
         attestation::{require_registry_active_at, verify_attestation_core},
-        require_fresh_canonical_timestamp,
+        require_fresh_timestamp,
     },
 };
 
@@ -52,8 +52,9 @@ pub fn submit_attestation<'info>(
     let clock = Clock::get()?;
 
     require_registry_active_at(&*ctx.accounts.registry.load()?, clock.unix_timestamp)?;
-    require_fresh_canonical_timestamp(
-        attestation.payload.canonical_timestamp,
+    require_fresh_timestamp(
+        // `timestamp` is unix milliseconds; the clock bounds are seconds.
+        attestation.payload.timestamp_secs(),
         clock.unix_timestamp,
         ctx.accounts.protocol_config.max_settlement_delay_seconds,
     )?;
@@ -80,7 +81,7 @@ pub fn submit_attestation<'info>(
     emit!(FeedUpdated {
         source_id: feed.source_id,
         registry_version: feed.registry_version,
-        canonical_timestamp: feed.canonical_timestamp,
+        timestamp: feed.timestamp,
         value: feed.value,
         value_kind,
         signers_bitmap: feed.signers_bitmap,

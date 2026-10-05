@@ -24,7 +24,7 @@ impl TicketMarker {
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 }
 
-/// Round identity: one ticket per `(source_id, signatures_required, canonical_timestamp)`.
+/// Round identity: one ticket per `(source_id, signatures_required, timestamp)`.
 ///
 /// Deliberately excludes the value, bitmap, signature and registry version, so alternative
 /// aggregates of one round (other signer subsets, re-signed nonces) cannot count twice.
@@ -33,7 +33,7 @@ pub fn ticket_id(payload: &AttestationPayload) -> [u8; 32] {
         DOMAIN_TICKET_ID,
         payload.source_id.as_ref(),
         &[payload.signatures_required],
-        &payload.canonical_timestamp.to_be_bytes(),
+        &payload.timestamp.to_be_bytes(),
     ])
     .to_bytes()
 }
@@ -59,7 +59,7 @@ pub fn dispatch_message(program_id: &Pubkey, payload: &AttestationPayload) -> [u
         payload.source_id.as_ref(),
         &[payload.signatures_required],
         &payload.registry_version.to_be_bytes(),
-        &payload.canonical_timestamp.to_be_bytes(),
+        &payload.timestamp.to_be_bytes(),
     ])
     .to_bytes()
 }

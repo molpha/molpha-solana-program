@@ -33,20 +33,20 @@ function bytes32(value: Uint8Array, label: string): Buffer {
 }
 
 /**
- * Round identity, `keccak(DOMAIN_TICKET_ID ‖ source_id ‖ u8 k ‖ be64 canonical_timestamp)`:
+ * Round identity, `keccak(DOMAIN_TICKET_ID ‖ source_id ‖ u8 k ‖ be64 timestamp)`:
  * one ticket per round, whichever aggregate carries it. Mirrors `molpha::state::ticket_id`.
  */
 export function deriveTicketId(
   sourceId: Uint8Array,
   signaturesRequired: number,
-  canonicalTimestamp: number | bigint,
+  timestamp: number | bigint,
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
       DOMAIN_TICKET_ID,
       bytes32(sourceId, "source id"),
       u8(signaturesRequired, "signatures required"),
-      u64Be(canonicalTimestamp),
+      u64Be(timestamp),
     ]),
   );
 }
@@ -82,7 +82,7 @@ export function deriveDispatchMessage(
   sourceId: Uint8Array,
   signaturesRequired: number,
   registryVersion: number,
-  canonicalTimestamp: number | bigint,
+  timestamp: number | bigint,
 ): Uint8Array {
   return keccak_256(
     Buffer.concat([
@@ -91,7 +91,7 @@ export function deriveDispatchMessage(
       bytes32(sourceId, "source id"),
       u8(signaturesRequired, "signatures required"),
       u32Be(registryVersion),
-      u64Be(canonicalTimestamp),
+      u64Be(timestamp),
     ]),
   );
 }

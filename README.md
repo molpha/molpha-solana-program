@@ -14,8 +14,6 @@ Molpha on Solana provides:
 - **Delegates** — Subscription owners can authorize delegates (including owner-provisioned agents), capped by their plan's `max_delegates`
 - **Protocol governance** — Admin config for fees, snapshot policy, gateway allowlists, and treasury
 
-For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP.md`](WP.md) and the operator-focused [**Node Operator Guide**](NODE_OPERATOR_GUIDE.md).
-
 ## Features
 
 ### Node registry
@@ -38,7 +36,7 @@ For what is implemented today versus the long-term P2P / MuSig2 design, see [`WP
 
 - Admin-defined **plans** (`add_plan`, `update_plan`) with per-round pricing and signer limits
 - **Subscribe** / **extend_subscription** in USDC
-- Feeds are identified by a caller-provided 32-byte **`source_id`** (not a keccak-derived `feed_id`). `submit_attestation` lazy-inits the feed PDA on first submit. There is no `Job` account or `create_job` instruction.
+- Feeds are identified by a caller-provided 32-byte **`source_id`**. `submit_attestation` lazy-inits the feed PDA on first submit.
 
 ### Data publication
 
@@ -70,9 +68,9 @@ gone. Three flows replace it, and none of them writes an account per round:
   `keccak("MOLPHA_TICKET_V1" ‖ m ‖ s ‖ commitment)` is below its epoch's threshold `tau`.
   Anyone may `submit_ticket`: the round must fall in the epoch window, arrive before
   `end + ticket_grace`, use a registry version created no later than its
-  `canonical_timestamp` and still live then, carry
+  `timestamp` (seconds) and still live then, carry
   the dispatching gateway's Ed25519 signature over
-  `keccak("MOLPHA_DISPATCH_V1" ‖ program_id ‖ source_id ‖ k ‖ version ‖ ts)` in the immediately
+  `keccak("MOLPHA_DISPATCH_V1" ‖ program_id ‖ source_id ‖ k ‖ version ‖ ts)` (`ts` is the round's millisecond `timestamp`) in the immediately
   preceding instruction, and verify in full. Its whole selection is re-derived and counted in the
   epoch's `EpochState` (selected / signed per node, keyed by an epoch roster of `Node` PDAs because
   registry positions move between versions). A `TicketMarker` keyed by round identity
@@ -157,14 +155,8 @@ molpha-tests/                       # Rust + LiteSVM test suite
 
 | Goal                     | Document                                     |
 | ------------------------ | -------------------------------------------- |
-| Quick integration        | [QUICK_START.md](QUICK_START.md)             |
-| Full product usage       | [MOLPHA_USER_GUIDE.md](MOLPHA_USER_GUIDE.md) |
 | Step-by-step integration | [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) |
 | API & account reference  | [API_REFERENCE.md](API_REFERENCE.md)         |
-
-### For oracle node operators
-
-👉 **[Node Operator Guide](NODE_OPERATOR_GUIDE.md)** — registry lifecycle, signing math, submit/verify flows, scripts, and CU limits
 
 ### For developers (build & test)
 
@@ -196,7 +188,7 @@ yarn build:cli
 yarn molpha --help
 ```
 
-See [`cli/README.md`](cli/README.md) for command groups and an end-to-end example (`init` → plan → subscribe → submit). Feeds and rounds take `--source-id` (not `--feed-id` / `--api-config-hash`).
+See [`cli/README.md`](cli/README.md) for command groups and an end-to-end example (`init` → plan → subscribe → submit). Feeds and rounds take `--source-id`.
 
 **Deploy (devnet):**
 
@@ -273,7 +265,7 @@ From [`Anchor.toml`](Anchor.toml) (devnet / localnet):
 | `yarn generate-nodes`   | `scripts/generate-nodes.js`              |
 | `yarn register-nodes`   | `scripts/register-nodes.js`              |
 
-Key scripts under `scripts/`: `generate-nodes.js`, `register-nodes.js`, `oracle-client.ts`. Use `yarn molpha` for all on-chain operations.
+Key scripts under `scripts/`: `generate-nodes.js`, `register-nodes.js`. Use `yarn molpha` for all on-chain operations.
 
 ## Architecture
 
@@ -354,5 +346,3 @@ ISC — see [package.json](package.json).
 ## Support
 
 - GitHub Issues: [Molpha/molpha-solana-program](https://github.com/Molpha/molpha-solana-program/issues)
-- Operator & protocol details: [NODE_OPERATOR_GUIDE.md](NODE_OPERATOR_GUIDE.md)
-- Documentation hub: [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md)

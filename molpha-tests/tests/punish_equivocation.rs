@@ -360,8 +360,8 @@ fn the_evidence_hash_is_order_independent_but_field_sensitive() {
     assert_eq!(forward, backward);
 
     let (mut later_a, mut later_b) = (a.clone(), b.clone());
-    later_a.payload.canonical_timestamp += 1;
-    later_b.payload.canonical_timestamp += 1;
+    later_a.payload.timestamp += 1;
+    later_b.payload.timestamp += 1;
     assert_ne!(forward, equivocation_evidence_hash(&later_a, &later_b));
 
     let mut other_signature = a;
@@ -382,7 +382,7 @@ fn the_evidence_hash_is_order_independent_but_field_sensitive() {
 fn attestations_for_different_duties_are_not_equivocation() {
     let mut case = case();
     let reporter = case.reporter.insecure_clone();
-    let later = case.b.duty.at(case.b.duty.canonical_timestamp + 1);
+    let later = case.b.duty.at(case.b.duty.timestamp + 1);
     let bits = crypto::bitmap_bits(&case.b.signers_bitmap);
     let b = case.p.sign_duty_with_bits(later, &bits, None);
     let args = args_for(&case, &case.a, &b);
@@ -407,7 +407,7 @@ fn attestations_from_different_registry_versions_are_refused() {
     let b = case.p.sign_duty(
         Duty::new(next, SIGS)
             .source_id(case.a.duty.source_id)
-            .at(case.a.duty.canonical_timestamp)
+            .at(case.a.duty.timestamp)
             .value([0x02; 32]),
     );
     let args = args_for(&case, &case.a, &b);
@@ -495,13 +495,13 @@ fn a_node_can_be_punished_again_after_surviving_an_earlier_punishment() {
 
     // A second, unrelated filing takes what is left, and no more.
     let second = case.p.sign_duty_with_bits(
-        duty().at(1_700_000_900).value([0x07; 32]),
-        &case.p.selection_bits(&duty().at(1_700_000_900))[0..4],
+        duty().at_secs(1_700_000_900).value([0x07; 32]),
+        &case.p.selection_bits(&duty().at_secs(1_700_000_900))[0..4],
         None,
     );
     let third = case.p.sign_duty_with_bits(
-        duty().at(1_700_000_900).value([0x08; 32]),
-        &case.p.selection_bits(&duty().at(1_700_000_900))[0..4],
+        duty().at_secs(1_700_000_900).value([0x08; 32]),
+        &case.p.selection_bits(&duty().at_secs(1_700_000_900))[0..4],
         None,
     );
     let vault_before = case.p.node_deposit_balance();

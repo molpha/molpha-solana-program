@@ -96,7 +96,7 @@ fn equivocation_pair(
         p.current_version(),
         (coalition - REDUNDANCY_BUFFER as usize) as u8,
     )
-    .at(at);
+    .at_secs(at);
     let bits = p.selection_bits(&duty);
     assert_eq!(bits.len(), coalition);
     (
@@ -125,7 +125,7 @@ fn commitment_reuse_round_pair(p: &Protocol) -> (SignedAttestation, SignedAttest
 
     // With exactly `ROUND_SIGNER_COUNT` registry nodes every duty selects the full set, so any
     // second timestamp yields the same 20-node coalition for reuse evidence.
-    let duty_b = duty_a.value([0xbb; 32]).at(duty_a.canonical_timestamp + 1);
+    let duty_b = duty_a.value([0xbb; 32]).at(duty_a.timestamp + 1);
     let selection_b = p.selection_bits(&duty_b);
     assert_eq!(selection_b.len(), ROUND_SIGNER_COUNT);
 

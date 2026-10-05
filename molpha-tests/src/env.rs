@@ -42,7 +42,7 @@ pub const PACKET_DATA_SIZE: usize = 1_232;
 
 /// Where every test's wall clock starts. LiteSVM defaults `unix_timestamp` to 0, which the
 /// freshness window would read as "every duty is ~1.7e9 seconds in the future". Sits above
-/// every hardcoded `canonical_timestamp` literal in the suite so they all read as recent past.
+/// every hardcoded `timestamp` literal in the suite so they all read as recent past.
 pub const GENESIS_UNIX_TIMESTAMP: i64 = 1_700_200_000;
 
 fn program_bytes() -> &'static [u8] {

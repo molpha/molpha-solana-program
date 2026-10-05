@@ -450,8 +450,8 @@ fn a_second_filing_does_not_compound_the_slash_on_an_already_tombstoned_node() {
     let (a_duty, b_duty) = (1u64..256)
         .map(|offset| {
             (
-                duty_a().at(duty_a().canonical_timestamp + offset),
-                duty_b().at(duty_b().canonical_timestamp + offset),
+                duty_a().at(duty_a().timestamp + offset),
+                duty_b().at(duty_b().timestamp + offset),
             )
         })
         .find(|(a_duty, b_duty)| {
