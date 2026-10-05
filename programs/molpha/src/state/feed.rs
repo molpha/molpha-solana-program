@@ -57,7 +57,11 @@ impl Feed {
         Ok(())
     }
 
-    pub fn update(&mut self, attestation: &Attestation, kind: FeedValueKind) -> Result<()> {
+    /// The checks an update to an existing feed must pass that need no signature work: same source and
+    /// quorum, a strictly newer timestamp, and no older registry version. `submit_attestation` runs
+    /// them before verifying the signature, so a stale or duplicate submit costs a few hundred
+    /// compute units instead of the full verification; `update` runs them again as its own guard.
+    pub fn check_newer(&self, attestation: &Attestation) -> Result<()> {
         require!(
             attestation.payload.source_id == self.source_id,
             MolphaError::InvalidSourceId
@@ -74,6 +78,11 @@ impl Feed {
             attestation.payload.registry_version >= self.registry_version,
             MolphaError::RegistryVersionMismatch
         );
+        Ok(())
+    }
+
+    pub fn update(&mut self, attestation: &Attestation, kind: FeedValueKind) -> Result<()> {
+        self.check_newer(attestation)?;
 
         self.value = attestation.payload.value;
         self.value_kind = kind;

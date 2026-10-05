@@ -211,6 +211,8 @@ pub enum MolphaError {
     InactivityAlreadyPunished,
     #[msg("rent receiver must be the account that paid for the closed account")]
     InvalidRentReceiver,
+    #[msg("initial_tau is below the minimum ticket threshold")]
+    InvalidInitialTau,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {

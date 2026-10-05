@@ -200,6 +200,8 @@ pub fn default_initialize_args(usdc_mint: Pubkey) -> InitializeArgs {
         min_availability_bps: 8_000,
         min_availability_samples: 50,
         protocol_fee_bps: 500,
+        // Sample every round: most tests want each served round to be a ticket.
+        initial_tau: u64::MAX,
     }
 }
 
@@ -306,6 +308,11 @@ impl ProtocolBuilder {
 
     pub fn min_availability_samples(mut self, value: u16) -> Self {
         self.args.min_availability_samples = value;
+        self
+    }
+
+    pub fn initial_tau(mut self, value: u64) -> Self {
+        self.args.initial_tau = value;
         self
     }
 

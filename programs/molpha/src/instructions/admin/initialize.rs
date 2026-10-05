@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     error::MolphaError,
     events::{EpochCreated, ProtocolInitialized},
-    state::{EpochState, ProtocolConfig, Registry, RegistryState},
+    state::{epoch::TAU_MIN, EpochState, ProtocolConfig, Registry, RegistryState},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -27,6 +27,13 @@ pub struct InitializeArgs {
     pub min_availability_bps: u16,
     pub min_availability_samples: u16,
     pub protocol_fee_bps: u16,
+    /// Ticket threshold of the two genesis epochs: a round is a ticket when the 64-bit prefix of its
+    /// ticket hash is below it, so the sampling probability is `initial_tau / 2^64`. Size it as
+    /// `2^64 * target_tickets_per_epoch / expected_rounds_per_epoch`. `u64::MAX` samples every round
+    /// (every round then costs a ticket transaction until the controller, which moves the
+    /// threshold at most 8x per epoch with a two-epoch lag, brings it down). Must be at least
+    /// `TAU_MIN`.
+    pub initial_tau: u64,
 }
 
 pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> {
@@ -50,6 +57,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     protocol_config.protocol_fee_bps = args.protocol_fee_bps;
     protocol_config.validate()?;
     protocol_config.bump = ctx.bumps.protocol_config;
+    require!(args.initial_tau >= TAU_MIN, MolphaError::InvalidInitialTau);
 
     require!(
         (1..=8).contains(&args.redundancy_buffer),
@@ -64,7 +72,8 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
     );
 
     // Genesis epochs: every later epoch is created two ahead by `finalize_epoch`, and starts
-    // where its predecessor ends. Genesis samples every round until the threshold adapts.
+    // where its predecessor ends. Both genesis epochs use `initial_tau`; the controller takes over
+    // from epoch 2, which `finalize_epoch` creates from epoch 0's observed ticket count.
     let config = &ctx.accounts.protocol_config;
     let len = config.epoch_len_seconds as i64;
     let grace = config.ticket_grace_seconds as i64;
@@ -82,7 +91,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
             start,
             end,
             grace,
-            u64::MAX,
+            args.initial_tau,
             config.min_availability_bps,
             config.min_availability_samples,
             config.min_signers,
@@ -94,7 +103,7 @@ pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> 
             start,
             end,
             ticket_grace: grace,
-            tau: u64::MAX,
+            tau: args.initial_tau,
         });
         start = end;
     }

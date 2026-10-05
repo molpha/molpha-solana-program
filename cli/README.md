@@ -74,6 +74,33 @@ genesis epochs 0 and 1. The fee flags have no defaults. Epoch knobs default to a
 (`--epoch-len-seconds`, `--ticket-grace-seconds`, `--target-tickets-per-epoch`,
 `--min-availability-bps`, `--min-availability-samples`).
 
+The genesis epochs also carry the ticket threshold. Size it for the load you expect with
+`--expected-rounds-per-epoch <N>` (`2^64 * target / N`, clamped to the program's floor of 2^32), or
+set it directly with `--initial-tau <u64|max>`. Without either, every round of the first two epochs
+is a ticket (a warning is printed): the controller moves the threshold at most 8x per epoch with a
+two-epoch lag, so a high-volume deployment that starts unsized pays one ticket transaction per round
+for a whole epoch or more.
+
+Run the keeper (finalize, credit, close and sweep, all permissionless) as a daemon:
+
+```bash
+yarn molpha keeper --interval-seconds 60 \
+  --rpc-fallback https://rpc-2.example --priority-fee-micro-lamports 1000
+yarn molpha keeper --once   # one pass; exits 2 when the epoch lifecycle is unhealthy
+```
+
+It logs one JSON object per line. Health signals: `no-open-epoch` (no epoch covers the cluster
+time: rounds cannot be ticketed and income cannot be swept until an overdue epoch is finalized),
+`finalize-overdue` (an epoch is more than `--finalize-overdue-seconds`, default 900, past its
+ticket deadline: the ticket threshold only adapts in `finalize_epoch`) and `epoch-runway-low`
+(the newest epoch ends within `--runway-seconds`, default 7200). Each pass finalizes epochs past
+their ticket deadline in order (each finalize creates the account the next one needs), credits
+finalized epochs, closes them after their evidence window, and sweeps the open epoch at most every
+`--sweep-interval-seconds` (default 3600). A failing endpoint is retried on the next
+`--rpc-fallback` URL; a program error is not. Catch-up after an outage is two finalizes per pass.
+Ticket-marker rent is returned by whoever created the markers (the gateway does it for its own);
+`ticket close` closes one by hand.
+
 Create a plan and subscribe:
 
 ```bash

@@ -111,6 +111,39 @@ fn submit_attestation_refuses_to_move_the_feed_backwards() {
     assert_eq!(feed.value, current.value);
 }
 
+/// A stale or duplicate round is refused before its signature is looked at: the monotonicity
+/// error wins even over a broken signature, and the refusal costs a small fraction of a full
+/// verification.
+#[test]
+fn a_stale_submit_is_refused_before_the_signature_is_verified() {
+    let mut p = with_nodes("submit-stale-cheap");
+    let submitter = p.env.keypair();
+    let current = duty().at_secs(1_700_000_500);
+    submit(&mut p, &submitter, current);
+
+    let stale = p.sign_duty(current.at(current.timestamp - 1).value([0xee; 32]));
+    let broken = stale.with_tampered_signature();
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &broken);
+    let failed = p.env.send_err(&[ix], &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::FeedNotNewer);
+
+    let fresh = p.sign_duty(current.at(current.timestamp + 1).value([0xdd; 32]));
+    let broken_fresh = fresh.with_tampered_signature();
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &broken_fresh);
+    let verified = p.env.send_err(&[ix], &[&submitter]);
+    assert_ne!(
+        verified.err.to_string(),
+        failed.err.to_string(),
+        "a newer round with a broken signature must still reach signature verification"
+    );
+    assert!(
+        failed.meta.compute_units_consumed * 2 < verified.meta.compute_units_consumed,
+        "stale refusal used {} CU, full verification {}",
+        failed.meta.compute_units_consumed,
+        verified.meta.compute_units_consumed
+    );
+}
+
 /// An attestation still valid under a superseded (grace-period) registry cannot displace a feed
 /// already written under the newer one, even with a newer timestamp.
 #[test]

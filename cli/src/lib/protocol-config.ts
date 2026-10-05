@@ -8,6 +8,36 @@ export const MAX_EPOCH_LEN_SECONDS = 30 * 86_400;
 /** Mirrors `MAX_TICKETS_PER_EPOCH` in the program; the ticket target may be at most 1/8 of it. */
 export const MAX_TICKETS_PER_EPOCH = 65_535;
 
+/** Mirrors `TAU_MIN` in the program: the lowest ticket threshold, a sampling probability of 2^-32. */
+export const TAU_MIN = new BN(1).shln(32);
+export const U64_MAX = new BN("18446744073709551615");
+
+/**
+ * Ticket threshold for the genesis epochs: `2^64 * target / expected`, so that about `target`
+ * of `expected` rounds become tickets. Expecting no more rounds than the target means every round
+ * is sampled (`u64::MAX`); a tiny load is clamped to the floor.
+ */
+export function deriveInitialTau(
+  targetTicketsPerEpoch: number,
+  expectedRoundsPerEpoch: BN,
+): BN {
+  if (expectedRoundsPerEpoch.isNeg() || expectedRoundsPerEpoch.isZero()) {
+    throw new Error("expectedRoundsPerEpoch must be a positive integer");
+  }
+  const target = new BN(targetTicketsPerEpoch);
+  if (expectedRoundsPerEpoch.lte(target)) return U64_MAX.clone();
+  const tau = new BN(1).shln(64).mul(target).div(expectedRoundsPerEpoch);
+  return BN.max(tau, TAU_MIN);
+}
+
+export function validateInitialTau(tau: BN): void {
+  if (tau.lt(TAU_MIN) || tau.gt(U64_MAX)) {
+    throw new Error(
+      `initialTau must be between ${TAU_MIN.toString()} (2^32) and ${U64_MAX.toString()} (u64 max)`,
+    );
+  }
+}
+
 /** Defaults for the epoch reward knobs when neither a flag nor a config file sets them. */
 export const EPOCH_DEFAULTS = {
   epochLenSeconds: "86400",

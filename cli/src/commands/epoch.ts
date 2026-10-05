@@ -46,7 +46,110 @@ import {
 } from "../lib/utils";
 
 /** Weighted slots credited per `credit_epoch_rewards` transaction. */
-const CREDIT_BATCH = 12;
+export const CREDIT_BATCH = 12;
+
+/** Optional compute-unit price (micro-lamports per unit) for a transaction. */
+export type SendOptions = { priorityMicroLamports?: number };
+
+function priorityInstructions(options: SendOptions) {
+  return options.priorityMicroLamports
+    ? [
+        ComputeBudgetProgram.setComputeUnitPrice({
+          microLamports: options.priorityMicroLamports,
+        }),
+      ]
+    : [];
+}
+
+/** `finalize_epoch`: freeze the epoch's weights and create the epoch two ahead. */
+export async function sendFinalizeEpoch(
+  ctx: CliContext,
+  index: number,
+  options: SendOptions = {},
+): Promise<string> {
+  const [protocolConfig] = findProtocolConfigPda(ctx.programId);
+  return (ctx.program.methods as any)
+    .finalizeEpoch(bn(index, "epoch"))
+    .accountsPartial({
+      payer: ctx.wallet.publicKey,
+      protocolConfig,
+      target: findEpochPda(ctx.programId, index)[0],
+      next: findEpochPda(ctx.programId, index + 1)[0],
+      successor: findEpochPda(ctx.programId, index + 2)[0],
+      systemProgram: SystemProgram.programId,
+    })
+    .preInstructions(priorityInstructions(options))
+    .rpc();
+}
+
+/** `credit_epoch_rewards` for the given roster slots, in batches. Returns the signatures. */
+export async function sendCreditEpoch(
+  ctx: CliContext,
+  index: number,
+  address: PublicKey,
+  roster: Array<number[] | Uint8Array>,
+  slots: number[],
+  options: SendOptions = {},
+): Promise<string[]> {
+  const [protocolConfig] = findProtocolConfigPda(ctx.programId);
+  const signatures: string[] = [];
+  for (let i = 0; i < slots.length; i += CREDIT_BATCH) {
+    const batch = slots.slice(i, i + CREDIT_BATCH);
+    signatures.push(
+      await (ctx.program.methods as any)
+        .creditEpochRewards(bn(index, "epoch"), batch)
+        .accountsPartial({ protocolConfig, epochState: address })
+        .remainingAccounts(
+          batch.map((slot) => ({
+            pubkey: new PublicKey(Uint8Array.from(roster[slot])),
+            isSigner: false,
+            isWritable: true,
+          })),
+        )
+        .preInstructions(priorityInstructions(options))
+        .rpc(),
+    );
+  }
+  return signatures;
+}
+
+/** `close_epoch`: returns the epoch's rent to its payer and rolls its residual into `open`. */
+export async function sendCloseEpoch(
+  ctx: CliContext,
+  index: number,
+  open: number,
+  rentPayer: PublicKey,
+  options: SendOptions = {},
+): Promise<string> {
+  return (ctx.program.methods as any)
+    .closeEpoch(bn(index, "epoch"), bn(open, "open epoch"))
+    .accountsPartial({
+      epochState: findEpochPda(ctx.programId, index)[0],
+      openEpochState: findEpochPda(ctx.programId, open)[0],
+      rentPayer,
+    })
+    .preInstructions(priorityInstructions(options))
+    .rpc();
+}
+
+/** `sweep_treasury_revenue`: recognize unswept treasury income in the open epoch. */
+export async function sendSweepTreasury(
+  ctx: CliContext,
+  open: number,
+  options: SendOptions = {},
+): Promise<string> {
+  const { address: protocolConfig, config } = await fetchProtocolConfig(ctx);
+  return (ctx.program.methods as any)
+    .sweepTreasuryRevenue(bn(open, "epoch"))
+    .accountsPartial({
+      protocolConfig,
+      treasury: findTreasuryAta(ctx.programId, config.usdcMint),
+      epochState: findEpochPda(ctx.programId, open)[0],
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .preInstructions(priorityInstructions(options))
+    .rpc();
+}
 
 async function fetchEpoch(ctx: CliContext, epoch: number) {
   const [address] = findEpochPda(ctx.programId, epoch);
@@ -157,18 +260,7 @@ export function registerEpochCommands(program: Command): void {
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const index = parseInteger(options.epoch, "epoch");
-      const [protocolConfig] = findProtocolConfigPda(ctx.programId);
-      const signature = await (ctx.program.methods as any)
-        .finalizeEpoch(bn(index, "epoch"))
-        .accountsPartial({
-          payer: ctx.wallet.publicKey,
-          protocolConfig,
-          target: findEpochPda(ctx.programId, index)[0],
-          next: findEpochPda(ctx.programId, index + 1)[0],
-          successor: findEpochPda(ctx.programId, index + 2)[0],
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
+      const signature = await sendFinalizeEpoch(ctx, index);
       writeJson({ signature, epoch: index, created: index + 2 });
     });
 
@@ -189,23 +281,13 @@ export function registerEpochCommands(program: Command): void {
       const slots = options.slots
         ? parseBitList(options.slots, "slots")
         : creditableSlots(state);
-      const [protocolConfig] = findProtocolConfigPda(ctx.programId);
-      const signatures: string[] = [];
-      for (let i = 0; i < slots.length; i += CREDIT_BATCH) {
-        const batch = slots.slice(i, i + CREDIT_BATCH);
-        const signature = await (ctx.program.methods as any)
-          .creditEpochRewards(bn(index, "epoch"), batch)
-          .accountsPartial({ protocolConfig, epochState: address })
-          .remainingAccounts(
-            batch.map((slot) => ({
-              pubkey: new PublicKey(Uint8Array.from(state.roster[slot])),
-              isSigner: false,
-              isWritable: true,
-            })),
-          )
-          .rpc();
-        signatures.push(signature);
-      }
+      const signatures = await sendCreditEpoch(
+        ctx,
+        index,
+        address,
+        state.roster,
+        slots,
+      );
       writeJson({ epoch: index, credited: slots, signatures });
     });
 
@@ -225,14 +307,7 @@ export function registerEpochCommands(program: Command): void {
           ? parseInteger(options.openEpoch, "open epoch")
           : await findOpenEpoch(ctx, index + 1);
       const rentPayer = new PublicKey(Uint8Array.from(state.rentPayer));
-      const signature = await (ctx.program.methods as any)
-        .closeEpoch(bn(index, "epoch"), bn(open, "open epoch"))
-        .accountsPartial({
-          epochState: address,
-          openEpochState: findEpochPda(ctx.programId, open)[0],
-          rentPayer,
-        })
-        .rpc();
+      const signature = await sendCloseEpoch(ctx, index, open, rentPayer);
       writeJson({
         signature,
         epoch: index,
@@ -462,21 +537,11 @@ export function registerEpochCommands(program: Command): void {
     .option("--epoch <number>", "epoch open now; found automatically")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
-      const { address: protocolConfig, config } =
-        await fetchProtocolConfig(ctx);
       const open =
         options.epoch !== undefined
           ? parseInteger(options.epoch, "epoch")
           : await findOpenEpoch(ctx, 0);
-      const signature = await (ctx.program.methods as any)
-        .sweepTreasuryRevenue(bn(open, "epoch"))
-        .accountsPartial({
-          protocolConfig,
-          treasury: findTreasuryAta(ctx.programId, config.usdcMint),
-          epochState: findEpochPda(ctx.programId, open)[0],
-          tokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .rpc();
+      const signature = await sendSweepTreasury(ctx, open);
       writeJson({ signature, epoch: open });
     });
 

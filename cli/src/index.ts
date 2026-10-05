@@ -8,6 +8,7 @@ import { registerDelegateCommands } from "./commands/delegate";
 import { registerEpochCommands } from "./commands/epoch";
 import { registerGatewayCommands } from "./commands/gateway";
 import { registerInitCommand } from "./commands/init";
+import { registerKeeperCommand } from "./commands/keeper";
 import { registerPlanCommands } from "./commands/plan";
 import { registerRegistryCommands } from "./commands/registry";
 import { registerRewardsCommands } from "./commands/rewards";
@@ -40,6 +41,7 @@ async function main() {
   registerDelegateCommands(program);
   registerGatewayCommands(program);
   registerEpochCommands(program);
+  registerKeeperCommand(program);
   registerRewardsCommands(program);
   registerAttestationCommands(program);
   registerSlashCommands(program);

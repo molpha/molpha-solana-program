@@ -58,6 +58,12 @@ pub fn submit_attestation<'info>(
         clock.unix_timestamp,
         ctx.accounts.protocol_config.max_settlement_delay_seconds,
     )?;
+    // An existing feed only accepts a strictly newer round of the same source and quorum: check that
+    // before the signature, which is the expensive part (about 43k + 9k per signer compute units).
+    // A stale, duplicate or mismatched submit then fails cheaply. A new feed has nothing to compare.
+    if ctx.accounts.feed.source_id != [0u8; 32] {
+        ctx.accounts.feed.check_newer(&attestation)?;
+    }
     verify_attestation_core(
         ctx.remaining_accounts,
         &ctx.accounts.registry,
