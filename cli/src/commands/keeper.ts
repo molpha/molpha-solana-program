@@ -8,6 +8,11 @@ import {
   KeeperConfig,
   planKeeper,
 } from "../lib/keeper";
+import {
+  loadKeeperState,
+  resolveKeeperStatePath,
+  saveKeeperState,
+} from "../lib/keeper-state";
 import { parseInteger } from "../lib/utils";
 import {
   sendCloseEpoch,
@@ -116,6 +121,10 @@ export function registerKeeperCommand(program: Command): void {
       "warn when the keeper wallet holds less than this",
       "50000000",
     )
+    .option(
+      "--state-file <path>",
+      "persist last treasury sweep time (default: ~/.config/molpha/keeper/<program>-<wallet>.json)",
+    )
     .action(async (options, command: Command) => {
       const contexts = [await getCliContext(command)];
       for (const url of options.rpcFallback ?? []) {
@@ -132,6 +141,12 @@ export function registerKeeperCommand(program: Command): void {
         : {};
       const intervalMs =
         parseInteger(options.intervalSeconds, "interval") * 1000;
+      const statePath = resolveKeeperStatePath(
+        pool.primary.programId,
+        pool.primary.wallet.publicKey,
+        options.stateFile,
+      );
+      const persisted = loadKeeperState(statePath);
       const config: KeeperConfig = {
         runwaySeconds: parseInteger(options.runwaySeconds, "runway"),
         finalizeOverdueSeconds: parseInteger(
@@ -142,7 +157,7 @@ export function registerKeeperCommand(program: Command): void {
           options.sweepIntervalSeconds,
           "sweep interval",
         ),
-        lastSweepAt: null,
+        lastSweepAt: persisted.lastSweepAt,
       };
       const minBalance = parseInteger(
         options.minBalanceLamports,
@@ -152,6 +167,8 @@ export function registerKeeperCommand(program: Command): void {
         keeper: pool.primary.wallet.publicKey.toBase58(),
         rpcEndpoints: contexts.length,
         once: Boolean(options.once),
+        stateFile: statePath,
+        lastSweepAt: config.lastSweepAt,
       });
 
       let stopping = false;
@@ -163,6 +180,7 @@ export function registerKeeperCommand(program: Command): void {
 
       let unhealthy = false;
       do {
+        const lastSweepBefore = config.lastSweepAt;
         try {
           unhealthy = await pass(pool, config, send, minBalance);
         } catch (error) {
@@ -170,6 +188,9 @@ export function registerKeeperCommand(program: Command): void {
           log("error", "pass-failed", {
             error: String((error as Error).message ?? error),
           });
+        }
+        if (config.lastSweepAt !== lastSweepBefore) {
+          saveKeeperState(statePath, config.lastSweepAt);
         }
         if (options.once || stopping) break;
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
@@ -228,6 +249,7 @@ async function pass(
         });
         continue;
       }
+      unhealthy = true;
       log("warn", `${action.kind}-failed`, {
         epoch: action.epoch,
         error: message.slice(0, 300),

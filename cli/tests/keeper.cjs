@@ -1,6 +1,15 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { test } = require("node:test");
+const { PublicKey } = require("@solana/web3.js");
 const { planKeeper, KEEPER_DEFAULTS } = require("../dist/lib/keeper");
+const {
+  loadKeeperState,
+  saveKeeperState,
+  defaultKeeperStatePath,
+} = require("../dist/lib/keeper-state");
 const { RpcPool, isTransportError } = require("../dist/commands/keeper");
 
 const LEN = 86_400;
@@ -200,4 +209,36 @@ test("the RPC pool falls back on transport errors and sticks to the endpoint tha
     /0x1778/,
   );
   assert.deepEqual(seen, ["a"]);
+});
+
+test("keeper state persists lastSweepAt across loads", () => {
+  const programId = new PublicKey("11111111111111111111111111111112");
+  const keeper = new PublicKey("So11111111111111111111111111111111111111112");
+  const file = path.join(
+    os.tmpdir(),
+    `molpha-keeper-state-${process.pid}.json`,
+  );
+  try {
+    saveKeeperState(file, 1_700_000_000);
+    assert.deepEqual(loadKeeperState(file), {
+      version: 1,
+      lastSweepAt: 1_700_000_000,
+    });
+    assert.equal(
+      defaultKeeperStatePath(programId, keeper),
+      path.join(
+        os.homedir(),
+        ".config",
+        "molpha",
+        "keeper",
+        `${programId.toBase58()}-${keeper.toBase58()}.json`,
+      ),
+    );
+    assert.deepEqual(loadKeeperState(file + "-missing"), {
+      version: 1,
+      lastSweepAt: null,
+    });
+  } finally {
+    fs.rmSync(file, { force: true });
+  }
 });

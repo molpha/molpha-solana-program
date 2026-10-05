@@ -96,7 +96,9 @@ ticket deadline: the ticket threshold only adapts in `finalize_epoch`) and `epoc
 (the newest epoch ends within `--runway-seconds`, default 7200). Each pass finalizes epochs past
 their ticket deadline in order (each finalize creates the account the next one needs), credits
 finalized epochs, closes them after their evidence window, and sweeps the open epoch at most every
-`--sweep-interval-seconds` (default 3600). A failing endpoint is retried on the next
+`--sweep-interval-seconds` (default 3600). The last sweep time is stored in
+`~/.config/molpha/keeper/<program>-<wallet>.json` (override with `--state-file`) so `--once` cron
+jobs and daemon restarts respect the interval. A failing endpoint is retried on the next
 `--rpc-fallback` URL; a program error is not. Catch-up after an outage is two finalizes per pass.
 Ticket-marker rent is returned by whoever created the markers (the gateway does it for its own);
 `ticket close` closes one by hand.
