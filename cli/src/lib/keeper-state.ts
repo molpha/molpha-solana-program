@@ -61,11 +61,7 @@ export function saveKeeperState(
 ): void {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
-  const body = JSON.stringify(
-    { version: STATE_VERSION, lastSweepAt },
-    null,
-    2,
-  );
+  const body = JSON.stringify({ version: STATE_VERSION, lastSweepAt }, null, 2);
   const tmp = `${filePath}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, body, "utf8");
   fs.renameSync(tmp, filePath);
