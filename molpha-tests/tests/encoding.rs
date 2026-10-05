@@ -18,7 +18,7 @@ use molpha_verifier::CoalitionKey;
 ///
 /// Pinned because the CLI, gateway and SDK all build this instruction off-chain: any field
 /// added, removed or retyped here is a breaking wire change and should be a deliberate one.
-const INITIALIZE_IX_DATA_LEN: usize = 110;
+const INITIALIZE_IX_DATA_LEN: usize = 118;
 
 /// Borsh encoding of `UpdateConfigArgs`, plus the 8-byte Anchor discriminator.
 /// Pinned for the same reason as `INITIALIZE_IX_DATA_LEN`: off-chain clients encode this.
@@ -46,6 +46,7 @@ fn initialize_args() -> InitializeArgs {
         min_availability_bps: 8_000,
         min_availability_samples: 50,
         protocol_fee_bps: 500,
+        initial_tau: 1 << 40,
     }
 }
 
@@ -80,6 +81,7 @@ fn initialize_instruction_data_is_stable_and_round_trips() {
         args.min_availability_samples
     );
     assert_eq!(decoded.protocol_fee_bps, args.protocol_fee_bps);
+    assert_eq!(decoded.initial_tau, args.initial_tau);
     assert_eq!(decoded.usdc_mint, args.usdc_mint);
     assert_eq!(decoded.x402_round_base, args.x402_round_base);
     assert_eq!(decoded.min_signers, args.min_signers);

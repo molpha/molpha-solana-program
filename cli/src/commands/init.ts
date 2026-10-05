@@ -1,9 +1,16 @@
-import { EPOCH_DEFAULTS, validateProtocolConfig } from "../lib/protocol-config";
+import {
+  deriveInitialTau,
+  EPOCH_DEFAULTS,
+  U64_MAX,
+  validateInitialTau,
+  validateProtocolConfig,
+} from "../lib/protocol-config";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import { BN } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import { getCliContext } from "../lib/client";
@@ -39,6 +46,8 @@ type InitConfig = {
   minAvailabilityBps?: number;
   minAvailabilitySamples?: number;
   protocolFeeBps?: number;
+  initialTau?: string;
+  expectedRoundsPerEpoch?: string;
 };
 
 export function registerInitCommand(program: Command): void {
@@ -90,6 +99,14 @@ export function registerInitCommand(program: Command): void {
     .option(
       "--protocol-fee-bps <bps>",
       "share of swept income kept by the protocol; the rest funds epoch pools",
+    )
+    .option(
+      "--initial-tau <threshold>",
+      "ticket threshold of the two genesis epochs (u64, or 'max' to sample every round)",
+    )
+    .option(
+      "--expected-rounds-per-epoch <count>",
+      "expected served rounds per epoch; sizes the genesis threshold to the ticket target (instead of --initial-tau)",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -205,8 +222,10 @@ export function registerInitCommand(program: Command): void {
             "Missing --protocol-fee-bps",
           ),
         ),
+        initialTau: resolveInitialTau(options, config),
       };
       validateProtocolConfig(args);
+      validateInitialTau(args.initialTau);
       const treasury = getAssociatedTokenAddressSync(
         args.usdcMint,
         protocolConfig,
@@ -248,6 +267,43 @@ export function registerInitCommand(program: Command): void {
         epoch1: epoch1.toBase58(),
       });
     });
+}
+
+/**
+ * The genesis ticket threshold. Every round costs a ticket transaction until the controller
+ * (at most 8x per epoch, with a two-epoch lag) has brought the threshold down, so a feed fleet
+ * should size it up front; with neither flag the old behavior, sampling every round, is kept
+ * and flagged.
+ */
+function resolveInitialTau(options: any, config: InitConfig): BN {
+  const explicit = optionOrConfig(options.initialTau, config.initialTau);
+  const expected = optionOrConfig(
+    options.expectedRoundsPerEpoch,
+    config.expectedRoundsPerEpoch,
+  );
+  if (explicit !== undefined && expected !== undefined) {
+    throw new Error(
+      "Pass either --initial-tau or --expected-rounds-per-epoch, not both",
+    );
+  }
+  if (explicit !== undefined) {
+    return String(explicit).toLowerCase() === "max"
+      ? U64_MAX.clone()
+      : bn(explicit, "initial tau");
+  }
+  if (expected !== undefined) {
+    const target = Number(
+      optionOrConfig(
+        options.targetTicketsPerEpoch,
+        config.targetTicketsPerEpoch,
+      ) ?? EPOCH_DEFAULTS.targetTicketsPerEpoch,
+    );
+    return deriveInitialTau(target, bn(expected, "expected rounds per epoch"));
+  }
+  process.stderr.write(
+    "warning: no --initial-tau or --expected-rounds-per-epoch; the genesis epochs sample every round\n",
+  );
+  return U64_MAX.clone();
 }
 
 function parsePubkeyOption(

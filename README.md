@@ -78,7 +78,15 @@ gone. Three flows replace it, and none of them writes an account per round:
   the epoch stops accepting tickets. The epoch also pins `min_signers` when it is created;
   later config updates do not invalidate its pending tickets.
 - **Payout.** After the ticket deadline anyone may `finalize_epoch`: weights freeze and the epoch
-  two ahead is created with `tau` rescaled toward `target_tickets_per_epoch` (at most 8x per step).
+  two ahead is created with `tau` rescaled toward `target_tickets_per_epoch` (at most 8x per step,
+  from the ticket count of the epoch being finalized, so a change reaches an epoch two later).
+  The two genesis epochs carry `initialize`'s `initial_tau` (at least `TAU_MIN`, 2^32, a sampling
+  probability of 2^-32; `u64::MAX` samples every round). Size it as
+  `2^64 · target_tickets_per_epoch / expected_rounds_per_epoch`: an unsized start makes every
+  round of the first epochs a ticket transaction (live, 4,003 tickets from 4,003 rounds), while a
+  sized one sampled 998 of 4,984 rounds against a 20% target. `submit_attestation` on an existing
+  feed rejects a stale or duplicate round (same source and quorum, timestamp not newer, registry
+  not older) before verifying the signature, about 17-20K CU instead of 120-210K.
   A node's weight is its sampled signature count, or zero when it has at least
   `min_availability_samples` selections and an inclusion rate below `min_availability_bps` of the
   network rate. `credit_epoch_rewards` adds `floor(pool · w / W)` to `Node.claimable_rewards`

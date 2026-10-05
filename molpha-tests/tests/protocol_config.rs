@@ -115,6 +115,27 @@ fn initialize_writes_config_registry_state_and_genesis_snapshot() {
 }
 
 #[test]
+fn initialize_seeds_both_genesis_epochs_with_the_requested_threshold() {
+    let tau = 1u64 << 40;
+    let p = Protocol::builder().initial_tau(tau).start();
+    for index in [0u64, 1] {
+        assert_eq!(p.env.epoch(index).tau, tau);
+    }
+}
+
+#[test]
+fn initialize_rejects_a_threshold_below_the_floor() {
+    let mut b = bare();
+    let args = molpha::instructions::InitializeArgs {
+        initial_tau: molpha::state::epoch::TAU_MIN - 1,
+        ..default_initialize_args(b.usdc_mint)
+    };
+    let ix = initialize_ix(&b.authority.pubkey(), &b.usdc_mint, &args);
+    let failed = b.env.send_err(&[ix], &[&b.authority]);
+    assert_molpha_error(&failed, MolphaError::InvalidInitialTau);
+}
+
+#[test]
 fn initialize_rejects_min_signers_below_the_floor() {
     let mut b = bare();
     let args = molpha::instructions::InitializeArgs {

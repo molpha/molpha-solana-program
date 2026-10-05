@@ -2,7 +2,13 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { BN } = require("@coral-xyz/anchor");
 const { buildUpdateConfigArgs } = require("../dist/commands/update-config");
-const { validateProtocolConfig } = require("../dist/lib/protocol-config");
+const {
+  deriveInitialTau,
+  validateInitialTau,
+  validateProtocolConfig,
+  TAU_MIN,
+  U64_MAX,
+} = require("../dist/lib/protocol-config");
 const { Command } = require("commander");
 const { registerInitCommand } = require("../dist/commands/init");
 const {
@@ -41,6 +47,24 @@ test("partial updates preserve current rates and flags override JSON as numbers"
   assert.equal(args.epochLenSeconds.toString(), "86400");
 });
 
+test("the genesis threshold is sized to the ticket target", () => {
+  // 2,000 tickets out of 1M rounds: 2^64 * 2000 / 1e6.
+  assert.equal(
+    deriveInitialTau(2000, new BN(1_000_000)).toString(),
+    new BN(1).shln(64).muln(2000).divn(1_000_000).toString(),
+  );
+  // No more rounds than the target: sample every round.
+  assert.ok(deriveInitialTau(2000, new BN(2000)).eq(U64_MAX));
+  assert.ok(deriveInitialTau(2000, new BN(5)).eq(U64_MAX));
+  // A vanishing load clamps to the floor instead of underflowing the program's bound.
+  assert.ok(deriveInitialTau(1, new BN("1000000000000000")).eq(TAU_MIN));
+  assert.throws(() => deriveInitialTau(2000, new BN(0)), /expectedRounds/);
+  validateInitialTau(TAU_MIN);
+  validateInitialTau(U64_MAX);
+  assert.throws(() => validateInitialTau(TAU_MIN.subn(1)), /initialTau/);
+  assert.throws(() => validateInitialTau(U64_MAX.addn(1)), /initialTau/);
+});
+
 test("init and update commands expose the epoch knobs and no liveliness or gateway fee knobs", () => {
   for (const register of [registerInitCommand, registerUpdateConfigCommand]) {
     const program = new Command();
@@ -55,6 +79,10 @@ test("init and update commands expose the epoch knobs and no liveliness or gatew
       "--protocol-fee-bps",
     ]) {
       assert.ok(flags.includes(flag), flag);
+    }
+    if (register === registerInitCommand) {
+      assert.ok(flags.includes("--initial-tau"));
+      assert.ok(flags.includes("--expected-rounds-per-epoch"));
     }
     assert.ok(!flags.some((flag) => flag.startsWith("--liveliness")));
     assert.ok(!flags.includes("--gateway-fee-bps"));

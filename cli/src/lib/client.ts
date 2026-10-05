@@ -25,8 +25,14 @@ export function getGlobalOptions(command: Command): CliGlobalOptions {
   return command.optsWithGlobals<CliGlobalOptions>();
 }
 
-export async function getCliContext(command: Command): Promise<CliContext> {
-  const options = resolveCliOptions(getGlobalOptions(command));
+export async function getCliContext(
+  command: Command,
+  overrides: Partial<CliGlobalOptions> = {},
+): Promise<CliContext> {
+  const options = resolveCliOptions({
+    ...getGlobalOptions(command),
+    ...overrides,
+  });
   ensureIdlPresent(options.idlPath);
 
   const payer = loadKeypair(options.walletPath);
