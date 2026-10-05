@@ -257,7 +257,7 @@ fn an_already_tombstoned_intruder_leaves_nothing_to_punish() {
     let intruder = case.intruders[0];
     let (duty, selection) = (0u64..64)
         .map(|offset| {
-            let duty = duty().at(duty().canonical_timestamp + 1 + offset);
+            let duty = duty().at(duty().timestamp + 1 + offset);
             let selection = case.p.selection_bits(&duty);
             (duty, selection)
         })

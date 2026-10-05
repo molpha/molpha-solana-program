@@ -27,7 +27,7 @@ const FIXTURE = {
   sourceId: new Uint8Array(32).fill(0x11),
   registryVersion: 4,
   signaturesRequired: 3,
-  canonicalTimestamp: 1_700_000_000,
+  timestamp: 1_700_000_000_000, // unix milliseconds
   aggSigS: new Uint8Array(32).fill(0x66),
   commitment: new Uint8Array(20).fill(0x77),
   signersBitmap: new Uint8Array(32).fill(0x07),
@@ -39,15 +39,15 @@ test("ticket id, ticket hash and dispatch message match the program's golden vec
       deriveTicketId(
         FIXTURE.sourceId,
         FIXTURE.signaturesRequired,
-        FIXTURE.canonicalTimestamp,
+        FIXTURE.timestamp,
       ),
     ),
-    "859d832c8a492a6d0b04abdd1c4ea66c8473ed4879c644e8b9f4a28629edf196",
+    "1e5b3087286e8207743d03b04ec310a96b8c5250c45442fa6cfd77070c9940d8",
   );
   const messageHash = computeMessageHash(FIXTURE);
   assert.equal(
     hex(deriveTicketHash(messageHash, FIXTURE.aggSigS, FIXTURE.commitment)),
-    "e99e3d17eba0eefa7bd0cac0760f3092d28b467714b3f8f3bbd1643133bcf2e5",
+    "a39fe3fd44902947ffc92501bf1019847a1ceda7c7e29157c8a1951676bce8d2",
   );
   assert.equal(
     hex(
@@ -56,10 +56,10 @@ test("ticket id, ticket hash and dispatch message match the program's golden vec
         FIXTURE.sourceId,
         FIXTURE.signaturesRequired,
         FIXTURE.registryVersion,
-        FIXTURE.canonicalTimestamp,
+        FIXTURE.timestamp,
       ),
     ),
-    "73b2adeadd7b47a21b53811238619e453501035fa2c178c293dc02ed1dc6a6e9",
+    "5b77cc15f6940129344ceaf5cec37915d933ad0e4c378c2cac8ec334caaa7da7",
   );
 });
 
@@ -164,7 +164,7 @@ test(
         sourceId: Array(32).fill(0),
         registryVersion: 0,
         signaturesRequired: 3,
-        canonicalTimestamp: bn(6401, "timestamp"),
+        timestamp: bn(6401, "timestamp"),
       },
       signature: {
         aggSigS: Array(32).fill(0),

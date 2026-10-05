@@ -101,7 +101,7 @@ yarn molpha attestation submit \
   --source-id <SOURCE_ID_HEX> \
   --registry-version 1 \
   --value <32_BYTE_HEX> \
-  --canonical-timestamp 1700000123 \
+  --timestamp 1700000123000 \
   --signer-count 1 \
   --signatures-required 1 \
   --signer-seed molpha-cli-e2e-signers
@@ -149,7 +149,7 @@ yarn molpha revenue sweep-treasury
 # checks the lottery locally and derives roster hints and the coalition key.
 yarn molpha ticket submit \
   --source-id <SOURCE_ID_HEX> \
-  --timestamp 1700000123 \
+  --timestamp 1700000123000 \
   --signatures-required 3 \
   --registry-version 1 \
   --value <32_BYTE_HEX> \
@@ -192,22 +192,20 @@ yarn molpha registry reinstate --node-owner <NODE_OWNER>
 yarn molpha gateway deactivate --gateway-authority <GATEWAY_AUTHORITY>
 ```
 
-Deactivation stops the gateway's dispatch signatures from admitting tickets immediately. Gateway
-registration no longer transfers or tracks a bond.
+Deactivation stops the gateway's dispatch signatures from admitting tickets immediately.
 
 ## Notes
 
 - Seeds match the current program: `molpha_config`, `molpha_registry`, `molpha_feed`,
   `molpha_gateway`, `molpha_epoch`, `molpha_ticket`, etc.
 - Feed PDA is `[molpha_feed, source_id, signatures_required, submitter]`. A ticket creates a
-  marker keyed by round identity `(source_id, signatures_required, canonical_timestamp)`.
-- There is no `Job` account or `create_job` instruction. Feeds are created via
-  `init_if_needed` inside `submit_attestation`. `source_id` is a caller-provided
+  marker keyed by round identity `(source_id, signatures_required, timestamp)`.
+- Feeds are created via `init_if_needed` inside `submit_attestation`. `source_id` is a caller-provided
   32-byte identifier.
 - USDC accounts are always canonical ATAs derived by the CLI. Reward ATAs are created by the
   program when missing; funded source ATAs must already exist. `slash` creates the reporter USDC
   ATA as a pre-instruction if needed (the program itself does not).
-- Subscription payment uses monthly `subscribe` / `extend` (not per-round top-ups).
+- Subscription payment uses monthly `subscribe` / `extend`.
 - Subscription round quotas and delegate request limits are enforced by the gateway at admission;
   nothing on chain consumes them.
 - `ticket submit` needs the dispatch signature immediately before the ticket instruction. Pass
@@ -224,10 +222,5 @@ fee is at most 10,000 bps; challenger bounty is 0–10,000; minimum signers is 3
 initialization redundancy is 1–8. Zero reward and base price are allowed. Slot/timestamp deadlines and
 the base price plus rewards for 256 signers must not overflow. The CLI checks static
 bounds before sending; the program also checks deadlines against its current clock.
-
-The removed config fields and the new registry activation and epoch quorum snapshots change
-account layouts and instruction encoding. Rebuild the program and IDL before using this CLI;
-existing config, registry and epoch accounts require migration or reinitialization in a fresh
-deployment.
 
 Run the CLI config tests with `yarn test:cli`.

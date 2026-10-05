@@ -19,7 +19,8 @@ pub struct Feed {
     pub value: [u8; 32],
     pub value_kind: FeedValueKind,
     pub submitter: Pubkey,
-    pub canonical_timestamp: u64,
+    /// Unix milliseconds. Updates are strictly ordered on it, so two rounds in one second order.
+    pub timestamp: u64,
     pub signatures_required: u8,
     pub signers_bitmap: [u8; 32],
     pub registry_version: u32,
@@ -48,7 +49,7 @@ impl Feed {
         self.value = attestation.payload.value;
         self.value_kind = kind;
         self.submitter = submitter;
-        self.canonical_timestamp = attestation.payload.canonical_timestamp;
+        self.timestamp = attestation.payload.timestamp;
         self.signatures_required = attestation.payload.signatures_required;
         self.registry_version = attestation.payload.registry_version;
         self.signers_bitmap = attestation.signature.signers_bitmap;
@@ -66,7 +67,7 @@ impl Feed {
             MolphaError::SignaturesRequiredMismatch
         );
         require!(
-            attestation.payload.canonical_timestamp > self.canonical_timestamp,
+            attestation.payload.timestamp > self.timestamp,
             MolphaError::FeedNotNewer
         );
         require!(
@@ -76,7 +77,7 @@ impl Feed {
 
         self.value = attestation.payload.value;
         self.value_kind = kind;
-        self.canonical_timestamp = attestation.payload.canonical_timestamp;
+        self.timestamp = attestation.payload.timestamp;
         self.registry_version = attestation.payload.registry_version;
         self.signers_bitmap = attestation.signature.signers_bitmap;
         Ok(())

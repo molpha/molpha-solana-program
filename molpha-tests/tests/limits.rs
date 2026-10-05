@@ -33,7 +33,7 @@ fn submit_attestation_legacy_size_ceiling_is_pinned() {
     let submitter = p.env.keypair();
     let mut largest_fitting = 0usize;
     for coalition in 3..=NODE_COUNT {
-        let signed = p.sign_duty(duty_for(coalition).at(1_700_100_000 + coalition as u64));
+        let signed = p.sign_duty(duty_for(coalition).at_secs(1_700_100_000 + coalition as u64));
         let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
         if p.env.transaction_size_as(&submitter.pubkey(), &[ix]) <= PACKET_DATA_SIZE {
             largest_fitting = coalition;
@@ -47,7 +47,7 @@ fn submit_attestation_stays_inside_the_compute_budget() {
     let mut p = protocol();
     let submitter = p.env.keypair();
     for coalition in [5usize, 10, 15, MAX_LEGACY_COALITION] {
-        let signed = p.sign_duty(duty_for(coalition).at(1_700_000_000 + coalition as u64));
+        let signed = p.sign_duty(duty_for(coalition).at_secs(1_700_000_000 + coalition as u64));
         let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
         let meta = p.env.send_ok(&[ix], &[&submitter]);
         assert!(meta.compute_units_consumed < MAX_COMPUTE_UNITS);
@@ -60,7 +60,7 @@ const MAX_LEGACY_TICKET_COALITION: usize = 10;
 
 /// A ticket duty at the start of the open epoch, distinct per coalition size.
 fn ticket_duty_for(p: &Protocol, coalition: usize) -> Duty {
-    duty_for(coalition).at(p.env.unix_timestamp() as u64 + coalition as u64)
+    duty_for(coalition).at_secs(p.env.unix_timestamp() as u64 + coalition as u64)
 }
 
 #[test]

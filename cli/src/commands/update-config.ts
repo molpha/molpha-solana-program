@@ -59,7 +59,7 @@ export function registerUpdateConfigCommand(admin: Command): void {
     .option("--reward-per-signature <amount>", "reward per signature")
     .option(
       "--max-settlement-delay-seconds <seconds>",
-      "max age of canonical_timestamp at attestation ingress; registry version grace",
+      "max age of timestamp at attestation ingress; registry version grace",
     )
     .option("--challenger-bounty-bps <bps>", "challenger bounty basis points")
     .option(

@@ -21,7 +21,7 @@ pub struct ProtocolConfig {
     /// Published x402 pricing input: `x402_round_base + (k + b) · reward_per_signature`.
     /// Not read on chain; payouts come from the epoch pool.
     pub reward_per_signature: u64,
-    /// Max age in seconds of `canonical_timestamp` relative to cluster time at attestation
+    /// Max age in seconds of `timestamp` relative to cluster time at attestation
     /// ingress, and the grace period of a superseded registry version.
     pub max_settlement_delay_seconds: u64,
     pub challenger_bounty_bps: u16,

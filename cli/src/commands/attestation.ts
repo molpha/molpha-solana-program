@@ -37,7 +37,7 @@ type SubmitArgsShape = {
       sourceId: ByteField;
       registryVersion: number | string;
       signaturesRequired: number | string;
-      canonicalTimestamp: number | string;
+      timestamp: number | string;
     };
     signature: {
       aggSigS: ByteField;
@@ -69,7 +69,7 @@ export function registerAttestationCommands(program: Command): void {
       "--raw-value <hex>",
       "value preimage (hex, <= 256 bytes); signs keccak256(raw) instead of --value",
     )
-    .option("--canonical-timestamp <number>", "unix timestamp")
+    .option("--timestamp <number>", "timestamp, unix milliseconds")
     .option("--signer-count <number>", "number of signers to include", "8")
     .option("--signers-bitmap <hex>", "explicit 32-byte signers bitmap")
     .option("--signatures-required <number>", "override signatures required")
@@ -103,7 +103,7 @@ export function registerAttestationCommands(program: Command): void {
       "--raw-value <hex>",
       "value preimage (hex, <= 256 bytes); signs keccak256(raw) instead of --value",
     )
-    .option("--canonical-timestamp <number>", "unix timestamp")
+    .option("--timestamp <number>", "timestamp, unix milliseconds")
     .option("--signer-count <number>", "number of signers to include", "8")
     .option("--signers-bitmap <hex>", "explicit 32-byte signers bitmap")
     .option("--signatures-required <number>", "override signatures required")
@@ -231,12 +231,9 @@ function buildSignedPayload(
             "value",
           ),
       rawValue,
-      canonicalTimestamp: parseInteger(
-        requireValue(
-          options.canonicalTimestamp,
-          "Missing --canonical-timestamp",
-        ),
-        "canonical timestamp",
+      timestamp: parseInteger(
+        requireValue(options.timestamp, "Missing --timestamp"),
+        "timestamp",
       ),
     },
     options.signaturesRequired
@@ -289,10 +286,7 @@ function normalizeSubmitArgs(value: SubmitArgsShape): SubmitAttestationArgs {
         String(payload.signaturesRequired),
         "signatures required",
       ),
-      canonicalTimestamp: parseInteger(
-        String(payload.canonicalTimestamp),
-        "canonical timestamp",
-      ),
+      timestamp: parseInteger(String(payload.timestamp), "timestamp"),
       aggSigS: bytesFromField(signature.aggSigS, 32, "agg sig s"),
       commitment: bytesFromField(signature.commitment, 20, "commitment"),
       signersBitmap: bytesFromField(

@@ -22,7 +22,7 @@ function attestation(bitmapByte) {
       sourceId: bytes(32, 2),
       registryVersion: 3,
       signaturesRequired: 2,
-      canonicalTimestamp: 1_700_000_000,
+      timestamp: 1_700_000_000_000,
     },
     signature: {
       aggSigS: bytes(32, 4),
@@ -41,7 +41,7 @@ test("signed submit args carry the signers' affine key sum", () => {
     Uint8Array.from(bytes(32, 7)),
     {
       value: Uint8Array.from(bytes(32, 9)),
-      canonicalTimestamp: 1_700_000_000,
+      timestamp: 1_700_000_000_000,
     },
   );
 

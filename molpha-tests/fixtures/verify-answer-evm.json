@@ -1,7 +1,7 @@
 {
   "registeredNodeCount": 12,
   "registryVersion": 12,
-  "messageHash": "0x0cea740d877fc5ba51c244ee6172f51e0862fb42972c6d008e8cffb486b67d16",
+  "messageHash": "0x58489d3ded5f129c6fca09a174ff0dcf35c58f70c560e2d5ce538ef10c3bbb3e",
   "nodeIndexesOneBased": [5, 6, 7, 8, 9, 10, 11],
   "nodePubkeys": [
     "0x031531a401a017486c6fbd1e2819256e759e5f2ec34e250bbbe0f7819f1806537b",
@@ -36,11 +36,11 @@
     "registryVersion": 12,
     "signaturesRequired": 5,
     "value": "0xc6d8f1c0fdb8997313cbc4bc43b46af78589ba4bb9036707097db8b33879d6c6",
-    "canonicalTimestamp": 1700034927
+    "timestamp": 1700034927000
   },
   "schnorrSignature": {
-    "signature": "0x7ab916f828c1d9354deb4d90496a975a9ea993764ec64f111972e7e7305bb398",
-    "commitment": "0xa699a2b9aa1011a663f4d575fd531eebeb03813f",
+    "signature": "0x956e684ea6710c54bb7d5b0b3256e1c2d1e77cc84607ad575b5f95fdd210aac6",
+    "commitment": "0xec61E25B5a06F0a3F9048356b23E98cF775974b9",
     "signersBitmap": 2032
   }
 }

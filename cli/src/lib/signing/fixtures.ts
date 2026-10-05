@@ -14,7 +14,7 @@ export type VerifyAttestationFixture = {
     signaturesRequired: number;
     configHash: string;
     value: string;
-    canonicalTimestamp: number;
+    timestamp: number;
   };
   schnorrSignature: {
     signature: string;

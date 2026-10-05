@@ -254,12 +254,15 @@ export function registerEpochCommands(program: Command): void {
       "Submit a round whose aggregate falls under its epoch's ticket threshold",
     )
     .requiredOption("--source-id <hex>", "32-byte source identifier")
-    .requiredOption("--timestamp <number>", "canonical timestamp")
+    .requiredOption("--timestamp <number>", "timestamp, unix milliseconds")
     .requiredOption("--signatures-required <number>", "quorum threshold")
     .requiredOption("--registry-version <number>", "registry version")
     .requiredOption("--value <hex>", "32-byte signed value")
     .requiredOption("--agg-sig <path>", "JSON SchnorrSignature file")
-    .requiredOption("--epoch <number>", "epoch containing the timestamp")
+    .requiredOption(
+      "--epoch <number>",
+      "epoch containing the timestamp (its whole second)",
+    )
     .requiredOption(
       "--gateway-authority <pubkey>",
       "authority of the gateway that dispatched the round",
@@ -307,7 +310,7 @@ export function registerEpochCommands(program: Command): void {
         sourceId,
         registryVersion,
         signaturesRequired,
-        canonicalTimestamp: timestamp,
+        timestamp,
         ...schnorr,
       });
       const messageHash = computeMessageHash({
@@ -316,7 +319,7 @@ export function registerEpochCommands(program: Command): void {
         signaturesRequired,
         signersBitmap: schnorr.signersBitmap,
         value,
-        canonicalTimestamp: timestamp,
+        timestamp,
       });
       const ticketHash = deriveTicketHash(
         messageHash,

@@ -1,15 +1,5 @@
 use anchor_lang::prelude::*;
 
-/// Lifecycle status shared by `Delegate`.
-#[derive(
-    AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Default, Debug,
-)]
-pub enum AgentStatus {
-    #[default]
-    Active,
-    Paused,
-}
-
 /// Owner-scoped delegate authorization. `max_data_requests` is enforced by the gateway at
 /// admission, not on chain.
 #[account]

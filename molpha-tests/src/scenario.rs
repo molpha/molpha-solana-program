@@ -45,11 +45,14 @@ pub struct RegisteredNode {
 }
 
 /// The duty a round attests to — `(source_id, version, timestamp, quorum)` plus the value.
+///
+/// `timestamp` is unix MILLISECONDS, as on the wire. `at` takes milliseconds,
+/// `at_secs` whole seconds, and `secs` reads it back in seconds (the unit of the cluster clock).
 #[derive(Clone, Copy, Debug)]
 pub struct Duty {
     pub source_id: [u8; 32],
     pub registry_version: u32,
-    pub canonical_timestamp: u64,
+    pub timestamp: u64,
     pub signatures_required: u8,
     pub value: [u8; 32],
 }
@@ -59,7 +62,7 @@ impl Duty {
         Self {
             source_id: [0x11; 32],
             registry_version,
-            canonical_timestamp: 1_700_000_000,
+            timestamp: 1_700_000_000_000,
             signatures_required,
             value: [0x42; 32],
         }
@@ -70,9 +73,20 @@ impl Duty {
         self
     }
 
-    pub fn at(mut self, canonical_timestamp: u64) -> Self {
-        self.canonical_timestamp = canonical_timestamp;
+    /// Stamp the duty at `timestamp` unix milliseconds.
+    pub fn at(mut self, timestamp: u64) -> Self {
+        self.timestamp = timestamp;
         self
+    }
+
+    /// Stamp the duty at the start of unix second `seconds`.
+    pub fn at_secs(self, seconds: u64) -> Self {
+        self.at(seconds * 1_000)
+    }
+
+    /// The timestamp in whole unix seconds.
+    pub fn secs(&self) -> u64 {
+        self.timestamp / 1_000
     }
 
     pub fn value(mut self, value: [u8; 32]) -> Self {
@@ -86,7 +100,7 @@ impl Duty {
             source_id: self.source_id,
             registry_version: self.registry_version,
             signatures_required: self.signatures_required,
-            canonical_timestamp: self.canonical_timestamp,
+            timestamp: self.timestamp,
         }
     }
 
@@ -776,7 +790,7 @@ impl Protocol {
         let registry = self.env.registry(duty.registry_version);
         let bitmap = molpha_verifier::derive_selection_bitmap(
             &duty.source_id,
-            duty.canonical_timestamp,
+            duty.timestamp,
             duty.signatures_required,
             &registry.selection_view(&crate::env::EMPTY_REGISTRY_NODES),
         )
@@ -1239,7 +1253,7 @@ pub fn unsolicited_guilty_bitmap(p: &Protocol, attestation: &Attestation) -> [u8
     let registry = p.env.registry(payload.registry_version);
     let selection = molpha_verifier::derive_selection_bitmap(
         &payload.source_id,
-        payload.canonical_timestamp,
+        payload.timestamp,
         payload.signatures_required,
         &registry.selection_view(&crate::env::EMPTY_REGISTRY_NODES),
     )
@@ -1331,7 +1345,8 @@ impl Protocol {
     /// A duty stamped at the current cluster time against the current registry, the way a live
     /// round looks, so it falls in the epoch open now.
     pub fn live_duty(&self, signatures_required: u8) -> Duty {
-        Duty::new(self.current_version(), signatures_required).at(self.env.unix_timestamp() as u64)
+        Duty::new(self.current_version(), signatures_required)
+            .at_secs(self.env.unix_timestamp() as u64)
     }
 
     /// Sign `duty` with the first `k` selected nodes: the canonical set a live round produces.
@@ -1459,7 +1474,7 @@ impl Protocol {
         gateway_authority: &Keypair,
         signed: &SignedAttestation,
     ) -> Vec<Instruction> {
-        let epoch = self.epoch_containing(signed.duty.canonical_timestamp as i64);
+        let epoch = self.epoch_containing(signed.duty.secs() as i64);
         vec![
             self.dispatch_ix(gateway_authority, &signed.duty),
             self.submit_ticket_ix(submitter, &gateway_authority.pubkey(), epoch, signed),

@@ -116,9 +116,10 @@ impl EpochState {
         self.finalized != 0
     }
 
-    /// Whether a round with this `canonical_timestamp` belongs to the epoch.
-    pub fn contains(&self, canonical_timestamp: u64) -> bool {
-        i64::try_from(canonical_timestamp)
+    /// Whether a round belongs to the epoch. `timestamp_secs` is the round's `timestamp`
+    /// in unix SECONDS (`timestamp / 1000`), the unit of `start` and `end`.
+    pub fn contains(&self, timestamp_secs: u64) -> bool {
+        i64::try_from(timestamp_secs)
             .map(|ts| self.start <= ts && ts < self.end)
             .unwrap_or(false)
     }

@@ -26,7 +26,8 @@ fn fixture_ticket_attestation() -> Attestation {
             source_id: [0x11; 32],
             registry_version: 4,
             signatures_required: 3,
-            canonical_timestamp: 1_700_000_000,
+            // unix milliseconds
+            timestamp: 1_700_000_000_000,
         },
         signature: SchnorrSignature {
             agg_sig_s: [0x66; 32],
@@ -115,10 +116,10 @@ fn ticket_hashes_match_golden_vectors() {
     );
 }
 
-const TICKET_ID_GOLDEN: &str = "859d832c8a492a6d0b04abdd1c4ea66c8473ed4879c644e8b9f4a28629edf196";
-const TICKET_HASH_GOLDEN: &str = "e99e3d17eba0eefa7bd0cac0760f3092d28b467714b3f8f3bbd1643133bcf2e5";
+const TICKET_ID_GOLDEN: &str = "1e5b3087286e8207743d03b04ec310a96b8c5250c45442fa6cfd77070c9940d8";
+const TICKET_HASH_GOLDEN: &str = "a39fe3fd44902947ffc92501bf1019847a1ceda7c7e29157c8a1951676bce8d2";
 const DISPATCH_MESSAGE_GOLDEN: &str =
-    "db97d7fce1ed5d665426ddecc4d85e74ec55a1be4a98e2dbf820b363e30fb8bb";
+    "5b77cc15f6940129344ceaf5cec37915d933ad0e4c378c2cac8ec334caaa7da7";
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -134,7 +135,7 @@ fn ticket_hashes_match_their_documented_preimages() {
             DOMAIN_TICKET_ID,
             payload.source_id.as_ref(),
             &[payload.signatures_required],
-            &payload.canonical_timestamp.to_be_bytes(),
+            &payload.timestamp.to_be_bytes(),
         ])
         .to_bytes()
     );
@@ -156,7 +157,7 @@ fn ticket_hashes_match_their_documented_preimages() {
             payload.source_id.as_ref(),
             &[payload.signatures_required],
             &payload.registry_version.to_be_bytes(),
-            &payload.canonical_timestamp.to_be_bytes(),
+            &payload.timestamp.to_be_bytes(),
         ])
         .to_bytes()
     );
@@ -183,8 +184,8 @@ fn ticket_id_ignores_everything_but_the_round_identity() {
     quorum.payload.signatures_required += 1;
     assert_ne!(ticket_id(&quorum.payload), id, "signatures_required");
     let mut time = base.clone();
-    time.payload.canonical_timestamp += 1;
-    assert_ne!(ticket_id(&time.payload), id, "canonical_timestamp");
+    time.payload.timestamp += 1;
+    assert_ne!(ticket_id(&time.payload), id, "timestamp");
 }
 
 /// The lottery covers the whole aggregate, so only the signers can know a round's outcome.
@@ -226,11 +227,11 @@ fn dispatch_message_commits_to_the_admitted_round() {
         "registry_version"
     );
     let mut time = base.clone();
-    time.payload.canonical_timestamp += 1;
+    time.payload.timestamp += 1;
     assert_ne!(
         dispatch_message(&molpha::ID, &time.payload),
         message,
-        "canonical_timestamp"
+        "timestamp"
     );
     assert_ne!(
         dispatch_message(&Pubkey::new_from_array([0x99; 32]), &base.payload),
@@ -254,7 +255,7 @@ fn fixture_attestation(value: u8, bitmap_byte: u8) -> Attestation {
             source_id: [0x07; 32],
             registry_version: 4,
             signatures_required: 3,
-            canonical_timestamp: 1_700_000_000,
+            timestamp: 1_700_000_000,
         },
         signature: SchnorrSignature {
             agg_sig_s: [0x11; 32],
@@ -278,9 +279,7 @@ const FIELD_MUTATIONS: [FieldMutation; 8] = [
     ("signatures_required", |a| {
         a.payload.signatures_required += 1
     }),
-    ("canonical_timestamp", |a| {
-        a.payload.canonical_timestamp += 1
-    }),
+    ("timestamp", |a| a.payload.timestamp += 1),
     ("agg_sig_s", |a| a.signature.agg_sig_s[0] ^= 0xff),
     ("commitment", |a| a.signature.commitment[0] ^= 0xff),
     ("signers_bitmap", |a| a.signature.signers_bitmap[0] ^= 0xff),
@@ -295,7 +294,7 @@ fn attestation_hash_is_the_documented_field_concatenation() {
         a.payload.source_id.as_slice(),
         a.payload.registry_version.to_be_bytes().as_slice(),
         a.payload.signatures_required.to_be_bytes().as_slice(),
-        a.payload.canonical_timestamp.to_be_bytes().as_slice(),
+        a.payload.timestamp.to_be_bytes().as_slice(),
         a.signature.agg_sig_s.as_slice(),
         a.signature.commitment.as_slice(),
         a.signature.signers_bitmap.as_slice(),
