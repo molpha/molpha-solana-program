@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use anchor_lang::prelude::Pubkey;
+use anchor_lang::solana_program::bpf_loader_upgradeable::{self, UpgradeableLoaderState};
 use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
 use anchor_lang::{AccountDeserialize, AnchorDeserialize, Discriminator};
 use litesvm::types::{FailedTransactionMetadata, TransactionMetadata, TransactionResult};
@@ -733,6 +734,62 @@ impl TestEnv {
             )
             .expect("plant token-2022 mint");
         mint
+    }
+
+    /// Set the upgrade authority recorded in Molpha's ProgramData account; `None` makes the
+    /// program immutable.
+    ///
+    /// LiteSVM deploys through the upgradeable loader but records no authority, and `initialize`
+    /// only accepts the upgrade authority.
+    pub fn set_upgrade_authority(&mut self, authority: Option<Pubkey>) {
+        let key = pda::program_data();
+        let mut account = self
+            .svm
+            .get_account(&key)
+            .expect("molpha ProgramData account");
+        let metadata = &mut account.data[..UpgradeableLoaderState::size_of_programdata_metadata()];
+        let slot = match bincode::deserialize(metadata).expect("ProgramData metadata") {
+            UpgradeableLoaderState::ProgramData { slot, .. } => slot,
+            other => panic!("{key} is not a ProgramData account: {other:?}"),
+        };
+        // `None` serializes shorter than `Some`: clear the old authority bytes first.
+        metadata.fill(0);
+        bincode::serialize_into(
+            metadata,
+            &UpgradeableLoaderState::ProgramData {
+                slot,
+                upgrade_authority_address: authority,
+            },
+        )
+        .expect("serialize ProgramData metadata");
+        self.svm
+            .set_account(key, account)
+            .expect("overwrite ProgramData");
+    }
+
+    /// Plant the ProgramData account of some other upgradeable program, with `upgrade_authority`
+    /// as its authority. Stands in for a program an attacker deployed themselves.
+    pub fn plant_foreign_program_data(&mut self, upgrade_authority: &Pubkey) -> Pubkey {
+        let key = Pubkey::new_unique();
+        let data = bincode::serialize(&UpgradeableLoaderState::ProgramData {
+            slot: self.slot(),
+            upgrade_authority_address: Some(*upgrade_authority),
+        })
+        .expect("serialize ProgramData metadata");
+        let lamports = self.svm.minimum_balance_for_rent_exemption(data.len());
+        self.svm
+            .set_account(
+                key,
+                solana_account::Account {
+                    lamports,
+                    data,
+                    owner: bpf_loader_upgradeable::ID,
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("plant ProgramData");
+        key
     }
 
     /// Overwrite an existing program-owned account with `data` (discriminator included).

@@ -10,10 +10,19 @@ const {
   U64_MAX,
 } = require("../dist/lib/protocol-config");
 const { Command } = require("commander");
+const { Keypair, PublicKey } = require("@solana/web3.js");
 const { registerInitCommand } = require("../dist/commands/init");
+const {
+  BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+  decodeUpgradeAuthority,
+  findProgramDataAddress,
+  requireUpgradeAuthority,
+} = require("../dist/lib/upgrade-authority");
 const {
   registerUpdateConfigCommand,
 } = require("../dist/commands/update-config");
+
+const PROGRAM_ID = new PublicKey("chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt");
 
 function config() {
   return {
@@ -186,4 +195,84 @@ test("inclusive bounds and optional zero economics are accepted", () => {
       x402RoundBase: new BN(0),
     });
   }
+});
+
+function programDataAccount(upgradeAuthority) {
+  const data = Buffer.alloc(45 + 8);
+  data.writeUInt32LE(3, 0);
+  data.writeBigUInt64LE(42n, 4);
+  if (upgradeAuthority) {
+    data[12] = 1;
+    upgradeAuthority.toBuffer().copy(data, 13);
+  }
+  return { owner: BPF_LOADER_UPGRADEABLE_PROGRAM_ID, data };
+}
+
+test("the ProgramData address and its upgrade authority are decoded as the loader lays them out", () => {
+  // `solana find-program-derived-address BPFLoaderUpgradeab1e... pubkey:<program id>`
+  assert.equal(
+    findProgramDataAddress(PROGRAM_ID).toBase58(),
+    "8RwqkiE9SiBGkYJ1eeNzhXYGb18jtgZ42SVMRBu5Fv8m",
+  );
+  const authority = Keypair.generate().publicKey;
+  assert.ok(
+    decodeUpgradeAuthority(programDataAccount(authority).data).equals(
+      authority,
+    ),
+  );
+  assert.equal(decodeUpgradeAuthority(programDataAccount(null).data), null);
+  // A Program account (tag 2) or a truncated buffer is not ProgramData.
+  const program = Buffer.alloc(45);
+  program.writeUInt32LE(2, 0);
+  assert.throws(() => decodeUpgradeAuthority(program), /ProgramData/);
+  assert.throws(() => decodeUpgradeAuthority(Buffer.alloc(12)), /ProgramData/);
+});
+
+test("init refuses a wallet that is not the program's upgrade authority", async () => {
+  const authority = Keypair.generate().publicKey;
+  const other = Keypair.generate().publicKey;
+  const cluster = (account) => ({
+    getAccountInfo: async (address) => {
+      assert.ok(address.equals(findProgramDataAddress(PROGRAM_ID)));
+      return account;
+    },
+  });
+
+  assert.ok(
+    (
+      await requireUpgradeAuthority(
+        cluster(programDataAccount(authority)),
+        PROGRAM_ID,
+        authority,
+      )
+    ).equals(findProgramDataAddress(PROGRAM_ID)),
+  );
+  await assert.rejects(
+    requireUpgradeAuthority(
+      cluster(programDataAccount(authority)),
+      PROGRAM_ID,
+      other,
+    ),
+    new RegExp(`upgrade authority ${authority.toBase58()}`),
+  );
+  await assert.rejects(
+    requireUpgradeAuthority(
+      cluster(programDataAccount(null)),
+      PROGRAM_ID,
+      authority,
+    ),
+    /immutable/,
+  );
+  await assert.rejects(
+    requireUpgradeAuthority(cluster(null), PROGRAM_ID, authority),
+    /no ProgramData account/,
+  );
+  await assert.rejects(
+    requireUpgradeAuthority(
+      cluster({ ...programDataAccount(authority), owner: other }),
+      PROGRAM_ID,
+      authority,
+    ),
+    /no ProgramData account/,
+  );
 });

@@ -158,6 +158,7 @@ impl SignedAttestation {
 /// The starting point for tests about `initialize` itself; [`ProtocolBuilder::start`] builds on it.
 pub struct Bare {
     pub env: TestEnv,
+    /// The program's upgrade authority, which is the only key `initialize` accepts.
     pub authority: Keypair,
     pub usdc_mint: Pubkey,
     pub mint_authority: Keypair,
@@ -171,6 +172,7 @@ pub fn bare() -> Bare {
 pub fn bare_with(env: TestEnv) -> Bare {
     let mut env = env;
     let authority = env.keypair();
+    env.set_upgrade_authority(Some(authority.pubkey()));
     let (usdc_mint, mint_authority) = env.create_mint(6);
     Bare {
         env,
@@ -224,6 +226,8 @@ pub fn initialize_ix(
             epoch0: pda::epoch(0),
             epoch1: pda::epoch(1),
             authority: *authority,
+            program: molpha::ID,
+            program_data: pda::program_data(),
             token_program: pda::TOKEN_PROGRAM_ID,
             associated_token_program: pda::ASSOCIATED_TOKEN_PROGRAM_ID,
             system_program: anchor_lang::solana_program::system_program::ID,

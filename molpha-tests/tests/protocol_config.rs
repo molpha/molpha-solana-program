@@ -1,5 +1,6 @@
 //! `initialize` and `update_config`.
 
+use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::{ProtocolConfigUpdated, ProtocolInitialized};
 use molpha::instructions::UpdateConfigArgs;
@@ -7,7 +8,7 @@ use molpha::state::{ProtocolConfig, RegistryState, MIN_SIGNERS_FLOOR};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{
-    bare, default_initialize_args, initialize_ix, update_config_ix, Protocol,
+    bare, default_initialize_args, initialize_ix, update_config_ix, Bare, Protocol,
 };
 use molpha_tests::token;
 use solana_signer::Signer;
@@ -215,6 +216,136 @@ fn initialize_cannot_be_run_twice() {
         "expected an 'already in use' failure, logs:\n{}",
         failed.meta.logs.join("\n")
     );
+}
+
+// ---------------------------------------------------------------------------
+// initialize is reserved for the program's upgrade authority
+// ---------------------------------------------------------------------------
+
+/// Every account `initialize` creates.
+fn initialize_outputs(usdc_mint: &Pubkey) -> [Pubkey; 7] {
+    [
+        pda::protocol_config(),
+        pda::registry_state(),
+        pda::registry(0),
+        pda::epoch(0),
+        pda::epoch(1),
+        pda::ata(&pda::protocol_config(), usdc_mint),
+        pda::ata(&pda::registry_state(), usdc_mint),
+    ]
+}
+
+#[track_caller]
+fn assert_uninitialized(b: &Bare) {
+    for key in initialize_outputs(&b.usdc_mint) {
+        assert!(
+            !b.env.account_exists(&key),
+            "a rejected initialize left {key} behind"
+        );
+    }
+}
+
+/// The front-run: on a fresh deployment, anyone who initializes first would otherwise become
+/// the protocol authority for good.
+#[test]
+fn initialize_rejects_a_signer_that_is_not_the_upgrade_authority() {
+    let mut b = bare();
+    let impostor = b.env.keypair();
+    let args = default_initialize_args(b.usdc_mint);
+
+    let ix = initialize_ix(&impostor.pubkey(), &b.usdc_mint, &args);
+    let failed = b.env.send_err(&[ix], &[&impostor]);
+    assert_molpha_error(&failed, MolphaError::NotUpgradeAuthority);
+    assert_uninitialized(&b);
+
+    // The deployment is still there for its upgrade authority to claim.
+    let ix = initialize_ix(&b.authority.pubkey(), &b.usdc_mint, &args);
+    b.env.send_ok(&[ix], &[&b.authority]);
+    let config: ProtocolConfig = b.env.get(&pda::protocol_config());
+    assert_eq!(config.authority, b.authority.pubkey());
+}
+
+/// Being the upgrade authority of some other program proves nothing about this one.
+#[test]
+fn initialize_rejects_the_program_data_of_another_program() {
+    let mut b = bare();
+    let impostor = b.env.keypair();
+    let foreign = b.env.plant_foreign_program_data(&impostor.pubkey());
+
+    let mut ix = initialize_ix(
+        &impostor.pubkey(),
+        &b.usdc_mint,
+        &default_initialize_args(b.usdc_mint),
+    );
+    let program_data = ix
+        .accounts
+        .iter_mut()
+        .find(|meta| meta.pubkey == pda::program_data())
+        .expect("initialize takes the ProgramData account");
+    program_data.pubkey = foreign;
+
+    let failed = b.env.send_err(&[ix], &[&impostor]);
+    assert_molpha_error(&failed, MolphaError::InvalidProgramData);
+    assert_uninitialized(&b);
+}
+
+#[test]
+fn initialize_rejects_a_program_data_account_the_loader_does_not_own() {
+    let mut b = bare();
+    let mut ix = initialize_ix(
+        &b.authority.pubkey(),
+        &b.usdc_mint,
+        &default_initialize_args(b.usdc_mint),
+    );
+    let program_data = ix
+        .accounts
+        .iter_mut()
+        .find(|meta| meta.pubkey == pda::program_data())
+        .expect("initialize takes the ProgramData account");
+    program_data.pubkey = b.usdc_mint;
+
+    let failed = b.env.send_err(&[ix], &[&b.authority]);
+    assert_anchor_error(
+        &failed,
+        anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
+    );
+    assert_uninitialized(&b);
+}
+
+/// An immutable program has no upgrade authority, so nobody can initialize it: initialize
+/// before giving the upgrade authority up.
+#[test]
+fn initialize_rejects_everyone_once_the_program_is_immutable() {
+    let mut b = bare();
+    b.env.set_upgrade_authority(None);
+
+    let ix = initialize_ix(
+        &b.authority.pubkey(),
+        &b.usdc_mint,
+        &default_initialize_args(b.usdc_mint),
+    );
+    let failed = b.env.send_err(&[ix], &[&b.authority]);
+    assert_molpha_error(&failed, MolphaError::NotUpgradeAuthority);
+    assert_uninitialized(&b);
+}
+
+/// The right to initialize follows the upgrade authority, not whoever held it at deployment.
+#[test]
+fn initialize_follows_a_transferred_upgrade_authority() {
+    let mut b = bare();
+    let successor = b.env.keypair();
+    b.env.set_upgrade_authority(Some(successor.pubkey()));
+    let args = default_initialize_args(b.usdc_mint);
+
+    let ix = initialize_ix(&b.authority.pubkey(), &b.usdc_mint, &args);
+    let failed = b.env.send_err(&[ix], &[&b.authority]);
+    assert_molpha_error(&failed, MolphaError::NotUpgradeAuthority);
+    assert_uninitialized(&b);
+
+    let ix = initialize_ix(&successor.pubkey(), &b.usdc_mint, &args);
+    b.env.send_ok(&[ix], &[&successor]);
+    let config: ProtocolConfig = b.env.get(&pda::protocol_config());
+    assert_eq!(config.authority, successor.pubkey());
 }
 
 #[test]
