@@ -163,8 +163,8 @@ molpha-tests/                       # Rust + LiteSVM test suite
 
 | Goal                     | Document                                     |
 | ------------------------ | -------------------------------------------- |
-| Step-by-step integration | [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) |
-| API & account reference  | [API_REFERENCE.md](API_REFERENCE.md)         |
+| Step-by-step integration | [Integration guide](guides/INTEGRATION.md) |
+| API & account reference  | [API reference](guides/API_REFERENCE.md)   |
 
 ### For developers (build & test)
 
@@ -349,7 +349,8 @@ Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_G
 
 ## License
 
-ISC — see [package.json](package.json).
+ISC — see [LICENSE](LICENSE). Dependencies retain their own licenses; see
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 ## Support
 

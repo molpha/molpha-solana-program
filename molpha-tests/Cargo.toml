@@ -2,6 +2,7 @@
 name = "molpha-tests"
 version = "0.1.0"
 edition = "2021"
+license = "ISC"
 publish = false
 description = "LiteSVM integration tests for the Molpha Solana program"
 # Each file under tests/ would otherwise become its own executable, and every one statically

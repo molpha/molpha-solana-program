@@ -1,0 +1,396 @@
+{
+  "version": 1,
+  "reviewed_on": "2026-10-08",
+  "policy": "Only exact owner-confirmed disposable test contents are exempt. New operational secrets must never be allowlisted.",
+  "entries": [
+    {
+      "sha256": "fbf34148acbf107a291e74222ef922599c6a5ff78ac34ac79e0f31304b2d2e9b",
+      "categories": [
+        "solana-keypair"
+      ],
+      "historical_paths": [
+        "MoLF4sBjvfsYYdwE84yU9FcTkpd4WSGvR92rpLQgbpn.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "051a9111d70511341380452e950c51f5e3d5839a1463e16e6723a8cb32de118d",
+      "categories": [
+        "solana-keypair"
+      ],
+      "historical_paths": [
+        "MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "bc536f759fddb40f462f8037813011c792447676c221b19e84b9cd6ff2ddd7cd",
+      "categories": [
+        "solana-keypair"
+      ],
+      "historical_paths": [
+        "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "35717ab520ca1548f2da2da004c403e7804e3a667c4c9eabd5fcf8703aa1443d",
+      "categories": [
+        "solana-keypair"
+      ],
+      "historical_paths": [
+        "MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "410f5b049b235dc0fcdbf99b29f04172982cbc8d96681ef3941d3b048ced6624",
+      "categories": [
+        "solana-keypair"
+      ],
+      "historical_paths": [
+        "chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "01a56dcb91725dab94e35f74c5dcba89e359824db34ee85dab6eddb6d04a9b65",
+      "categories": [
+        "solana-keypair"
+      ],
+      "historical_paths": [
+        "gateway-dev.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "8f7624140e26d113a6c9d0946df43d682383b4a626997da0b29f9aa4545116ef",
+      "categories": [
+        "solana-keypair"
+      ],
+      "historical_paths": [
+        "gateway-keypair.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "ce39d8018c2a04f45aa15bfcc3cf3d09a2336773505c3839f13ab4a6100c4e44",
+      "categories": [
+        "solana-keypair"
+      ],
+      "historical_paths": [
+        "gateway-keypair2.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "3deaa526f212b0ebbfde1ec9b1193a8b844fe6e3c3d63d8ecbc129be8f61f1b5",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "generated-nodes-albyn.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "2c056e5d89fc9600aa23b195afcf08ef21dc0b4a44616b79d9e47cecb8105850",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "generated-nodes-dev.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "2d0ae99cf5c451695881e41f826d1f3724da77e4ba332470adff7765a9a1bdc6",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "generated-nodes-dev.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "0382d1c415f896b80e4ca212ff01b32c7629de45cf7fc61fb03345ff6415ec02",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "molpha-tests/fixtures/verify-answer-evm.json"
+      ],
+      "current_paths": [
+        "molpha-tests/fixtures/verify-answer-evm.json"
+      ],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "827391fdbfecaef50cae91e1a6c802220fe913b88e781759b4f3e2d6220a38d0",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "molpha-tests/fixtures/verify-answer-evm.json"
+      ],
+      "current_paths": [
+        "molpha-tests/fixtures/verify-answer-evm.json"
+      ],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "6276d2740bc687a422b35f32e7abc87cdcb7940029282f60578939c8e9c79e4f",
+      "categories": [
+        "solana-keypair"
+      ],
+      "historical_paths": [
+        "node-test.dev.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "b5a2877fa536649a4989eb21e6e98754572b0f3f1d71253d81ea25ab58718a83",
+      "categories": [
+        "solana-keypair"
+      ],
+      "historical_paths": [
+        "programs/molpha-feed-keypair.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "1218eebfc96845562055c984f80369a0c889b687751243c408b429cbe391aaae",
+      "categories": [
+        "solana-keypair"
+      ],
+      "historical_paths": [
+        "test-authority-keypair.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "3fdef36f2577451a5c282fd2d8f1dc78163e8dc52cff150a7f6e91820d52aa4d",
+      "categories": [
+        "solana-keypair"
+      ],
+      "historical_paths": [
+        "test-mint-keypair.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "4e81ae3c59998e3bed21628c8384ac9fa09a26ee7e24ed6c0654b4455f12628e",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-077fcf7857e726c6.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "c5e388c7db131d5129246dca3bd4746516e7f550bae039486bbe85455612c8e5",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-14f879640392cc54.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "ee7bd5fb535310d1079d6bc6a562735c11634214897e1a087e22ebbb6146a1bf",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-2183f6a89c571f50.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "b5a8e05b7e585ba115250f72c5ae9726f16d30b883a29d577a643cf9ba3973c9",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-64d4eba23d289c36.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "056524f6a2932dcc301f476e67297d7f4dcb8300b7637ec997f0570ef122a23b",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-6c08a47095fd4eed.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "1a5f0732126cf8314789a72e809c076ad7ee1110d923aae9d86f9b2f805a87e3",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-71b13349237115f2.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "152e4cd425784ec2f845ee3f6c2a4efd77c54458fae845c4e37c96a056106787",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-7585ae0409c4c218.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "4d4e126d0f1384a576a06125af12341608f8ee29217a74fb5eaa8ade96a1e279",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-7585ae0409c4c218.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "61dcf3308562890d85e7e8d9783e3060df81d6fae8d6fb3b6bc542c20a98479b",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-803592f63db199ba.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "cae79f8af2f758e9d9be6608d7750d0f4282537c9ac66c63375aa5e6a019dbe0",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-a6580196fdf14176.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "ebad46b021b071dbf97df602cf8704745954d95cedae1a7ba8d11e14b560d085",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-a6580196fdf14176.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "fe4d038c9c619616bb47d540500d5cd743411ff711a7e3e7e76f1ce241a43e01",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-b779d03f74c0e9fc.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "c6c4c54ecf5f92cb18c07efd6c6b3441ce4ffd232091f003ff0cbd069e6b6830",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/e2e-generated-fa561698138a8e5c.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "4caaba1d6515a789324e04907b577b7560ece5ba36eda70f53f7d46b426ed187",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/solana-compat-v10.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "167c7583a52372f01dc3da38e48b49d20f7b05bfc100bd7426a887a0989f8392",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/verify-answer-evm.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "b532076b6e7835fe01b55a1fd7ae3250ada31ed75888c79de2a5e3ea45d5c09a",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/verify-answer-evm.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "b70d0cad6a4b22ab86a6ff4eb2e67c54f6e7f2807ed635e7550f711c23ef2432",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/verify-answer-evm.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    },
+    {
+      "sha256": "dcd997a5dbc8d612616950691e1b36fd7682452ae251b13cb4516c69e9af26c8",
+      "categories": [
+        "structured-secret"
+      ],
+      "historical_paths": [
+        "tests/fixtures-json/verify-answer-evm.json"
+      ],
+      "current_paths": [],
+      "reason": "Owner-confirmed disposable test material; never use on public networks."
+    }
+  ]
+}
