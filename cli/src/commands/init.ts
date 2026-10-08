@@ -21,6 +21,7 @@ import {
   findRegistryPda,
   findRegistryStatePda,
 } from "../lib/pdas";
+import { requireUpgradeAuthority } from "../lib/upgrade-authority";
 import {
   bn,
   optionOrConfig,
@@ -53,7 +54,9 @@ type InitConfig = {
 export function registerInitCommand(program: Command): void {
   program
     .command("init")
-    .description("Initialize the Molpha protocol")
+    .description(
+      "Initialize the Molpha protocol (the wallet must be the program's upgrade authority)",
+    )
     .option("--config <path>", "json config file")
     .option(
       "--withdrawal-cooldown-slots <slots>",
@@ -237,6 +240,11 @@ export function registerInitCommand(program: Command): void {
       );
       const [epoch0] = findEpochPda(ctx.programId, 0);
       const [epoch1] = findEpochPda(ctx.programId, 1);
+      const programData = await requireUpgradeAuthority(
+        ctx.connection,
+        ctx.programId,
+        ctx.wallet.publicKey,
+      );
 
       const signature = await (ctx.program.methods as any)
         .initialize(args)
@@ -250,6 +258,8 @@ export function registerInitCommand(program: Command): void {
           epoch0,
           epoch1,
           authority: ctx.wallet.publicKey,
+          program: ctx.programId,
+          programData,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,

@@ -12,7 +12,7 @@ Entrypoints are declared in `programs/molpha/src/lib.rs`.
 
 | Area          | Instructions                                                                                    | Who can call                                      |
 | ------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Configuration | `initialize`                                                                                    | First caller, who becomes the authority           |
+| Configuration | `initialize`                                                                                    | Program upgrade authority, who becomes authority  |
 | Configuration | `update_config`, `update_registry_policy`                                                       | Authority                                         |
 | Nodes         | `register_node`                                                                                 | Node owner and authority, both signing            |
 | Nodes         | `update_node_endpoint`                                                                          | Node owner                                        |

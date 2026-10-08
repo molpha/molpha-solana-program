@@ -210,8 +210,10 @@ On devnet the authority and the program's upgrade authority are single keys.
 
 **Known limitations**
 
-- `initialize` makes its signer the protocol authority. Whoever deploys a fresh instance must
-  initialize it before anyone else does.
+- `initialize` accepts only the program's upgrade authority, read from the upgradeable loader's
+  ProgramData account, and makes it the protocol authority. A fresh deployment cannot be claimed
+  by anyone else, but it must be initialized before the upgrade authority is revoked: an
+  immutable program can never be initialized.
 - The gateway's dispatch signature is the only thing binding a ticket to an admitted round.
 - A coalition that forms a round's whole signer set can re-sign that round to re-roll its ticket
   lottery or to exclude a co-signer.

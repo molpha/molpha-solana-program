@@ -7,6 +7,7 @@ use anchor_spl::{
 use crate::{
     error::MolphaError,
     events::{EpochCreated, ProtocolInitialized},
+    program::Molpha,
     state::{epoch::TAU_MIN, EpochState, ProtocolConfig, Registry, RegistryState},
 };
 
@@ -198,6 +199,21 @@ pub struct Initialize<'info> {
 
     #[account(mut)]
     pub authority: Signer<'info>,
+
+    /// This program. Its account names the ProgramData account holding the upgrade authority.
+    #[account(
+        constraint = program.programdata_address()? == Some(program_data.key())
+            @ MolphaError::InvalidProgramData
+    )]
+    pub program: Program<'info, Molpha>,
+
+    // The state PDAs are `init`, so whoever initializes first owns the protocol for good. Only
+    // the upgrade authority may: nobody else can front-run a fresh deployment.
+    #[account(
+        constraint = program_data.upgrade_authority_address == Some(authority.key())
+            @ MolphaError::NotUpgradeAuthority
+    )]
+    pub program_data: Account<'info, ProgramData>,
 
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,

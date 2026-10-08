@@ -4,6 +4,7 @@
 //! breaks compilation instead of silently pointing tests at a different account.
 
 use anchor_lang::prelude::Pubkey;
+use anchor_lang::solana_program::bpf_loader_upgradeable;
 use molpha::state::{
     Delegate, EpochState, Feed, Gateway, Node, Plan, PlanType, ProtocolConfig, PunishmentCase,
     Registry, RegistryState, Secp256k1KeyClaim, Subscription, TicketMarker,
@@ -21,6 +22,11 @@ pub const INSTRUCTIONS_SYSVAR_ID: Pubkey =
 
 fn pda(seeds: &[&[u8]]) -> Pubkey {
     Pubkey::find_program_address(seeds, &molpha::ID).0
+}
+
+/// The upgradeable loader's ProgramData account for the Molpha program.
+pub fn program_data() -> Pubkey {
+    Pubkey::find_program_address(&[molpha::ID.as_ref()], &bpf_loader_upgradeable::ID).0
 }
 
 pub fn protocol_config() -> Pubkey {

@@ -213,6 +213,10 @@ pub enum MolphaError {
     InvalidRentReceiver,
     #[msg("initial_tau is below the minimum ticket threshold")]
     InvalidInitialTau,
+    #[msg("program data account is not this program's")]
+    InvalidProgramData,
+    #[msg("initialize must be signed by the program's upgrade authority")]
+    NotUpgradeAuthority,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {

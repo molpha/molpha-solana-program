@@ -59,6 +59,12 @@ yarn molpha init \
   --usdc-mint <MINT>
 ```
 
+`init` must be signed by the program's upgrade authority: `--wallet` has to be the key that
+`solana program show <PROGRAM_ID>` lists as the authority. The CLI checks this before sending, and
+the program rejects anyone else with `NotUpgradeAuthority`. That wallet becomes the protocol
+authority. Initialize before revoking the upgrade authority: an immutable program can no longer be
+initialized.
+
 `init` derives and creates the protocol treasury ATA from `protocol_config` + `usdc_mint`, and the
 genesis epochs 0 and 1. The fee flags have no defaults. Epoch knobs default to a 1-day epoch,
 6-hour ticket grace, a 2,000-ticket target, an 80% relative availability floor and 50 samples
