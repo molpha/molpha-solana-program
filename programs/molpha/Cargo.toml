@@ -3,7 +3,7 @@ name = "molpha"
 version = "0.1.0"
 description = "Molpha Oracle Solana Program"
 edition = "2021"
-license = "ISC"
+license = "Apache-2.0"
 
 [lib]
 crate-type = ["cdylib", "lib"]

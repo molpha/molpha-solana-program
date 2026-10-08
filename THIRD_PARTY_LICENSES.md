@@ -1,6 +1,6 @@
 # Third-party licenses
 
-Reviewed 8 October 2026 against `Cargo.lock` (resolved with locked offline Cargo metadata) and the installed JavaScript dependency tree. This is a source-release inventory; dependencies keep their own licenses and are not relicensed under ISC.
+Reviewed 8 October 2026 against `Cargo.lock` (resolved with locked offline Cargo metadata) and the installed JavaScript dependency tree. This is a source-release inventory; dependencies keep their own licenses and are not relicensed under Apache-2.0.
 
 ## Distribution notes
 

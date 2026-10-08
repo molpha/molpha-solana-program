@@ -349,7 +349,7 @@ Exact derivations are documented in [NODE_OPERATOR_GUIDE.md §3](NODE_OPERATOR_G
 
 ## License
 
-ISC — see [LICENSE](LICENSE). Dependencies retain their own licenses; see
+Apache-2.0 — see [LICENSE](LICENSE). Dependencies retain their own licenses; see
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 ## Support
