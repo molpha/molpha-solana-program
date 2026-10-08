@@ -36,7 +36,7 @@ solana-transaction = { version = "4.1", features = ["serde"] }
 libsecp256k1 = "0.7"
 serde_json = "1"
 solana-keccak-hasher = { version = "3.1.0", features = ["sha3"] }
-solana-transaction-error = "3.3"
+solana-transaction-error = "4.1"
 solana-instruction = "3.4"
 solana-address-lookup-table-interface = { version = "3.1", features = ["bincode"] }
 agave-feature-set = "4.2"
