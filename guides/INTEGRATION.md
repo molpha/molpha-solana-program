@@ -1,61 +1,61 @@
-# Integrating with this source release
+# Integration guide
 
-Use the program's generated IDL and the operator CLI from the same checkout.
-The test suite supplies local instruction examples; there is no separately
-packaged price-client implementation in this repository.
+How to read a Molpha feed from a consumer. There is no packaged client SDK in this repository:
+use the IDL and, for inspection, the CLI, both built from the same commit.
 
-## Build and inspect
-
-Use Rust 1.97.1, Anchor 1.2.0, Solana CLI 4.1.1, Node 22 and Yarn 1.22.22 as
-configured in the repository/CI. Install dependencies and build:
+## Build the IDL and CLI
 
 ```bash
 yarn install --frozen-lockfile
-NO_DNA=1 anchor build -p molpha
+anchor build -p molpha
 yarn build:cli
-yarn molpha --help
-yarn molpha account feed --help
 ```
 
-The build creates `target/idl/molpha.json` and `target/deploy/molpha.so`. Neither
-is tracked. Copy the generated IDL into a consumer project only together with
-the source revision it represents. Check the selected deployment address before
-connecting; `Anchor.toml` defaults the Anchor provider to devnet.
+This writes `target/idl/molpha.json` and `target/deploy/molpha.so`. Neither is tracked. If you
+copy the IDL into another project, record the commit it came from, and check that the program ID
+you connect to is the one you expect.
 
-## Local verification
+## Read a feed
 
-```bash
-NO_DNA=1 cargo test --workspace --locked
-yarn test:cli
-```
+A feed's address is the PDA `[molpha_feed, source_id, signatures_required, submitter]` under the
+program ID. Derive it from values you chose in advance, not from values an untrusted party hands
+you.
 
-LiteSVM tests create their own disposable keys and do not send remote transactions.
-Rebuild the `.so` after program changes. See `molpha-tests/tests/attestation.rs`
-for publication/reading behavior and `molpha-tests/tests/evm_compatibility.rs`
-for signature fixtures. CLI account reads require a wallet file to construct
-the Anchor provider even though the read does not send a transaction.
-
-For a separately provisioned local validator and deployed/initialized program,
-read a known feed with an explicit loopback RPC and a disposable local wallet:
+With the CLI, against a local validator where the program is deployed and initialized:
 
 ```bash
 yarn molpha --cluster localnet --rpc http://127.0.0.1:8899 \
-  --wallet /absolute/path/to/disposable-local-wallet.json \
-  account feed --address <feed-public-key>
+  --wallet /path/to/disposable-wallet.json \
+  account feed --source-id <SOURCE_ID_HEX> --signatures-required 3 --submitter <SUBMITTER>
 ```
 
-This command reads state; it does not set up a validator or initialize the protocol.
-Follow [`cli/README.md`](../cli/README.md) for operator setup, using explicit local
-options rather than copying remote deployment configurations.
+`account feed --address <pubkey>` reads a known address directly. The CLI needs a wallet file to
+build its provider even though a read sends no transaction; use a disposable one.
 
-## Consumer acceptance
+## What a consumer must check
 
-Choose the source ID, expected submitter and quorum explicitly when deriving the
-feed PDA. Validate account ownership, discriminator and data before trusting it.
-Enforce application freshness using the feed's millisecond timestamp. Interpret
-`value` according to `value_kind` and your source's agreed encoding; hashed feeds
-need the preimage and a hash check. Treat registries, signatures and source
-encoding as one versioned protocol across gateway, nodes and consumers.
+1. **Ownership.** The account is owned by the Molpha program and has the `Feed` discriminator.
+2. **Identity.** `source_id`, `signatures_required` and `submitter` are the ones you expect. A
+   feed with a lower quorum or another submitter is a different feed.
+3. **Freshness.** `timestamp` is in unix milliseconds. Compare `timestamp / 1000` with the cluster
+   clock and reject anything older than your application tolerates.
+4. **Encoding.** `value` is 32 bytes whose meaning is agreed per source. When `value_kind` is
+   `Hash`, obtain the preimage and check `keccak256(preimage) == value`.
+5. **Registry.** `registry_version` tells you which node set signed.
 
-See the [API reference](API_REFERENCE.md) for the actual program interface and
-the [test-key policy](TEST_KEYS.md) before handling any historical example key.
+A valid signature shows that a quorum of registered nodes signed the value. It does not make the
+value fresh or correct for your use; those checks are yours.
+
+## Local testing
+
+```bash
+cargo test --workspace --locked
+yarn test:cli
+```
+
+The LiteSVM tests create their own keys and send nothing to a network.
+`molpha-tests/tests/attestation.rs` shows publication and reads end to end, and
+`molpha-tests/tests/evm_compatibility.rs` checks the cross-chain signature vector.
+
+See the [API reference](API_REFERENCE.md) for the account layout and
+[Architecture](ARCHITECTURE.md) for the trust model.

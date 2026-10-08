@@ -1,128 +1,18 @@
 {
   "version": 1,
   "reviewed_on": "2026-10-08",
-  "policy": "Only exact owner-confirmed disposable test contents are exempt. New operational secrets must never be allowlisted.",
+  "policy": "Only exact, reviewed test contents already present in published history are exempt. Never allowlist an operational key or a file that has not been published.",
   "entries": [
     {
-      "sha256": "fbf34148acbf107a291e74222ef922599c6a5ff78ac34ac79e0f31304b2d2e9b",
+      "sha256": "c0748b8e06a18b39cacdb16e13fa3bcf6bd8ed7212b5ab83421db46dfc891fc9",
       "categories": [
-        "solana-keypair"
+        "labelled-private-key"
       ],
       "historical_paths": [
-        "MoLF4sBjvfsYYdwE84yU9FcTkpd4WSGvR92rpLQgbpn.json"
+        "client/keypair.txt"
       ],
       "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
-      "sha256": "051a9111d70511341380452e950c51f5e3d5839a1463e16e6723a8cb32de118d",
-      "categories": [
-        "solana-keypair"
-      ],
-      "historical_paths": [
-        "MoLFGDpFoVnQgwbkTNScKPohCxhbfd61JjFrnotuwzh.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
-      "sha256": "bc536f759fddb40f462f8037813011c792447676c221b19e84b9cd6ff2ddd7cd",
-      "categories": [
-        "solana-keypair"
-      ],
-      "historical_paths": [
-        "MoLFeTRpDZgckPjjbLwW1wB9n85bQiqboPnvw9RwoG8.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
-      "sha256": "35717ab520ca1548f2da2da004c403e7804e3a667c4c9eabd5fcf8703aa1443d",
-      "categories": [
-        "solana-keypair"
-      ],
-      "historical_paths": [
-        "MoLFnEbuMS5gWnXNfUMLAYSqRM3eQZKWRzjeMQfqbT3.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
-      "sha256": "410f5b049b235dc0fcdbf99b29f04172982cbc8d96681ef3941d3b048ced6624",
-      "categories": [
-        "solana-keypair"
-      ],
-      "historical_paths": [
-        "chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
-      "sha256": "01a56dcb91725dab94e35f74c5dcba89e359824db34ee85dab6eddb6d04a9b65",
-      "categories": [
-        "solana-keypair"
-      ],
-      "historical_paths": [
-        "gateway-dev.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
-      "sha256": "8f7624140e26d113a6c9d0946df43d682383b4a626997da0b29f9aa4545116ef",
-      "categories": [
-        "solana-keypair"
-      ],
-      "historical_paths": [
-        "gateway-keypair.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
-      "sha256": "ce39d8018c2a04f45aa15bfcc3cf3d09a2336773505c3839f13ab4a6100c4e44",
-      "categories": [
-        "solana-keypair"
-      ],
-      "historical_paths": [
-        "gateway-keypair2.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
-      "sha256": "3deaa526f212b0ebbfde1ec9b1193a8b844fe6e3c3d63d8ecbc129be8f61f1b5",
-      "categories": [
-        "structured-secret"
-      ],
-      "historical_paths": [
-        "generated-nodes-albyn.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
-      "sha256": "2c056e5d89fc9600aa23b195afcf08ef21dc0b4a44616b79d9e47cecb8105850",
-      "categories": [
-        "structured-secret"
-      ],
-      "historical_paths": [
-        "generated-nodes-dev.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
-      "sha256": "2d0ae99cf5c451695881e41f826d1f3724da77e4ba332470adff7765a9a1bdc6",
-      "categories": [
-        "structured-secret"
-      ],
-      "historical_paths": [
-        "generated-nodes-dev.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
+      "reason": "Key printed by the removed Go client prototype's example script; test material, never use on public networks."
     },
     {
       "sha256": "0382d1c415f896b80e4ca212ff01b32c7629de45cf7fc61fb03345ff6415ec02",
@@ -151,45 +41,12 @@
       "reason": "Owner-confirmed disposable test material; never use on public networks."
     },
     {
-      "sha256": "6276d2740bc687a422b35f32e7abc87cdcb7940029282f60578939c8e9c79e4f",
-      "categories": [
-        "solana-keypair"
-      ],
-      "historical_paths": [
-        "node-test.dev.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
       "sha256": "b5a2877fa536649a4989eb21e6e98754572b0f3f1d71253d81ea25ab58718a83",
       "categories": [
         "solana-keypair"
       ],
       "historical_paths": [
         "programs/molpha-feed-keypair.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
-      "sha256": "1218eebfc96845562055c984f80369a0c889b687751243c408b429cbe391aaae",
-      "categories": [
-        "solana-keypair"
-      ],
-      "historical_paths": [
-        "test-authority-keypair.json"
-      ],
-      "current_paths": [],
-      "reason": "Owner-confirmed disposable test material; never use on public networks."
-    },
-    {
-      "sha256": "3fdef36f2577451a5c282fd2d8f1dc78163e8dc52cff150a7f6e91820d52aa4d",
-      "categories": [
-        "solana-keypair"
-      ],
-      "historical_paths": [
-        "test-mint-keypair.json"
       ],
       "current_paths": [],
       "reason": "Owner-confirmed disposable test material; never use on public networks."

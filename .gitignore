@@ -1,42 +1,23 @@
-node_modules
-target
-.anchor
+# Dependencies and build output
+node_modules/
+target/
+cli/dist/
+.anchor/
+test-ledger/
 package-lock.json
-test-ledger
-ref
-docs
-cli/dist
+__pycache__/
 
-# Local credentials and generated operator state. Keep JSON source/fixtures visible.
+# Credentials and operator state. Never commit these; CI scans for them.
 .env
 .env.*
 !.env.example
 !.env.*.example
 keys/
 secrets/
-**/*keypair*.json
-/generated-nodes*.json
-/gateway-dev.json
-/gateway-devgateway-dev
-/node-test.dev.json
-/MoLF*.json
-/chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt.json
-/init.config.json
-/job-submit-result.json
-.vscode/
-__pycache__/
+*keypair*.json
+generated-nodes*.json
 
-# Existing local drafts/experiments, not part of the public source package.
-# Maintained public integration documentation lives in guides/.
-/API_REFERENCE.md
-/INTEGRATION_GUIDE.md
-/NODE_REGISTRY_AND_ROUND_RESOLUTION.md
-/REMAINING_ACCOUNTS_LIMITS.md
-/SUBMIT_ATTESTATION_CU_BENCHMARK.md
-/rpc-and-trasaction-approach.md
-/tokenomics.md
-/reports/
-/scripts/debug-idl-upgrade.mjs
-/scripts/test-cli-refund.mjs
-/scripts/upload-idl-devnet.mjs
-/scripts/build-pinned-subscriptions.sh
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store

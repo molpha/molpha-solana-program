@@ -30,6 +30,12 @@ class SecretScanTests(unittest.TestCase):
         marker = b"-----BEGIN " + b"PRIVATE KEY-----"
         self.assertEqual(SCAN.detect("key.pem", marker), {"credential-pattern"})
 
+    def test_labelled_text_keys_are_detected(self):
+        key = b"Private Key: " + b"A" * 87 + b"\nPublic Key: " + b"B" * 44 + b"\n"
+        self.assertEqual(SCAN.detect("keypair.txt", key), {"labelled-private-key"})
+        self.assertEqual(SCAN.detect("notes.txt", b"Public Key: " + b"B" * 44), set())
+        self.assertEqual(SCAN.detect("code.js", b'privateKey: evm.privateKey.toString("hex"),'), set())
+
     def test_provider_token_patterns_are_detected(self):
         token = "ghp_" + "a" * 36
         self.assertEqual(SCAN.detect("config.txt", token.encode()), {"credential-pattern"})

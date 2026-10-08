@@ -23,6 +23,10 @@ TOKEN_PATTERNS = (
     re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b"),
     re.compile(r"\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}\b"),
 )
+# A labelled key in plain text, e.g. the "Private Key: <base58>" line some key generators print.
+LABELLED_KEY = re.compile(
+    r"(?im)^\s*(?:private|secret)[ _-]?key\s*[:=]\s*[\"']?(?:0x)?[0-9A-Za-z]{43,}"
+)
 
 
 def git(*args):
@@ -60,6 +64,8 @@ def detect(path, raw):
     text = raw.decode("utf-8", errors="replace")
     if any(pattern.search(text) for pattern in TOKEN_PATTERNS):
         found.add("credential-pattern")
+    if LABELLED_KEY.search(text):
+        found.add("labelled-private-key")
     try:
         value = json.loads(text)
     except (ValueError, RecursionError):
@@ -124,9 +130,11 @@ def files(mode):
                 continue  # Submodule commits are not blobs.
             yield path.decode("utf-8", errors="surrogateescape"), git("cat-file", "blob", oid.decode())
     else:
-        # Each object is read once. Historical exceptions bind exact content,
-        # regardless of its historical filename. Current exceptions also bind paths.
-        records = [row.split(b" ", 1) for row in git("rev-list", "--objects", "--all").splitlines()]
+        # Everything a push can publish: branches, remote-tracking refs and tags. Stashes and
+        # tool checkpoint refs stay local. Each object is read once. Historical exceptions bind
+        # exact content, regardless of its historical filename. Current exceptions also bind paths.
+        refs = ("--branches", "--remotes", "--tags")
+        records = [row.split(b" ", 1) for row in git("rev-list", "--objects", *refs).splitlines()]
         named = [(oid, path) for oid, *tail in records if tail for path in tail]
         request = b"".join(oid + b"\n" for oid, _ in named)
         types = subprocess.run(

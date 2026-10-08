@@ -3,11 +3,9 @@
 Rust + [LiteSVM](https://github.com/LiteSVM/litesvm) test suite for the Molpha Solana program.
 
 ```bash
-# LiteSVM loads target/deploy/molpha.so — rebuild after every program change.
-cargo build-sbf --manifest-path programs/molpha/Cargo.toml
-cp target/sbpfv3-solana-solana/release/molpha.so target/deploy/molpha.so
-# or: anchor build -p molpha  (requires Docker in Anchor 1.2)
-cargo test --workspace
+# LiteSVM loads target/deploy/molpha.so, so rebuild after every program change.
+anchor build -p molpha
+cargo test --workspace --locked
 ```
 
 No validator, no ledger, no network. Every test builds its own VM, USDC mint and keypairs, so

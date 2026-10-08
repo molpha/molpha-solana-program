@@ -113,37 +113,4 @@ export function registerDelegateCommands(program: Command): void {
         subscription: subscriptionPda.toBase58(),
       });
     });
-
-  delegate
-    .command("pause")
-    .description("Pause or unpause a delegate")
-    .requiredOption("--delegate <pubkey>", "delegate pubkey")
-    .option("--paused", "pause the delegate (default)", true)
-    .option("--unpaused", "unpause the delegate")
-    .action(async (options, command: Command) => {
-      const ctx = await getCliContext(command);
-      const delegateKey = parsePublicKey(options.delegate, "delegate");
-      const [delegatePda] = findDelegatePda(
-        ctx.programId,
-        ctx.wallet.publicKey,
-        delegateKey,
-      );
-      const paused = options.unpaused ? false : true;
-
-      const signature = await (ctx.program.methods as any)
-        .setDelegatePaused(paused)
-        .accountsPartial({
-          owner: ctx.wallet.publicKey,
-          delegateAccount: delegatePda,
-        })
-        .rpc();
-
-      writeJson({
-        signature,
-        owner: ctx.wallet.publicKey.toBase58(),
-        delegate: delegateKey.toBase58(),
-        delegateAccount: delegatePda.toBase58(),
-        paused,
-      });
-    });
 }

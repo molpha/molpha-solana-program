@@ -1,4 +1,4 @@
-//! `add_delegate`, `remove_delegate`, `set_delegate_paused`.
+//! `add_delegate`, `remove_delegate`.
 
 use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;

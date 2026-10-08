@@ -20,9 +20,7 @@ const {
   createTransferInstruction,
 } = require("@solana/spl-token");
 const { keccak_256 } = require("@noble/hashes/sha3.js");
-const {
-  generateKeypair: generateEvmKeypair,
-} = require("../generate-evm-keypair");
+const { generateKeypair: generateEvmKeypair } = require("./evm-keypair");
 
 const NODE_ID_PREFIX = Buffer.from("MOLPHA_NODE_ID_V1");
 const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
