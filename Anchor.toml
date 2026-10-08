@@ -14,7 +14,7 @@ molpha = "chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt"
 molpha = "chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt"
 
 [provider]
-cluster = "devnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

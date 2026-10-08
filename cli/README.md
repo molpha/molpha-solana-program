@@ -1,35 +1,26 @@
 # Molpha CLI
 
-`molpha` is the in-repo TypeScript CLI for operating the Molpha Solana program.
+`molpha` is the TypeScript CLI for operating the Molpha Solana program.
 
-## Prerequisites
-
-- `anchor build -p molpha --ignore-keys` (or `yarn build:molpha` after keys are synced)
-- `yarn build:cli`
-- A funded wallet (`ANCHOR_WALLET` or `--wallet`)
-- A reachable RPC (`--rpc` or `ANCHOR_PROVIDER_URL`)
-
-By default the CLI reads:
-
-- program id from `Anchor.toml`
-- wallet from `ANCHOR_WALLET` or `~/.config/solana/id.json`
-- IDL from `target/idl/molpha.json`
-
-## Build
+## Setup
 
 ```bash
+yarn install --frozen-lockfile
+anchor build -p molpha    # the CLI reads the IDL this produces
 yarn build:cli
-```
-
-```bash
 yarn molpha --help
 ```
 
-Development entrypoint:
+You also need a funded wallet and a reachable RPC. Global options, with their defaults:
 
-```bash
-yarn molpha:dev --help
-```
+| Option         | Default                                                              |
+| -------------- | -------------------------------------------------------------------- |
+| `--cluster`    | `localnet` (`localnet`, `devnet` or `mainnet`)                       |
+| `--rpc`        | `ANCHOR_PROVIDER_URL`, else the cluster's public endpoint            |
+| `--wallet`     | `ANCHOR_WALLET`, else `~/.config/solana/id.json`                     |
+| `--program-id` | The cluster's entry in `Anchor.toml`                                 |
+| `--idl`        | `target/idl/molpha.json`                                             |
+| `--commitment` | `confirmed`                                                          |
 
 ## Command Groups
 
@@ -39,7 +30,7 @@ yarn molpha:dev --help
 | `registry` | `register` \| `update-endpoint` \| `deactivate` \| `withdraw-deposit` \| `set-buffer` \| `reinstate` |
 | `plan` | `add` \| `update` \| `show` |
 | `subscription` | `subscribe` \| `extend` |
-| `delegate` | `add` \| `remove` \| `pause` |
+| `delegate` | `add` \| `remove` |
 | `gateway` | `register` \| `deactivate` |
 | `epoch` | `show` \| `finalize` \| `credit` \| `close` |
 | `ticket` | `submit` \| `close` |
@@ -112,8 +103,6 @@ yarn molpha plan add \
   --max-signers 3 \
   --max-delegates 100
 
-yarn molpha plan add --plan-type basic --subscription-price 20000000 --max-signers 3 --max-delegates 10 --private-api-enabled --cluster devnet
-
 yarn molpha subscription subscribe --plan-id 1
 ```
 
@@ -148,7 +137,7 @@ from the signers' `Node` accounts. `ticket submit` always derives it that way, a
 
 Node PoP is generated off chain over
 `keccak256("MOLPHA_NODE_POP_V1" || program_id || node_id)`. The CLI accepts only the
-resulting signature — never the secp256k1 private key.
+resulting signature, never the secp256k1 private key.
 
 Inspect accounts:
 
@@ -252,4 +241,4 @@ initialization redundancy is 1–8. Zero reward and base price are allowed. Slot
 the base price plus rewards for 256 signers must not overflow. The CLI checks static
 bounds before sending; the program also checks deadlines against its current clock.
 
-Run the CLI config tests with `yarn test:cli`.
+Run the CLI tests with `yarn test:cli`.

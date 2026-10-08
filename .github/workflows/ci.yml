@@ -1,6 +1,10 @@
-name: PR CI
+name: CI
 
 on:
+  push:
+    branches:
+      - main
+      - dev
   pull_request:
     types:
       - opened
@@ -12,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pr-ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -24,23 +28,25 @@ env:
 jobs:
   quality:
     name: Formatting and Lints
-    if: github.event.pull_request.draft == false
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: yarn
@@ -55,27 +61,29 @@ jobs:
         run: yarn lint
 
       - name: Run Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   build-and-test:
     name: Build and Test
-    if: github.event.pull_request.draft == false
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
     needs: quality
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: yarn
@@ -85,7 +93,7 @@ jobs:
 
       - name: Install Anchor via AVM
         run: |
-          "$HOME/.cargo/bin/cargo" install --git https://github.com/coral-xyz/anchor avm --locked --force
+          "$HOME/.cargo/bin/cargo" install --git https://github.com/coral-xyz/anchor --tag "v${ANCHOR_VERSION}" avm --locked --force
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           avm install "${ANCHOR_VERSION}"
           avm use "${ANCHOR_VERSION}"
@@ -112,17 +120,12 @@ jobs:
           solana --version
           anchor --version
 
-      - name: Build Anchor programs
-        run: anchor build
+      - name: Build the program
+        run: anchor build -p molpha
 
-      - name: Build CLI
-        run: yarn build:cli
-
-      - name: Generate default Solana keypair
-        run: |
-          mkdir -p "$HOME/.config/solana"
-          solana-keygen new --no-bip39-passphrase --silent --outfile "$HOME/.config/solana/id.json"
+      - name: Build and test the CLI
+        run: yarn test:cli
 
       - name: Run Rust + LiteSVM tests
         # The suite loads target/deploy/molpha.so, so it depends on the Anchor build above.
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
