@@ -3,15 +3,14 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use anchor_lang::prelude::Pubkey;
+use anchor_lang::prelude::{Clock, Pubkey};
 use anchor_lang::solana_program::bpf_loader_upgradeable::{self, UpgradeableLoaderState};
 use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
 use anchor_lang::{AccountDeserialize, AnchorDeserialize, Discriminator};
 use litesvm::types::{FailedTransactionMetadata, TransactionMetadata, TransactionResult};
 use litesvm::LiteSVM;
 use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
-use solana_clock::Clock;
-use solana_instruction::error::InstructionError;
+use solana_instruction_error::InstructionError;
 use solana_keypair::Keypair;
 use solana_message::v1::TransactionConfig;
 use solana_message::{v0, v1, AddressLookupTableAccount, Message, VersionedMessage};
@@ -429,7 +428,10 @@ impl TestEnv {
 
     /// Static account keys a v1 message carries, which [`v1::MAX_ADDRESSES`] caps.
     pub fn v1_address_count(&self, payer: &Pubkey, ixs: &[Instruction]) -> usize {
-        v1::Message::try_compile(payer, ixs, self.svm.latest_blockhash())
+        let config = TransactionConfig::empty()
+            .with_compute_unit_limit(DEFAULT_CU_LIMIT)
+            .with_loaded_accounts_data_size_limit(MAX_LOADED_ACCOUNTS_DATA_SIZE);
+        v1::Message::try_compile_with_config(payer, ixs, self.svm.latest_blockhash(), config)
             .expect("v1 message compiles")
             .account_keys
             .len()

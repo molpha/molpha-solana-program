@@ -32,14 +32,17 @@
     "@noble/hashes": "^2.4.0",
     "@noble/secp256k1": "^2.3.0",
     "@solana/spl-token": "^0.4.15",
-    "@solana/web3.js": "^1.98.4",
+    "@solana/web3.js": "^1.99.0",
     "commander": "^15.0.0"
   },
   "devDependencies": {
     "@types/bn.js": "^5.2.0",
-    "@types/node": "^22.15.0",
-    "prettier": "^3.9.6",
+    "@types/node": "^22.20.0",
+    "prettier": "^3.9.9",
     "typescript": "^7.0.2"
   },
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e",
+  "resolutions": {
+    "@solana/web3.js": "1.99.0"
+  }
 }
