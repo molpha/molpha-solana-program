@@ -155,9 +155,7 @@ async function main() {
         `Cannot reach RPC at ${provider.connection.rpcEndpoint}. (${detail})`,
       );
     }
-    throw new Error(
-      `Protocol not initialized. Run init first. (${detail})`,
-    );
+    throw new Error(`Protocol not initialized. Run init first. (${detail})`);
   }
 
   if (admin.publicKey.toString() !== protocolConfig.authority.toString()) {
