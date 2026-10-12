@@ -33,6 +33,7 @@ const { findSecp256k1KeyClaimPda, signNodePop } = require("./lib/node-pop");
 const {
   VALID_CLUSTERS,
   resolveConnectionOptions,
+  resolveManifestRpc,
   loadProgram,
 } = require("./lib/molpha-provider");
 const {
@@ -116,9 +117,10 @@ function buildRegisterNodeArgs(item) {
 async function main() {
   const opts = parseArgs(process.argv);
   const manifest = loadManifestFromFile(opts.input);
+  const cluster = opts.cluster ?? manifest.cluster ?? null;
   const connection = resolveConnectionOptions({
-    cluster: opts.cluster ?? manifest.cluster ?? null,
-    rpc: opts.rpc ?? manifest.rpcUrl ?? null,
+    cluster,
+    rpc: resolveManifestRpc(manifest, cluster, opts.rpc),
     wallet: opts.wallet ?? manifest.wallet ?? null,
   });
 
@@ -147,9 +149,13 @@ async function main() {
     protocolConfig =
       await program.account.protocolConfig.fetch(protocolConfigPda);
   } catch (error) {
-    throw new Error(
-      `Protocol not initialized. Run init first. (${error.message})`,
-    );
+    const detail = error.message ?? String(error);
+    if (/fetch failed|ECONNREFUSED|ENOTFOUND/i.test(detail)) {
+      throw new Error(
+        `Cannot reach RPC at ${provider.connection.rpcEndpoint}. (${detail})`,
+      );
+    }
+    throw new Error(`Protocol not initialized. Run init first. (${detail})`);
   }
 
   if (admin.publicKey.toString() !== protocolConfig.authority.toString()) {

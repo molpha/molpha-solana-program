@@ -69,7 +69,7 @@ Toolchain, as pinned in `rust-toolchain.toml`, `Anchor.toml` and CI:
 | ---------- | ------- |
 | Rust       | 1.97.1  |
 | Solana CLI | 4.1.1   |
-| Anchor     | 1.2.0   |
+| Anchor     | 1.2.1   |
 | Node.js    | 22      |
 | Yarn       | 1.22    |
 
@@ -105,7 +105,7 @@ The CLI reads the IDL from `target/idl/molpha.json`, so build the program first.
 
 | Cluster           | Program ID                                     |
 | ----------------- | ---------------------------------------------- |
-| Devnet, localnet  | `chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt`  |
+| Devnet, localnet  | `MoLF3pgVA9MENSuEujxNNSMaTo71aLyewaH5nrWfUZs`  |
 
 This is the ID declared in `programs/molpha/src/lib.rs` and `Anchor.toml`. There is no mainnet
 deployment.

@@ -21,7 +21,7 @@ concurrency:
 
 env:
   NODE_VERSION: "22"
-  ANCHOR_VERSION: "1.2.0"
+  ANCHOR_VERSION: "1.2.1"
   SOLANA_VERSION: "4.1.1"
   RUST_VERSION: "1.97.1"
 
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -46,7 +46,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: yarn
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -83,7 +83,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: yarn
@@ -93,9 +93,13 @@ jobs:
 
       - name: Install Anchor via AVM
         run: |
+          # anchor-cli links libudev when built from source.
+          sudo apt-get update && sudo apt-get install -y libudev-dev
           "$HOME/.cargo/bin/cargo" install --git https://github.com/coral-xyz/anchor --tag "v${ANCHOR_VERSION}" avm --locked --force
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          avm install "${ANCHOR_VERSION}"
+          # The prebuilt binary is rejected here: Actions gets 403 from the
+          # unauthenticated attestations API, and avm will not install it.
+          avm install "${ANCHOR_VERSION}" --from-source
           avm use "${ANCHOR_VERSION}"
           echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
 
