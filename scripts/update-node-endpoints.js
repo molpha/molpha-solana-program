@@ -29,6 +29,7 @@ const anchor = require("@coral-xyz/anchor");
 const { Keypair, PublicKey, ComputeBudgetProgram } = require("@solana/web3.js");
 const {
   resolveConnectionOptions,
+  resolveManifestRpc,
   loadProgram,
   VALID_CLUSTERS,
 } = require("./lib/molpha-provider");
@@ -143,9 +144,10 @@ async function main() {
   const opts = parseArgs(process.argv);
   const manifest = loadManifest(opts.input);
 
+  const cluster = opts.cluster ?? manifest.cluster ?? null;
   const connectionOpts = resolveConnectionOptions({
-    cluster: opts.cluster ?? manifest.cluster ?? null,
-    rpc: opts.rpc ?? manifest.rpcUrl ?? null,
+    cluster,
+    rpc: resolveManifestRpc(manifest, cluster, opts.rpc),
     wallet: opts.wallet ?? manifest.wallet ?? null,
   });
 

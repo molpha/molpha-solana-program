@@ -18,7 +18,7 @@ const { findEpochPda } = require("../dist/lib/pdas");
 const { bn } = require("../dist/lib/utils");
 const { findOpenEpoch } = require("../dist/commands/epoch");
 
-const PROGRAM_ID = new PublicKey("chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt");
+const PROGRAM_ID = new PublicKey("MoLF3pgVA9MENSuEujxNNSMaTo71aLyewaH5nrWfUZs");
 const hex = (bytes) => Buffer.from(bytes).toString("hex");
 
 // Shared with `molpha-tests/tests/hashing.rs::ticket_hashes_match_golden_vectors`.
@@ -59,7 +59,7 @@ test("ticket id, ticket hash and dispatch message match the program's golden vec
         FIXTURE.timestamp,
       ),
     ),
-    "5b77cc15f6940129344ceaf5cec37915d933ad0e4c378c2cac8ec334caaa7da7",
+    "7bcfad5c12968c95213e4b6ddf099e454125d81e3c6aa23510eadb11b33602c0",
   );
 });
 

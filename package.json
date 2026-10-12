@@ -25,13 +25,21 @@
     "molpha": "node cli/dist/index.js",
     "generate-nodes": "node scripts/generate-nodes.js",
     "register-nodes": "node scripts/register-nodes.js",
-    "update-node-endpoints": "node scripts/update-node-endpoints.js"
+    "update-node-endpoints": "node scripts/update-node-endpoints.js",
+    "upload-idl-devnet": "node scripts/upload-idl-devnet.mjs"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
     "@noble/hashes": "^2.4.0",
     "@noble/secp256k1": "^2.3.0",
+    "@solana-program/compute-budget": "^0.18.1",
+    "@solana-program/program-metadata": "^0.9.3",
+    "@solana-program/system": "^0.14.1",
+    "@solana/instruction-plans": "^8.2.0",
+    "@solana/kit": "^8.2.0",
+    "@solana/signers": "^8.2.0",
     "@solana/spl-token": "^0.4.15",
+    "@solana/transaction-messages": "^8.2.0",
     "@solana/web3.js": "^1.99.0",
     "commander": "^15.0.0"
   },

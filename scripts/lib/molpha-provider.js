@@ -84,6 +84,24 @@ function readProgramIdFromAnchorToml(cluster) {
   return null;
 }
 
+/**
+ * Use manifest RPC only when the target cluster matches the manifest cluster.
+ * Otherwise `--cluster devnet` would still hit a localnet URL baked into the file.
+ */
+function resolveManifestRpc(manifest, cluster, explicitRpc) {
+  if (explicitRpc) {
+    return explicitRpc;
+  }
+  if (!manifest?.rpcUrl) {
+    return null;
+  }
+  const manifestCluster = manifest.cluster ?? null;
+  if (manifestCluster && cluster && manifestCluster !== cluster) {
+    return null;
+  }
+  return manifest.rpcUrl;
+}
+
 function resolveConnectionOptions(opts = {}) {
   const envRpc = process.env.ANCHOR_PROVIDER_URL;
   const cluster =
@@ -141,6 +159,7 @@ function createProvider(connectionOpts) {
 module.exports = {
   VALID_CLUSTERS,
   DEFAULT_RPCS,
+  resolveManifestRpc,
   resolveConnectionOptions,
   loadProgram,
   createProvider,
