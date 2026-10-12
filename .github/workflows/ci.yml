@@ -21,7 +21,7 @@ concurrency:
 
 env:
   NODE_VERSION: "22"
-  ANCHOR_VERSION: "1.2.0"
+  ANCHOR_VERSION: "1.2.1"
   SOLANA_VERSION: "4.1.1"
   RUST_VERSION: "1.97.1"
 

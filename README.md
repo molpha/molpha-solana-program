@@ -69,7 +69,7 @@ Toolchain, as pinned in `rust-toolchain.toml`, `Anchor.toml` and CI:
 | ---------- | ------- |
 | Rust       | 1.97.1  |
 | Solana CLI | 4.1.1   |
-| Anchor     | 1.2.0   |
+| Anchor     | 1.2.1   |
 | Node.js    | 22      |
 | Yarn       | 1.22    |
 
