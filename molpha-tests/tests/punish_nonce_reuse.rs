@@ -175,6 +175,45 @@ fn file_err(
     case.p.env.send_err(&[ix], &[&reporter])
 }
 
+/// The batch was signed with the key the node held under `registry_version`. A rotation since
+/// then replaced it in the node's own account, but the snapshot still names it.
+#[test]
+fn a_node_that_rotated_since_its_batch_is_still_convicted_by_the_key_it_signed_with() {
+    let mut case = case();
+    let args = args_for(&case);
+    let guilty = case.guilty_pda();
+    let index = case.p.nodes.iter().position(|n| n.pda == guilty).unwrap();
+
+    case.p
+        .rotate_node_key(index, crypto::node_keys("nonce-reuse-rotated", 1).remove(0));
+    let on_chain: Node = case.p.env.get(&guilty);
+    assert_ne!(
+        (on_chain.secp256k1_pubkey_x, on_chain.secp256k1_pubkey_y),
+        (case.node_key.x, case.node_key.y),
+        "the node no longer holds the key it signed the batch with"
+    );
+
+    file(&mut case, args);
+    let account: Node = case.p.env.get(&guilty);
+    assert_eq!(account.status, NodeStatus::Tombstoned);
+}
+
+/// The key a node rotated to did not exist under the earlier version, so evidence signed by it
+/// cannot convict the node there.
+#[test]
+fn evidence_signed_by_a_key_the_version_does_not_name_does_not_convict() {
+    let mut case = case();
+    let guilty = case.guilty_pda();
+    let index = case.p.nodes.iter().position(|n| n.pda == guilty).unwrap();
+    let new_key = crypto::node_keys("nonce-reuse-premature", 1).remove(0);
+    case.p.rotate_node_key(index, new_key.clone());
+
+    case.node_key = new_key;
+    let args = args_for(&case);
+    let failed = file_err(&mut case, args);
+    assert_molpha_error(&failed, MolphaError::InvalidBatchSignature);
+}
+
 #[test]
 fn a_proven_nonce_reuse_takes_the_whole_deposit_tombstones_and_evicts_the_node() {
     let mut case = case();

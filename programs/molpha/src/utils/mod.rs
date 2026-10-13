@@ -1,5 +1,6 @@
 pub mod attestation;
 pub mod ed25519;
+pub mod registry_account;
 pub mod slash;
 pub mod time;
 

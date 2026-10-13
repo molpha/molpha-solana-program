@@ -19,6 +19,8 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>, node_owner: Pubkey) -> Resu
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
             next: &ctx.accounts.new_registry,
+            payer: &ctx.accounts.authority,
+            system_program: &ctx.accounts.system_program,
             grace_active_until,
             bump: ctx.bumps.new_registry,
         },
@@ -66,14 +68,14 @@ pub struct DeactivateNode<'info> {
     )]
     pub current_registry: AccountLoader<'info, Registry>,
 
+    /// CHECK: the next registry version's PDA. The handler creates it, or takes over one that
+    /// `extend_registry` allocated, and writes the snapshot.
     #[account(
-        init,
-        payer = authority,
-        space = Registry::SPACE,
+        mut,
         seeds = [Registry::SEED_PREFIX, registry_state.next_version.to_le_bytes().as_ref()],
         bump,
     )]
-    pub new_registry: AccountLoader<'info, Registry>,
+    pub new_registry: UncheckedAccount<'info>,
 
     #[account(
         mut,

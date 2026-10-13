@@ -2,23 +2,21 @@
 //!
 //! A filing settles in one instruction. Because every node's principal sits in one shared vault,
 //! the batch sweeps its whole forfeiture with a single transfer and funds the reporter's bounty
-//! from it immediately, so the transaction costs one account per signer and nothing per guilty
-//! node.
+//! from it immediately, so the transaction costs one account per guilty node and nothing for the
+//! signers it only needs keys of: those come from the evidence's registry snapshot.
 
 use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
 use molpha_verifier::bitmap::{for_each_set_bit, Bitmap};
+use molpha_verifier::solana::verify_aggregate_over_hash_accounts;
 use molpha_verifier::Attestation;
-use molpha_verifier::{
-    derive_selection_bitmap, verify_aggregate_over_hash_with_coalition_key, CoalitionKey,
-    RegistryView, SignerXy,
-};
+use molpha_verifier::{derive_selection_bitmap, CoalitionKey, RegistryView};
 
 use crate::{
-    error::{map_attestation_err, MolphaError},
+    error::{map_attestation_accounts_err, map_attestation_err, MolphaError},
     events::NodePunished,
-    state::{Node, NodeStatus, Offence},
+    state::{EvidenceAccounts, Node, NodeStatus, Offence, Registry, RegistryRef},
 };
 
 /// Whether two attestations sign different values for one duty — every payload field but `value`
@@ -88,14 +86,22 @@ pub(crate) fn slash_guilty_nodes<'info>(
     let clock = Clock::get()?;
     let kind = input.offence.kind();
 
+    let registry = RegistryRef::load(input.evidence_registry.as_ref())?;
     let mut cursor = 0usize;
-    for_each_set_bit(input.signers_bitmap, |bit_pos| {
-        let account_info = &input.signer_accounts[cursor];
+    for_each_set_bit(input.guilty_bitmap, |bit_pos| {
+        let account_info = input
+            .guilty_accounts
+            .get(cursor)
+            .ok_or(error!(MolphaError::MissingSignerAccount))?;
         cursor += 1;
 
-        if !input.guilty_bitmap.bit_set(bit_pos) {
-            return Ok(());
-        }
+        // The account must be the registry member the evidence names. The snapshot is the
+        // authority on who sits at a position; a caller cannot substitute another node.
+        require_keys_eq!(
+            account_info.key(),
+            registry.node(bit_pos)?,
+            MolphaError::InvalidNodeAccount
+        );
 
         let mut node: Account<Node> = Account::try_from(account_info)?;
 
@@ -139,9 +145,11 @@ pub(crate) fn slash_guilty_nodes<'info>(
 
 /// Proof output from an offence handler, fed into [`slash_guilty_nodes`].
 pub struct SlashInput<'info, 'a> {
-    /// The signer `Node` accounts the aggregate was verified against, in ascending bit order.
-    pub signer_accounts: &'info [AccountInfo<'info>],
-    pub signers_bitmap: Bitmap,
+    /// The guilty `Node` accounts, in ascending bit order of `guilty_bitmap`. Accounts after
+    /// them are ignored.
+    pub guilty_accounts: &'info [AccountInfo<'info>],
+    /// The registry snapshot the guilty positions index into.
+    pub evidence_registry: &'a AccountLoader<'info, Registry>,
     pub guilty_bitmap: Bitmap,
     pub offence: &'a Offence,
 }
@@ -169,27 +177,27 @@ pub(crate) fn require_signers_selected(
     Ok(())
 }
 
-/// Verify an evidence attestation's aggregate signature against its resolved signers.
+/// Verify an evidence attestation's aggregate signature against the keys in its registry snapshot.
 ///
 /// Signature only — unlike `molpha_verifier::verify`, neither selection membership nor quorum is
 /// enforced, since unsolicited-signing evidence breaks the former by definition. Callers that
 /// need membership check it with [`require_signers_selected`].
 ///
-/// `coalition_key` is the reporter-supplied affine sum of `ordered_signers`; a wrong one fails
+/// `coalition_key` is the reporter-supplied affine sum of the signers' keys; a wrong one fails
 /// the filing with `InvalidCoalitionKey` rather than reading as an invalid signature.
 pub(crate) fn verify_evidence_signature(
+    ctx: &EvidenceAccounts<'_, '_>,
     attestation: &Attestation,
-    ordered_signers: &[SignerXy],
     coalition_key: &CoalitionKey,
 ) -> Result<()> {
-    let is_valid = verify_aggregate_over_hash_with_coalition_key(
-        &attestation.signature.agg_sig_s,
-        &attestation.signature.commitment,
+    let is_valid = verify_aggregate_over_hash_accounts(
+        &ctx.evidence_registry.to_account_info(),
+        &attestation.signature,
         &attestation.message_hash(),
-        ordered_signers,
-        coalition_key,
+        attestation.payload.registry_version,
+        Some(coalition_key),
     )
-    .map_err(map_attestation_err)?;
+    .map_err(map_attestation_accounts_err)?;
     require!(is_valid, MolphaError::InvalidAggregateSignature);
     Ok(())
 }

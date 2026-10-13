@@ -46,11 +46,7 @@ fn submit_attestation_cu_matrix() {
             raw_value: Some(vec![0u8; 1]),
             coalition_key: signed.coalition_key,
         };
-        let ix = protocol.submit_attestation_ix_with_args(
-            &submitter.pubkey(),
-            raw_mismatch,
-            &signed.signer_pdas,
-        );
+        let ix = protocol.submit_attestation_ix_with_args(&submitter.pubkey(), raw_mismatch);
         let early = protocol.env.send_err(&[ix], &[&submitter]);
 
         // Includes Clock, registry/config checks, bitmap work, but stops before the aggregate
@@ -105,11 +101,7 @@ fn submit_attestation_18_signer_verifier_phases() {
 
     let mut invalid_selection = signed.submit_args();
     invalid_selection.attestation.payload.timestamp += 1;
-    let ix = protocol.submit_attestation_ix_with_args(
-        &submitter.pubkey(),
-        invalid_selection,
-        &signed.signer_pdas,
-    );
+    let ix = protocol.submit_attestation_ix_with_args(&submitter.pubkey(), invalid_selection);
     let selection_fail = protocol.env.send_err(&[ix], &[&submitter]);
 
     let invalid_signature = signed.with_tampered_signature();

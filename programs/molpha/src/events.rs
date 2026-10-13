@@ -44,6 +44,30 @@ pub struct NodeRegistered {
 }
 
 #[event]
+pub struct RegistryExtended {
+    /// The registry version whose account was grown. It is not published yet.
+    pub version: u32,
+    /// The account's length after this call, and the length it is being grown toward.
+    pub data_len: u32,
+    pub target_len: u32,
+}
+
+#[event]
+pub struct NodeKeyRotated {
+    pub node: Pubkey,
+    pub node_authority: Pubkey,
+    /// Registry position of the node, unchanged by the rotation.
+    pub index: u32,
+    /// The version that names the new key. The previous version keeps the old one.
+    pub registry_version: u32,
+    pub old_pubkey_x: [u8; 32],
+    pub old_pubkey_y: [u8; 32],
+    pub new_pubkey_x: [u8; 32],
+    pub new_pubkey_y: [u8; 32],
+    pub rotated_at: i64,
+}
+
+#[event]
 pub struct NodeEndpointUpdated {
     pub node: Pubkey,
     pub node_authority: Pubkey,

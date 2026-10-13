@@ -1,6 +1,10 @@
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { PublicKey } from "@solana/web3.js";
-import { evmBitmapBitSet } from "./signing/attestation";
+import {
+  evmBitmapBitSet,
+  RegistryLike,
+  registryNode,
+} from "./signing/attestation";
 
 export const DOMAIN_TICKET = Buffer.from("MOLPHA_TICKET_V1");
 export const DOMAIN_TICKET_ID = Buffer.from("MOLPHA_TICKET_ID_V1");
@@ -102,7 +106,7 @@ export function deriveDispatchMessage(
  */
 export function rosterSlots(
   epoch: { rosterLen: number; roster: Array<number[] | Uint8Array> },
-  registry: { nodeCount: number; nodes: Array<number[] | Uint8Array> },
+  registry: RegistryLike,
   selectionBitmap: Uint8Array,
 ): number[] {
   const roster = epoch.roster
@@ -111,7 +115,7 @@ export function rosterSlots(
   const slots: number[] = [];
   for (let bit = 0; bit < Number(registry.nodeCount); bit += 1) {
     if (!evmBitmapBitSet(selectionBitmap, bit)) continue;
-    const node = new PublicKey(Uint8Array.from(registry.nodes[bit])).toBase58();
+    const node = registryNode(registry, bit).toBase58();
     const existing = roster.indexOf(node);
     if (existing >= 0) {
       slots.push(existing);

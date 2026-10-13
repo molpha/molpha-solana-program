@@ -27,7 +27,7 @@ You also need a funded wallet and a reachable RPC. Global options, with their de
 | Group | Commands |
 |---|---|
 | `init` | initialize protocol |
-| `registry` | `register` \| `update-endpoint` \| `deactivate` \| `withdraw-deposit` \| `set-buffer` \| `reinstate` |
+| `registry` | `register` \| `rotate-key` \| `rotation-digest` \| `update-endpoint` \| `deactivate` \| `withdraw-deposit` \| `set-buffer` \| `reinstate` |
 | `plan` | `add` \| `update` \| `show` |
 | `subscription` | `subscribe` \| `extend` |
 | `delegate` | `add` \| `remove` |
@@ -137,13 +137,42 @@ submits the preimage as `raw_value`, and the feed stores the hash as `value_kind
 `attestation submit --args <path>` takes the `SubmitAttestationArgs` JSON that `attestation sign`
 prints under `submitArgs` (`{ attestation: { payload, signature }, rawValue, coalitionKey }`).
 `coalitionKey` is the affine sum of the signers' secp256k1 keys. When it is missing, `submit` sums it
-from the signers' `Node` accounts. `ticket submit` always derives it that way, and
+from the signers' keys in the registry snapshot the attestation names, which carries every member's
+key, so no signer accounts are passed. `ticket submit` always derives it that way, and
 `slash offence` does too unless the offence JSON already carries `coalitionKeyA` / `coalitionKeyB`
-(pair offences) or `coalitionKey` (unsolicited signing).
+(pair offences) or `coalitionKey` (unsolicited signing). A slash filing's accounts are the guilty
+nodes only: the signers both attestations share, or the signers outside the selection.
 
 Node PoP is generated off chain over
 `keccak256("MOLPHA_NODE_POP_V1" || program_id || node_id)`. The CLI accepts only the
 resulting signature, never the secp256k1 private key.
+
+Rotate a node's signing key. A rotation needs two signatures over one digest, made off chain by the
+node operator's own tooling: the node's current key, and a proof of possession by the new key.
+`registry rotation-digest` prints the digest; `lib/signing/key-rotation.ts` (`signKeyRotation`) builds
+both signatures from the two private keys. The command takes only signatures:
+
+```bash
+yarn molpha registry rotation-digest --new-secp-pubkey <NEW_COMPRESSED_SECP256K1_PUBKEY>
+
+yarn molpha registry rotate-key \
+  --new-secp-pubkey <NEW_COMPRESSED_SECP256K1_PUBKEY> \
+  --old-sig-s <32_BYTE_HEX> \
+  --old-sig-commitment <20_BYTE_HEX> \
+  --pop-sig-r <32_BYTE_EVEN_NONCE_X_HEX> \
+  --pop-sig-s <32_BYTE_RESPONSE_SCALAR_HEX>
+```
+
+Commands that publish a registry version (`register`, `rotate-key`, `deactivate`, `reinstate`,
+`set-buffer`, `slash`) add the `extend_registry` instructions a registry of more than 106 members
+needs, in the same transaction, paid by the wallet. `account registry-version` prints a snapshot's
+members, which the IDL does not describe: they are decoded from the raw account
+(`lib/registry.ts`).
+
+The signer must be the node owner (`--node-owner-wallet` for a separate keypair). A node can rotate
+once per `max_settlement_delay_seconds`; each rotation creates a new registry version, so peers
+that cache the node list must refresh. `registry show` prints, for each member, the key that
+version verifies it with (`signingKey`); `registry node` prints the key it holds now.
 
 Inspect accounts:
 

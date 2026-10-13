@@ -4,7 +4,7 @@ use solana_keccak_hasher::hashv;
 use molpha_verifier::{Bitmap, CoalitionKey, NonceEquationError};
 
 use crate::error::{map_attestation_err, MolphaError};
-use crate::state::{Evidence, EvidenceAccounts, Node, MAX_REGISTRY_NODES};
+use crate::state::{Evidence, EvidenceAccounts, Node, RegistryRef, MAX_REGISTRY_NODES};
 use crate::utils::slash::canonical_pair;
 
 pub const DOMAIN_NONCE_REUSE: &[u8] = b"MOLPHA_NONCE_REUSE_V1";
@@ -39,7 +39,7 @@ pub struct NonceReuseEvidence {
 }
 
 impl Evidence for NonceReuseEvidence {
-    fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<(Bitmap, Bitmap)> {
+    fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<Bitmap> {
         require!(
             self.merkle_proof.len() <= MAX_COMMITMENT_PROOF_DEPTH,
             MolphaError::MerkleProofTooDeep
@@ -63,10 +63,12 @@ impl Evidence for NonceReuseEvidence {
         guilty_bitmap.set_bit(node_index);
 
         require!(ctx.remaining.len() == 1, MolphaError::InvalidNodeAccount);
+        // The key the node signed with is the one the snapshot recorded, which a later rotation
+        // may have replaced in the node's own account.
+        let member = RegistryRef::load(ctx.evidence_registry.as_ref())?.member(node_index)?;
         let node: Account<Node> = Account::try_from(&ctx.remaining[0])?;
-        let registered_node = ctx.evidence_registry.load()?.node(node_index)?;
         require!(
-            node.key() == registered_node,
+            node.key() == Pubkey::new_from_array(member.node),
             MolphaError::InvalidNodeAccount
         );
 
@@ -86,7 +88,7 @@ impl Evidence for NonceReuseEvidence {
         );
         // A coalition of one: the node's stored key is its own affine sum, so passing it skips
         // the verifier's field inversion without any reporter-supplied input.
-        let node_key = (node.secp256k1_pubkey_x, node.secp256k1_pubkey_y);
+        let node_key = member.xy();
         require!(
             molpha_verifier::verify_aggregate_over_hash_with_coalition_key(
                 &self.batch_sig_s,
@@ -107,7 +109,7 @@ impl Evidence for NonceReuseEvidence {
         for transcript in [&self.transcript_a, &self.transcript_b] {
             require!(
                 molpha_verifier::verify_partial_signature_equation(
-                    &(node.secp256k1_pubkey_x, node.secp256k1_pubkey_y),
+                    &node_key,
                     &r1,
                     &r2,
                     &transcript.b,
@@ -119,7 +121,7 @@ impl Evidence for NonceReuseEvidence {
             );
         }
 
-        Ok((guilty_bitmap, guilty_bitmap))
+        Ok(guilty_bitmap)
     }
 
     fn hash(&self) -> [u8; 32] {

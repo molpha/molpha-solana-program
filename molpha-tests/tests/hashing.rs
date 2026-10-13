@@ -240,6 +240,38 @@ fn dispatch_message_commits_to_the_admitted_round() {
     );
 }
 
+/// The digest both keys sign to rotate a node's key: it matches the verifier's, and changes with
+/// the deployment, the node and the new key.
+#[test]
+fn key_rotation_digest_matches_the_verifier_and_binds_every_input() {
+    use molpha_tests::crypto;
+
+    let node = Pubkey::new_unique();
+    let key = [0x02; 33];
+    let digest = crypto::key_rotation_digest(&molpha::ID, &node, &key);
+    assert_eq!(
+        digest,
+        molpha_verifier::key_rotation_digest(&molpha::ID.to_bytes(), &node.to_bytes(), &key)
+    );
+    assert_eq!(
+        crypto::NODE_KEY_ROTATION_PREFIX,
+        molpha_verifier::NODE_KEY_ROTATION_PREFIX
+    );
+
+    let mut other_key = key;
+    other_key[32] ^= 1;
+    for other in [
+        crypto::key_rotation_digest(&Pubkey::new_unique(), &node, &key),
+        crypto::key_rotation_digest(&molpha::ID, &Pubkey::new_unique(), &key),
+        crypto::key_rotation_digest(&molpha::ID, &node, &other_key),
+    ] {
+        assert_ne!(other, digest);
+    }
+    // The registration identity hash shares no preimage prefix with it.
+    assert!(!crypto::NODE_KEY_ROTATION_PREFIX.starts_with(molpha::state::NODE_ID_PREFIX));
+    assert!(!molpha::state::NODE_ID_PREFIX.starts_with(crypto::NODE_KEY_ROTATION_PREFIX));
+}
+
 #[test]
 fn distinct_domains_separate_hashes() {
     assert_ne!(DOMAIN_TICKET, DOMAIN_TICKET_ID);

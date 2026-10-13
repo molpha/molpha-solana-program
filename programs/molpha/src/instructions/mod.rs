@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod delegate;
 pub mod epoch;
+pub mod extend_registry;
 pub mod gateway;
 pub mod node;
 pub mod revenue;
@@ -11,6 +12,7 @@ pub mod subscriptions;
 pub use admin::*;
 pub use delegate::*;
 pub use epoch::*;
+pub use extend_registry::*;
 pub use gateway::*;
 pub use node::*;
 pub use revenue::*;

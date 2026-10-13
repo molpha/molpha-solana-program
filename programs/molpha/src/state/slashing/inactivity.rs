@@ -4,7 +4,9 @@ use solana_keccak_hasher::hashv;
 use molpha_verifier::bitmap::Bitmap;
 
 use crate::error::MolphaError;
-use crate::state::{EpochState, Evidence, EvidenceAccounts, Node, NodeStatus, MAX_REGISTRY_NODES};
+use crate::state::{
+    EpochState, Evidence, EvidenceAccounts, Node, NodeStatus, RegistryRef, MAX_REGISTRY_NODES,
+};
 
 pub const DOMAIN_INACTIVITY: &[u8] = b"MOLPHA_INACTIVITY_V2";
 
@@ -24,7 +26,7 @@ pub struct InactivityEvidence {
 }
 
 impl Evidence for InactivityEvidence {
-    fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<(Bitmap, Bitmap)> {
+    fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<Bitmap> {
         require!(
             self.registry_version == ctx.current_registry_version,
             MolphaError::RegistryVersionMismatch
@@ -41,7 +43,7 @@ impl Evidence for InactivityEvidence {
         let node: Account<Node> = Account::try_from(&ctx.remaining[0])?;
         require_keys_eq!(
             node.key(),
-            ctx.evidence_registry.load()?.node(node_index)?,
+            RegistryRef::load(ctx.evidence_registry.as_ref())?.node(node_index)?,
             MolphaError::InvalidNodeAccount
         );
         require!(
@@ -73,7 +75,7 @@ impl Evidence for InactivityEvidence {
 
         let mut guilty_bitmap = Bitmap::new();
         guilty_bitmap.set_bit(node_index);
-        Ok((guilty_bitmap, guilty_bitmap))
+        Ok(guilty_bitmap)
     }
 
     fn hash(&self) -> [u8; 32] {

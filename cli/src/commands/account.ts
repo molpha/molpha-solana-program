@@ -1,6 +1,8 @@
+import { PublicKey } from "@solana/web3.js";
 import { Command } from "commander";
 import { accountJson, fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
+import { fetchRegistry } from "../lib/registry";
 import {
   findDelegatePda,
   findEpochPda,
@@ -81,7 +83,21 @@ export function registerAccountCommands(program: Command): void {
             "version",
           ),
         )[0].toBase58();
-      await printNamedAccount(command, "registry", address);
+      // The IDL describes a registry's header; its members are the rest of the account.
+      const pubkey = parsePublicKey(address);
+      const registry = await fetchRegistry(ctx.program, pubkey);
+      if (!registry)
+        throw new Error(`registry not found at ${pubkey.toBase58()}`);
+      const { members, ...header } = registry;
+      writeJson({
+        ...(accountJson(pubkey, header) as object),
+        members: members.map((member, index) => ({
+          index,
+          node: new PublicKey(Uint8Array.from(member.node)).toBase58(),
+          x: `0x${Buffer.from(Uint8Array.from(member.x)).toString("hex")}`,
+          y: `0x${Buffer.from(Uint8Array.from(member.y)).toString("hex")}`,
+        })),
+      });
     });
 
   account

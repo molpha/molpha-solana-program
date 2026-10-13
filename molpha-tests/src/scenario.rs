@@ -17,7 +17,9 @@ use molpha::state::{
     NonceReuseEvidence, Offence, PlanConfig, PlanType, ProtocolConfig, RegistryState,
     UnsolicitedSigningEvidence, MAX_REGISTRY_NODES,
 };
-use molpha_verifier::{Attestation, AttestationPayload, CoalitionKey, SchnorrSignature};
+use molpha_verifier::{
+    Attestation, AttestationPayload, CoalitionKey, KeyRotationProof, SchnorrSignature,
+};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 
@@ -42,6 +44,18 @@ pub struct RegisteredNode {
     pub salt: [u8; 32],
     /// Index in the registry snapshot created by its own registration.
     pub index: u16,
+    /// Keys this node signed with before `key`, oldest first. Older registry versions still name
+    /// them, so signing under those versions needs their secrets.
+    pub retired_keys: Vec<NodeKey>,
+}
+
+impl RegisteredNode {
+    /// The key (current or retired) whose public half is `xy`.
+    pub fn key_for(&self, xy: &([u8; 32], [u8; 32])) -> Option<&NodeKey> {
+        std::iter::once(&self.key)
+            .chain(&self.retired_keys)
+            .find(|key| (key.x, key.y) == *xy)
+    }
 }
 
 /// The duty a round attests to — `(source_id, version, timestamp, quorum)` plus the value.
@@ -117,7 +131,8 @@ pub struct SignedAttestation {
     pub signers_bitmap: [u8; 32],
     pub message_hash: [u8; 32],
     pub signature: AggregateSignature,
-    /// Node PDAs for the set bits, in ascending bit order — the `remaining_accounts` order.
+    /// Node PDAs for the set bits, in ascending bit order. Verification reads signer keys from
+    /// the registry snapshot, so these are not passed as accounts.
     pub signer_pdas: Vec<Pubkey>,
     /// Affine sum of the signers' keys, as every verifying instruction takes it (zero if
     /// undefined, e.g. an empty set).
@@ -605,8 +620,10 @@ impl Protocol {
             8_000u16.wrapping_add(sequence as u16),
         );
         let authority = self.authority.insecure_clone();
-        let ix = self.register_node_ix(&owner.pubkey(), &args, &authority.pubkey());
-        self.env.send_ok(&[ix], &[&authority, &owner]);
+        let members = self.current_members() + 1;
+        let mut ixs = self.registry_extend_ixs(&owner.pubkey(), members);
+        ixs.push(self.register_node_ix(&owner.pubkey(), &args, &authority.pubkey()));
+        self.env.send_ok(&ixs, &[&authority, &owner]);
 
         let pda = pda::node(&owner.pubkey());
         self.nodes.push(RegisteredNode {
@@ -615,6 +632,7 @@ impl Protocol {
             key,
             pda,
             salt,
+            retired_keys: Vec::new(),
         });
     }
 
@@ -643,6 +661,105 @@ impl Protocol {
             }
             .data(),
         }
+    }
+
+    /// Members of the current registry version.
+    pub fn current_members(&self) -> usize {
+        usize::from(self.env.registry(self.current_version()).node_count)
+    }
+
+    /// `extend_registry`: grow the next registry version's account by up to 10 KiB.
+    pub fn extend_registry_ix(&self, payer: &Pubkey) -> Instruction {
+        let current_version = self.current_version();
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::ExtendRegistry {
+                payer: *payer,
+                registry_state: pda::registry_state(),
+                current_registry: pda::registry(current_version),
+                new_registry: pda::registry(current_version + 1),
+                system_program: anchor_lang::solana_program::system_program::ID,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::ExtendRegistry {}.data(),
+        }
+    }
+
+    /// How many `extend_registry` calls must precede an instruction that publishes a version
+    /// needing room for `members` members.
+    ///
+    /// That instruction adds up to 10 KiB itself, so a snapshot of up to 106 members needs none.
+    /// Whatever is already allocated for the next version counts.
+    pub fn registry_extends_needed(&self, members: usize) -> usize {
+        let next = pda::registry(self.current_version() + 1);
+        let allocated = if self.env.account_exists(&next) {
+            self.env.account_data(&next).len()
+        } else {
+            0
+        };
+        let short = molpha::state::Registry::space(members).saturating_sub(allocated);
+        short.saturating_sub(1) / molpha::utils::registry_account::MAX_GROWTH_PER_INSTRUCTION
+    }
+
+    /// The `extend_registry` instructions to put in front of one that publishes a version with
+    /// room for `members` members. Empty for a registry of up to 106.
+    pub fn registry_extend_ixs(&self, payer: &Pubkey, members: usize) -> Vec<Instruction> {
+        (0..self.registry_extends_needed(members))
+            .map(|_| self.extend_registry_ix(payer))
+            .collect()
+    }
+
+    /// The proof that rotates node `index` to `new_key`, signed with the key it holds now.
+    pub fn key_rotation_proof(&self, index: usize, new_key: &NodeKey) -> KeyRotationProof {
+        let node = &self.nodes[index];
+        crypto::key_rotation_proof(&molpha::ID, &node.pda, &node.key, new_key)
+    }
+
+    pub fn rotate_node_key_ix(&self, index: usize, proof: KeyRotationProof) -> Instruction {
+        self.rotate_node_key_raw_ix(
+            &self.nodes[index].owner.pubkey(),
+            proof,
+            self.current_version() + 1,
+        )
+    }
+
+    /// `rotate_node_key` with a caller-chosen owner and target version — for failure cases.
+    pub fn rotate_node_key_raw_ix(
+        &self,
+        owner: &Pubkey,
+        proof: KeyRotationProof,
+        new_registry_version: u32,
+    ) -> Instruction {
+        let current_version = self.current_version();
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::RotateNodeKey {
+                node_owner: *owner,
+                protocol_config: pda::protocol_config(),
+                registry_state: pda::registry_state(),
+                current_registry: pda::registry(current_version),
+                new_registry: pda::registry(new_registry_version),
+                node: pda::node(owner),
+                secp256k1_key_claim: pda::secp256k1_key_claim(&proof.new_public_key_compressed),
+                system_program: anchor_lang::solana_program::system_program::ID,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::RotateNodeKey { proof }.data(),
+        }
+    }
+
+    /// Rotate node `index` to `new_key`, signed by its owner and its current key. The node's
+    /// previous key is kept so attestations under older registry versions can still be signed.
+    pub fn rotate_node_key(&mut self, index: usize, new_key: NodeKey) -> TransactionMetadata {
+        let proof = self.key_rotation_proof(index, &new_key);
+        let owner = self.nodes[index].owner.insecure_clone();
+        let mut ixs = self.registry_extend_ixs(&owner.pubkey(), self.current_members());
+        ixs.push(self.rotate_node_key_ix(index, proof));
+        let meta = self.env.send_ok(&ixs, &[&owner]);
+        let node = &mut self.nodes[index];
+        let retired = std::mem::replace(&mut node.key, new_key);
+        node.retired_keys.push(retired);
+        meta
     }
 
     // -----------------------------------------------------------------------
@@ -803,7 +920,7 @@ impl Protocol {
             &duty.source_id,
             duty.timestamp,
             duty.signatures_required,
-            &registry.selection_view(&crate::env::EMPTY_REGISTRY_NODES),
+            &registry.selection_view(),
         )
         .expect("selection derives");
         crypto::bitmap_bits(&bitmap.to_bytes())
@@ -823,16 +940,17 @@ impl Protocol {
         nonce: Option<[u8; 32]>,
     ) -> SignedAttestation {
         let registry = self.env.registry(duty.registry_version);
+        // The key a node signs with is the one the snapshot names for it, which differs from its
+        // current key once it has rotated.
         let signer_keys: Vec<&NodeKey> = bits
             .iter()
             .map(|bit| {
                 let node_pda = registry.nodes[*bit];
-                &self
-                    .nodes
+                self.nodes
                     .iter()
                     .find(|n| n.pda == node_pda)
+                    .and_then(|n| n.key_for(&registry.keys[*bit]))
                     .unwrap_or_else(|| panic!("no key material for registry bit {bit}"))
-                    .key
             })
             .collect();
         let signer_pdas = bits.iter().map(|bit| registry.nodes[*bit]).collect();
@@ -856,24 +974,15 @@ impl Protocol {
     }
 
     /// The coalition key a client derives for `attestation`: the sum of its signers' keys, read
-    /// from their `Node` accounts. Zero when a signer bit has no `Node` account (malformed-bitmap
-    /// tests), so those still fail on the check they target.
+    /// from the registry snapshot the attestation names. Zero when a signer bit is outside the
+    /// snapshot (malformed-bitmap tests), so those still fail on the check they target.
     pub fn coalition_key_for(&self, attestation: &Attestation) -> CoalitionKey {
-        let payload = &attestation.payload;
-        let pdas = self.node_pdas_for_bitmap(
-            payload.registry_version,
-            &attestation.signature.signers_bitmap,
-        );
-        if pdas.iter().any(|pda| !self.env.account_exists(pda)) {
+        let registry = self.env.registry(attestation.payload.registry_version);
+        let bits = crypto::bitmap_bits(&attestation.signature.signers_bitmap);
+        if bits.iter().any(|bit| *bit >= registry.keys.len()) {
             return ZERO_COALITION_KEY;
         }
-        let signer_xy: Vec<_> = pdas
-            .iter()
-            .map(|pda| {
-                let node = self.env.get::<molpha::state::Node>(pda);
-                (node.secp256k1_pubkey_x, node.secp256k1_pubkey_y)
-            })
-            .collect();
+        let signer_xy: Vec<_> = bits.iter().map(|bit| registry.keys[*bit]).collect();
         molpha_verifier::coalition_key(&signer_xy).unwrap_or(ZERO_COALITION_KEY)
     }
 
@@ -882,11 +991,7 @@ impl Protocol {
         submitter: &Pubkey,
         attestation: &SignedAttestation,
     ) -> Instruction {
-        self.submit_attestation_ix_with_args(
-            submitter,
-            attestation.submit_args(),
-            &attestation.signer_pdas,
-        )
+        self.submit_attestation_ix_with_args(submitter, attestation.submit_args())
     }
 
     /// `submit_attestation` with caller-built args — for raw values and tampered payloads.
@@ -894,10 +999,9 @@ impl Protocol {
         &self,
         submitter: &Pubkey,
         args: SubmitAttestationArgs,
-        signer_pdas: &[Pubkey],
     ) -> Instruction {
         let payload = &args.attestation.payload;
-        let mut accounts = molpha::accounts::SubmitAttestation {
+        let accounts = molpha::accounts::SubmitAttestation {
             submitter: *submitter,
             registry: pda::registry(payload.registry_version),
             feed: pda::feed(&payload.source_id, payload.signatures_required, submitter),
@@ -905,7 +1009,6 @@ impl Protocol {
             system_program: anchor_lang::solana_program::system_program::ID,
         }
         .to_account_metas(None);
-        accounts.extend(crate::env::readonly_metas(signer_pdas.iter().copied()));
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -1100,16 +1203,18 @@ impl Protocol {
         offence: Offence,
         new_registry_version: u32,
     ) -> Instruction {
+        // The accounts are the guilty nodes: the signers both attestations share, or the
+        // signers outside the selection. Their keys come from the evidence registry.
         let bitmap = match &offence {
-            Offence::Equivocation(e) => union_bitmap(
+            Offence::Equivocation(e) => intersect_bitmap(
                 &e.attestation_a.signature.signers_bitmap,
                 &e.attestation_b.signature.signers_bitmap,
             ),
-            Offence::CommitmentReuse(e) => union_bitmap(
+            Offence::CommitmentReuse(e) => intersect_bitmap(
                 &e.attestation_a.signature.signers_bitmap,
                 &e.attestation_b.signature.signers_bitmap,
             ),
-            Offence::UnsolicitedSigning(e) => e.attestation.signature.signers_bitmap,
+            Offence::UnsolicitedSigning(e) => unsolicited_guilty_bitmap(self, &e.attestation),
             Offence::NonceReuse(e) => crypto::bitmap_from_bits(&[e.node_index as usize]),
             Offence::Inactivity(e) => crypto::bitmap_from_bits(&[e.node_index as usize]),
         };
@@ -1266,7 +1371,7 @@ pub fn unsolicited_guilty_bitmap(p: &Protocol, attestation: &Attestation) -> [u8
         &payload.source_id,
         payload.timestamp,
         payload.signatures_required,
-        &registry.selection_view(&crate::env::EMPTY_REGISTRY_NODES),
+        &registry.selection_view(),
     )
     .expect("selection derives");
     molpha_verifier::Bitmap::load(&attestation.signature.signers_bitmap)
@@ -1436,7 +1541,6 @@ impl Protocol {
             signed.attestation(),
             self.roster_slots(epoch, &signed.duty),
             signed.coalition_key,
-            &signed.signer_pdas,
         )
     }
 
@@ -1450,10 +1554,9 @@ impl Protocol {
         attestation: Attestation,
         roster_slots: Vec<u16>,
         coalition_key: CoalitionKey,
-        signer_pdas: &[Pubkey],
     ) -> Instruction {
         let payload = &attestation.payload;
-        let mut accounts = molpha::accounts::SubmitTicket {
+        let accounts = molpha::accounts::SubmitTicket {
             submitter: *submitter,
             protocol_config: pda::protocol_config(),
             registry: pda::registry(payload.registry_version),
@@ -1464,7 +1567,6 @@ impl Protocol {
             system_program: anchor_lang::solana_program::system_program::ID,
         }
         .to_account_metas(None);
-        accounts.extend(crate::env::readonly_metas(signer_pdas.iter().copied()));
         Instruction {
             program_id: molpha::ID,
             accounts,

@@ -10,9 +10,11 @@ import {
   SystemProgram,
 } from "@solana/web3.js";
 import { Command } from "commander";
+import { registryNode } from "../lib/signing/attestation";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import { withOffenceCoalitionKeys } from "../lib/coalition";
+import { fetchRegistry, registryExtendInstructions } from "../lib/registry";
 import {
   findEpochPda,
   findNodeDepositVault,
@@ -39,11 +41,6 @@ import {
   readJsonFile,
   writeJson,
 } from "../lib/utils";
-
-function registryNode(registry: any, index: number): PublicKey {
-  const value = registry.nodes[index];
-  return new PublicKey(Uint8Array.from(value));
-}
 
 async function sendSlashOffence(
   command: Command,
@@ -77,21 +74,28 @@ async function sendSlashOffence(
   const [evidenceRegistry] = findRegistryPda(ctx.programId, evidenceVersion);
   const [currentRegistry] = findRegistryPda(ctx.programId, currentVersion);
   const [newRegistry] = findRegistryPda(ctx.programId, currentVersion + 1);
-  const evidenceRegistryAccount = await fetchAccountOrNull<any>(
+  const evidenceRegistryAccount = await fetchRegistry(
     ctx.program,
-    "registry",
     evidenceRegistry,
   );
+  const currentRegistryAccount = await fetchRegistry(
+    ctx.program,
+    currentRegistry,
+  );
+  if (!currentRegistryAccount) {
+    throw new Error(`Current registry ${currentVersion} is missing`);
+  }
   if (!evidenceRegistryAccount) {
     throw new Error(`Evidence registry ${evidenceVersion} is missing`);
   }
-  const offence = await withOffenceCoalitionKeys(
-    ctx.program,
-    evidenceRegistryAccount,
-    evidence,
-  );
+  const offence = withOffenceCoalitionKeys(evidenceRegistryAccount, evidence);
 
-  const remaining = remainingBitsFromOffence(offence).map((bit) => ({
+  // The accounts are the guilty nodes, in ascending bit order; the program checks each against
+  // the evidence registry's member at that position. Signer keys come from the snapshot.
+  const remaining = remainingBitsFromOffence(
+    offence,
+    evidenceRegistryAccount,
+  ).map((bit) => ({
     pubkey: registryNode(evidenceRegistryAccount, bit),
     isWritable: true,
     isSigner: false,
@@ -131,6 +135,13 @@ async function sendSlashOffence(
     .remainingAccounts(remaining)
     .preInstructions([
       ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+      // The handler copies every current member before it evicts the guilty.
+      ...(await registryExtendInstructions(
+        ctx.program,
+        ctx.wallet.publicKey,
+        currentVersion,
+        Number(currentRegistryAccount.nodeCount),
+      )),
       createAssociatedTokenAccountIdempotentInstruction(
         ctx.wallet.publicKey,
         reporterUsdc,
@@ -175,11 +186,7 @@ export function registerSlashCommands(program: Command): void {
       if (!state) throw new Error("Registry state is not initialized");
       const registryVersion = Number(state.currentVersion);
       const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
-      const registry = await fetchAccountOrNull<any>(
-        ctx.program,
-        "registry",
-        registryPda,
-      );
+      const registry = await fetchRegistry(ctx.program, registryPda);
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
 
       const owner = parsePublicKey(options.nodeOwner, "node owner");

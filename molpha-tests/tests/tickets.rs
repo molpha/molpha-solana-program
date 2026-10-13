@@ -359,7 +359,6 @@ fn roster_hints_must_name_the_selected_nodes_exactly() {
                 signed.attestation(),
                 hints,
                 signed.coalition_key,
-                &signed.signer_pdas,
             ),
         ];
         let failed = p.env.send_err(&ixs, &[&submitter]);

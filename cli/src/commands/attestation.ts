@@ -4,7 +4,8 @@ import { ComputeBudgetProgram } from "@solana/web3.js";
 import { Command } from "commander";
 import { accountJson, fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext, getGlobalOptions } from "../lib/client";
-import { fetchCoalitionKey, parseCoalitionKey } from "../lib/coalition";
+import { coalitionKeyForSigners, parseCoalitionKey } from "../lib/coalition";
+import { fetchRegistry } from "../lib/registry";
 import { resolveCliOptions } from "../lib/config";
 import { findFeedPda, findRegistryPda } from "../lib/pdas";
 import {
@@ -15,7 +16,6 @@ import {
   generateE2eSignerMaterialFromSeed,
   rawValueArg,
   signE2eAttestation,
-  signerRemainingAccounts,
   SubmitAttestationArgs,
 } from "../lib/signing/attestation";
 import { loadVerifyFixture } from "../lib/signing/fixtures";
@@ -80,11 +80,8 @@ export function registerAttestationCommands(program: Command): void {
     )
     .action(async (options, command: Command) => {
       const programId = getProgramIdFromGlobals(command);
-      const { payload, remaining } = buildSignedPayload(options, programId);
-      writeJson({
-        ...describeSignedPayload(payload),
-        remainingAccounts: remaining.map((entry) => entry.pubkey.toBase58()),
-      });
+      const { payload } = buildSignedPayload(options, programId);
+      writeJson(describeSignedPayload(payload));
     });
 
   data
@@ -125,23 +122,12 @@ export function registerAttestationCommands(program: Command): void {
       );
       const registryVersion = payload.registryVersion;
       const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
-      const registry = await fetchAccountOrNull<any>(
-        ctx.program,
-        "registry",
-        registryPda,
-      );
+      const registry = await fetchRegistry(ctx.program, registryPda);
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
-      const remaining = signerRemainingAccounts(
-        registry,
-        schnorrSignature.signersBitmap,
-      );
+      // Signer keys come from the registry snapshot, so no signer accounts are passed.
       const coalitionKey =
         submitArgs.coalitionKey ??
-        (await fetchCoalitionKey(
-          ctx.program,
-          registry,
-          schnorrSignature.signersBitmap,
-        ));
+        coalitionKeyForSigners(registry, schnorrSignature.signersBitmap);
 
       const signature = await (ctx.program.methods as any)
         .submitAttestation({ ...submitArgs, coalitionKey })
@@ -151,7 +137,6 @@ export function registerAttestationCommands(program: Command): void {
           feed: feedPda,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts(remaining)
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({
             units: parseInteger(options.computeUnitLimit, "compute unit limit"),
@@ -177,12 +162,6 @@ function buildSignedPayload(
     const submitArgs = buildSubmitArgsFromFixture(fixture);
     const { signature } = submitArgs.attestation;
     const signersBitmap = Uint8Array.from(signature.signersBitmap);
-    const registry = {
-      nodeCount: fixture.nodePubkeys.length,
-      nodes: fixture.nodePubkeys.map((pubkey) =>
-        hexToBytes(pubkey, 33, "node pubkey"),
-      ),
-    };
     return {
       payload: {
         submitArgs,
@@ -190,7 +169,6 @@ function buildSignedPayload(
         aggSigS: Uint8Array.from(signature.aggSigS),
         commitment: Uint8Array.from(signature.commitment),
       },
-      remaining: signerRemainingAccounts(registry, signersBitmap),
     };
   }
 
@@ -241,16 +219,7 @@ function buildSignedPayload(
       : undefined,
   );
 
-  return {
-    payload,
-    remaining: signerRemainingAccounts(
-      {
-        nodeCount: signerMaterial.compressedPubkeys.length,
-        nodes: signerMaterial.compressedPubkeys,
-      },
-      payload.signersBitmap,
-    ),
-  };
+  return { payload };
 }
 
 function resolveSubmitArgs(

@@ -8,7 +8,7 @@ use crate::{
     events::{TicketRosterOverflow, TicketSubmitted},
     state::{
         dispatch_message, ticket_hash, ticket_id, EpochState, Gateway, GatewayStatus,
-        ProtocolConfig, Registry, TicketMarker, MAX_TICKETS_PER_EPOCH,
+        ProtocolConfig, Registry, RegistryRef, TicketMarker, MAX_TICKETS_PER_EPOCH,
     },
     utils::{
         attestation::{require_registry_active_at, verify_attestation_core},
@@ -19,15 +19,15 @@ use crate::{
 /// A round is a ticket when `ticket_hash` falls under the epoch's pinned threshold. The ticket
 /// must carry the gateway's dispatch signature (Ed25519 instruction immediately before this one),
 /// which binds it to a round a registered gateway admitted. Its full selection is re-derived and
-/// added to the epoch counters; signer `Node` accounts are read-only.
+/// added to the epoch counters. Signer keys come from the round's registry snapshot.
 ///
 /// - `epoch_index`: the epoch whose window contains `attestation.payload.timestamp`
 ///   (unix milliseconds; the epoch window, drift bound and registry activity are in seconds).
 /// - `roster_slots`: epoch roster slot of each selected registry position, in ascending bit
 ///   order: an existing slot, or the current `roster_len` for a node the epoch has not seen yet.
 /// - `coalition_key`: affine sum of the signers' keys; untrusted, checked by the verifier.
-pub fn submit_ticket<'info>(
-    ctx: Context<'info, SubmitTicket<'info>>,
+pub fn submit_ticket(
+    ctx: Context<SubmitTicket>,
     epoch_index: u64,
     attestation: Attestation,
     roster_slots: Vec<u16>,
@@ -80,19 +80,18 @@ pub fn submit_ticket<'info>(
 
     let min_signers = ctx.accounts.epoch_state.load()?.min_signers;
     verify_attestation_core(
-        ctx.remaining_accounts,
         &ctx.accounts.registry,
         min_signers,
         &attestation,
         &coalition_key,
     )?;
 
-    let registry = ctx.accounts.registry.load()?;
+    let registry = RegistryRef::load(ctx.accounts.registry.as_ref())?;
     let selection = derive_selection_bitmap(
         &payload.source_id,
         timestamp,
         payload.signatures_required,
-        &registry.view(),
+        &registry.selection_view(),
     )
     .map_err(map_attestation_err)?;
     let signers = Bitmap::load(&attestation.signature.signers_bitmap);

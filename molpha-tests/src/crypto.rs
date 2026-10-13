@@ -6,7 +6,7 @@
 
 use anchor_lang::prelude::Pubkey;
 use libsecp256k1::{curve::Scalar, PublicKey, SecretKey};
-use molpha_verifier::{eth_address_from_uncompressed_pubkey, NODE_POP_PREFIX};
+use molpha_verifier::{eth_address_from_uncompressed_pubkey, KeyRotationProof, NODE_POP_PREFIX};
 use solana_keccak_hasher::hashv;
 
 /// One registry node's secp256k1 identity.
@@ -171,6 +171,61 @@ pub struct AggregateSignature {
 }
 
 /// Sum of the coalition's public keys, compressed.
+/// Domain separator for node signing-key rotations. Spelled out rather than imported, so this
+/// signer stays an independent statement of the spec.
+pub const NODE_KEY_ROTATION_PREFIX: &[u8] = b"MOLPHA_NODE_KEY_ROTATION_V1";
+
+/// `keccak256(prefix ‖ program_id ‖ node ‖ new_key_compressed)`: the digest both keys sign to
+/// rotate `node`'s signing key to `new_key_compressed`.
+pub fn key_rotation_digest(
+    program_id: &Pubkey,
+    node: &Pubkey,
+    new_key_compressed: &[u8; 33],
+) -> [u8; 32] {
+    hashv(&[
+        NODE_KEY_ROTATION_PREFIX,
+        program_id.as_ref(),
+        node.as_ref(),
+        new_key_compressed.as_ref(),
+    ])
+    .to_bytes()
+}
+
+/// The proof that rotates `node` from `old` to `new`: `old` signs the digest in the aggregate
+/// format, and `new` proves possession over the same digest, which takes the place of the
+/// `node_id` in a registration proof.
+pub fn key_rotation_proof(
+    program_id: &Pubkey,
+    node: &Pubkey,
+    old: &NodeKey,
+    new: &NodeKey,
+) -> KeyRotationProof {
+    key_rotation_proof_with(program_id, node, old, new, &new.secret)
+}
+
+/// [`key_rotation_proof`] with the proof of possession signed by `pop_secret` — for the cases
+/// where the signer does not hold the new key's secret.
+pub fn key_rotation_proof_with(
+    program_id: &Pubkey,
+    node: &Pubkey,
+    old: &NodeKey,
+    new: &NodeKey,
+    pop_secret: &[u8; 32],
+) -> KeyRotationProof {
+    let digest = key_rotation_digest(program_id, node, &new.compressed);
+    let old_signature = sign_aggregate_raw(&old.compressed, &old.secret, &digest, None);
+    let nonce = hashv(&[b"molpha-test-rotation-pop-nonce".as_ref(), digest.as_ref()]).to_bytes();
+    let (pop_sig_r, pop_sig_s) =
+        sign_pop_with(program_id, &digest, &new.compressed, pop_secret, &nonce);
+    KeyRotationProof {
+        new_public_key_compressed: new.compressed,
+        old_key_sig_s: old_signature.agg_sig_s,
+        old_key_commitment: old_signature.commitment,
+        pop_sig_r,
+        pop_sig_s,
+    }
+}
+
 pub fn coalition_pubkey(keys: &[&NodeKey]) -> [u8; 33] {
     let points: Vec<PublicKey> = keys.iter().map(|k| k.public_key()).collect();
     PublicKey::combine(&points)

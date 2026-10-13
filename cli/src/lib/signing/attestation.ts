@@ -386,14 +386,20 @@ function commitmentAddrFromPoint(point: Point): Uint8Array {
   return digest.subarray(12, 32);
 }
 
-function schnorrSignForVerifier(params: {
+/**
+ * Aggregate-format Schnorr signature `(s, commitment)` over `messageHash`, for a key (or a sum of
+ * keys) `coalitionPubkeyCompressed` whose secret is `coalitionPrivkey`.
+ */
+export function schnorrSignForVerifier(params: {
   coalitionPubkeyCompressed: Uint8Array;
   messageHash: Uint8Array;
   coalitionPrivkey: bigint;
+  /** Test-vector hook. Production callers must leave this unset. */
+  nonce?: Uint8Array;
 }): { s: Uint8Array; commitment: Uint8Array } {
   const px = params.coalitionPubkeyCompressed.subarray(1, 33);
   const recoveryId = params.coalitionPubkeyCompressed[0] & 1;
-  let k = 0n;
+  let k = params.nonce ? modN(bigintFromBytesBE(params.nonce)) : 0n;
   while (k === 0n) {
     k = modN(bigintFromBytesBE(secp256k1.utils.randomPrivateKey()));
   }
@@ -521,27 +527,50 @@ function uint256BE(value: bigint): Uint8Array {
   return out;
 }
 
-export function signerRemainingAccounts(
-  registry: { nodeCount: number; nodes: Array<number[] | Uint8Array> },
-  signersBitmap: number[] | Uint8Array,
-  isWritable = false,
-) {
-  const remaining = [];
-  for (let bit = 0; bit < 256; bit += 1) {
-    if (!evmBitmapBitSet(signersBitmap, bit)) {
-      continue;
-    }
+/** One registry member as the program stores it: the node account and its signing key. */
+export type RegistryMemberLike = {
+  node: number[] | Uint8Array;
+  x: number[] | Uint8Array;
+  y: number[] | Uint8Array;
+};
 
-    if (bit >= Number(registry.nodeCount)) {
-      throw new Error(`signer bit ${bit} is outside registry node_count`);
-    }
-    remaining.push({
-      pubkey: new PublicKey(Uint8Array.from(registry.nodes[bit])),
-      isSigner: false,
-      isWritable,
-    });
+/** A decoded `Registry` snapshot: only `members[..nodeCount]` is populated. */
+export type RegistryLike = {
+  nodeCount: number;
+  members: RegistryMemberLike[];
+};
+
+/** The member at registry position `bit`, which must be populated. */
+export function registryMember(
+  registry: RegistryLike,
+  bit: number,
+): RegistryMemberLike {
+  if (bit < 0 || bit >= Number(registry.nodeCount)) {
+    throw new Error(`registry position ${bit} is outside node_count`);
   }
-  return remaining;
+  return registry.members[bit];
+}
+
+/** The node account at registry position `bit`. */
+export function registryNode(registry: RegistryLike, bit: number): PublicKey {
+  return new PublicKey(Uint8Array.from(registryMember(registry, bit).node));
+}
+
+/**
+ * The members named by `signersBitmap`, in ascending bit order. Their keys are what the program
+ * sums to verify an aggregate: a snapshot names each signer's key, so no account is passed.
+ */
+export function signerMembers(
+  registry: RegistryLike,
+  signersBitmap: number[] | Uint8Array,
+): RegistryMemberLike[] {
+  const members = [];
+  for (let bit = 0; bit < 256; bit += 1) {
+    if (evmBitmapBitSet(signersBitmap, bit)) {
+      members.push(registryMember(registry, bit));
+    }
+  }
+  return members;
 }
 
 export function describeSignedPayload(signed: SignedAttestation) {

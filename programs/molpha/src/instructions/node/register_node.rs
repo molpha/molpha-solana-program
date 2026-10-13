@@ -86,10 +86,13 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
             next: &ctx.accounts.new_registry,
+            payer: &ctx.accounts.node_owner,
+            system_program: &ctx.accounts.system_program,
             grace_active_until,
             bump: ctx.bumps.new_registry,
         },
         ctx.accounts.node.key(),
+        (pub_key_x, pub_key_y),
     )?;
 
     emit!(NodeRegistered {
@@ -140,14 +143,14 @@ pub struct RegisterNode<'info> {
     )]
     pub current_registry: AccountLoader<'info, Registry>,
 
+    /// CHECK: the next registry version's PDA. The handler creates it, or takes over one that
+    /// `extend_registry` allocated, and writes the snapshot.
     #[account(
-        init,
-        payer = node_owner,
-        space = Registry::SPACE,
+        mut,
         seeds = [Registry::SEED_PREFIX, registry_state.next_version.to_le_bytes().as_ref()],
         bump,
     )]
-    pub new_registry: AccountLoader<'info, Registry>,
+    pub new_registry: UncheckedAccount<'info>,
 
     #[account(
         init,

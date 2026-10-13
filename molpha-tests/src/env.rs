@@ -583,6 +583,11 @@ impl TestEnv {
         self.svm.get_account(key).map(|a| a.lamports).unwrap_or(0)
     }
 
+    /// Lamports that make an account of `data_len` bytes rent-exempt.
+    pub fn rent_minimum(&self, data_len: usize) -> u64 {
+        self.svm.minimum_balance_for_rent_exemption(data_len)
+    }
+
     pub fn token_balance(&self, token_account: &Pubkey) -> u64 {
         self.token_account(token_account).amount
     }
@@ -819,32 +824,58 @@ impl TestEnv {
 }
 
 /// Parsed `Registry` zero-copy snapshot.
+///
+/// Read from the raw account bytes, independently of the program's own types, so a layout drift
+/// shows up here. After the 8-byte discriminator: `grace_active_until` (i64), `active_from`
+/// (i64), `version` (u32), `node_count` (u16), `redundancy_buffer` (u8), `bump` (u8), then the
+/// member table of 96-byte records `(node, x, y)`. The account holds exactly `node_count`
+/// records, which `parse` asserts for every snapshot a test reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RegistrySnapshot {
     pub version: u32,
     pub node_count: u16,
     pub redundancy_buffer: u8,
     pub bump: u8,
+    pub grace_active_until: i64,
+    pub active_from: i64,
     /// Only the populated prefix, `nodes[..node_count]`.
     pub nodes: Vec<Pubkey>,
+    /// Each member's signing key `(x, y)`, parallel to `nodes`.
+    pub keys: Vec<([u8; 32], [u8; 32])>,
+    /// Length of the account, which is the header plus exactly `node_count` records.
+    pub data_len: usize,
 }
 
 impl RegistrySnapshot {
     pub fn parse(data: &[u8]) -> Self {
         assert_eq!(
-            data.len(),
-            molpha::state::Registry::SPACE,
-            "unexpected Registry account size"
+            data[..8],
+            *<molpha::state::Registry as anchor_lang::Discriminator>::DISCRIMINATOR,
+            "not a Registry account"
         );
         let body = &data[8..];
-        let version = u32::from_le_bytes(body[0..4].try_into().unwrap());
-        let node_count = u16::from_le_bytes(body[4..6].try_into().unwrap());
-        let redundancy_buffer = body[6];
-        let bump = body[7];
+        let grace_active_until = i64::from_le_bytes(body[0..8].try_into().unwrap());
+        let active_from = i64::from_le_bytes(body[8..16].try_into().unwrap());
+        let version = u32::from_le_bytes(body[16..20].try_into().unwrap());
+        let node_count = u16::from_le_bytes(body[20..22].try_into().unwrap());
+        let redundancy_buffer = body[22];
+        let bump = body[23];
+        assert_eq!(
+            data.len(),
+            molpha::state::Registry::space(usize::from(node_count)),
+            "a registry account holds exactly its members"
+        );
+        let members = &body[24..];
+        let member = |i: usize| &members[i * 96..(i + 1) * 96];
         let nodes = (0..node_count as usize)
+            .map(|i| Pubkey::try_from(&member(i)[0..32]).unwrap())
+            .collect();
+        let keys = (0..node_count as usize)
             .map(|i| {
-                let start = 8 + i * 32;
-                Pubkey::try_from(&body[start..start + 32]).unwrap()
+                (
+                    member(i)[32..64].try_into().unwrap(),
+                    member(i)[64..96].try_into().unwrap(),
+                )
             })
             .collect();
         Self {
@@ -852,7 +883,11 @@ impl RegistrySnapshot {
             node_count,
             redundancy_buffer,
             bump,
+            grace_active_until,
+            active_from,
             nodes,
+            keys,
+            data_len: data.len(),
         }
     }
 
@@ -860,23 +895,17 @@ impl RegistrySnapshot {
         self.nodes.iter().position(|n| n == node).map(|i| i as u16)
     }
 
-    /// [`molpha_verifier::RegistryView`] for selection derivation (`nodes` content is unused).
-    pub fn selection_view<'a>(
-        &self,
-        nodes: &'a [[u8; 32]; molpha::state::MAX_REGISTRY_NODES],
-    ) -> molpha_verifier::RegistryView<'a> {
+    /// [`molpha_verifier::RegistryView`] for selection derivation, which reads only the
+    /// version, node count and redundancy buffer — the member table is left empty.
+    pub fn selection_view(&self) -> molpha_verifier::RegistryView<'static> {
         molpha_verifier::RegistryView {
             version: self.version,
             node_count: self.node_count,
             redundancy_buffer: self.redundancy_buffer,
-            nodes,
+            nodes: &[],
         }
     }
 }
-
-/// Placeholder node table for [`RegistrySnapshot::selection_view`].
-pub const EMPTY_REGISTRY_NODES: [[u8; 32]; molpha::state::MAX_REGISTRY_NODES] =
-    [[0u8; 32]; molpha::state::MAX_REGISTRY_NODES];
 
 // ---------------------------------------------------------------------------
 // error assertions

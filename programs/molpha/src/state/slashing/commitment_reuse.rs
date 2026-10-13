@@ -1,9 +1,7 @@
 use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
-use molpha_verifier::{
-    solana::resolve_intersected_signers_accounts, Attestation, Bitmap, CoalitionKey,
-};
+use molpha_verifier::{Attestation, Bitmap, CoalitionKey};
 
 use crate::error::MolphaError;
 use crate::state::{Evidence, EvidenceAccounts};
@@ -26,7 +24,7 @@ pub struct CommitmentReuseEvidence {
 }
 
 impl Evidence for CommitmentReuseEvidence {
-    fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<(Bitmap, Bitmap)> {
+    fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<Bitmap> {
         let (attestation_a, attestation_b) = (&self.attestation_a, &self.attestation_b);
 
         require!(
@@ -55,25 +53,19 @@ impl Evidence for CommitmentReuseEvidence {
 
         {
             let evidence_registry = ctx.evidence_registry.load()?;
-            let view = evidence_registry.view();
+            let view = evidence_registry.selection_view();
             require_signers_selected(attestation_a, &view)?;
             require_signers_selected(attestation_b, &view)?;
         }
 
-        let resolution = resolve_intersected_signers_accounts(
-            ctx.remaining,
-            ctx.evidence_registry.as_ref(),
-            &attestation_a.signature.signers_bitmap,
-            &attestation_b.signature.signers_bitmap,
-        )
-        .map_err(|_| error!(MolphaError::InvalidNodeAccount))?;
-        let guilty_bitmap = resolution.intersected_bitmap;
+        let guilty_bitmap = Bitmap::load(&attestation_a.signature.signers_bitmap)
+            .intersect(&Bitmap::load(&attestation_b.signature.signers_bitmap));
         require!(guilty_bitmap.popcount() > 0, MolphaError::GuiltySetEmpty);
 
-        verify_evidence_signature(attestation_a, &resolution.signers_a, &self.coalition_key_a)?;
-        verify_evidence_signature(attestation_b, &resolution.signers_b, &self.coalition_key_b)?;
+        verify_evidence_signature(ctx, attestation_a, &self.coalition_key_a)?;
+        verify_evidence_signature(ctx, attestation_b, &self.coalition_key_b)?;
 
-        Ok((resolution.unioned_bitmap, guilty_bitmap))
+        Ok(guilty_bitmap)
     }
 
     fn hash(&self) -> [u8; 32] {

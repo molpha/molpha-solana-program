@@ -1,4 +1,5 @@
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import { deriveSignersBitmap } from "./signing/attestation";
 
 const DOMAIN_EQUIVOCATION = Buffer.from("MOLPHA_EQUIVOCATION_V1");
 const DOMAIN_COMMITMENT_REUSE = Buffer.from("MOLPHA_COMMITMENT_REUSE_V1");
@@ -318,8 +319,19 @@ export function offenceEvidenceHash(
   }
 }
 
+/**
+ * Registry positions of the guilty nodes, in ascending order: the `Node` accounts `slash_offence`
+ * takes. The offence's other signers are not accounts; their keys are read from the evidence
+ * registry.
+ *
+ * - equivocation and commitment reuse: the signers both attestations share;
+ * - unsolicited signing: the signers outside the duty's derived selection (so the evidence
+ *   registry's shape is needed);
+ * - nonce reuse and inactivity: the one node the evidence names.
+ */
 export function remainingBitsFromOffence(
   offence: Record<string, unknown>,
+  registry: { nodeCount: number; redundancyBuffer: number },
 ): number[] {
   const variant = offenceVariant(offence);
   if (variant.kind === "inactivity" || variant.kind === "nonceReuse") {
@@ -327,17 +339,40 @@ export function remainingBitsFromOffence(
   }
   if (variant.kind === "unsolicitedSigning") {
     const attestation = asRecord(pick(variant, "attestation"), "attestation");
+    const payload = asRecord(
+      pick(attestation, "payload"),
+      "attestation.payload",
+    );
     const signature = asRecord(
       pick(attestation, "signature"),
       "attestation.signature",
     );
-    return bitmapBits(
+    const signers = bitmapBits(
       bytesField(
         pick(signature, "signersBitmap", "signers_bitmap"),
         "signers bitmap",
         32,
       ),
     );
+    const selection = new Set(
+      bitmapBits(
+        deriveSignersBitmap(
+          bytesField(pick(payload, "sourceId", "source_id"), "source id", 32),
+          numField(
+            pick(payload, "registryVersion", "registry_version"),
+            "registry version",
+          ),
+          Number(registry.nodeCount),
+          numField(
+            pick(payload, "signaturesRequired", "signatures_required"),
+            "signatures required",
+          ),
+          Number(registry.redundancyBuffer),
+          numField(pick(payload, "timestamp"), "timestamp"),
+        ),
+      ),
+    );
+    return signers.filter((bit) => !selection.has(bit));
   }
   const a = asRecord(
     pick(variant, "attestationA", "attestation_a"),
@@ -349,14 +384,7 @@ export function remainingBitsFromOffence(
   );
   const sigA = asRecord(pick(a, "signature"), "attestationA.signature");
   const sigB = asRecord(pick(b, "signature"), "attestationB.signature");
-  return unionBits(
-    bitmapBits(
-      bytesField(
-        pick(sigA, "signersBitmap", "signers_bitmap"),
-        "signers bitmap a",
-        32,
-      ),
-    ),
+  const inB = new Set(
     bitmapBits(
       bytesField(
         pick(sigB, "signersBitmap", "signers_bitmap"),
@@ -365,6 +393,13 @@ export function remainingBitsFromOffence(
       ),
     ),
   );
+  return bitmapBits(
+    bytesField(
+      pick(sigA, "signersBitmap", "signers_bitmap"),
+      "signers bitmap a",
+      32,
+    ),
+  ).filter((bit) => inB.has(bit));
 }
 
 /**

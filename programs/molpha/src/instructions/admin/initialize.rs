@@ -147,7 +147,7 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = authority,
-        space = Registry::SPACE,
+        space = Registry::space(0),
         seeds = [Registry::SEED_PREFIX, 0u32.to_le_bytes().as_ref()],
         bump
     )]
