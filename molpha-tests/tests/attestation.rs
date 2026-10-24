@@ -614,3 +614,21 @@ fn submission_carries_no_per_signer_accounts() {
     );
     p.env.send_ok(&[ix], &[&submitter]);
 }
+
+/// A caller still passing signer accounts, as the previous interface had it, is refused rather
+/// than ignored.
+#[test]
+fn a_submission_with_signer_accounts_is_refused() {
+    let mut p = with_nodes("submit-stray-signer-accounts");
+    let submitter = p.env.keypair();
+    let signed = p.sign_duty(duty());
+    let mut ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    ix.accounts.push(
+        anchor_lang::solana_program::instruction::AccountMeta::new_readonly(
+            signed.signer_pdas[0],
+            false,
+        ),
+    );
+    let failed = p.env.send_err(&[ix], &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::UnexpectedSignerAccounts);
+}

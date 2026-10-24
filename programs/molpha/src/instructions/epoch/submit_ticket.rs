@@ -78,6 +78,12 @@ pub fn submit_ticket(
         MolphaError::DispatchSigInvalid
     );
 
+    // Signer keys come from the registry version; a caller still passing signer accounts is
+    // building for the previous interface.
+    require!(
+        ctx.remaining_accounts.is_empty(),
+        MolphaError::UnexpectedSignerAccounts
+    );
     let min_signers = ctx.accounts.epoch_state.load()?.min_signers;
     verify_attestation_core(
         &ctx.accounts.registry,

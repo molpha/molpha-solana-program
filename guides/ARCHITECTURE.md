@@ -73,7 +73,16 @@ against the key that signed it, and slashing evidence against a node that has si
 convicts it. The key a node holds now is in `Node`; the key a version verifies it with is in that
 version. The cost of this is that a rotated-out key still verifies under the versions that named it:
 for the grace window when submitting attestations (`max_settlement_delay_seconds`, at most 7
-days), and without limit as slashing evidence.
+days), and as slashing evidence until one more such window has passed (see Slashing). After that,
+a key the node rotated away from, for example because it leaked, can no longer be used against
+it.
+
+A rotation publishes a version, so it changes the next version's address. A filing built against
+the old address fails and has to be rebuilt; a rotation can delay a punishment this way but not
+escape it, and only once per cooldown.
+
+A frozen node cannot rotate: rotation is for active members. `reinstate_node` brings it back with
+the key it was frozen with, and the owner can rotate once it is active again.
 
 ## Plans, subscriptions and delegates
 
@@ -177,6 +186,11 @@ first epochs a ticket transaction.
 `slash_offence` is permissionless and takes an `Offence`: equivocation, unsolicited signing,
 commitment reuse, nonce reuse or inactivity. Proven evidence writes a `PunishmentCase` PDA seeded
 by the evidence hash, so the same filing cannot replay.
+
+Evidence against a superseded registry version has to be filed before one
+`max_settlement_delay_seconds` window has passed since that version's grace ended
+(`EvidenceExpired` after that). Evidence against the current version has no deadline. This bounds
+how long a key a node rotated away from can still be used against it.
 
 - Equivocation, unsolicited signing, commitment reuse and nonce reuse slash the guilty set,
   tombstone it and evict it into a successor registry. The filing's remaining accounts are the

@@ -235,6 +235,8 @@ yarn molpha slash inactivity --epoch 0 --node-owner <NODE_OWNER>
 
 # File any offence from IDL-shaped JSON (`{ equivocation | unsolicitedSigning | commitmentReuse | nonceReuse | inactivity }`).
 # The CLI derives the PunishmentCase PDA from the evidence hash; pass --evidence-hash to assert it.
+# Evidence against a superseded registry version expires one max_settlement_delay_seconds window
+# after that version's grace ends.
 yarn molpha slash offence --args ./offence.json
 yarn molpha account punishment-case --evidence-hash <32_BYTE_HEX>
 

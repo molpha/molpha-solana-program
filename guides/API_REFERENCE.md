@@ -60,7 +60,10 @@ comparing it with them.
 
 - Instruction arguments, account constraints and remaining-account order: the IDL and the
   instruction source under `programs/molpha/src/instructions/`. Attestation and ticket
-  submissions take no remaining accounts; `slash_offence` takes the guilty `Node` accounts.
+  submissions take no remaining accounts and refuse any (`UnexpectedSignerAccounts`);
+  `slash_offence` takes the guilty `Node` accounts. Evidence against a superseded registry
+  version must be filed within `max_settlement_delay_seconds` of that version's grace ending
+  (`EvidenceExpired`).
 - The `Registry` account in the IDL is a snapshot's 32-byte header. Its members follow in the same
   account, one 96-byte `(node, x, y)` record each, and the account holds exactly `node_count` of
   them. `extend_registry` allocates the next version ahead of the instruction that publishes it,

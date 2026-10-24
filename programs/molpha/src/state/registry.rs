@@ -150,12 +150,16 @@ impl<'a> RegistryRef<'a> {
             ErrorCode::AccountOwnedByWrongProgram
         );
         let data = account.try_borrow_data()?;
+        require!(
+            data.len() >= Registry::DISCRIMINATOR.len()
+                && data[..Registry::DISCRIMINATOR.len()] == *Registry::DISCRIMINATOR,
+            ErrorCode::AccountDiscriminatorMismatch
+        );
         let valid = split(&data).is_some_and(|(header, table)| {
-            data[..Registry::DISCRIMINATOR.len()] == *Registry::DISCRIMINATOR
-                && usize::from(bytemuck::from_bytes::<Registry>(header).node_count)
-                    <= table.len() / RegistryMember::LEN
+            usize::from(bytemuck::from_bytes::<Registry>(header).node_count)
+                <= table.len() / RegistryMember::LEN
         });
-        require!(valid, ErrorCode::AccountDiscriminatorMismatch);
+        require!(valid, ErrorCode::AccountDidNotDeserialize);
 
         let (header, table) = Ref::map_split(data, |data| {
             let (header, table) = split(data).expect("shape checked above");
@@ -259,6 +263,10 @@ impl<'a> RegistryMut<'a> {
                 bytemuck::cast_slice_mut::<u8, RegistryMember>(table),
             )
         });
+        require!(
+            usize::from(header.node_count) <= table.len(),
+            ErrorCode::AccountDidNotDeserialize
+        );
         Ok(Self { header, table })
     }
 

@@ -92,7 +92,7 @@ pub(crate) fn slash_guilty_nodes<'info>(
         let account_info = input
             .guilty_accounts
             .get(cursor)
-            .ok_or(error!(MolphaError::MissingSignerAccount))?;
+            .ok_or(error!(MolphaError::InvalidNodeAccount))?;
         cursor += 1;
 
         // The account must be the registry member the evidence names. The snapshot is the

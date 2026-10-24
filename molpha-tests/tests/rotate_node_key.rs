@@ -569,6 +569,54 @@ fn equivocation_evidence_convicts_a_node_that_has_rotated_twice() {
     equivocation_after_rotations(2);
 }
 
+/// Equivocation by a node that then rotates away from the key it signed with, and the evidence.
+fn rotated_equivocation(domain: &str) -> (Protocol, Keypair, Pubkey, u32, EquivocationEvidence) {
+    let mut p = Protocol::start();
+    p.register_nodes(domain, 8);
+    let reporter = p.reporter();
+    let duty = Duty::new(8, SIGS);
+    let selection = p.selection_bits(&duty);
+    let a = p.sign_duty_with_bits(duty.value([0x01; 32]), &selection[0..4], None);
+    let b = p.sign_duty_with_bits(duty.value([0x02; 32]), &selection[2..6], None);
+    let guilty_pda = p.env.registry(duty.registry_version).nodes[selection[2]];
+    let guilty_index = index_of(&p, &guilty_pda);
+    p.rotate_node_key(guilty_index, fresh_key(&format!("{domain}-new")));
+    let evidence = EquivocationEvidence {
+        attestation_a: a.attestation(),
+        attestation_b: b.attestation(),
+        coalition_key_a: a.coalition_key,
+        coalition_key_b: b.coalition_key,
+    };
+    (p, reporter, guilty_pda, duty.registry_version, evidence)
+}
+
+/// Evidence against a superseded version can be filed until one settlement window after the
+/// version's grace ends, and not after. So a key a node rotated away from, perhaps because it
+/// leaked, cannot be used to frame the node for longer than that.
+#[test]
+fn evidence_against_a_superseded_version_can_be_filed_for_one_window_after_its_grace() {
+    let (mut p, reporter, guilty, version, evidence) = rotated_equivocation("evidence-open");
+    let grace = p.env.registry(version).grace_active_until;
+    assert!(grace > 0, "the rotation superseded the evidence's version");
+
+    p.env.warp_to(grace + WINDOW_SECONDS - 1);
+    let ix = p.slash_equivocation_ix(&reporter.pubkey(), evidence);
+    p.env.send_ok(&[ix], &[&reporter]);
+    assert_eq!(p.env.get::<Node>(&guilty).status, NodeStatus::Tombstoned);
+}
+
+#[test]
+fn evidence_against_a_superseded_version_expires_one_window_after_its_grace() {
+    let (mut p, reporter, guilty, version, evidence) = rotated_equivocation("evidence-expired");
+    let grace = p.env.registry(version).grace_active_until;
+
+    p.env.warp_to(grace + WINDOW_SECONDS);
+    let ix = p.slash_equivocation_ix(&reporter.pubkey(), evidence);
+    let failed = p.env.send_err(&[ix], &[&reporter]);
+    assert_molpha_error(&failed, MolphaError::EvidenceExpired);
+    assert_eq!(p.env.get::<Node>(&guilty).status, NodeStatus::Active);
+}
+
 #[test]
 fn a_frozen_node_rejoins_with_the_key_it_holds_now() {
     let mut p = Protocol::builder().min_availability_samples(3).start();

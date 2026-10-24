@@ -64,6 +64,12 @@ pub fn submit_attestation(
     if ctx.accounts.feed.source_id != [0u8; 32] {
         ctx.accounts.feed.check_newer(&attestation)?;
     }
+    // Signer keys come from the registry version; a caller still passing signer accounts is
+    // building for the previous interface.
+    require!(
+        ctx.remaining_accounts.is_empty(),
+        MolphaError::UnexpectedSignerAccounts
+    );
     verify_attestation_core(
         &ctx.accounts.registry,
         ctx.accounts.protocol_config.min_signers,

@@ -225,6 +225,8 @@ pub enum MolphaError {
     KeyRotationKeyUnchanged,
     #[msg("the next registry version is too large to allocate in one instruction; call extend_registry first")]
     RegistryNotAllocated,
+    #[msg("evidence against a superseded registry version must be filed within max_settlement_delay_seconds of its grace window ending")]
+    EvidenceExpired,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {
@@ -244,6 +246,7 @@ pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error
         AttestationError::InvalidRegistryVersion => error!(MolphaError::InvalidRegistryVersion),
         AttestationError::InvalidNodeIndex => error!(MolphaError::InvalidNodeIndex),
         AttestationError::InvalidCoalitionKey => error!(MolphaError::InvalidCoalitionKey),
+        AttestationError::RegistryRetired => error!(MolphaError::RegistryNotActive),
     }
 }
 
