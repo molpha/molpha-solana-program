@@ -15,7 +15,19 @@ pub fn slash_offence<'info>(
     ctx: Context<'info, SlashOffence<'info>>,
     offence: Offence,
 ) -> Result<()> {
-    let (signers_bitmap, guilty_bitmap) = offence.validate(&EvidenceAccounts {
+    // Evidence against a superseded version has to be filed within one settlement window of
+    // that version's grace ending. A key a node rotated away from, perhaps because it leaked,
+    // then stops being able to produce evidence against the node: its versions all retire.
+    require!(
+        evidence_filing_open(
+            ctx.accounts.evidence_registry.load()?.grace_active_until,
+            ctx.accounts.protocol_config.max_settlement_delay_seconds,
+            Clock::get()?.unix_timestamp,
+        ),
+        MolphaError::EvidenceExpired
+    );
+
+    let guilty_bitmap = offence.validate(&EvidenceAccounts {
         remaining: ctx.remaining_accounts,
         evidence_registry: &ctx.accounts.evidence_registry,
         protocol_config: &ctx.accounts.protocol_config,
@@ -28,8 +40,8 @@ pub fn slash_offence<'info>(
 
     let batch = slash_guilty_nodes(
         &SlashInput {
-            signer_accounts: ctx.remaining_accounts,
-            signers_bitmap,
+            guilty_accounts: ctx.remaining_accounts,
+            evidence_registry: &ctx.accounts.evidence_registry,
             guilty_bitmap,
             offence: &offence,
         },
@@ -48,6 +60,8 @@ pub fn slash_offence<'info>(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
             next: &ctx.accounts.new_registry,
+            payer: &ctx.accounts.reporter,
+            system_program: &ctx.accounts.system_program,
             grace_active_until,
             bump: ctx.bumps.new_registry,
         },
@@ -144,6 +158,17 @@ pub fn slash_offence<'info>(
     Ok(())
 }
 
+/// Whether evidence against a registry version whose grace ends at `grace_active_until` (`0` while
+/// it is current) can still be filed at `now`: until `max_settlement_delay_seconds` after that.
+pub fn evidence_filing_open(
+    grace_active_until: i64,
+    max_settlement_delay_seconds: u64,
+    now: i64,
+) -> bool {
+    let window = i64::try_from(max_settlement_delay_seconds).unwrap_or(i64::MAX);
+    grace_active_until == 0 || now < grace_active_until.saturating_add(window)
+}
+
 #[derive(Accounts)]
 #[instruction(offence: Offence)]
 pub struct SlashOffence<'info> {
@@ -177,14 +202,14 @@ pub struct SlashOffence<'info> {
     )]
     pub current_registry: AccountLoader<'info, Registry>,
 
+    /// CHECK: the next registry version's PDA. The handler creates it, or takes over one that
+    /// `extend_registry` allocated, and writes the snapshot.
     #[account(
-        init,
-        payer = reporter,
-        space = Registry::SPACE,
+        mut,
         seeds = [Registry::SEED_PREFIX, registry_state.next_version.to_le_bytes().as_ref()],
         bump,
     )]
-    pub new_registry: AccountLoader<'info, Registry>,
+    pub new_registry: UncheckedAccount<'info>,
 
     #[account(
         init,

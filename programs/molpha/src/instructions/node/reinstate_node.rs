@@ -19,15 +19,24 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
     );
 
     let node_key = ctx.accounts.node.key();
+    // The node re-enters the registry with the key it holds now, which a rotation may have
+    // changed while it was out.
+    let key = (
+        ctx.accounts.node.secp256k1_pubkey_x,
+        ctx.accounts.node.secp256k1_pubkey_y,
+    );
     let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
     let index: u32 = ctx.accounts.registry_state.append_node(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
             next: &ctx.accounts.new_registry,
+            payer: &ctx.accounts.caller,
+            system_program: &ctx.accounts.system_program,
             grace_active_until,
             bump: ctx.bumps.new_registry,
         },
         node_key,
+        key,
     )?;
 
     let node = &mut ctx.accounts.node;
@@ -70,14 +79,14 @@ pub struct ReinstateNode<'info> {
     )]
     pub current_registry: AccountLoader<'info, Registry>,
 
+    /// CHECK: the next registry version's PDA. The handler creates it, or takes over one that
+    /// `extend_registry` allocated, and writes the snapshot.
     #[account(
-        init,
-        payer = caller,
-        space = Registry::SPACE,
+        mut,
         seeds = [Registry::SEED_PREFIX, registry_state.next_version.to_le_bytes().as_ref()],
         bump,
     )]
-    pub new_registry: AccountLoader<'info, Registry>,
+    pub new_registry: UncheckedAccount<'info>,
 
     #[account(
         mut,

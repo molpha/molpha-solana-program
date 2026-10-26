@@ -22,7 +22,7 @@ const {
   registerUpdateConfigCommand,
 } = require("../dist/commands/update-config");
 
-const PROGRAM_ID = new PublicKey("MoLF3pgVA9MENSuEujxNNSMaTo71aLyewaH5nrWfUZs");
+const PROGRAM_ID = new PublicKey("chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt");
 
 function config() {
   return {
@@ -212,7 +212,7 @@ test("the ProgramData address and its upgrade authority are decoded as the loade
   // `solana find-program-derived-address BPFLoaderUpgradeab1e... pubkey:<program id>`
   assert.equal(
     findProgramDataAddress(PROGRAM_ID).toBase58(),
-    "5dHqdjkaZGTKLtq7gkm52k5FhkR4dc7dpeAjKEGYcLAG",
+    "8RwqkiE9SiBGkYJ1eeNzhXYGb18jtgZ42SVMRBu5Fv8m",
   );
   const authority = Keypair.generate().publicKey;
   assert.ok(

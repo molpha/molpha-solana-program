@@ -217,6 +217,16 @@ pub enum MolphaError {
     InvalidProgramData,
     #[msg("initialize must be signed by the program's upgrade authority")]
     NotUpgradeAuthority,
+    #[msg("the node's current signing key did not sign this rotation")]
+    InvalidKeyRotationSignature,
+    #[msg("the node already rotated its signing key within the settlement window")]
+    KeyRotationCooldownActive,
+    #[msg("the new signing key is the node's current key")]
+    KeyRotationKeyUnchanged,
+    #[msg("the next registry version is too large to allocate in one instruction; call extend_registry first")]
+    RegistryNotAllocated,
+    #[msg("evidence against a superseded registry version must be filed within max_settlement_delay_seconds of its grace window ending")]
+    EvidenceExpired,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {
@@ -233,12 +243,10 @@ pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error
         AttestationError::GroupBitmapDerivationFailed => {
             error!(MolphaError::GroupBitmapDerivationFailed)
         }
-        AttestationError::SignerCountMismatch | AttestationError::MissingSignerAccount => {
-            error!(MolphaError::MissingSignerAccount)
-        }
         AttestationError::InvalidRegistryVersion => error!(MolphaError::InvalidRegistryVersion),
         AttestationError::InvalidNodeIndex => error!(MolphaError::InvalidNodeIndex),
         AttestationError::InvalidCoalitionKey => error!(MolphaError::InvalidCoalitionKey),
+        AttestationError::RegistryRetired => error!(MolphaError::RegistryNotActive),
     }
 }
 
@@ -250,9 +258,6 @@ pub(crate) fn map_attestation_accounts_err(error: AccountError) -> anchor_lang::
         }
         AccountError::InvalidRegistryAccount | AccountError::InvalidRegistryPda => {
             error!(MolphaError::InvalidRegistryVersion)
-        }
-        AccountError::InvalidNodeAccount | AccountError::InvalidNodePda => {
-            error!(MolphaError::InvalidNodeAccount)
         }
     }
 }

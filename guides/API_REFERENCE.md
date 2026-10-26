@@ -14,7 +14,9 @@ Entrypoints are declared in `programs/molpha/src/lib.rs`.
 | ------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | Configuration | `initialize`                                                                                    | Program upgrade authority, who becomes authority  |
 | Configuration | `update_config`, `update_registry_policy`                                                       | Authority                                         |
+| Registry      | `extend_registry`                                                                               | Anyone                                            |
 | Nodes         | `register_node`                                                                                 | Node owner and authority, both signing            |
+| Nodes         | `rotate_node_key`                                                                               | Node owner, with the node's current signing key   |
 | Nodes         | `update_node_endpoint`                                                                          | Node owner                                        |
 | Nodes         | `deactivate_node`                                                                               | Node owner or authority                           |
 | Nodes         | `reinstate_node`                                                                                | Anyone after the freeze window; authority earlier |
@@ -57,7 +59,16 @@ comparing it with them.
 ## Further reference
 
 - Instruction arguments, account constraints and remaining-account order: the IDL and the
-  instruction source under `programs/molpha/src/instructions/`.
+  instruction source under `programs/molpha/src/instructions/`. Attestation and ticket
+  submissions take no remaining accounts and refuse any (`UnexpectedSignerAccounts`);
+  `slash_offence` takes the guilty `Node` accounts. Evidence against a superseded registry
+  version must be filed within `max_settlement_delay_seconds` of that version's grace ending
+  (`EvidenceExpired`).
+- The `Registry` account in the IDL is a snapshot's 32-byte header. Its members follow in the same
+  account, one 96-byte `(node, x, y)` record each, and the account holds exactly `node_count` of
+  them. `extend_registry` allocates the next version ahead of the instruction that publishes it,
+  which is needed only for a registry of more than 106 members: see
+  [Registry snapshots](ARCHITECTURE.md#registry-snapshots).
 - Errors: `programs/molpha/src/error.rs`. Events: `programs/molpha/src/events.rs`.
 - Command-line equivalents: [`cli/README.md`](../cli/README.md).
 - Executable examples: [`molpha-tests/README.md`](../molpha-tests/README.md).

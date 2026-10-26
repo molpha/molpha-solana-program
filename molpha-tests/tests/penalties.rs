@@ -19,6 +19,7 @@ fn node_fixture(locked: u64, rewards: u64, status: NodeStatus) -> Node {
         withdrawable_slot: 0,
         frozen_until: 0,
         bump: 0,
+        key_rotated_at: 0,
     }
 }
 

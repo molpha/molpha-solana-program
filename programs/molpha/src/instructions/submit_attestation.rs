@@ -21,14 +21,14 @@ pub struct SubmitAttestationArgs {
     /// [`FeedValueKind::Hash`].
     pub raw_value: Option<Vec<u8>>,
     /// Affine sum of the signers' secp256k1 keys (`molpha_verifier::coalition_key`, or any
-    /// library's point sum over their `Node` accounts). Unsigned and untrusted: the verifier
+    /// library's point sum over their registry member keys). Unsigned and untrusted: the verifier
     /// checks it projectively against its own sum instead of inverting. A wrong key only fails
     /// the instruction.
     pub coalition_key: CoalitionKey,
 }
 
-pub fn submit_attestation<'info>(
-    ctx: Context<'info, SubmitAttestation<'info>>,
+pub fn submit_attestation(
+    ctx: Context<SubmitAttestation>,
     args: SubmitAttestationArgs,
 ) -> Result<()> {
     let SubmitAttestationArgs {
@@ -64,8 +64,13 @@ pub fn submit_attestation<'info>(
     if ctx.accounts.feed.source_id != [0u8; 32] {
         ctx.accounts.feed.check_newer(&attestation)?;
     }
+    // Signer keys come from the registry version; a caller still passing signer accounts is
+    // building for the previous interface.
+    require!(
+        ctx.remaining_accounts.is_empty(),
+        MolphaError::UnexpectedSignerAccounts
+    );
     verify_attestation_core(
-        ctx.remaining_accounts,
         &ctx.accounts.registry,
         ctx.accounts.protocol_config.min_signers,
         &attestation,

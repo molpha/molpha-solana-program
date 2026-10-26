@@ -1,9 +1,9 @@
-import { Program } from "@coral-xyz/anchor";
 import { etc, Point } from "@noble/secp256k1";
 import { bytesField, offenceCoalitionBitmaps } from "./slash";
 import {
   CoalitionKeyArgs,
-  signerRemainingAccounts,
+  RegistryLike,
+  signerMembers,
 } from "./signing/attestation";
 
 export function coalitionKeyFromPoint(point: Point): CoalitionKeyArgs {
@@ -32,46 +32,39 @@ export function parseCoalitionKey(
 }
 
 /**
- * Coalition key for `signersBitmap`, summed from the signers' `Node` accounts.
+ * Coalition key for `signersBitmap`, summed from the signers' keys in the registry snapshot.
  *
  * Every verifying instruction takes it as an untrusted input and checks it against its own sum,
  * so it only has to be the plain point sum (any order, any library).
  */
-export async function fetchCoalitionKey(
-  program: Program,
-  registry: { nodeCount: number; nodes: Array<number[] | Uint8Array> },
+export function coalitionKeyForSigners(
+  registry: RegistryLike,
   signersBitmap: number[] | Uint8Array,
-): Promise<CoalitionKeyArgs> {
-  const pdas = signerRemainingAccounts(registry, signersBitmap).map(
-    (meta) => meta.pubkey,
-  );
-  if (pdas.length === 0) throw new Error("signers bitmap is empty");
-  const nodes = await (program.account as any).node.fetchMultiple(pdas);
+): CoalitionKeyArgs {
+  const members = signerMembers(registry, signersBitmap);
+  if (members.length === 0) throw new Error("signers bitmap is empty");
   let sum = Point.ZERO;
-  nodes.forEach((node: any, index: number) => {
-    if (!node) {
-      throw new Error(`signer node ${pdas[index].toBase58()} is missing`);
-    }
+  for (const member of members) {
     sum = sum.add(
       Point.fromAffine({
-        x: etc.bytesToNumberBE(Uint8Array.from(node.secp256K1PubkeyX)),
-        y: etc.bytesToNumberBE(Uint8Array.from(node.secp256K1PubkeyY)),
+        x: etc.bytesToNumberBE(Uint8Array.from(member.x)),
+        y: etc.bytesToNumberBE(Uint8Array.from(member.y)),
       }),
     );
-  });
+  }
   return coalitionKeyFromPoint(sum);
 }
 
 /**
- * `offence` with every coalition key it needs, fetching the ones it does not carry.
+ * `offence` with every coalition key it needs, summed from the evidence registry for the ones it
+ * does not carry.
  *
  * Keys are verification inputs, not evidence: they do not enter the evidence hash.
  */
-export async function withOffenceCoalitionKeys(
-  program: Program,
-  registry: { nodeCount: number; nodes: Array<number[] | Uint8Array> },
+export function withOffenceCoalitionKeys(
+  registry: RegistryLike,
   offence: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
+): Record<string, unknown> {
   const needed = offenceCoalitionBitmaps(offence);
   if (needed.length === 0) return offence;
   const [variantName, body] = Object.entries(offence)[0] as [
@@ -86,7 +79,7 @@ export async function withOffenceCoalitionKeys(
     filled[field] =
       supplied !== undefined
         ? parseCoalitionKey(supplied, field)
-        : await fetchCoalitionKey(program, registry, bitmap);
+        : coalitionKeyForSigners(registry, bitmap);
   }
   return { [variantName]: filled };
 }

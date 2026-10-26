@@ -12,6 +12,12 @@ import { Command } from "commander";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { CliContext, getCliContext } from "../lib/client";
 import { deriveNodeId } from "../lib/ids";
+import { fetchRegistry, registryExtendInstructions } from "../lib/registry";
+import { registryNode } from "../lib/signing/attestation";
+import {
+  buildKeyRotationArgs,
+  deriveKeyRotationDigest,
+} from "../lib/signing/key-rotation";
 import {
   findNodeDepositVault,
   findNodePda,
@@ -29,11 +35,6 @@ import {
   parsePublicKey,
   writeJson,
 } from "../lib/utils";
-
-function registryNode(registry: any, index: number): PublicKey {
-  const value = registry.nodes[index];
-  return new PublicKey(Uint8Array.from(value));
-}
 
 export function registerRegistryCommands(program: Command): void {
   const registry = program
@@ -80,9 +81,15 @@ export function registerRegistryCommands(program: Command): void {
         nodeCount,
         redundancyBuffer: Number(loaded.registry.redundancyBuffer),
         graceActiveUntil: amountString(loaded.registry.graceActiveUntil),
-        nodes: addresses.map((address, index) =>
-          formatMember(index, address, nodes[index]),
-        ),
+        // `signingKey` is the key this version verifies the member with; the node account's own
+        // key is its current one, which differs after a rotation.
+        nodes: addresses.map((address, index) => ({
+          ...formatMember(index, address, nodes[index]),
+          signingKey: {
+            x: bytesHex(loaded.registry.members[index].x),
+            y: bytesHex(loaded.registry.members[index].y),
+          },
+        })),
       });
     });
 
@@ -146,11 +153,7 @@ export function registerRegistryCommands(program: Command): void {
       const newRegistryVersion = currentVersion + 1;
       const [currentRegistry] = findRegistryPda(ctx.programId, currentVersion);
       const [newRegistry] = findRegistryPda(ctx.programId, newRegistryVersion);
-      const current = await fetchAccountOrNull<any>(
-        ctx.program,
-        "registry",
-        currentRegistry,
-      );
+      const current = await fetchRegistry(ctx.program, currentRegistry);
       if (!current)
         throw new Error(`Current registry ${currentVersion} is missing`);
 
@@ -213,6 +216,13 @@ export function registerRegistryCommands(program: Command): void {
         })
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: 450_000 }),
+          // Past 106 members the next version is allocated ahead of the registration.
+          ...(await registryExtendInstructions(
+            ctx.program,
+            ctx.wallet.publicKey,
+            currentVersion,
+            Number(current.nodeCount) + 1,
+          )),
         ]);
       if (!nodeOwner.publicKey.equals(ctx.wallet.publicKey))
         builder.signers([nodeOwner]);
@@ -222,6 +232,128 @@ export function registerRegistryCommands(program: Command): void {
         nodeOwner: nodeOwner.publicKey.toBase58(),
         nodeId: `0x${Buffer.from(nodeId).toString("hex")}`,
         nodeIndex: Number(current.nodeCount),
+        node: node.toBase58(),
+        registryVersion: newRegistryVersion,
+        registry: newRegistry.toBase58(),
+      });
+    });
+
+  registry
+    .command("rotation-digest")
+    .description(
+      "Print the digest the current and the new key both sign to rotate a node key",
+    )
+    .requiredOption(
+      "--new-secp-pubkey <hex>",
+      "33-byte compressed secp256k1 pubkey of the new key",
+    )
+    .option("--node-owner <pubkey>", "node owner; defaults to the signer")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const owner = options.nodeOwner
+        ? parsePublicKey(options.nodeOwner, "node owner")
+        : ctx.wallet.publicKey;
+      const [node] = findNodePda(ctx.programId, owner);
+      const newKey = hexToBytes(options.newSecpPubkey, 33, "new secp pubkey");
+      writeJson({
+        node: node.toBase58(),
+        digest: `0x${Buffer.from(
+          deriveKeyRotationDigest(ctx.programId, node, newKey),
+        ).toString("hex")}`,
+      });
+    });
+
+  registry
+    .command("rotate-key")
+    .description(
+      "Replace the signer's node signing key and create the next registry version",
+    )
+    .requiredOption(
+      "--new-secp-pubkey <hex>",
+      "33-byte compressed secp256k1 pubkey of the new key",
+    )
+    .requiredOption(
+      "--old-sig-s <hex>",
+      "32-byte s of the current key's signature over the rotation digest",
+    )
+    .requiredOption(
+      "--old-sig-commitment <hex>",
+      "20-byte nonce address of the current key's signature",
+    )
+    .requiredOption("--pop-sig-r <hex>", "32-byte even-Y Schnorr nonce x")
+    .requiredOption("--pop-sig-s <hex>", "32-byte Schnorr response scalar")
+    .option("--node-owner-wallet <path>", "separate node owner keypair")
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const [protocolConfig] = findProtocolConfigPda(ctx.programId);
+      const [registryState] = findRegistryStatePda(ctx.programId);
+      const state = await fetchAccountOrNull<any>(
+        ctx.program,
+        "registryState",
+        registryState,
+      );
+      if (!state) throw new Error("Registry state is not initialized");
+
+      const currentVersion = Number(state.currentVersion);
+      const newRegistryVersion = currentVersion + 1;
+      const [currentRegistry] = findRegistryPda(ctx.programId, currentVersion);
+      const [newRegistry] = findRegistryPda(ctx.programId, newRegistryVersion);
+      const current = await fetchRegistry(ctx.program, currentRegistry);
+      if (!current)
+        throw new Error(`Current registry ${currentVersion} is missing`);
+
+      const nodeOwner = options.nodeOwnerWallet
+        ? loadKeypair(options.nodeOwnerWallet)
+        : ctx.payer;
+      const [node] = findNodePda(ctx.programId, nodeOwner.publicKey);
+      const proof = buildKeyRotationArgs({
+        newPublicKeyCompressed: hexToBytes(
+          options.newSecpPubkey,
+          33,
+          "new secp pubkey",
+        ),
+        oldKeySigS: hexToBytes(options.oldSigS, 32, "old key signature s"),
+        oldKeyCommitment: hexToBytes(
+          options.oldSigCommitment,
+          20,
+          "old key signature commitment",
+        ),
+        popSigR: hexToBytes(options.popSigR, 32, "PoP signature r"),
+        popSigS: hexToBytes(options.popSigS, 32, "PoP signature s"),
+      });
+      const [secp256K1KeyClaim] = findSecp256k1KeyClaimPda(
+        ctx.programId,
+        Uint8Array.from(proof.newPublicKeyCompressed),
+      );
+
+      const builder = (ctx.program.methods as any)
+        .rotateNodeKey(proof)
+        .accountsPartial({
+          nodeOwner: nodeOwner.publicKey,
+          protocolConfig,
+          registryState,
+          currentRegistry,
+          newRegistry,
+          node,
+          secp256K1KeyClaim,
+          systemProgram: SystemProgram.programId,
+        })
+        .preInstructions([
+          // Two signature checks, one of them a proof of possession: close to a registration.
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
+          ...(await registryExtendInstructions(
+            ctx.program,
+            ctx.wallet.publicKey,
+            currentVersion,
+            Number(current.nodeCount),
+          )),
+        ]);
+      if (!nodeOwner.publicKey.equals(ctx.wallet.publicKey))
+        builder.signers([nodeOwner]);
+      const signature = await builder.rpc();
+      writeJson({
+        signature,
+        nodeOwner: nodeOwner.publicKey.toBase58(),
         node: node.toBase58(),
         registryVersion: newRegistryVersion,
         registry: newRegistry.toBase58(),
@@ -274,11 +406,7 @@ export function registerRegistryCommands(program: Command): void {
       const newRegistryVersion = currentVersion + 1;
       const [currentRegistry] = findRegistryPda(ctx.programId, currentVersion);
       const [newRegistry] = findRegistryPda(ctx.programId, newRegistryVersion);
-      const current = await fetchAccountOrNull<any>(
-        ctx.program,
-        "registry",
-        currentRegistry,
-      );
+      const current = await fetchRegistry(ctx.program, currentRegistry);
       if (!current)
         throw new Error(`Current registry ${currentVersion} is missing`);
       const nodeOwner = options.nodeOwner
@@ -306,6 +434,15 @@ export function registerRegistryCommands(program: Command): void {
           node,
           systemProgram: SystemProgram.programId,
         })
+        // The handler copies every current member before it removes one.
+        .preInstructions(
+          await registryExtendInstructions(
+            ctx.program,
+            ctx.wallet.publicKey,
+            currentVersion,
+            Number(current.nodeCount),
+          ),
+        )
         .rpc();
       writeJson({
         signature,
@@ -394,6 +531,9 @@ export function registerRegistryCommands(program: Command): void {
       const newRegistryVersion = currentVersion + 1;
       const [currentRegistry] = findRegistryPda(ctx.programId, currentVersion);
       const [newRegistry] = findRegistryPda(ctx.programId, newRegistryVersion);
+      const current = await fetchRegistry(ctx.program, currentRegistry);
+      if (!current)
+        throw new Error(`Current registry ${currentVersion} is missing`);
       const signature = await (ctx.program.methods as any)
         .updateRegistryPolicy(value)
         .accountsPartial({
@@ -404,6 +544,14 @@ export function registerRegistryCommands(program: Command): void {
           newRegistry,
           systemProgram: SystemProgram.programId,
         })
+        .preInstructions(
+          await registryExtendInstructions(
+            ctx.program,
+            ctx.wallet.publicKey,
+            currentVersion,
+            Number(current.nodeCount),
+          ),
+        )
         .rpc();
       writeJson({
         signature,
@@ -440,6 +588,9 @@ export function registerRegistryCommands(program: Command): void {
         ? parsePublicKey(options.nodeOwner, "node owner")
         : ctx.wallet.publicKey;
       const [node] = findNodePda(ctx.programId, nodeOwner);
+      const current = await fetchRegistry(ctx.program, currentRegistry);
+      if (!current)
+        throw new Error(`Current registry ${currentVersion} is missing`);
 
       const signature = await (ctx.program.methods as any)
         .reinstateNode()
@@ -452,6 +603,15 @@ export function registerRegistryCommands(program: Command): void {
           node,
           systemProgram: SystemProgram.programId,
         })
+        // The node rejoins as one more member.
+        .preInstructions(
+          await registryExtendInstructions(
+            ctx.program,
+            ctx.wallet.publicKey,
+            currentVersion,
+            Number(current.nodeCount) + 1,
+          ),
+        )
         .rpc();
       writeJson({
         signature,
@@ -495,11 +655,7 @@ async function resolveRegistry(
       Number(loaded.state.currentVersion),
     )[0];
   }
-  const registry = await fetchAccountOrNull<any>(
-    ctx.program,
-    "registry",
-    address,
-  );
+  const registry = await fetchRegistry(ctx.program, address);
   if (!registry) throw new Error(`Registry not found at ${address.toBase58()}`);
   return { address, registry };
 }
@@ -523,9 +679,8 @@ async function currentMembership(
   );
   if (!loaded) return null;
   const version = Number(loaded.currentVersion);
-  const registry = await fetchAccountOrNull<any>(
+  const registry = await fetchRegistry(
     ctx.program,
-    "registry",
     findRegistryPda(ctx.programId, version)[0],
   );
   if (!registry) return { version, member: false, index: null };
@@ -559,6 +714,7 @@ function formatNode(address: PublicKey, node: any) {
     frozenUntil: amountString(node.frozenUntil),
     secp256k1PubkeyX: bytesHex(node.secp256K1PubkeyX),
     secp256k1PubkeyY: bytesHex(node.secp256K1PubkeyY),
+    keyRotatedAt: amountString(node.keyRotatedAt),
   };
 }
 

@@ -1,11 +1,9 @@
 use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
-use molpha_verifier::{
-    solana::resolve_intersected_signers_accounts, Attestation, Bitmap, CoalitionKey,
-};
+use molpha_verifier::{Attestation, Bitmap, CoalitionKey};
 
-use crate::error::{map_attestation_accounts_err, MolphaError};
+use crate::error::MolphaError;
 use crate::state::{Evidence, EvidenceAccounts};
 use crate::utils::slash::{
     attestation_hash, canonical_pair, is_equivocation, verify_evidence_signature,
@@ -25,37 +23,21 @@ pub struct EquivocationEvidence {
 }
 
 impl Evidence for EquivocationEvidence {
-    fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<(Bitmap, Bitmap)> {
+    fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<Bitmap> {
         require!(
             is_equivocation(&self.attestation_a, &self.attestation_b),
             MolphaError::NotEquivocation
         );
 
-        let resolution = resolve_intersected_signers_accounts(
-            ctx.remaining,
-            ctx.evidence_registry.as_ref(),
-            &self.attestation_a.signature.signers_bitmap,
-            &self.attestation_b.signature.signers_bitmap,
-        )
-        .map_err(map_attestation_accounts_err)?;
+        // Both attestations sign the same duty, so a node in both bitmaps signed both values.
+        let guilty_bitmap = Bitmap::load(&self.attestation_a.signature.signers_bitmap)
+            .intersect(&Bitmap::load(&self.attestation_b.signature.signers_bitmap));
+        require!(guilty_bitmap.popcount() > 0, MolphaError::GuiltySetEmpty);
 
-        require!(
-            resolution.intersected_bitmap.popcount() > 0,
-            MolphaError::GuiltySetEmpty
-        );
+        verify_evidence_signature(ctx, &self.attestation_a, &self.coalition_key_a)?;
+        verify_evidence_signature(ctx, &self.attestation_b, &self.coalition_key_b)?;
 
-        verify_evidence_signature(
-            &self.attestation_a,
-            &resolution.signers_a,
-            &self.coalition_key_a,
-        )?;
-        verify_evidence_signature(
-            &self.attestation_b,
-            &resolution.signers_b,
-            &self.coalition_key_b,
-        )?;
-
-        Ok((resolution.unioned_bitmap, resolution.intersected_bitmap))
+        Ok(guilty_bitmap)
     }
 
     fn hash(&self) -> [u8; 32] {

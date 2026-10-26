@@ -44,6 +44,25 @@ fn send(
     p.env.send(&ixs, &[submitter])
 }
 
+/// A ticket names no signer accounts: one passed anyway, as the previous interface had it, is
+/// refused rather than ignored.
+#[test]
+fn a_ticket_with_signer_accounts_is_refused() {
+    let (mut p, gateway, submitter) = setup();
+    let signed = p.sign_canonical(p.live_duty(3));
+    let mut ixs = p.ticket_ixs(&submitter.pubkey(), &gateway, &signed);
+    let ticket = ixs.last_mut().unwrap();
+    ticket.accounts.push(
+        anchor_lang::solana_program::instruction::AccountMeta::new_readonly(
+            signed.signer_pdas[0],
+            false,
+        ),
+    );
+    let failed = p.env.send_err(&ixs, &[&submitter]);
+    assert_molpha_error(&failed, MolphaError::UnexpectedSignerAccounts);
+    assert_eq!(p.env.epoch(0).tickets, 0);
+}
+
 #[test]
 fn a_ticket_counts_its_whole_selection_and_records_a_marker() {
     let (mut p, gateway, submitter) = setup();
@@ -359,7 +378,6 @@ fn roster_hints_must_name_the_selected_nodes_exactly() {
                 signed.attestation(),
                 hints,
                 signed.coalition_key,
-                &signed.signer_pdas,
             ),
         ];
         let failed = p.env.send_err(&ixs, &[&submitter]);

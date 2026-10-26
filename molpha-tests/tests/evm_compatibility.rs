@@ -146,12 +146,12 @@ impl Fixture {
 #[test]
 fn the_fixture_coalition_is_exactly_the_selection_the_program_derives() {
     let fixture = load();
-    static NODES: [[u8; 32]; 256] = [[0u8; 32]; 256];
+    // Selection reads the version, node count and buffer only, so the member table is empty.
     let registry = RegistryView {
         version: fixture.registry_version,
         node_count: fixture.keys.len() as u16,
         redundancy_buffer: REDUNDANCY_BUFFER,
-        nodes: &NODES,
+        nodes: &[],
     };
     let derived = molpha_verifier::derive_selection_bitmap(
         &fixture.source_id,
@@ -204,6 +204,11 @@ fn the_program_accepts_an_attestation_from_the_fixture_coalition() {
         let node: Node = p.env.get(node_pda);
         assert_eq!(node.secp256k1_pubkey_x, fixture.keys[bit].x);
         assert_eq!(node.secp256k1_pubkey_y, fixture.keys[bit].y);
+        // The snapshot the program verifies against names the same key.
+        assert_eq!(
+            registry.keys[bit],
+            (fixture.keys[bit].x, fixture.keys[bit].y)
+        );
     }
 
     let attestation = p.sign_duty(fixture.duty());

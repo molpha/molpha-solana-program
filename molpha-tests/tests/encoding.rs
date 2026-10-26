@@ -217,6 +217,32 @@ fn submit_attestation_args_are_stable_and_round_trip() {
     assert_eq!(decoded.raw_value, Some(raw));
 }
 
+/// The instruction argument of `rotate_node_key`: the new key, the current key's signature `(s,
+/// commitment)` and the new key's proof of possession `(r, s)`.
+#[test]
+fn rotate_node_key_args_wire_format_is_pinned() {
+    use molpha_verifier::KeyRotationProof;
+
+    let proof = KeyRotationProof {
+        new_public_key_compressed: [0x01; 33],
+        old_key_sig_s: [0x02; 32],
+        old_key_commitment: [0x03; 20],
+        pop_sig_r: [0x04; 32],
+        pop_sig_s: [0x05; 32],
+    };
+    let bytes = borsh::to_vec(&proof).expect("serialize");
+    assert_eq!(bytes.len(), 33 + 32 + 20 + 32 + 32);
+    assert_eq!(bytes[..33], [0x01; 33]);
+    assert_eq!(bytes[33..65], [0x02; 32]);
+    assert_eq!(bytes[65..85], [0x03; 20]);
+    assert_eq!(bytes[85..117], [0x04; 32]);
+    assert_eq!(bytes[117..], [0x05; 32]);
+
+    let data = molpha::instruction::RotateNodeKey { proof }.data();
+    assert_eq!(data.len(), 8 + bytes.len());
+    assert_eq!(data[8..], bytes[..]);
+}
+
 #[test]
 fn permanent_node_roundtrips() {
     let account = Node {
@@ -232,6 +258,7 @@ fn permanent_node_roundtrips() {
         withdrawable_slot: 0,
         frozen_until: 0,
         bump: 7,
+        key_rotated_at: 0,
     };
     let mut body = Vec::new();
     account.serialize(&mut body).unwrap();
@@ -247,19 +274,121 @@ fn permanent_node_roundtrips() {
     assert_eq!(decoded.frozen_until, account.frozen_until);
 }
 
-/// The shared verifier reads signer keys out of `Node` accounts by offset and requires exactly
-/// its own account length.
+/// `Node` is no longer read by the verifier; off-chain clients still read it by offset, and the
+/// rotation timestamp is its last field so every earlier offset is unchanged.
 #[test]
-fn node_layout_matches_the_verifier() {
-    assert_eq!(Node::SPACE, molpha_verifier::solana::NODE_ACCOUNT_LEN);
-    assert_eq!(Node::SPACE, 152);
+fn node_layout_is_pinned() {
+    assert_eq!(Node::SPACE, 160);
+    let node = Node {
+        authority: Pubkey::new_from_array([0xaa; 32]),
+        secp256k1_pubkey_x: [0x11; 32],
+        secp256k1_pubkey_y: [0x22; 32],
+        status: NodeStatus::Frozen,
+        ip: [1, 2, 3, 4],
+        port: 0x0506,
+        locked_amount: 0,
+        claimable_rewards: 0,
+        registered_at: 0,
+        withdrawable_slot: 0,
+        frozen_until: 0,
+        bump: 0x77,
+        key_rotated_at: 0x0102_0304_0506_0708,
+    };
+    let mut body = Vec::new();
+    node.serialize(&mut body).unwrap();
+    assert_eq!(body[..32], [0xaa; 32]);
+    assert_eq!(body[32..64], [0x11; 32]);
+    assert_eq!(body[64..96], [0x22; 32]);
+    assert_eq!(body[96], NodeStatus::Frozen as u8);
+    assert_eq!(body[97..101], [1, 2, 3, 4]);
+    assert_eq!(body[101..103], 0x0506u16.to_le_bytes());
+    assert_eq!(body[body.len() - 9], 0x77);
+    assert_eq!(
+        body[body.len() - 8..],
+        0x0102_0304_0506_0708i64.to_le_bytes()
+    );
+}
+
+/// The shared verifier reads signer keys out of the `Registry` account by offset: a 32-byte header
+/// (discriminator, `grace_active_until`, `active_from`, `version`, `node_count`,
+/// `redundancy_buffer`, `bump`), then one 96-byte `(node, x, y)` record per member. The account is
+/// exactly as long as its members need, and both sides compute that length the same way.
+#[test]
+fn registry_layout_matches_the_verifier() {
+    use anchor_lang::__private::bytemuck;
+    use molpha::state::{Registry, RegistryMember, MAX_REGISTRY_NODES};
+    use molpha_verifier::solana::{
+        registry_account_len, REGISTRY_HEADER_LEN, REGISTRY_MEMBER_LEN, REGISTRY_NODES_OFFSET,
+    };
+
+    assert_eq!(Registry::HEADER_SPACE, REGISTRY_HEADER_LEN);
+    assert_eq!(REGISTRY_NODES_OFFSET, REGISTRY_HEADER_LEN);
+    assert_eq!(RegistryMember::LEN, REGISTRY_MEMBER_LEN);
+    assert_eq!(REGISTRY_MEMBER_LEN, molpha_verifier::NodeEntry::LEN);
+    assert_eq!(MAX_REGISTRY_NODES, molpha_verifier::MAX_REGISTRY_NODES);
+    for members in [0, 1, 12, 106, 107, MAX_REGISTRY_NODES] {
+        assert_eq!(Registry::space(members), registry_account_len(members));
+        assert_eq!(
+            Registry::capacity_of(Registry::space(members)),
+            Some(members)
+        );
+    }
+    assert_eq!(Registry::space(0), 32);
+    assert_eq!(Registry::space(1), 128);
+    // One instruction can create up to 10 KiB: a snapshot of 106 members, and no more.
+    assert_eq!(Registry::space(106), 10_208);
+    assert_eq!(Registry::space(MAX_REGISTRY_NODES), 24_608);
+    // A length that is not a header plus whole records is not a registry.
+    for len in [0, 31, 33, 127, 129] {
+        assert_eq!(Registry::capacity_of(len), None, "length {len}");
+    }
+
+    let header = Registry {
+        grace_active_until: 0x1111,
+        active_from: 0x2222,
+        version: 0x0a0b_0c0d,
+        node_count: 0x0102,
+        redundancy_buffer: 3,
+        bump: 4,
+    };
+    // After the 8-byte discriminator, which Anchor writes.
+    let body = bytemuck::bytes_of(&header);
+    assert_eq!(body.len(), REGISTRY_HEADER_LEN - 8);
+    assert_eq!(body[..8], 0x1111i64.to_le_bytes());
+    assert_eq!(body[8..16], 0x2222i64.to_le_bytes());
+    assert_eq!(body[16..20], 0x0a0b_0c0du32.to_le_bytes());
+    assert_eq!(body[20..22], 0x0102u16.to_le_bytes());
+    assert_eq!(body[22], 3);
+    assert_eq!(body[23], 4);
+
+    // A member record is the verifier's `NodeEntry`, byte for byte.
+    let members = [
+        RegistryMember {
+            node: [0x51; 32],
+            x: [0x52; 32],
+            y: [0x53; 32],
+        },
+        RegistryMember {
+            node: [0x61; 32],
+            x: [0x62; 32],
+            y: [0x63; 32],
+        },
+    ];
+    let table: &[u8] = bytemuck::cast_slice(&members);
+    assert_eq!(table[..32], [0x51; 32]);
+    assert_eq!(table[32..64], [0x52; 32]);
+    assert_eq!(table[64..96], [0x53; 32]);
+    let entries = molpha_verifier::NodeEntry::slice_from_bytes(table).unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[1].account, [0x61; 32]);
+    assert_eq!(entries[1].xy(), ([0x62; 32], [0x63; 32]));
 }
 
 /// Off-chain clients read `EpochState` as raw zero-copy bytes and derive roster hints from it.
 #[test]
 fn epoch_and_ticket_layouts_are_pinned() {
     assert_eq!(EpochState::SPACE, 9_384);
-    assert_eq!(molpha::state::Registry::SPACE, 8_224);
+    assert_eq!(molpha::state::Registry::space(0), 32);
     assert_eq!(TicketMarker::SPACE, 8 + 8 + 32 + 1);
 }
 

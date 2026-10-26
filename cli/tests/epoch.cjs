@@ -73,7 +73,11 @@ test("the lottery compares the big-endian u64 prefix to tau", () => {
 
 test("roster hints reuse known slots and append new nodes in selection order", () => {
   const key = (n) => new PublicKey(new Uint8Array(32).fill(n)).toBytes();
-  const registry = { nodeCount: 4, nodes: [key(1), key(2), key(3), key(4)] };
+  const member = (n) => ({ node: key(n), x: [], y: [] });
+  const registry = {
+    nodeCount: 4,
+    members: [member(1), member(2), member(3), member(4)],
+  };
   const epoch = { rosterLen: 2, roster: [key(3), key(1)] };
   // Bits 0, 2 and 3 selected (big-endian bitmap, bit 0 in the last byte).
   const selection = new Uint8Array(32);

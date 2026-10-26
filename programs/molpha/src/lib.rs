@@ -10,10 +10,10 @@ pub mod state;
 pub mod utils;
 
 use instructions::*;
-use molpha_verifier::{Attestation, CoalitionKey};
+use molpha_verifier::{Attestation, CoalitionKey, KeyRotationProof};
 use state::{PlanConfig, PlanType};
 
-declare_id!("MoLF3pgVA9MENSuEujxNNSMaTo71aLyewaH5nrWfUZs");
+declare_id!("chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt");
 
 #[program]
 pub mod molpha {
@@ -33,6 +33,14 @@ pub mod molpha {
 
     pub fn deactivate_node(ctx: Context<DeactivateNode>, node_owner: Pubkey) -> Result<()> {
         instructions::deactivate_node(ctx, node_owner)
+    }
+
+    pub fn extend_registry(ctx: Context<ExtendRegistry>) -> Result<()> {
+        instructions::extend_registry(ctx)
+    }
+
+    pub fn rotate_node_key(ctx: Context<RotateNodeKey>, proof: KeyRotationProof) -> Result<()> {
+        instructions::rotate_node_key(ctx, proof)
     }
 
     pub fn update_node_endpoint(
@@ -73,8 +81,8 @@ pub mod molpha {
         instructions::remove_delegate(ctx, args)
     }
 
-    pub fn submit_attestation<'info>(
-        ctx: Context<'info, SubmitAttestation<'info>>,
+    pub fn submit_attestation(
+        ctx: Context<SubmitAttestation>,
         args: SubmitAttestationArgs,
     ) -> Result<()> {
         instructions::submit_attestation(ctx, args)
@@ -113,8 +121,8 @@ pub mod molpha {
         instructions::withdraw_protocol_reserve(ctx, amount)
     }
 
-    pub fn submit_ticket<'info>(
-        ctx: Context<'info, SubmitTicket<'info>>,
+    pub fn submit_ticket(
+        ctx: Context<SubmitTicket>,
         epoch: u64,
         attestation: Attestation,
         roster_slots: Vec<u16>,

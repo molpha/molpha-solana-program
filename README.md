@@ -35,8 +35,11 @@ Payments land in the treasury → sweep_treasury_revenue → epoch pool
 finalize_epoch → credit_epoch_rewards → claim_node_rewards
 ```
 
-- **Node registry.** Every membership change creates an immutable registry snapshot. Nodes
-  register a secp256k1 key with a proof of possession and lock a USDC deposit.
+- **Node registry.** Every membership change creates an immutable registry snapshot that names
+  each member's secp256k1 signing key. Nodes register a key with a proof of possession and lock a
+  USDC deposit, and can rotate the key: a rotation is signed by the node owner and the node's
+  current key, proves possession of the new one, and publishes a new snapshot, so nothing signed
+  under the old key stops verifying.
 - **Plans and subscriptions.** Admin-defined plans, paid monthly in USDC. Owners can authorize
   delegates up to the plan's limit.
 - **Feeds.** One account per `(source_id, quorum, submitter)`, holding the signed 32-byte value

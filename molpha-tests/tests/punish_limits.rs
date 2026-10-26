@@ -38,9 +38,9 @@ const ROUND_SIGNER_COUNT: usize = SIGS_REQUIRED as usize + REDUNDANCY_BUFFER as 
 
 /// Intruders punishable in one unsolicited filing alongside a 20-signer round attestation.
 ///
-/// Fixed accounts plus remaining `Node` accounts for the full submitted bitmap (20 round signers
-/// + N intruders) must stay within runtime account-lock limits in LiteSVM as well as the
-///   64-account wire cap.
+/// Fixed accounts plus one remaining `Node` account per intruder must stay within runtime
+/// account-lock limits in LiteSVM as well as the 64-account wire cap. The round's own signers
+/// are not accounts: their keys come from the registry snapshot.
 const MAX_UNSOLICITED_INTRUDERS: usize = 8;
 const UNSOLICITED_REGISTRY_NODES: usize = ROUND_SIGNER_COUNT + MAX_UNSOLICITED_INTRUDERS;
 
@@ -353,9 +353,11 @@ fn unsolicited_signing_with_20_round_signers_and_max_intruders_executes() {
     let size = p
         .env
         .transaction_size_as(&reporter.pubkey(), std::slice::from_ref(&ix));
+    // Only the guilty nodes are named; the round's other signers are read from the registry
+    // snapshot, so a full round plus its intruders costs eight accounts.
     assert!(
-        size > PACKET_DATA_SIZE,
-        "a full round plus intruders exceeds a legacy packet ({size} bytes); v0+ALT is required on mainnet"
+        size <= PACKET_DATA_SIZE,
+        "a full round plus intruders must fit a legacy packet ({size} bytes)"
     );
 
     let meta = p.env.send_ok_with_max_heap(&[ix], &[&reporter]);

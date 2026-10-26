@@ -1,9 +1,7 @@
 use anchor_lang::prelude::*;
 use solana_keccak_hasher::hashv;
 
-use molpha_verifier::{
-    derive_selection_bitmap, solana::resolve_signers_accounts, Attestation, Bitmap, CoalitionKey,
-};
+use molpha_verifier::{derive_selection_bitmap, Attestation, Bitmap, CoalitionKey};
 
 use crate::error::{map_attestation_err, MolphaError};
 use crate::state::{Evidence, EvidenceAccounts};
@@ -21,7 +19,7 @@ pub struct UnsolicitedSigningEvidence {
 }
 
 impl Evidence for UnsolicitedSigningEvidence {
-    fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<(Bitmap, Bitmap)> {
+    fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<Bitmap> {
         let attestation = &self.attestation;
 
         let signers_bitmap = Bitmap::load(&attestation.signature.signers_bitmap);
@@ -29,7 +27,7 @@ impl Evidence for UnsolicitedSigningEvidence {
             &attestation.payload.source_id,
             attestation.payload.timestamp,
             attestation.payload.signatures_required,
-            &ctx.evidence_registry.load()?.view(),
+            &ctx.evidence_registry.load()?.selection_view(),
         )
         .map_err(map_attestation_err)?;
         require!(
@@ -39,18 +37,12 @@ impl Evidence for UnsolicitedSigningEvidence {
 
         let guilty_bitmap = signers_bitmap.subtract(&selection);
 
-        // Resolve the full submitted bitmap; the aggregate is only verifiable over all contributors.
-        // `molpha_verifier::verify` would reject this evidence outright, since it enforces the very
-        // selection membership the offence breaks.
-        let signers = resolve_signers_accounts(
-            ctx.remaining,
-            ctx.evidence_registry.as_ref(),
-            &attestation.signature.signers_bitmap,
-        )
-        .map_err(|_| error!(MolphaError::InvalidNodeAccount))?;
-        verify_evidence_signature(attestation, &signers, &self.coalition_key)?;
+        // Verify the aggregate over the full submitted bitmap; it is only verifiable over all
+        // contributors. `molpha_verifier::verify` would reject this evidence outright, since it
+        // enforces the very selection membership the offence breaks.
+        verify_evidence_signature(ctx, attestation, &self.coalition_key)?;
 
-        Ok((signers_bitmap, guilty_bitmap))
+        Ok(guilty_bitmap)
     }
 
     fn hash(&self) -> [u8; 32] {

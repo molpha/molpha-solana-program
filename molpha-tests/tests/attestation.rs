@@ -1,14 +1,13 @@
 //! `submit_attestation`.
 #![allow(clippy::result_large_err)] // see the note in `molpha_tests`
 
-use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::FeedUpdated;
 use molpha::instructions::SubmitAttestationArgs;
 use molpha::state::{Feed, FeedValueKind};
 use molpha::utils::MAX_FUTURE_DRIFT_SECONDS;
 use molpha_tests::crypto;
-use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event, readonly_metas};
+use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
 use molpha_tests::scenario::{Duty, Protocol, SignedAttestation, ZERO_COALITION_KEY};
 use solana_keypair::Keypair;
@@ -201,7 +200,7 @@ fn submit_with_raw_value(
         raw_value: Some(raw),
         coalition_key: signed.coalition_key,
     };
-    let ix = p.submit_attestation_ix_with_args(&submitter.pubkey(), args, &signed.signer_pdas);
+    let ix = p.submit_attestation_ix_with_args(&submitter.pubkey(), args);
     p.env.send(&[ix], &[submitter])
 }
 
@@ -337,7 +336,7 @@ fn submit_attestation_rejects_a_wrong_coalition_key() {
     for bad in [flipped_x, negated, subset, ZERO_COALITION_KEY] {
         let mut args = signed.submit_args();
         args.coalition_key = bad;
-        let ix = p.submit_attestation_ix_with_args(&submitter.pubkey(), args, &signed.signer_pdas);
+        let ix = p.submit_attestation_ix_with_args(&submitter.pubkey(), args);
         let failed = p.env.send_err(&[ix], &[&submitter]);
         assert_molpha_error(&failed, MolphaError::InvalidCoalitionKey);
     }
@@ -356,7 +355,7 @@ fn submit_attestation_rejects_a_wrong_coalition_key() {
         args.coalition_key,
         p.coalition_key_for(&signed.attestation())
     );
-    let ix = p.submit_attestation_ix_with_args(&submitter.pubkey(), args, &signed.signer_pdas);
+    let ix = p.submit_attestation_ix_with_args(&submitter.pubkey(), args);
     p.env.send_ok(&[ix], &[&submitter]);
 }
 
@@ -443,45 +442,6 @@ fn submit_attestation_accepts_the_full_selection_set() {
         &submitter.pubkey(),
     ));
     assert_eq!(feed.signers_bitmap, crypto::bitmap_from_bits(&selected));
-}
-
-#[test]
-fn submit_attestation_rejects_signer_accounts_in_the_wrong_order() {
-    let mut p = with_nodes("submit-order");
-    let submitter = p.env.keypair();
-    let signed = p.sign_duty(duty());
-
-    let mut ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
-    let n = ix.accounts.len();
-    ix.accounts.swap(n - 1, n - 2);
-    let failed = p.env.send_err(&[ix], &[&submitter]);
-    assert_molpha_error(&failed, MolphaError::MissingSignerAccount);
-}
-
-#[test]
-fn submit_attestation_rejects_a_missing_signer_account() {
-    let mut p = with_nodes("submit-missing");
-    let submitter = p.env.keypair();
-    let signed = p.sign_duty(duty());
-
-    let mut ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
-    ix.accounts.pop();
-    let failed = p.env.send_err(&[ix], &[&submitter]);
-    assert_molpha_error(&failed, MolphaError::MissingSignerAccount);
-}
-
-#[test]
-fn submit_attestation_rejects_a_signer_account_from_outside_the_program() {
-    let mut p = with_nodes("submit-foreign");
-    let submitter = p.env.keypair();
-    let signed = p.sign_duty(duty());
-
-    let mut ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
-    let last = ix.accounts.len() - 1;
-    // A system-owned account cannot masquerade as a Node.
-    ix.accounts[last] = readonly_metas([Pubkey::new_unique()]).remove(0);
-    let failed = p.env.send_err(&[ix], &[&submitter]);
-    assert_molpha_error(&failed, MolphaError::MissingSignerAccount);
 }
 
 #[test]
@@ -637,16 +597,38 @@ fn the_freshness_window_comes_from_config() {
     submit(&mut p, &submitter, duty().at_secs(now - 1_000));
 }
 
+/// Signer keys come from the registry snapshot, so a submission carries its fixed accounts and
+/// nothing per signer.
 #[test]
-fn trailing_accounts_after_the_signers_are_rejected() {
-    let mut p = with_nodes("submit-trailing-accounts");
+fn submission_carries_no_per_signer_accounts() {
+    let mut p = with_nodes("submit-no-signer-accounts");
     let submitter = p.env.keypair();
     let signed = p.sign_duty(duty());
+    assert!(signed.signer_pdas.len() > 1);
 
-    let mut accounts = signed.signer_pdas.clone();
-    accounts.push(pda::protocol_config());
-    let ix =
-        p.submit_attestation_ix_with_args(&submitter.pubkey(), signed.submit_args(), &accounts);
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    assert_eq!(
+        ix.accounts.len(),
+        5,
+        "submitter, registry, feed, config, system"
+    );
+    p.env.send_ok(&[ix], &[&submitter]);
+}
+
+/// A caller still passing signer accounts, as the previous interface had it, is refused rather
+/// than ignored.
+#[test]
+fn a_submission_with_signer_accounts_is_refused() {
+    let mut p = with_nodes("submit-stray-signer-accounts");
+    let submitter = p.env.keypair();
+    let signed = p.sign_duty(duty());
+    let mut ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    ix.accounts.push(
+        anchor_lang::solana_program::instruction::AccountMeta::new_readonly(
+            signed.signer_pdas[0],
+            false,
+        ),
+    );
     let failed = p.env.send_err(&[ix], &[&submitter]);
     assert_molpha_error(&failed, MolphaError::UnexpectedSignerAccounts);
 }

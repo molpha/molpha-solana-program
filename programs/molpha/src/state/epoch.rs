@@ -3,7 +3,7 @@ use molpha_verifier::bitmap::{for_each_set_bit, Bitmap};
 
 use crate::{
     error::MolphaError,
-    state::{Registry, MAX_REGISTRY_NODES},
+    state::{RegistryRef, MAX_REGISTRY_NODES},
 };
 
 /// Hard cap on accepted tickets per epoch. Bounds marker rent float and keeps every per-node
@@ -203,7 +203,7 @@ impl EpochState {
     /// counted because the roster is full.
     pub fn record_ticket(
         &mut self,
-        registry: &Registry,
+        registry: &RegistryRef<'_>,
         selection: Bitmap,
         signers: &Bitmap,
         hints: &[u16],

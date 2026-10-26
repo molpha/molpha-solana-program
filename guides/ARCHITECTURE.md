@@ -32,15 +32,57 @@ their addresses:
 
 ## Node registry
 
-- `register_node` and `deactivate_node` each create an immutable `Registry` version `N+1`.
-  `update_registry_policy` snapshots a redundancy-policy change without changing membership.
+- `register_node`, `deactivate_node`, `reinstate_node`, `rotate_node_key` and a punishment each
+  create an immutable `Registry` version `N+1`. `update_registry_policy` snapshots a
+  redundancy-policy change without changing membership.
+- A `Registry` version stores, for each member in order, the node account and the node's secp256k1
+  signing key `(x, y)`, 96 bytes per member. Verification reads signer keys from the version a
+  round names, so `submit_attestation` and `submit_ticket` take no per-signer accounts.
+- A version's account is a 32-byte header followed by exactly its members, so it costs what its
+  membership needs, and a registry holds up to 256 members: one per bit of a signer bitmap. See
+  [Registry snapshots](#registry-snapshots) for how the larger ones are allocated.
 - `Node` accounts are keyed by owner and are permanent, so historical rounds and rewards can
-  always be resolved.
+  always be resolved. `Node` holds the node's current key.
 - A node registers a compressed secp256k1 key with a domain-separated Schnorr proof of possession
   over `keccak256("MOLPHA_NODE_POP_V1" ‖ program_id ‖ node_id)`. The key is stored as affine
   coordinates and reserved forever by a key-claim PDA. The verifier's hot path relies on this
   registration check.
 - Deposits sit in the shared node deposit vault; each node's `locked_amount` tracks its share.
+
+### Rotating a signing key
+
+`rotate_node_key` replaces a node's signing key and publishes a registry version that names the new
+one at the node's existing index. Three things authorize it:
+
+- the **node authority**, as the transaction signer;
+- the node's **current signing key**, which signs
+  `keccak256("MOLPHA_NODE_KEY_ROTATION_V1" ‖ program_id ‖ node ‖ new_key_compressed)` in the
+  aggregate Schnorr format;
+- a **proof of possession by the new key** over the same digest, in the registration proof's form
+  (`keccak256("MOLPHA_NODE_POP_V1" ‖ program_id ‖ digest)`). The coalition key is a plain sum of
+  node keys, so a key installed without proving possession would let its owner cancel an honest
+  node's key out of the sum.
+
+The new key is reserved by a key-claim PDA like a registered one, so it is single-use, and the
+retired key's claim stays: a retired key can never be registered or rotated in again. A node
+rotates at most once per `max_settlement_delay_seconds`, and only while it is an active member.
+
+Because a version keeps the key it was created with, nothing signed before a rotation stops
+verifying after it. A round names its registry version, so an attestation or ticket is checked
+against the key that signed it, and slashing evidence against a node that has since rotated still
+convicts it. The key a node holds now is in `Node`; the key a version verifies it with is in that
+version. The cost of this is that a rotated-out key still verifies under the versions that named it:
+for the grace window when submitting attestations (`max_settlement_delay_seconds`, at most 7
+days), and as slashing evidence until one more such window has passed (see Slashing). After that,
+a key the node rotated away from, for example because it leaked, can no longer be used against
+it.
+
+A rotation publishes a version, so it changes the next version's address. A filing built against
+the old address fails and has to be rebuilt; a rotation can delay a punishment this way but not
+escape it, and only once per cooldown.
+
+A frozen node cannot rotate: rotation is for active members. `reinstate_node` brings it back with
+the key it was frozen with, and the owner can rotate once it is active again.
 
 ## Plans, subscriptions and delegates
 
@@ -72,7 +114,8 @@ The signed value is 32 bytes. For a longer value (up to 256 bytes) the signers s
 Every instruction that verifies an aggregate (`submit_attestation`, `submit_ticket`, and the
 equivocation, commitment-reuse and unsolicited-signing evidence) also takes
 `CoalitionKey { x, y }`: the affine sum of the signers' secp256k1 keys, which any library can
-compute from their `Node` accounts in any order. It is unsigned and outside the evidence hash. The
+compute from the signers' keys in the registry snapshot, in any order. It is unsigned and outside
+the evidence hash. The
 verifier checks it against its own sum instead of inverting that sum, which would cost about
 138K CU. A wrong key fails with `InvalidCoalitionKey`.
 
@@ -144,8 +187,17 @@ first epochs a ticket transaction.
 commitment reuse, nonce reuse or inactivity. Proven evidence writes a `PunishmentCase` PDA seeded
 by the evidence hash, so the same filing cannot replay.
 
+Evidence against a superseded registry version has to be filed before one
+`max_settlement_delay_seconds` window has passed since that version's grace ended
+(`EvidenceExpired` after that). Evidence against the current version has no deadline. This bounds
+how long a key a node rotated away from can still be used against it.
+
 - Equivocation, unsolicited signing, commitment reuse and nonce reuse slash the guilty set,
-  tombstone it and evict it into a successor registry.
+  tombstone it and evict it into a successor registry. The filing's remaining accounts are the
+  guilty `Node` accounts only, in ascending registry position, each checked against the evidence
+  registry's member at that position. The other signers' keys are read from that snapshot, so a
+  full round costs no accounts and nonce-reuse evidence is checked against the key the snapshot
+  recorded, whatever the node holds now.
 - Inactivity freezes a node whose inclusion rate in a finalized epoch is below the availability
   floor, without taking principal. There is one case per node per epoch. `reinstate_node` restores
   the node after its freeze window, or earlier when called by the authority.
@@ -160,39 +212,80 @@ by the evidence hash, so the same filing cannot replay.
 
 ## Limits
 
-Both tables come from `cargo test -p molpha-tests --test suite limits compute_bench -- --nocapture`.
-The `limits` tests assert the `submit_attestation` numbers rather than only reporting them.
+The figures come from
+`cargo test -p molpha-tests --test suite limits compute_bench rotate_node_key registry_allocation -- --nocapture`.
+The `limits` and `registry_allocation` tests assert the sizes and the compute ceilings rather than
+only reporting them.
 
 ### `submit_attestation`
 
 | Signers | Compute units | Transaction bytes |
 | ------- | ------------- | ----------------- |
-| 5       | ~91K          | 742               |
-| 10      | ~142K         | 907               |
-| 15      | ~183K         | 1,072             |
-| 19      | ~223K         | 1,204             |
-| 20      | n/a           | 1,237 (too large) |
+| 5       | ~89K          | 577               |
+| 10      | ~132K         | 577               |
+| 15      | ~178K         | 577               |
+| 20      | ~220K         | 577               |
+| 30      | ~303K         | 577               |
 
-19 signers is the ceiling for a legacy transaction: each extra signer costs 33 bytes, the 64-byte
-coalition key costs about two signers' worth, and the packet limit is 1,232 bytes. Compute is not
-the binding constraint. Set the compute unit limit to at least 400,000 for large coalitions, and
-go past 19 signers only with address lookup tables.
+Signer keys come from the registry snapshot, so the transaction does not grow with the coalition
+and always fits a legacy packet. Compute is the limit: about 45K plus 8.6K per signer. 96 signers
+measure ~871K and 150 signers ~1.34M, so one attestation carries about 155 signers at most,
+whatever the registry holds. Set the compute unit limit to cover the coalition you submit.
 
 ### `submit_ticket`
 
-A ticket transaction also carries the gateway's Ed25519 dispatch instruction, so it fits fewer
-signers.
+A ticket transaction also carries the gateway's Ed25519 dispatch instruction and one two-byte
+roster-slot hint per selected node.
 
-| Signers | Compute units (whole transaction) | Fits                          |
-| ------- | --------------------------------- | ----------------------------- |
-| 8       | ~132K                             | legacy                        |
-| 10      | n/a                               | legacy ceiling                |
-| 12      | ~166K                             | v0 + lookup table             |
-| 18      | ~223K                             | v0 + lookup table             |
-| 20      | ~249K                             | v0 + lookup table (991 bytes) |
+| Signers | Compute units (whole transaction) | Transaction bytes |
+| ------- | --------------------------------- | ----------------- |
+| 8       | ~128K                             | 883               |
+| 12      | ~160K                             | 891               |
+| 18      | ~214K                             | 903               |
+| 20      | ~233K                             | 907               |
 
-Put the signer `Node` accounts in the lookup table; the marker, epoch and payer stay static. Every
-ticket write-locks its epoch's `EpochState`, which is acceptable at the sampled rate.
+The size is 873 bytes plus 2 per signer (1,167 at 150 signers), so any coalition compute admits
+fits a legacy packet. Every ticket write-locks its epoch's `EpochState`, which is acceptable at
+the sampled rate.
+
+### `rotate_node_key`
+
+About 390K CU, against about 360K for `register_node` and 18K for `deactivate_node`: the proof of
+possession is almost all of the cost, and the snapshot copy is not. In a full 256-member registry
+the whole transaction, with its two `extend_registry` instructions, measures ~419K. Set the
+compute unit limit to at least 500,000. The node owner pays the new version's rent.
+
+### Registry snapshots
+
+Every instruction that changes the registry publishes a new version, in an account sized to its
+members: `32 + 96 × members` bytes.
+
+| Members | Account bytes | Rent    | `extend_registry` calls before the publishing instruction |
+| ------- | ------------- | ------- | --------------------------------------------------------- |
+| 12      | 1,184         | ~0.009  | none                                                      |
+| 30      | 2,912         | ~0.021  | none                                                      |
+| 106     | 10,208        | ~0.072  | none                                                      |
+| 107     | 10,304        | ~0.073  | one                                                       |
+| 213     | 20,480        | ~0.143  | one                                                       |
+| 214     | 20,576        | ~0.144  | two                                                       |
+| 256     | 24,608        | ~0.172  | two                                                       |
+
+Rent is in SOL and is not returned: versions are never closed.
+
+The runtime lets one instruction create or grow an account by at most 10 KiB, which is a snapshot
+of 106 members. Up to that size the publishing instruction creates the account itself. Past it,
+`extend_registry` allocates the next version first, 10 KiB per call, and the publishing instruction
+adds the last 10 KiB. All of it fits one transaction.
+
+`extend_registry` is permissionless and safe to call early or more often than needed. It only ever
+touches the next version's account, it grows it no further than one member more than the current
+version holds, and it is a no-op past that. The publishing instruction takes whatever has been
+allocated, sizes it to the membership it ends with, and returns unneeded rent to its own payer. A
+removal copies every current member before it drops one, so it needs the same room as a rotation
+and ends smaller. Lamports sent to a version's address before it exists do not block it.
+
+A publishing instruction that would have to grow the account by more than 10 KiB fails with
+`RegistryNotAllocated`. A 257th member fails with `NodeCapExceeded`.
 
 ## Trust model and known limitations
 
@@ -201,7 +294,8 @@ The program is in beta and assumes a permissioned operator set and a Molpha-oper
 **What the protocol authority can do**
 
 - Change protocol configuration, plans and the registry redundancy policy.
-- Admit nodes and gateways: `register_node` and `register_gateway` both require its signature.
+- Admit nodes and gateways: `register_node` and `register_gateway` both require its signature. It
+  cannot rotate a node's key: `rotate_node_key` needs the node owner and the node's own key.
 - Deactivate any node or gateway, and reinstate a frozen node early.
 - Withdraw the protocol reserve (fees and slashing proceeds). It cannot withdraw epoch pools,
   credited rewards or node deposits.

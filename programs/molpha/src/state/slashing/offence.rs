@@ -85,7 +85,11 @@ pub fn bps_of(amount: u64, bps: u16) -> u64 {
 }
 
 pub trait Evidence {
-    fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<(Bitmap, Bitmap)>;
+    /// Verify the evidence and return the guilty registry positions, in the evidence registry.
+    ///
+    /// `ctx.remaining` then carries the guilty `Node` accounts in ascending bit order, followed
+    /// by any accounts the offence needs to prove itself (see [`InactivityEvidence`]).
+    fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<Bitmap>;
     fn hash(&self) -> [u8; 32];
     fn registry_version(&self) -> u32;
 }
@@ -101,7 +105,7 @@ impl Offence {
         }
     }
 
-    pub fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<(Bitmap, Bitmap)> {
+    pub fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<Bitmap> {
         self.evidence().validate(ctx)
     }
 

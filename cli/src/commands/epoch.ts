@@ -10,7 +10,8 @@ import { Command } from "commander";
 import { parseSchnorrSignatureJson } from "../lib/agg-sig";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { CliContext, getCliContext } from "../lib/client";
-import { fetchCoalitionKey } from "../lib/coalition";
+import { coalitionKeyForSigners } from "../lib/coalition";
+import { fetchRegistry } from "../lib/registry";
 import {
   findEpochPda,
   findGatewayPda,
@@ -23,7 +24,6 @@ import {
   buildAttestation,
   computeMessageHash,
   deriveSignersBitmap,
-  signerRemainingAccounts,
 } from "../lib/signing/attestation";
 import {
   creditableSlots,
@@ -369,11 +369,7 @@ export function registerEpochCommands(program: Command): void {
       );
       const value = hexToBytes(options.value, 32, "value");
       const [registryPda] = findRegistryPda(ctx.programId, registryVersion);
-      const registry = await fetchAccountOrNull<any>(
-        ctx.program,
-        "registry",
-        registryPda,
-      );
+      const registry = await fetchRegistry(ctx.program, registryPda);
       if (!registry) throw new Error(`Registry ${registryVersion} is missing`);
 
       const schnorr = parseSchnorrSignatureJson(options.aggSig);
@@ -450,8 +446,7 @@ export function registerEpochCommands(program: Command): void {
         timestamp,
       );
       const slots = rosterSlots(state, registry, selection);
-      const coalitionKey = await fetchCoalitionKey(
-        ctx.program,
+      const coalitionKey = coalitionKeyForSigners(
         registry,
         schnorr.signersBitmap,
       );
@@ -470,9 +465,6 @@ export function registerEpochCommands(program: Command): void {
           instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts(
-          signerRemainingAccounts(registry, schnorr.signersBitmap),
-        )
         // The dispatch verification must sit immediately before the ticket instruction.
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
