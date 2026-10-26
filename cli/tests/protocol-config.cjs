@@ -22,7 +22,7 @@ const {
   registerUpdateConfigCommand,
 } = require("../dist/commands/update-config");
 
-const PROGRAM_ID = new PublicKey("MoLF3pgVA9MENSuEujxNNSMaTo71aLyewaH5nrWfUZs");
+const PROGRAM_ID = new PublicKey("chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt");
 
 function config() {
   return {
