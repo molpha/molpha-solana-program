@@ -193,7 +193,8 @@ pub struct CommittedNoncePair {
 ///
 /// `program_id` is bound so a batch signed against one deployment cannot be replayed as evidence
 /// on another, matching the node proof-of-possession. `registry_version` is bound because
-/// `node_index` only identifies a node within one registry version.
+/// `node_index` only identifies a node within one registry version: a removed node's slot is
+/// reused by a later registration.
 pub fn commitment_batch_message_hash(
     program_id: &Pubkey,
     registry_version: u32,

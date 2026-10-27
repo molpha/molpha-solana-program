@@ -388,8 +388,10 @@ fn submit_attestation_rejects_a_value_the_coalition_did_not_sign() {
     assert_molpha_error(&failed, MolphaError::InvalidAggregateSignature);
 }
 
+/// Consumers accept any quorum of registered members: selection is a load-balancing device,
+/// policed by the unsolicited-signing offence and the activity counters, not by verification.
 #[test]
-fn submit_attestation_rejects_a_signer_outside_the_derived_selection() {
+fn submit_attestation_accepts_a_signer_outside_the_derived_selection() {
     let mut p = with_nodes("submit-unselected");
     let submitter = p.env.keypair();
     let duty = duty();
@@ -404,8 +406,45 @@ fn submit_attestation_rejects_a_signer_outside_the_derived_selection() {
 
     let signed = p.sign_duty_with_bits(duty, &bits, None);
     let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    p.env.send_ok(&[ix], &[&submitter]);
+
+    let feed: Feed = p.env.get(&pda::feed(
+        &duty.source_id,
+        SIGS_REQUIRED,
+        &submitter.pubkey(),
+    ));
+    assert_eq!(feed.signers_bitmap, signed.signers_bitmap);
+    assert_eq!(feed.value, duty.value);
+}
+
+/// Any registered members at all: the quorum is `k` of the registry, wherever the draw fell.
+#[test]
+fn submit_attestation_accepts_a_quorum_drawn_entirely_outside_the_selection() {
+    let mut p = Protocol::builder().redundancy_buffer(1).start();
+    p.register_nodes("submit-all-unselected", 16);
+    let submitter = p.env.keypair();
+    let duty = Duty::new(16, 5);
+    let selected = p.selection_bits(&duty);
+    assert_eq!(selected.len(), 6);
+    let outside: Vec<usize> = (0..16).filter(|bit| !selected.contains(bit)).collect();
+    assert!(outside.len() >= 5);
+
+    let signed = p.sign_duty_with_bits(duty, &outside[..5], None);
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
+    p.env.send_ok(&[ix], &[&submitter]);
+}
+
+#[test]
+fn submit_attestation_still_caps_the_coalition_at_quorum_plus_buffer() {
+    let mut p = with_nodes("submit-too-many");
+    let submitter = p.env.keypair();
+    let duty = duty();
+    let bits: Vec<usize> = (0..SIGS_REQUIRED as usize + 3).collect();
+
+    let signed = p.sign_duty_with_bits(duty, &bits, None);
+    let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
     let failed = p.env.send_err(&[ix], &[&submitter]);
-    assert_molpha_error(&failed, MolphaError::SignersNotSubsetOfSelection);
+    assert_molpha_error(&failed, MolphaError::CreditedExceedsSelection);
 }
 
 #[test]

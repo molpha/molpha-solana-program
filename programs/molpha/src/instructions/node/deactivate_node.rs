@@ -15,7 +15,7 @@ pub fn deactivate_node(ctx: Context<DeactivateNode>, node_owner: Pubkey) -> Resu
     );
 
     let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
-    ctx.accounts.registry_state.swap_remove_node(
+    ctx.accounts.registry_state.remove_node(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
             next: &ctx.accounts.new_registry,

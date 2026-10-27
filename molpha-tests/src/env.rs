@@ -838,10 +838,12 @@ pub struct RegistrySnapshot {
     pub bump: u8,
     pub grace_active_until: i64,
     pub active_from: i64,
-    /// Only the populated prefix, `nodes[..node_count]`.
+    /// The slots, `nodes[..node_count]`. A removed member's slot reads `Pubkey::default()`.
     pub nodes: Vec<Pubkey>,
     /// Each member's signing key `(x, y)`, parallel to `nodes`.
     pub keys: Vec<([u8; 32], [u8; 32])>,
+    /// The member table as the verifier reads it, holes included.
+    pub entries: Vec<molpha_verifier::NodeEntry>,
     /// Length of the account, which is the header plus exactly `node_count` records.
     pub data_len: usize,
 }
@@ -878,6 +880,13 @@ impl RegistrySnapshot {
                 )
             })
             .collect();
+        let entries = (0..node_count as usize)
+            .map(|i| molpha_verifier::NodeEntry {
+                account: member(i)[0..32].try_into().unwrap(),
+                x: member(i)[32..64].try_into().unwrap(),
+                y: member(i)[64..96].try_into().unwrap(),
+            })
+            .collect();
         Self {
             version,
             node_count,
@@ -887,22 +896,41 @@ impl RegistrySnapshot {
             active_from,
             nodes,
             keys,
+            entries,
             data_len: data.len(),
         }
     }
 
+    /// Slot of `node`. A hole (`Pubkey::default()` in `nodes`) never matches.
     pub fn index_of(&self, node: &Pubkey) -> Option<u16> {
+        if *node == Pubkey::default() {
+            return None;
+        }
         self.nodes.iter().position(|n| n == node).map(|i| i as u16)
     }
 
-    /// [`molpha_verifier::RegistryView`] for selection derivation, which reads only the
-    /// version, node count and redundancy buffer — the member table is left empty.
-    pub fn selection_view(&self) -> molpha_verifier::RegistryView<'static> {
+    /// Whether slot `bit` holds a live member.
+    pub fn is_live(&self, bit: usize) -> bool {
+        self.nodes
+            .get(bit)
+            .is_some_and(|node| *node != Pubkey::default())
+    }
+
+    /// Slots of the live members, ascending.
+    pub fn live_slots(&self) -> Vec<usize> {
+        (0..self.nodes.len())
+            .filter(|bit| self.is_live(*bit))
+            .collect()
+    }
+
+    /// [`molpha_verifier::RegistryView`] with the member table, as selection derivation needs it
+    /// to skip the holes.
+    pub fn selection_view(&self) -> molpha_verifier::RegistryView<'_> {
         molpha_verifier::RegistryView {
             version: self.version,
             node_count: self.node_count,
             redundancy_buffer: self.redundancy_buffer,
-            nodes: &[],
+            nodes: &self.entries,
         }
     }
 }

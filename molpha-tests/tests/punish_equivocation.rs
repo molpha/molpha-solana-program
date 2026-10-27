@@ -126,7 +126,7 @@ fn a_proven_equivocation_slashes_tombstones_and_evicts_exactly_the_intersection(
 
     // The guilty are evicted into a fresh snapshot; the evidence snapshot is untouched.
     let after = case.p.env.registry(new_version);
-    assert_eq!(after.node_count as usize, NODE_COUNT - guilty.len());
+    assert_eq!(after.live_slots().len(), NODE_COUNT - guilty.len());
     for node in &guilty {
         assert!(!after.nodes.contains(node));
     }

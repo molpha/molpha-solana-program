@@ -372,7 +372,7 @@ fn unsolicited_signing_with_20_round_signers_and_max_intruders_executes() {
     }
     let after = p.env.registry(p.current_version());
     assert_eq!(
-        after.node_count as usize,
+        after.live_slots().len(),
         UNSOLICITED_REGISTRY_NODES - MAX_UNSOLICITED_INTRUDERS,
         "every intruder must be evicted from the live registry"
     );

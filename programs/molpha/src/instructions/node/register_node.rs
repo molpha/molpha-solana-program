@@ -82,7 +82,7 @@ pub fn register_node(ctx: Context<RegisterNode>, args: RegisterNodeArgs) -> Resu
         .init(ctx.accounts.node.key(), ctx.bumps.secp256k1_key_claim);
 
     let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
-    let index = ctx.accounts.registry_state.append_node(
+    let index = ctx.accounts.registry_state.insert_node(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
             next: &ctx.accounts.new_registry,

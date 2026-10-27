@@ -97,10 +97,16 @@ pub fn submit_ticket(
         &payload.source_id,
         timestamp,
         payload.signatures_required,
-        &registry.selection_view(),
+        &registry.view(),
     )
     .map_err(map_attestation_err)?;
     let signers = Bitmap::load(&attestation.signature.signers_bitmap);
+    // Verification accepts any quorum of members, so tickets police the committee themselves:
+    // activity is counted against the selection, and a signer outside it must not pass.
+    require!(
+        signers.is_subset(&selection),
+        MolphaError::SignersNotSubsetOfSelection
+    );
 
     let mut epoch = ctx.accounts.epoch_state.load_mut()?;
     let uncounted = epoch.record_ticket(&registry, selection, &signers, &roster_slots)?;

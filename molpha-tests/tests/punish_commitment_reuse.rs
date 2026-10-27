@@ -132,7 +132,7 @@ fn a_proven_commitment_reuse_halves_the_stake_tombstones_and_evicts_the_intersec
     }
 
     let after = case.p.env.registry(new_version);
-    assert_eq!(after.node_count as usize, NODE_COUNT - guilty.len());
+    assert_eq!(after.live_slots().len(), NODE_COUNT - guilty.len());
     for node in &guilty {
         assert!(!after.nodes.contains(node));
     }

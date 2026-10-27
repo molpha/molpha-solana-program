@@ -26,7 +26,7 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
         ctx.accounts.node.secp256k1_pubkey_y,
     );
     let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
-    let index: u32 = ctx.accounts.registry_state.append_node(
+    let index: u32 = ctx.accounts.registry_state.insert_node(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
             next: &ctx.accounts.new_registry,

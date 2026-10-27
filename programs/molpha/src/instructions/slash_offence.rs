@@ -56,7 +56,7 @@ pub fn slash_offence<'info>(
     // `registry_state.next_version`, which would break exit validation on
     // `new_registry`'s version seed if we loaded it afterwards.
     let redundancy_buffer = ctx.accounts.current_registry.load()?.redundancy_buffer;
-    let node_count = ctx.accounts.registry_state.swap_remove_nodes(
+    let node_count = ctx.accounts.registry_state.remove_nodes(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
             next: &ctx.accounts.new_registry,

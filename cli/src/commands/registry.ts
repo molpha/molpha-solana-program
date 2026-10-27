@@ -13,7 +13,12 @@ import { fetchAccountOrNull } from "../lib/accounts";
 import { CliContext, getCliContext } from "../lib/client";
 import { deriveNodeId } from "../lib/ids";
 import { fetchRegistry, registryExtendInstructions } from "../lib/registry";
-import { registryNode } from "../lib/signing/attestation";
+import {
+  liveSlots,
+  nextRegistrySlot,
+  registryNode,
+  registrySlotOf,
+} from "../lib/signing/attestation";
 import {
   buildKeyRotationArgs,
   deriveKeyRotationDigest,
@@ -69,25 +74,28 @@ export function registerRegistryCommands(program: Command): void {
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const loaded = await resolveRegistry(ctx, options);
+      // `nodeCount` is the number of slots, holes included; a removed node leaves a hole and the
+      // others keep their slot, so `index` below is the bit each member signs with.
       const nodeCount = Number(loaded.registry.nodeCount);
-      const addresses: PublicKey[] = [];
-      for (let index = 0; index < nodeCount; index++) {
-        addresses.push(registryNode(loaded.registry, index));
-      }
+      const slots = liveSlots(loaded.registry);
+      const addresses: PublicKey[] = slots.map((slot) =>
+        registryNode(loaded.registry, slot),
+      );
       const nodes = await fetchNodes(ctx, addresses);
       writeJson({
         address: loaded.address.toBase58(),
         version: Number(loaded.registry.version),
         nodeCount,
+        liveCount: slots.length,
         redundancyBuffer: Number(loaded.registry.redundancyBuffer),
         graceActiveUntil: amountString(loaded.registry.graceActiveUntil),
         // `signingKey` is the key this version verifies the member with; the node account's own
         // key is its current one, which differs after a rotation.
-        nodes: addresses.map((address, index) => ({
-          ...formatMember(index, address, nodes[index]),
+        nodes: addresses.map((address, position) => ({
+          ...formatMember(slots[position], address, nodes[position]),
           signingKey: {
-            x: bytesHex(loaded.registry.members[index].x),
-            y: bytesHex(loaded.registry.members[index].y),
+            x: bytesHex(loaded.registry.members[slots[position]].x),
+            y: bytesHex(loaded.registry.members[slots[position]].y),
           },
         })),
       });
@@ -231,7 +239,8 @@ export function registerRegistryCommands(program: Command): void {
         signature,
         nodeOwner: nodeOwner.publicKey.toBase58(),
         nodeId: `0x${Buffer.from(nodeId).toString("hex")}`,
-        nodeIndex: Number(current.nodeCount),
+        // The lowest hole, else the slot after the last.
+        nodeIndex: nextRegistrySlot(current),
         node: node.toBase58(),
         registryVersion: newRegistryVersion,
         registry: newRegistry.toBase58(),
@@ -413,13 +422,7 @@ export function registerRegistryCommands(program: Command): void {
         ? parsePublicKey(options.nodeOwner, "node owner")
         : ctx.wallet.publicKey;
       const [node] = findNodePda(ctx.programId, nodeOwner);
-      let removeIndex = -1;
-      for (let index = 0; index < Number(current.nodeCount); index++) {
-        if (registryNode(current, index).equals(node)) {
-          removeIndex = index;
-          break;
-        }
-      }
+      const removeIndex = registrySlotOf(current, node);
       if (removeIndex < 0)
         throw new Error("Node is not a current registry member");
 
@@ -684,12 +687,8 @@ async function currentMembership(
     findRegistryPda(ctx.programId, version)[0],
   );
   if (!registry) return { version, member: false, index: null };
-  const nodeCount = Number(registry.nodeCount);
-  for (let index = 0; index < nodeCount; index++) {
-    if (registryNode(registry, index).equals(node)) {
-      return { version, member: true, index };
-    }
-  }
+  const index = registrySlotOf(registry, node);
+  if (index >= 0) return { version, member: true, index };
   return { version, member: false, index: null };
 }
 
