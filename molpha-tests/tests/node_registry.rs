@@ -2,6 +2,7 @@
 //! immutability of version-addressed registry snapshots.
 #![allow(clippy::result_large_err)] // see the note in `molpha_tests`
 
+use anchor_lang::prelude::Pubkey;
 use molpha::error::MolphaError;
 use molpha::events::{
     NodeDeactivated, NodeEndpointUpdated, NodeRegistered, RegistryUpdated, RegistryVersionReason,
@@ -370,11 +371,15 @@ fn deactivate_node_by_its_owner_removes_it_and_starts_the_withdrawal_cooldown() 
     // Deactivation does not refund; the deposit stays locked until withdrawal.
     assert_eq!(node.locked_amount, p.args.minimum_node_deposit);
 
-    // swap_remove: the last entry fills the hole.
+    // Slots are stable: the removed node's slot is a hole and the last entry does not move.
     let after = p.env.registry(4);
-    assert_eq!(after.node_count, 2);
-    assert_eq!(after.nodes, vec![p.nodes[0].pda, p.nodes[2].pda]);
+    assert_eq!(after.node_count, 3);
+    assert_eq!(
+        after.nodes,
+        vec![p.nodes[0].pda, Pubkey::default(), p.nodes[2].pda]
+    );
     assert!(!after.nodes.contains(&target));
+    assert_eq!(after.live_slots(), vec![0, 2]);
 
     // The snapshot the node was in is still intact.
     let before = p.env.registry(3);

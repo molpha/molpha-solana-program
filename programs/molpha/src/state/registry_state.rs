@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
 use molpha_verifier::SignerXy;
 
-use crate::error::MolphaError;
 use crate::state::{Registry, RegistryBuilder, RegistryMut, MAX_REGISTRY_NODES};
 use crate::utils::registry_account::RegistryAllocation;
 
@@ -38,7 +37,7 @@ impl RegistryState {
     /// Publish the next registry version: copy the current snapshot into the next account, run
     /// `apply` on the copy, and size the account to the members it ends up with.
     ///
-    /// `added` is how many members `apply` may append.
+    /// `added` is how many members `apply` may add; one that takes a hole adds no slot.
     fn publish<F, R>(
         &mut self,
         transition: &RegistryTransition<'_, '_>,
@@ -56,13 +55,13 @@ impl RegistryState {
             bump: transition.bump,
         };
 
-        // Room for every current member, and for the ones being added. A removal leaves the
-        // table larger than it needs; it is shrunk once the final membership is known.
-        let members = usize::from(transition.current.load()?.node_count) + added;
-        require!(members <= MAX_REGISTRY_NODES, MolphaError::NodeCapExceeded);
-        allocation.resize_to(Registry::space(members))?;
+        // Room for every current slot, and for the ones being added. A removal leaves the table
+        // larger than it needs, and an insert that takes a hole adds no slot; it is shrunk once
+        // the final slot count is known. The cap itself is enforced where a slot is added.
+        let slots = usize::from(transition.current.load()?.node_count) + added;
+        allocation.resize_to(Registry::space(slots.min(MAX_REGISTRY_NODES)))?;
 
-        let (result, node_count) = {
+        let (result, slot_count) = {
             let mut current = RegistryMut::load(transition.current.as_ref())?;
             let mut next = RegistryMut::load_init(transition.next)?;
             let (previous, previous_members) = current.parts();
@@ -77,24 +76,24 @@ impl RegistryState {
             let result = apply(&mut builder)?;
             (result, usize::from(builder.header.node_count))
         };
-        allocation.settle(Registry::space(node_count))?;
+        allocation.settle(Registry::space(slot_count))?;
 
         self.current_version = self.next_version;
         self.next_version = self.next_version.checked_add(1).unwrap();
         Ok(result)
     }
 
-    /// Publish a version with `node` appended, carrying its signing key. Returns its index.
-    pub fn append_node(
+    /// Publish a version with `node` added, carrying its signing key: in the lowest vacant slot,
+    /// or after the last slot when there is none. Returns its slot.
+    pub fn insert_node(
         &mut self,
         transition: &RegistryTransition<'_, '_>,
         node: Pubkey,
         key: SignerXy,
     ) -> Result<u32> {
         self.publish(transition, 1, |next| {
-            let index = u32::from(next.header.node_count);
-            next.append_node(node, key)?;
-            Ok(index)
+            let slot = next.insert_node(node, key)?;
+            Ok(u32::try_from(slot).unwrap())
         })
     }
 
@@ -112,21 +111,23 @@ impl RegistryState {
         })
     }
 
-    pub fn swap_remove_node(
+    /// Publish a version without `node`. Its slot becomes a hole; every other member keeps its slot.
+    pub fn remove_node(
         &mut self,
         transition: &RegistryTransition<'_, '_>,
         node: Pubkey,
     ) -> Result<()> {
-        self.publish(transition, 0, |next| next.swap_remove_node(node))
+        self.publish(transition, 0, |next| next.remove_node(node))
     }
 
-    pub fn swap_remove_nodes(
+    /// Publish a version without `nodes`. Returns the slot count of the new version.
+    pub fn remove_nodes(
         &mut self,
         transition: &RegistryTransition<'_, '_>,
         nodes: &[Pubkey],
     ) -> Result<u16> {
         self.publish(transition, 0, |next| {
-            next.swap_remove_nodes(nodes)?;
+            next.remove_nodes(nodes)?;
             Ok(next.header.node_count)
         })
     }

@@ -32,6 +32,7 @@ mod reinstate_node;
 mod revenue;
 mod rotate_node_key;
 mod slash_offence;
+mod stable_slots;
 mod tickets;
 mod time;
 mod withdrawals;

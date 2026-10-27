@@ -42,7 +42,8 @@ pub struct RegisteredNode {
     pub key: NodeKey,
     pub pda: Pubkey,
     pub salt: [u8; 32],
-    /// Index in the registry snapshot created by its own registration.
+    /// Slot in the registry snapshot created by its own registration: the lowest hole, or the
+    /// slot after the last. It stays the node's slot in every later version.
     pub index: u16,
     /// Keys this node signed with before `key`, oldest first. Older registry versions still name
     /// them, so signing under those versions needs their secrets.
@@ -626,8 +627,13 @@ impl Protocol {
         self.env.send_ok(&ixs, &[&authority, &owner]);
 
         let pda = pda::node(&owner.pubkey());
+        let slot = self
+            .env
+            .registry(self.current_version())
+            .index_of(&pda)
+            .expect("a registered node holds a slot");
         self.nodes.push(RegisteredNode {
-            index: (self.nodes.len()) as u16,
+            index: slot,
             owner,
             key,
             pda,
@@ -663,7 +669,7 @@ impl Protocol {
         }
     }
 
-    /// Members of the current registry version.
+    /// Slots of the current registry version, holes included.
     pub fn current_members(&self) -> usize {
         usize::from(self.env.registry(self.current_version()).node_count)
     }

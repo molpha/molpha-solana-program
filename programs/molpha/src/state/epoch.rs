@@ -21,8 +21,9 @@ const BPS: u128 = 10_000;
 /// One epoch of the reward pool: its window, pinned ticket threshold, swept income and the
 /// per-node participation counters fed by tickets.
 ///
-/// Counters are keyed by an epoch-local roster of `Node` PDAs rather than by registry position,
-/// because registry positions move between versions (swap-remove) while one epoch spans several.
+/// Counters are keyed by an epoch-local roster of `Node` PDAs rather than by registry slot,
+/// because a slot is handed to another node once its holder leaves (a new registration takes the
+/// lowest hole) while one epoch spans several versions.
 /// The roster fills lazily as tickets name nodes for the first time.
 ///
 /// PDA: `[SEED_PREFIX, epoch.to_le_bytes()]`. Layout has no implicit padding.

@@ -1,7 +1,8 @@
 //! How registry snapshot accounts are allocated.
 //!
-//! A snapshot is exactly as large as its members need, so the only limit on membership is the
-//! width of a signer bitmap: 256. One instruction can create or grow an account by at most 10 KiB,
+//! A snapshot is exactly as large as its slots need (a removed member leaves a hole, and a hole in
+//! the middle keeps its record), so the only limit on membership is the width of a signer bitmap:
+//! 256. One instruction can create or grow an account by at most 10 KiB,
 //! which is a snapshot of 106 members; past that, `extend_registry` allocates the next version
 //! ahead of the instruction that publishes it.
 #![allow(clippy::result_large_err)] // see the note in `molpha_tests`
@@ -94,11 +95,29 @@ fn every_version_is_sized_and_funded_for_exactly_its_members() {
     p.env.send_ok(&[ix], &[&authority]);
     assert_eq!(assert_exact_fit(&p), Registry::space(4));
 
-    // A removal shrinks the next version.
+    // A removal in the middle leaves a hole: the slots, and so the size, stay.
     let owner = p.nodes[0].owner.insecure_clone();
     let ix = p.deactivate_node_ix(0, &owner.pubkey());
     p.env.send_ok(&[ix], &[&owner]);
+    assert_eq!(assert_exact_fit(&p), Registry::space(4));
+    assert_eq!(
+        p.env.registry(p.current_version()).live_slots(),
+        vec![1, 2, 3]
+    );
+
+    // Removing the last member trims the slot count, and the next version shrinks.
+    let owner = p.nodes[3].owner.insecure_clone();
+    let ix = p.deactivate_node_ix(3, &owner.pubkey());
+    p.env.send_ok(&[ix], &[&owner]);
     assert_eq!(assert_exact_fit(&p), Registry::space(3));
+
+    // A new registration takes the hole at slot 0, so the size does not grow.
+    p.register_nodes("exact-fit-refill", 1);
+    assert_eq!(assert_exact_fit(&p), Registry::space(3));
+    assert_eq!(
+        p.env.registry(p.current_version()).live_slots(),
+        vec![0, 1, 2]
+    );
 
     // Versions already published keep the size they were given.
     assert_eq!(p.env.registry(1).data_len, Registry::space(1));
@@ -106,12 +125,12 @@ fn every_version_is_sized_and_funded_for_exactly_its_members() {
 }
 
 #[test]
-fn a_removal_pays_rent_for_the_smaller_snapshot_only() {
+fn a_tail_removal_pays_rent_for_the_smaller_snapshot_only() {
     let mut p = protocol("removal-rent", 5);
-    let owner = p.nodes[2].owner.insecure_clone();
+    let owner = p.nodes[4].owner.insecure_clone();
     let before = p.env.lamports(&owner.pubkey());
 
-    let ix = p.deactivate_node_ix(2, &owner.pubkey());
+    let ix = p.deactivate_node_ix(4, &owner.pubkey());
     p.env.send_ok(&[ix], &[&owner]);
 
     // The handler works in a table with room for all five, then shrinks it to four and returns
@@ -121,6 +140,27 @@ fn a_removal_pays_rent_for_the_smaller_snapshot_only() {
         p.env.rent_minimum(Registry::space(4))
     );
     assert_exact_fit(&p);
+}
+
+#[test]
+fn a_removal_in_the_middle_keeps_every_slot_and_so_the_size() {
+    let mut p = protocol("removal-hole-rent", 5);
+    let owner = p.nodes[2].owner.insecure_clone();
+    let before = p.env.lamports(&owner.pubkey());
+
+    let ix = p.deactivate_node_ix(2, &owner.pubkey());
+    p.env.send_ok(&[ix], &[&owner]);
+
+    // Slot 2 is a hole inside a table of five, so the next version is five records long.
+    assert_eq!(
+        before - p.env.lamports(&owner.pubkey()),
+        p.env.rent_minimum(Registry::space(5))
+    );
+    assert_eq!(assert_exact_fit(&p), Registry::space(5));
+    assert_eq!(
+        p.env.registry(p.current_version()).live_slots(),
+        vec![0, 1, 3, 4]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -232,10 +272,11 @@ fn lamports_sent_to_the_next_version_ahead_of_time_do_not_block_it() {
     let before = p.env.lamports(&owner.pubkey());
     let ix = p.deactivate_node_ix(0, &owner.pubkey());
     p.env.send_ok(&[ix], &[&owner]);
-    assert_eq!(assert_exact_fit(&p), Registry::space(3));
+    // Slot 0 becomes a hole inside four slots, so the version keeps four records.
+    assert_eq!(assert_exact_fit(&p), Registry::space(4));
     assert_eq!(
         p.env.lamports(&owner.pubkey()) - before,
-        gift - p.env.rent_minimum(Registry::space(3))
+        gift - p.env.rent_minimum(Registry::space(4))
     );
 
     // And `extend_registry` takes over a funded address too.
@@ -243,9 +284,11 @@ fn lamports_sent_to_the_next_version_ahead_of_time_do_not_block_it() {
     p.env.send_ok(&[ix], &[&griefer]);
     let ix = p.extend_registry_ix(&griefer.pubkey());
     p.env.send_ok(&[ix], &[&griefer]);
+    // It grows toward one slot more than the current version has, the most the next could need;
+    // the registration then takes the hole and gives the spare record back.
     assert_eq!(
         p.env.account_data(&next_registry(&p)).len(),
-        Registry::space(4)
+        Registry::space(5)
     );
     p.register_nodes("prefunded-b", 1);
     assert_eq!(assert_exact_fit(&p), Registry::space(4));
@@ -287,10 +330,12 @@ fn a_snapshot_past_106_members_needs_the_next_version_extended_first() {
     p.env.send_ok(&[extend, rotate], &[&rotating]);
     assert_eq!(assert_exact_fit(&p), Registry::space(107));
 
-    // …and a removal, which copies all 107 before it drops one. It ends at a size one
-    // instruction could have created, so the version after it needs no extending again.
-    let leaving = p.nodes[5].owner.insecure_clone();
-    let deactivate = p.deactivate_node_ix(5, &leaving.pubkey());
+    // …and a removal, which copies all 107 before it drops one. Removing the last member ends at
+    // a size one instruction could have created, so the version after it needs no extending
+    // again; a removal in the middle would leave a hole and keep all 107 slots.
+    // The 107th member, registered above, holds the last slot.
+    let leaving = owner.insecure_clone();
+    let deactivate = p.deactivate_node_raw_ix(&leaving.pubkey(), &leaving.pubkey());
     let failed = p
         .env
         .send_err(std::slice::from_ref(&deactivate), &[&leaving]);
@@ -384,17 +429,22 @@ fn a_registry_fills_to_256_members_and_every_transition_still_works() {
         "FULL_REGISTRY slash_offence cu={}",
         meta.compute_units_consumed
     );
+    // The guilty leave holes: the table keeps its 256 records unless one of them was the last.
+    let after = p.env.registry(p.current_version());
+    assert_eq!(after.live_slots().len(), MAX_REGISTRY_NODES - 2);
     assert_eq!(
         assert_exact_fit(&p),
-        Registry::space(MAX_REGISTRY_NODES - 2)
+        Registry::space(usize::from(after.node_count))
     );
     for node in &guilty {
         assert_eq!(p.env.get::<Node>(node).status, NodeStatus::Tombstoned);
-        assert!(!p.env.registry(p.current_version()).nodes.contains(node));
+        assert!(!after.nodes.contains(node));
     }
 
-    // With two slots free the registry takes members again.
+    // With two holes free the registry takes members again, into the holes.
     p.register_nodes("full-refill", 2);
+    let refilled = p.env.registry(p.current_version());
+    assert_eq!(refilled.live_slots().len(), MAX_REGISTRY_NODES);
     assert_eq!(assert_exact_fit(&p), 24_608);
 }
 

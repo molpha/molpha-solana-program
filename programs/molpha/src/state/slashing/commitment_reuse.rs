@@ -4,7 +4,7 @@ use solana_keccak_hasher::hashv;
 use molpha_verifier::{Attestation, Bitmap, CoalitionKey};
 
 use crate::error::MolphaError;
-use crate::state::{Evidence, EvidenceAccounts};
+use crate::state::{Evidence, EvidenceAccounts, RegistryRef};
 use crate::utils::slash::{
     attestation_hash, canonical_pair, is_equivocation, require_signers_selected,
     verify_evidence_signature,
@@ -52,8 +52,9 @@ impl Evidence for CommitmentReuseEvidence {
         );
 
         {
-            let evidence_registry = ctx.evidence_registry.load()?;
-            let view = evidence_registry.selection_view();
+            let registry_account = ctx.evidence_registry.to_account_info();
+            let registry = RegistryRef::load(&registry_account)?;
+            let view = registry.view();
             require_signers_selected(attestation_a, &view)?;
             require_signers_selected(attestation_b, &view)?;
         }

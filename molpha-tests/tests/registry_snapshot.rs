@@ -1,6 +1,6 @@
 //! Registry snapshot mechanics: strict version succession, `copy_from_previous` /
-//! `swap_remove_node(s)` isolation, grace expiry via `is_active`, the rescan that survives the
-//! index shift `swap_remove` causes, the signing keys a snapshot carries, and how a snapshot is
+//! `remove_node(s)` isolation, grace expiry via `is_active`, stable slots (a removal leaves a hole
+//! that the next registration takes), the signing keys a snapshot carries, and how a snapshot is
 //! read from and written to its account.
 //!
 //! Pure unit tests — no VM.
@@ -50,7 +50,7 @@ impl Snapshot {
         for (i, node) in nodes.iter().enumerate() {
             snapshot
                 .builder()
-                .append_node(*node, key(i as u8 + 1))
+                .insert_node(*node, key(i as u8 + 1))
                 .unwrap();
         }
         snapshot
@@ -91,7 +91,7 @@ fn nodes(count: usize) -> Vec<Pubkey> {
 }
 
 #[test]
-fn snapshot_copy_and_swap_remove_do_not_mutate_source() {
+fn snapshot_copy_and_remove_do_not_mutate_source() {
     let members = nodes(3);
     let mut source = Snapshot::of(&members);
     source.header.version = 7;
@@ -102,7 +102,7 @@ fn snapshot_copy_and_swap_remove_do_not_mutate_source() {
     next.builder()
         .copy_from_previous(&mut source.header, &source.members, 8, 3, 2)
         .unwrap();
-    next.builder().swap_remove_node(members[1]).unwrap();
+    next.builder().remove_node(members[1]).unwrap();
 
     assert_eq!(source.header.node_count, 3);
     assert_eq!(source.node(1), members[1]);
@@ -112,38 +112,148 @@ fn snapshot_copy_and_swap_remove_do_not_mutate_source() {
     assert_eq!(next.header.grace_active_until, 0);
     assert_eq!(next.header.redundancy_buffer, 2);
     assert_eq!(next.header.bump, 2);
-    assert_eq!(next.header.node_count, 2);
-    assert_eq!(next.node(1), members[2]);
-    // The slot the removal freed is cleared, so shrinking the account loses nothing.
-    assert_eq!(next.members[2].node, [0; 32]);
-    assert_eq!(next.members[2].xy(), ([0; 32], [0; 32]));
+    // The removed member's slot is a hole; the last member did not move into it.
+    assert_eq!(next.header.node_count, 3);
+    assert!(next.members[1].is_vacant());
+    assert_eq!(next.members[1].xy(), ([0; 32], [0; 32]));
+    assert_eq!(next.node(0), members[0]);
+    assert_eq!(next.node(2), members[2]);
 }
 
 #[test]
-fn swap_remove_batch_handles_swap_index_hazard() {
+fn removing_the_last_member_trims_the_slot_count() {
+    let members = nodes(3);
+    let mut current = Snapshot::of(&members);
+    let mut next = current.successor(3);
+    next.builder().remove_node(members[2]).unwrap();
+    assert_eq!(next.header.node_count, 2);
+    assert!(next.members[2].is_vacant(), "the freed slot is cleared");
+}
+
+#[test]
+fn trailing_holes_are_trimmed_back_to_the_last_live_member() {
+    let members = nodes(5);
+    let mut current = Snapshot::of(&members);
+    let mut next = current.successor(5);
+
+    // A hole in the middle stays; once the tail is removed the table ends on a live member.
+    next.builder().remove_node(members[3]).unwrap();
+    assert_eq!(next.header.node_count, 5);
+    next.builder().remove_node(members[4]).unwrap();
+    assert_eq!(next.header.node_count, 3);
+    assert_eq!(next.node(2), members[2]);
+
+    next.builder().remove_node(members[1]).unwrap();
+    next.builder().remove_node(members[2]).unwrap();
+    assert_eq!(next.header.node_count, 1);
+    next.builder().remove_node(members[0]).unwrap();
+    assert_eq!(next.header.node_count, 0);
+}
+
+#[test]
+fn remove_batch_leaves_every_other_member_in_its_slot() {
     let members = nodes(4);
     let mut current = Snapshot::of(&members);
     let mut next = current.successor(4);
 
     next.builder()
-        .swap_remove_nodes(&[members[0], members[3]])
+        .remove_nodes(&[members[0], members[3]])
         .unwrap();
-    assert_eq!(next.header.node_count, 2);
-    let remaining: Vec<Pubkey> = (0..2).map(|i| next.node(i)).collect();
-    assert!(remaining.contains(&members[1]));
-    assert!(remaining.contains(&members[2]));
+    // Slot 3 was the last, so the count trims; slot 0 is a hole, slots 1 and 2 did not move.
+    assert_eq!(next.header.node_count, 3);
+    assert!(next.members[0].is_vacant());
+    assert_eq!(next.node(1), members[1]);
+    assert_eq!(next.node(2), members[2]);
+    assert_eq!(next.key(1), key(2));
+    assert_eq!(next.key(2), key(3));
     assert_eq!(current.header.node_count, 4);
 }
 
 #[test]
-fn swap_remove_batch_skips_absent_victim() {
+fn remove_batch_skips_absent_victim() {
     let mut current = Snapshot::of(&nodes(1));
     let mut next = current.successor(1);
 
     next.builder()
-        .swap_remove_nodes(&[Pubkey::new_unique()])
+        .remove_nodes(&[Pubkey::new_unique()])
         .unwrap();
     assert_eq!(next.header.node_count, 1);
+}
+
+#[test]
+fn the_default_pubkey_never_matches_a_hole() {
+    let members = nodes(3);
+    let mut current = Snapshot::of(&members);
+    let mut next = current.successor(3);
+    next.builder().remove_node(members[1]).unwrap();
+
+    assert!(next.builder().remove_node(Pubkey::default()).is_err());
+    assert!(!next.builder().is_node_in_registry(Pubkey::default()));
+    assert!(next.builder().get_index(Pubkey::default()).is_err());
+    assert!(next.builder().get_index(members[1]).is_err());
+    assert_eq!(next.header.node_count, 3);
+}
+
+#[test]
+fn a_registration_takes_the_lowest_hole_and_keeps_the_other_slots() {
+    let members = nodes(6);
+    let mut current = Snapshot::of(&members);
+    let mut next = current.successor(6);
+    next.builder()
+        .remove_nodes(&[members[4], members[1]])
+        .unwrap();
+    assert_eq!(next.header.node_count, 6);
+
+    let first = Pubkey::new_unique();
+    assert_eq!(next.builder().insert_node(first, key(0x51)).unwrap(), 1);
+    let second = Pubkey::new_unique();
+    assert_eq!(next.builder().insert_node(second, key(0x52)).unwrap(), 4);
+    // No hole is left, so the next one goes past the last slot.
+    let third = Pubkey::new_unique();
+    let mut roomy = Snapshot::with_room(7);
+    roomy
+        .builder()
+        .copy_from_previous(&mut next.header, &next.members, 1, 1, 0)
+        .unwrap();
+    assert_eq!(roomy.builder().insert_node(third, key(0x53)).unwrap(), 6);
+    assert_eq!(roomy.header.node_count, 7);
+
+    assert_eq!(next.node(1), first);
+    assert_eq!(next.node(4), second);
+    assert_eq!(next.key(4), key(0x52));
+    for i in [0usize, 2, 3, 5] {
+        assert_eq!(next.node(i), members[i], "slot {i} moved");
+        assert_eq!(next.key(i), key(i as u8 + 1), "slot {i} changed key");
+    }
+}
+
+#[test]
+fn a_full_registry_with_a_hole_still_takes_a_node() {
+    let mut snapshot = Snapshot::with_room(MAX_REGISTRY_NODES);
+    let mut all = Vec::new();
+    for i in 0..MAX_REGISTRY_NODES {
+        let node = Pubkey::new_unique();
+        all.push(node);
+        snapshot.builder().insert_node(node, key(i as u8)).unwrap();
+    }
+    assert!(snapshot
+        .builder()
+        .insert_node(Pubkey::new_unique(), key(0xee))
+        .is_err());
+
+    snapshot.builder().remove_node(all[100]).unwrap();
+    assert_eq!(usize::from(snapshot.header.node_count), MAX_REGISTRY_NODES);
+    let newcomer = Pubkey::new_unique();
+    assert_eq!(
+        snapshot.builder().insert_node(newcomer, key(0xee)).unwrap(),
+        100
+    );
+    assert_eq!(snapshot.node(100), newcomer);
+    assert_eq!(snapshot.node(101), all[101]);
+    assert!(snapshot
+        .builder()
+        .insert_node(Pubkey::new_unique(), key(0xef))
+        .is_err());
 }
 
 #[test]
@@ -174,16 +284,18 @@ fn members_carry_their_keys() {
 }
 
 #[test]
-fn swap_remove_moves_a_members_key_with_it() {
+fn removal_does_not_move_a_members_key() {
     let members = nodes(3);
     let mut current = Snapshot::of(&members);
     let mut next = current.successor(3);
-    next.builder().swap_remove_node(members[0]).unwrap();
+    next.builder().remove_node(members[0]).unwrap();
 
-    // The last member fills the hole, carrying its own key rather than the departed one's.
-    assert_eq!(next.node(0), members[2]);
-    assert_eq!(next.key(0), key(3));
+    // Nobody fills the hole: every remaining member keeps its own slot and key.
+    assert!(next.members[0].is_vacant());
+    assert_eq!(next.node(1), members[1]);
     assert_eq!(next.key(1), key(2));
+    assert_eq!(next.node(2), members[2]);
+    assert_eq!(next.key(2), key(3));
 }
 
 #[test]
@@ -218,7 +330,7 @@ fn a_node_cannot_appear_twice() {
     let members = nodes(1);
     let mut current = Snapshot::of(&members);
     let mut next = current.successor(2);
-    assert!(next.builder().append_node(members[0], key(9)).is_err());
+    assert!(next.builder().insert_node(members[0], key(9)).is_err());
 }
 
 #[test]
@@ -230,14 +342,14 @@ fn appending_needs_room_in_the_table() {
     let mut roomy = current.successor(3);
     roomy
         .builder()
-        .append_node(Pubkey::new_unique(), key(7))
+        .insert_node(Pubkey::new_unique(), key(7))
         .unwrap();
     assert_eq!(roomy.header.node_count, 3);
 
     let mut tight = current.successor(2);
     assert!(tight
         .builder()
-        .append_node(Pubkey::new_unique(), key(7))
+        .insert_node(Pubkey::new_unique(), key(7))
         .is_err());
 }
 
@@ -264,7 +376,7 @@ fn a_registry_holds_at_most_one_member_per_bitmap_bit() {
     for i in 0..MAX_REGISTRY_NODES {
         snapshot
             .builder()
-            .append_node(Pubkey::new_unique(), key(i as u8))
+            .insert_node(Pubkey::new_unique(), key(i as u8))
             .unwrap();
     }
     assert_eq!(usize::from(snapshot.header.node_count), MAX_REGISTRY_NODES);
@@ -272,7 +384,7 @@ fn a_registry_holds_at_most_one_member_per_bitmap_bit() {
     assert!(
         snapshot
             .builder()
-            .append_node(Pubkey::new_unique(), key(0xee))
+            .insert_node(Pubkey::new_unique(), key(0xee))
             .is_err(),
         "the 257th member has no bit"
     );
@@ -332,7 +444,7 @@ impl RegistryAccount {
             builder.header.version = 5;
             builder.header.redundancy_buffer = 2;
             for (i, node) in nodes.iter().enumerate() {
-                builder.append_node(*node, key(i as u8 + 1)).unwrap();
+                builder.insert_node(*node, key(i as u8 + 1)).unwrap();
             }
         }
         account
@@ -368,9 +480,35 @@ fn a_snapshot_written_to_an_account_reads_back_with_its_members() {
     assert_eq!(view.nodes.len(), 3);
     assert_eq!(view.nodes[2].account, members[2].to_bytes());
     assert_eq!(view.nodes[2].xy(), key(3));
-    // Selection needs no members.
-    assert!(registry.selection_view().nodes.is_empty());
-    assert_eq!(registry.selection_view().node_count, 3);
+    assert_eq!(view.live_count(), 3);
+}
+
+#[test]
+fn a_hole_in_an_account_is_not_a_readable_member() {
+    let members = nodes(4);
+    let mut account = RegistryAccount::of(&members);
+    {
+        let info = account.info();
+        let mut registry = RegistryMut::load(&info).unwrap();
+        registry.builder().remove_node(members[1]).unwrap();
+    }
+
+    let info = account.info();
+    let registry = RegistryRef::load(&info).unwrap();
+    assert_eq!(registry.node_count, 4);
+    assert_eq!(registry.members().len(), 4);
+    assert!(registry.member(1).is_err(), "a hole is not a member");
+    assert!(registry.node(1).is_err());
+    assert_eq!(registry.node(2).unwrap(), members[2]);
+    assert!(!registry.is_node_in_registry(members[1]));
+    assert_eq!(registry.live_count(), 3);
+
+    // The verifier sees the hole too, so a signer bit on it is refused and selection skips it.
+    let view = registry.view();
+    assert_eq!(view.node_count, 4);
+    assert_eq!(view.live_slots().as_slice(), &[0, 2, 3]);
+    assert!(view.signer(1).is_err());
+    assert!(view.signer(2).is_ok());
 }
 
 #[test]

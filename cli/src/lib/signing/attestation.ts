@@ -315,6 +315,12 @@ export function effectiveSelectionSize(
   return Math.min(nodeCount, signaturesRequired + redundancyBuffer);
 }
 
+/**
+ * The selection bitmap for a round. `nodeCount` is the registry's slot count. When `members` is
+ * given and some slots are holes, the draw runs over the live members and each drawn rank is
+ * mapped to that member's slot, as the program does; without holes (or without members) the draw
+ * is over the slots as before.
+ */
 export function deriveSignersBitmap(
   sourceId: Uint8Array,
   registryVersion: number,
@@ -322,17 +328,28 @@ export function deriveSignersBitmap(
   signaturesRequired: number,
   redundancyBuffer = 2,
   timestamp = 0,
+  members?: RegistryMemberLike[],
 ): Uint8Array {
+  const live = members ? liveSlots({ nodeCount, members }) : undefined;
+  const drawn = live ? live.length : nodeCount;
   const selectionSize = effectiveSelectionSize(
     signaturesRequired,
     redundancyBuffer,
-    nodeCount,
+    drawn,
   );
-  return deriveGroupBitmap(
+  const ranks = deriveGroupBitmap(
     deriveSelectionSeed(sourceId, registryVersion, timestamp),
-    nodeCount,
+    drawn,
     selectionSize,
   );
+  if (!live || live.length === nodeCount) return ranks;
+  const out = new Uint8Array(32);
+  for (let rank = 0; rank < live.length; rank += 1) {
+    if (!evmBitmapBitSet(ranks, rank)) continue;
+    const slot = live[rank];
+    out[31 - (slot >> 3)] |= 1 << (slot & 7);
+  }
+  return out;
 }
 
 export function generateE2eSignerMaterialFromSeed(
@@ -534,13 +551,56 @@ export type RegistryMemberLike = {
   y: number[] | Uint8Array;
 };
 
-/** A decoded `Registry` snapshot: only `members[..nodeCount]` is populated. */
+/**
+ * A decoded `Registry` snapshot: only `members[..nodeCount]` is populated. `nodeCount` counts
+ * slots, holes included: a removed member leaves an all-zero record, and the others keep their
+ * slots.
+ */
 export type RegistryLike = {
   nodeCount: number;
   members: RegistryMemberLike[];
 };
 
-/** The member at registry position `bit`, which must be populated. */
+/** A hole: the slot of a removed member. */
+export function isVacantMember(member: RegistryMemberLike): boolean {
+  return Array.from(member.node).every((byte) => byte === 0);
+}
+
+/** Slots that hold a live member, in ascending order. */
+export function liveSlots(registry: RegistryLike): number[] {
+  const slots: number[] = [];
+  for (let slot = 0; slot < Number(registry.nodeCount); slot += 1) {
+    if (!isVacantMember(registry.members[slot])) slots.push(slot);
+  }
+  return slots;
+}
+
+/** The slot of `node`, or -1 when it is not a live member. */
+export function registrySlotOf(
+  registry: RegistryLike,
+  node: PublicKey,
+): number {
+  for (let slot = 0; slot < Number(registry.nodeCount); slot += 1) {
+    const member = registry.members[slot];
+    if (
+      !isVacantMember(member) &&
+      new PublicKey(Uint8Array.from(member.node)).equals(node)
+    ) {
+      return slot;
+    }
+  }
+  return -1;
+}
+
+/** The slot a node registering now would take: the lowest hole, else the slot after the last. */
+export function nextRegistrySlot(registry: RegistryLike): number {
+  for (let slot = 0; slot < Number(registry.nodeCount); slot += 1) {
+    if (isVacantMember(registry.members[slot])) return slot;
+  }
+  return Number(registry.nodeCount);
+}
+
+/** The live member in registry slot `bit`; a hole or a slot past the table is an error. */
 export function registryMember(
   registry: RegistryLike,
   bit: number,
@@ -548,7 +608,11 @@ export function registryMember(
   if (bit < 0 || bit >= Number(registry.nodeCount)) {
     throw new Error(`registry position ${bit} is outside node_count`);
   }
-  return registry.members[bit];
+  const member = registry.members[bit];
+  if (isVacantMember(member)) {
+    throw new Error(`registry position ${bit} is a hole`);
+  }
+  return member;
 }
 
 /** The node account at registry position `bit`. */
