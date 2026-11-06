@@ -10,7 +10,7 @@ use anchor_lang::prelude::Pubkey;
 use libsecp256k1::PublicKey;
 use molpha::error::MolphaError;
 use molpha::events::NodeKeyRotated;
-use molpha::state::{EquivocationEvidence, Node, NodeStatus, Secp256k1KeyClaim};
+use molpha::state::{EquivocationEvidence, KeyXClaim, Node, NodeStatus};
 use molpha_tests::crypto::{self, NodeKey};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
@@ -46,8 +46,8 @@ fn current_key_of(p: &Protocol, node: &Pubkey) -> ([u8; 32], [u8; 32]) {
 }
 
 fn claim_owner(p: &Protocol, key: &NodeKey) -> Pubkey {
-    let claim: Secp256k1KeyClaim = p.env.get(&pda::secp256k1_key_claim(&key.compressed));
-    claim.node_pubkey
+    let claim: KeyXClaim = p.env.get(&pda::key_x_claim(&key.x));
+    claim.owner
 }
 
 fn index_of(p: &Protocol, node: &Pubkey) -> usize {
@@ -220,9 +220,7 @@ fn a_rotation_needs_the_current_keys_signature() {
         assert_molpha_error(&failed, MolphaError::InvalidKeyRotationSignature);
     }
     assert_eq!(p.current_version(), version);
-    assert!(!p
-        .env
-        .account_exists(&pda::secp256k1_key_claim(&new_key.compressed)));
+    assert!(!p.env.account_exists(&pda::key_x_claim(&new_key.x)));
 }
 
 #[test]

@@ -12,7 +12,10 @@ pub fn update_registry_policy(
     let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
     // Membership is unchanged; read before the transition bumps `registry_state.next_version`,
     // which would break exit validation on `new_registry`'s version seed.
-    let node_count = ctx.accounts.current_registry.load()?.node_count;
+    let (node_count, provider_count) = {
+        let current = ctx.accounts.current_registry.load()?;
+        (current.node_count, current.provider_count)
+    };
     ctx.accounts.registry_state.set_redundancy_buffer(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
@@ -27,10 +30,11 @@ pub fn update_registry_policy(
 
     emit!(RegistryUpdated {
         new_version: ctx.accounts.registry_state.current_version,
-        node_count,
+        node_count: u16::from(node_count),
         redundancy_buffer,
         reason: RegistryVersionReason::PolicyChanged,
         updated_at: Clock::get()?.unix_timestamp,
+        provider_count: u16::from(provider_count),
     });
     Ok(())
 }

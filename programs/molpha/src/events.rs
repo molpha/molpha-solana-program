@@ -96,10 +96,13 @@ pub struct NodeDepositWithdrawn {
 #[event]
 pub struct RegistryUpdated {
     pub new_version: u32,
+    /// Node slots of the new version, holes included.
     pub node_count: u16,
     pub redundancy_buffer: u8,
     pub reason: RegistryVersionReason,
     pub updated_at: i64,
+    /// Provider slots of the new version, holes included (slot 0 is reserved).
+    pub provider_count: u16,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug)]
@@ -109,6 +112,7 @@ pub enum RegistryVersionReason {
     PolicyChanged,
     NodePunished,
     NodeReinstated,
+    ProviderEjected,
 }
 
 #[event]
@@ -307,4 +311,55 @@ pub struct ProtocolReserveWithdrawn {
     pub destination: Pubkey,
     pub amount: u64,
     pub withdrawn_at: i64,
+}
+
+#[event]
+pub struct ProviderRegistered {
+    pub provider: Pubkey,
+    pub id: u32,
+    pub authority: Pubkey,
+    /// Provider slot `p`; the provider signs at bit `64 + p`.
+    pub slot: u8,
+    /// The version that added it.
+    pub registry_version: u32,
+    pub pubkey_x: [u8; 32],
+    pub pubkey_y: [u8; 32],
+    pub p2p_key: [u8; 32],
+    pub registered_at: i64,
+}
+
+#[event]
+pub struct ProviderEjected {
+    pub provider: Pubkey,
+    pub id: u32,
+    pub authority: Pubkey,
+    /// The slot it held.
+    pub slot: u8,
+    /// The version that dropped it.
+    pub registry_version: u32,
+    pub ejected_at: i64,
+}
+
+#[event]
+pub struct ProviderKeyRotated {
+    pub provider: Pubkey,
+    pub id: u32,
+    pub authority: Pubkey,
+    /// Provider slot `p`, unchanged by the rotation; the provider signs at bit `64 + p`.
+    pub slot: u8,
+    /// The version that names the new key. The previous version keeps the old one.
+    pub registry_version: u32,
+    pub old_pubkey_x: [u8; 32],
+    pub old_pubkey_y: [u8; 32],
+    pub new_pubkey_x: [u8; 32],
+    pub new_pubkey_y: [u8; 32],
+    pub rotated_at: i64,
+}
+
+#[event]
+pub struct ProviderP2pKeyUpdated {
+    pub provider: Pubkey,
+    pub id: u32,
+    pub old_p2p_key: [u8; 32],
+    pub new_p2p_key: [u8; 32],
 }

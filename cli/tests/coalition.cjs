@@ -149,7 +149,10 @@ test("a coalition key is summed from the snapshot's member keys, no node account
   // A signer outside the snapshot, or no signer at all, has no key.
   const outside = bytes(32, 0);
   outside[31] = 0b10000;
-  assert.throws(() => coalitionKeyForSigners(registry, outside), /outside node_count/);
+  assert.throws(
+    () => coalitionKeyForSigners(registry, outside),
+    /outside node_count/,
+  );
   assert.throws(() => coalitionKeyForSigners(registry, bytes(32, 0)), /empty/);
 });
 
@@ -205,7 +208,9 @@ test("slash accounts are the guilty nodes only", () => {
       duty.payload.timestamp,
     ),
   );
-  const outsider = [0, 1, 2, 3, 4, 5, 6, 7].find((bit) => !selection.includes(bit));
+  const outsider = [0, 1, 2, 3, 4, 5, 6, 7].find(
+    (bit) => !selection.includes(bit),
+  );
   const signed = bytes(32, 0);
   signed[31] = (1 << outsider) | (1 << selection[0]);
   const guilty = remainingBitsFromOffence(

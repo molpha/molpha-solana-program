@@ -122,6 +122,16 @@ pub fn sign_pop_with(
     signing_secret: &[u8; 32],
     nonce: &[u8; 32],
 ) -> ([u8; 32], [u8; 32]) {
+    let message = hashv(&[NODE_POP_PREFIX, program_id.as_ref(), node_id.as_ref()]).to_bytes();
+    sign_pop_message(&message, public_key_compressed, signing_secret, nonce)
+}
+
+fn sign_pop_message(
+    message: &[u8; 32],
+    public_key_compressed: &[u8; 33],
+    signing_secret: &[u8; 32],
+    nonce: &[u8; 32],
+) -> ([u8; 32], [u8; 32]) {
     // The verifier reconstructs R from `r` assuming even parity, so the nonce is normalized here.
     let mut canonical_nonce = *nonce;
     let mut nonce_pubkey = NodeKey::from_secret(canonical_nonce).compressed;
@@ -133,7 +143,6 @@ pub fn sign_pop_with(
     let r: [u8; 32] = nonce_pubkey[1..33].try_into().unwrap();
     let public_key_x: [u8; 32] = public_key_compressed[1..33].try_into().unwrap();
     let parity = [public_key_compressed[0] & 1];
-    let message = hashv(&[NODE_POP_PREFIX, program_id.as_ref(), node_id.as_ref()]).to_bytes();
     let challenge = reduce_mod_n(
         &hashv(&[
             public_key_x.as_ref(),

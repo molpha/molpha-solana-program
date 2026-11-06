@@ -35,8 +35,8 @@ pub mod molpha {
         instructions::deactivate_node(ctx, node_owner)
     }
 
-    pub fn extend_registry(ctx: Context<ExtendRegistry>) -> Result<()> {
-        instructions::extend_registry(ctx)
+    pub fn extend_registry(ctx: Context<ExtendRegistry>, members: u16) -> Result<()> {
+        instructions::extend_registry(ctx, members)
     }
 
     pub fn rotate_node_key(ctx: Context<RotateNodeKey>, proof: KeyRotationProof) -> Result<()> {
@@ -45,9 +45,9 @@ pub mod molpha {
 
     pub fn update_node_endpoint(
         ctx: Context<UpdateNodeEndpoint>,
-        args: UpdateNodeEndpointArgs,
+        endpoint: MemberEndpoint,
     ) -> Result<()> {
-        instructions::update_node_endpoint(ctx, args)
+        instructions::update_node_endpoint(ctx, endpoint)
     }
 
     pub fn update_registry_policy(

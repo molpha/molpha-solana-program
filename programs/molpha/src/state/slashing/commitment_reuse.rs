@@ -60,7 +60,8 @@ impl Evidence for CommitmentReuseEvidence {
         }
 
         let guilty_bitmap = Bitmap::load(&attestation_a.signature.signers_bitmap)
-            .intersect(&Bitmap::load(&attestation_b.signature.signers_bitmap));
+            .intersect(&Bitmap::load(&attestation_b.signature.signers_bitmap))
+            .node_bits();
         require!(guilty_bitmap.popcount() > 0, MolphaError::GuiltySetEmpty);
 
         verify_evidence_signature(ctx, attestation_a, &self.coalition_key_a)?;

@@ -4,6 +4,10 @@ import { accountJson, fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import { fetchRegistry } from "../lib/registry";
 import {
+  PROVIDER_BIT_BASE,
+  RegistryMemberLike,
+} from "../lib/signing/attestation";
+import {
   findDelegatePda,
   findEpochPda,
   findFeedPda,
@@ -14,7 +18,8 @@ import {
   findPunishmentCasePda,
   findRegistryPda,
   findRegistryStatePda,
-  findSecp256k1KeyClaimPda,
+  findKeyXClaimPda,
+  findProviderPda,
   findSubscriptionPda,
   findTicketMarkerPda,
 } from "../lib/pdas";
@@ -88,15 +93,20 @@ export function registerAccountCommands(program: Command): void {
       const registry = await fetchRegistry(ctx.program, pubkey);
       if (!registry)
         throw new Error(`registry not found at ${pubkey.toBase58()}`);
-      const { members, ...header } = registry;
+      const { members, providers, ...header } = registry;
+      // `bit` is the signer bit: node slot i is bit i, provider slot p is bit 64 + p.
+      const record = (member: RegistryMemberLike, bit: number) => ({
+        bit,
+        node: new PublicKey(Uint8Array.from(member.node)).toBase58(),
+        x: `0x${Buffer.from(Uint8Array.from(member.x)).toString("hex")}`,
+        y: `0x${Buffer.from(Uint8Array.from(member.y)).toString("hex")}`,
+      });
       writeJson({
         ...(accountJson(pubkey, header) as object),
-        members: members.map((member, index) => ({
-          index,
-          node: new PublicKey(Uint8Array.from(member.node)).toBase58(),
-          x: `0x${Buffer.from(Uint8Array.from(member.x)).toString("hex")}`,
-          y: `0x${Buffer.from(Uint8Array.from(member.y)).toString("hex")}`,
-        })),
+        members: members.map((member, slot) => record(member, slot)),
+        providers: providers.map((member, slot) =>
+          record(member, PROVIDER_BIT_BASE + slot),
+        ),
       });
     });
 
@@ -266,23 +276,39 @@ export function registerAccountCommands(program: Command): void {
     });
 
   account
-    .command("secp-key")
-    .description("Fetch secp256k1 key claim")
+    .command("key-claim")
+    .description("Fetch the claim on a secp256k1 key's x coordinate")
     .option("--address <pubkey>", "claim address")
-    .option("--secp-pubkey <hex>", "33-byte compressed secp256k1 pubkey")
+    .option(
+      "--secp-pubkey <hex>",
+      "33-byte compressed secp256k1 pubkey (or the 32-byte x)",
+    )
+    .action(async (options, command: Command) => {
+      const ctx = await getCliContext(command);
+      const key = requireValue(options.secpPubkey, "Missing --secp-pubkey");
+      const address =
+        options.address ??
+        findKeyXClaimPda(
+          ctx.programId,
+          hexToBytes(key, key.replace(/^0x/, "").length / 2, "secp pubkey"),
+        )[0].toBase58();
+      await printNamedAccount(command, "keyXClaim", address);
+    });
+
+  account
+    .command("provider")
+    .description("Fetch a provider signer by id or address")
+    .option("--address <pubkey>", "provider address")
+    .option("--id <number>", "stable provider id")
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const address =
         options.address ??
-        findSecp256k1KeyClaimPda(
+        findProviderPda(
           ctx.programId,
-          hexToBytes(
-            requireValue(options.secpPubkey, "Missing --secp-pubkey"),
-            33,
-            "secp pubkey",
-          ),
+          parseInteger(requireValue(options.id, "Missing --id"), "id"),
         )[0].toBase58();
-      await printNamedAccount(command, "secp256k1KeyClaim", address);
+      await printNamedAccount(command, "provider", address);
     });
 
   account

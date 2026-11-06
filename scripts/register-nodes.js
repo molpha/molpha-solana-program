@@ -29,7 +29,7 @@ const {
   TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
 } = require("@solana/spl-token");
-const { findSecp256k1KeyClaimPda, signNodePop } = require("./lib/node-pop");
+const { findKeyXClaimPda, signNodePop } = require("./lib/node-pop");
 const {
   VALID_CLUSTERS,
   resolveConnectionOptions,
@@ -106,8 +106,7 @@ function buildRegisterNodeArgs(item) {
   const endpoint = requireNodeEndpoint(item.record);
   return {
     registrationSalt: Array.from(item.registrationSalt),
-    ip: endpoint.ip,
-    port: endpoint.port,
+    endpoint: { node: { ip: endpoint.ip, port: endpoint.port } },
     secp256K1PubkeyCompressed: Array.from(item.secpCompressed),
     popSigR: Array.from(item.popSigR),
     popSigS: Array.from(item.popSigS),
@@ -243,15 +242,12 @@ async function main() {
     }
 
     const nodePda = findNodePda(programId, item.solanaOwner.publicKey);
-    const keyClaimPda = findSecp256k1KeyClaimPda(
-      programId,
-      item.secpCompressed,
-    );
+    const keyClaimPda = findKeyXClaimPda(programId, item.secpCompressed);
     nodeRecord.index = chainIndex;
     nodeRecord.onChain = {
       ...nodeRecord.onChain,
       nodePda: nodePda.toBase58(),
-      secp256k1KeyClaimPda: keyClaimPda.toBase58(),
+      keyXClaimPda: keyClaimPda.toBase58(),
       registryVersion: newRegistryVersion,
       registryPda: newRegistryPda.toBase58(),
       nodeOwner: item.solanaOwner.publicKey.toBase58(),
@@ -283,7 +279,8 @@ async function main() {
         currentRegistry: currentRegistryPda,
         newRegistry: newRegistryPda,
         node: nodePda,
-        secp256K1KeyClaim: keyClaimPda,
+        provider: null,
+        keyXClaim: keyClaimPda,
         ownerUsdc,
         nodeDepositVault,
         systemProgram: SystemProgram.programId,

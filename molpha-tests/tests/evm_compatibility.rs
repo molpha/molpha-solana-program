@@ -150,8 +150,10 @@ fn the_fixture_coalition_is_exactly_the_selection_the_program_derives() {
     let registry = RegistryView {
         version: fixture.registry_version,
         node_count: fixture.keys.len() as u16,
+        provider_count: 0,
         redundancy_buffer: REDUNDANCY_BUFFER,
         nodes: &[],
+        providers: &[],
     };
     let derived = molpha_verifier::derive_selection_bitmap(
         &fixture.source_id,

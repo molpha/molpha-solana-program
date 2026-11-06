@@ -14,8 +14,9 @@ export function buildRegisterNodeArgs(params: {
   }
   return {
     registrationSalt: Array.from(params.registrationSalt),
-    ip: params.ip ?? [127, 0, 0, 1],
-    port: params.port ?? 8080,
+    endpoint: {
+      node: { ip: params.ip ?? [127, 0, 0, 1], port: params.port ?? 8080 },
+    },
     secp256K1PubkeyCompressed: Array.from(params.secp256k1PubkeyCompressed),
     popSigR: Array.from(params.popSigR),
     popSigS: Array.from(params.popSigS),

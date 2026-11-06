@@ -16,6 +16,14 @@ const MESSAGE_PREFIX = Buffer.from(
  * precision never changes who is selected. Mirrors `SELECTION_WINDOW_MS` in `molpha-verifier`.
  */
 export const SELECTION_WINDOW_MS = 1000;
+/** Bits and records `[0, NODE_SLOTS)` are operator nodes; the rest are provider signers. */
+export const NODE_SLOTS = 64;
+/** Record and bit of provider slot 0; provider slot `p` sits at `PROVIDER_BIT_BASE + p`. */
+export const PROVIDER_BIT_BASE = 64;
+/** Provider slots (0..191). Slot 0 is reserved for the Molpha signer. */
+export const MAX_PROVIDER_SLOTS = 192;
+/** The first provider slot a provider can take. */
+export const FIRST_PROVIDER_SLOT = 1;
 const SELECTION_SEED_PREFIX = Buffer.from(
   keccak_256(Buffer.from("MOLPHA_SELECTION_V1")),
 );
@@ -260,6 +268,39 @@ export function bitmapPopcountEvm(signersBitmap: Uint8Array): number {
   return count;
 }
 
+/**
+ * The node bits of a signers bitmap, `bitmap & NODE_MASK`: provider bits (`>= 64`) dropped. Only
+ * these take part in selection, credit, tickets and punishment; every set bit, a provider's
+ * included, counts toward `signaturesRequired` (`bitmapPopcountEvm`).
+ */
+export function nodeBitsOf(signersBitmap: Uint8Array): Uint8Array {
+  const out = new Uint8Array(32);
+  // Big-endian: bit i is in byte 31 - (i >> 3), so bits 0..63 are the last 8 bytes.
+  out.set(Uint8Array.from(signersBitmap).subarray(24, 32), 24);
+  return out;
+}
+
+/** Number of node bits set: the credited signers, not the quorum count (that is `bitmapPopcountEvm`). */
+export function nodePopcountEvm(signersBitmap: Uint8Array): number {
+  return bitmapPopcountEvm(nodeBitsOf(signersBitmap));
+}
+
+/**
+ * The committee size of a round: `signaturesRequired`, less one when a provider bit is set (the
+ * provider is the last signer of the quorum). Selection, tickets and slashing draw by this number,
+ * and the two draws are not nested. Mirrors `molpha_verifier::node_quorum`.
+ */
+export function nodeQuorum(
+  signaturesRequired: number,
+  signersBitmap: Uint8Array,
+): number {
+  const providers =
+    bitmapPopcountEvm(signersBitmap) - nodePopcountEvm(signersBitmap);
+  return providers > 0
+    ? Math.max(signaturesRequired - 1, 0)
+    : signaturesRequired;
+}
+
 /** Port of `NodeGroupBitmapLib.derive` / `derive_group_bitmap` in the on-chain program. */
 export function deriveGroupBitmap(
   seed: Uint8Array,
@@ -316,10 +357,11 @@ export function effectiveSelectionSize(
 }
 
 /**
- * The selection bitmap for a round. `nodeCount` is the registry's slot count. When `members` is
- * given and some slots are holes, the draw runs over the live members and each drawn rank is
- * mapped to that member's slot, as the program does; without holes (or without members) the draw
- * is over the slots as before.
+ * The selection bitmap for a round. `nodeCount` is the registry's node slot count, holes
+ * included, and `members` its node table. The draw runs over the node slots only
+ * (`< NODE_SLOTS`): when `members` is given and some node slots are holes, over the live nodes with
+ * each drawn rank mapped to that node's slot, as the program does; providers never take part and
+ * never change the draw.
  */
 export function deriveSignersBitmap(
   sourceId: Uint8Array,
@@ -330,8 +372,9 @@ export function deriveSignersBitmap(
   timestamp = 0,
   members?: RegistryMemberLike[],
 ): Uint8Array {
+  const nodeSlots = Math.min(nodeCount, NODE_SLOTS);
   const live = members ? liveSlots({ nodeCount, members }) : undefined;
-  const drawn = live ? live.length : nodeCount;
+  const drawn = live ? live.length : nodeSlots;
   const selectionSize = effectiveSelectionSize(
     signaturesRequired,
     redundancyBuffer,
@@ -342,7 +385,7 @@ export function deriveSignersBitmap(
     drawn,
     selectionSize,
   );
-  if (!live || live.length === nodeCount) return ranks;
+  if (!live || live.length === nodeSlots) return ranks;
   const out = new Uint8Array(32);
   for (let rank = 0; rank < live.length; rank += 1) {
     if (!evmBitmapBitSet(ranks, rank)) continue;
@@ -552,63 +595,122 @@ export type RegistryMemberLike = {
 };
 
 /**
- * A decoded `Registry` snapshot: only `members[..nodeCount]` is populated. `nodeCount` counts
- * slots, holes included: a removed member leaves an all-zero record, and the others keep their
- * slots.
+ * A decoded `Registry` snapshot: two tables, as the account stores them. `members` holds the
+ * `nodeCount` node slots (node slot `i` signs at bit `i`) and `providers` the `providerCount`
+ * provider slots (provider slot `p` signs at bit `PROVIDER_BIT_BASE + p`; slot 0 is reserved).
+ * Each count includes the holes: a removed member leaves an all-zero record, and the others keep
+ * their slots. A registry without providers may leave both provider fields out.
  */
 export type RegistryLike = {
   nodeCount: number;
   members: RegistryMemberLike[];
+  providerCount?: number;
+  providers?: RegistryMemberLike[];
 };
+
+/** Records the snapshot stores: its node slots and its provider slots. */
+export function registryRecords(registry: RegistryLike): number {
+  return Number(registry.nodeCount) + Number(registry.providerCount ?? 0);
+}
+
+/** The provider slots of `registry`, holes included. */
+function providerTable(registry: RegistryLike): RegistryMemberLike[] {
+  return (registry.providers ?? []).slice(
+    0,
+    Number(registry.providerCount ?? 0),
+  );
+}
 
 /** A hole: the slot of a removed member. */
 export function isVacantMember(member: RegistryMemberLike): boolean {
   return Array.from(member.node).every((byte) => byte === 0);
 }
 
-/** Slots that hold a live member, in ascending order. */
+/** Node slots (`< NODE_SLOTS`) that hold a live node, in ascending order. */
 export function liveSlots(registry: RegistryLike): number[] {
   const slots: number[] = [];
-  for (let slot = 0; slot < Number(registry.nodeCount); slot += 1) {
+  const end = Math.min(Number(registry.nodeCount), NODE_SLOTS);
+  for (let slot = 0; slot < end; slot += 1) {
     if (!isVacantMember(registry.members[slot])) slots.push(slot);
   }
   return slots;
 }
 
-/** The slot of `node`, or -1 when it is not a live member. */
+/** Provider slots (`p`, signing at bit `PROVIDER_BIT_BASE + p`) that hold a live provider. */
+export function liveProviderSlots(registry: RegistryLike): number[] {
+  const slots: number[] = [];
+  providerTable(registry).forEach((member, slot) => {
+    if (!isVacantMember(member)) slots.push(slot);
+  });
+  return slots;
+}
+
+/** The signer bit of `account` (a node or a provider PDA), or -1 when it is not live. */
 export function registrySlotOf(
   registry: RegistryLike,
   node: PublicKey,
 ): number {
+  const matches = (member: RegistryMemberLike) =>
+    !isVacantMember(member) &&
+    new PublicKey(Uint8Array.from(member.node)).equals(node);
   for (let slot = 0; slot < Number(registry.nodeCount); slot += 1) {
-    const member = registry.members[slot];
-    if (
-      !isVacantMember(member) &&
-      new PublicKey(Uint8Array.from(member.node)).equals(node)
-    ) {
-      return slot;
-    }
+    if (matches(registry.members[slot])) return slot;
+  }
+  const providers = providerTable(registry);
+  for (let slot = 0; slot < providers.length; slot += 1) {
+    if (matches(providers[slot])) return PROVIDER_BIT_BASE + slot;
   }
   return -1;
 }
 
-/** The slot a node registering now would take: the lowest hole, else the slot after the last. */
+/**
+ * The slot a node registering now would take: the lowest hole in the node table, else the slot
+ * after it while there are fewer than `NODE_SLOTS`. -1 when all 64 node slots are taken.
+ */
 export function nextRegistrySlot(registry: RegistryLike): number {
-  for (let slot = 0; slot < Number(registry.nodeCount); slot += 1) {
+  const count = Number(registry.nodeCount);
+  for (let slot = 0; slot < Math.min(count, NODE_SLOTS); slot += 1) {
     if (isVacantMember(registry.members[slot])) return slot;
   }
-  return Number(registry.nodeCount);
+  return count < NODE_SLOTS ? count : -1;
 }
 
-/** The live member in registry slot `bit`; a hole or a slot past the table is an error. */
+/**
+ * The provider slot a registration now would take: the lowest from `FIRST_PROVIDER_SLOT` that is a
+ * hole or past the provider table. -1 when all are taken.
+ */
+export function nextProviderSlot(registry: RegistryLike): number {
+  const providers = providerTable(registry);
+  for (let slot = FIRST_PROVIDER_SLOT; slot < MAX_PROVIDER_SLOTS; slot += 1) {
+    if (slot >= providers.length || isVacantMember(providers[slot]))
+      return slot;
+  }
+  return -1;
+}
+
+/**
+ * The live member signing at `bit`: node slot `bit` when `bit < NODE_SLOTS`, else provider slot
+ * `bit - PROVIDER_BIT_BASE`. A hole or a slot past its table is an error.
+ */
 export function registryMember(
   registry: RegistryLike,
   bit: number,
 ): RegistryMemberLike {
-  if (bit < 0 || bit >= Number(registry.nodeCount)) {
-    throw new Error(`registry position ${bit} is outside node_count`);
+  let member: RegistryMemberLike | undefined;
+  if (bit >= 0 && bit < NODE_SLOTS) {
+    if (bit >= Number(registry.nodeCount)) {
+      throw new Error(`registry position ${bit} is outside node_count`);
+    }
+    member = registry.members[bit];
+  } else if (bit >= PROVIDER_BIT_BASE && bit < 256) {
+    const slot = bit - PROVIDER_BIT_BASE;
+    member = providerTable(registry)[slot];
+    if (!member) {
+      throw new Error(`registry position ${bit} is outside provider_count`);
+    }
+  } else {
+    throw new Error(`registry position ${bit} is not a signer bit`);
   }
-  const member = registry.members[bit];
   if (isVacantMember(member)) {
     throw new Error(`registry position ${bit} is a hole`);
   }

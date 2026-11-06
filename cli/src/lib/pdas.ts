@@ -1,6 +1,5 @@
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
-import { keccak_256 } from "@noble/hashes/sha3.js";
 import { u32Le, u64Le } from "./utils";
 
 export const PROTOCOL_CONFIG_SEED = Buffer.from("molpha_config");
@@ -8,7 +7,10 @@ export const REGISTRY_STATE_SEED = Buffer.from("molpha_registry");
 export const REGISTRY_SEED = Buffer.from("molpha_registry");
 /** Permanent owner-keyed node identity and reward account. */
 export const NODE_SEED = Buffer.from("molpha_node");
-export const SECP256K1_KEY_CLAIM_SEED = Buffer.from("molpha_secp_key");
+/** `KeyXClaim` seed prefix: `[KEY_X_CLAIM_SEED, x]`, the x coordinate of a node or provider key. */
+export const KEY_X_CLAIM_SEED = Buffer.from("molpha_key_x");
+/** `Provider` seed prefix: `[PROVIDER_SEED, id_u32_le]`. */
+export const PROVIDER_SEED = Buffer.from("molpha_provider");
 export const PLAN_SEED = Buffer.from("molpha_plan");
 export const SUBSCRIPTION_SEED = Buffer.from("molpha_subscription");
 export const FEED_SEED = Buffer.from("molpha_feed");
@@ -74,16 +76,31 @@ export function findNodePda(
   );
 }
 
-export function findSecp256k1KeyClaimPda(
+/**
+ * The claim on a signing key's x coordinate. Takes the 33-byte compressed key or the 32-byte x
+ * itself; a key and its negation share one claim.
+ */
+export function findKeyXClaimPda(
   programId: PublicKey,
-  secp256k1PubkeyCompressed: Uint8Array,
+  secp256k1Key: Uint8Array,
 ): [PublicKey, number] {
-  if (secp256k1PubkeyCompressed.length !== 33) {
-    throw new Error("secp256k1 public key must be 33 bytes");
-  }
-  const fingerprint = keccak_256(secp256k1PubkeyCompressed);
+  let x: Uint8Array;
+  if (secp256k1Key.length === 33) x = secp256k1Key.subarray(1);
+  else if (secp256k1Key.length === 32) x = secp256k1Key;
+  else throw new Error("secp256k1 key must be 33 (compressed) or 32 (x) bytes");
   return PublicKey.findProgramAddressSync(
-    [SECP256K1_KEY_CLAIM_SEED, Buffer.from(fingerprint)],
+    [KEY_X_CLAIM_SEED, Buffer.from(x)],
+    programId,
+  );
+}
+
+/** `Provider` PDA of the provider with stable id `id`; also its registry record's `account`. */
+export function findProviderPda(
+  programId: PublicKey,
+  id: number,
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [PROVIDER_SEED, u32Le(id)],
     programId,
   );
 }

@@ -55,7 +55,11 @@ pub fn slash_offence<'info>(
     // Read policy from the current snapshot before the transition bumps
     // `registry_state.next_version`, which would break exit validation on
     // `new_registry`'s version seed if we loaded it afterwards.
-    let redundancy_buffer = ctx.accounts.current_registry.load()?.redundancy_buffer;
+    // Providers are never punished, so the provider count carries over unchanged.
+    let (redundancy_buffer, provider_count) = {
+        let current = ctx.accounts.current_registry.load()?;
+        (current.redundancy_buffer, current.provider_count)
+    };
     let node_count = ctx.accounts.registry_state.remove_nodes(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
@@ -70,10 +74,11 @@ pub fn slash_offence<'info>(
 
     emit!(RegistryUpdated {
         new_version: ctx.accounts.registry_state.current_version,
-        node_count,
+        node_count: u16::from(node_count),
         redundancy_buffer,
         reason: RegistryVersionReason::NodePunished,
         updated_at: clock.unix_timestamp,
+        provider_count: u16::from(provider_count),
     });
 
     // Cancelled reward credits stop being a claim on the treasury.

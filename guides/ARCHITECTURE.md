@@ -12,7 +12,8 @@ from the same commit.
 | Registry state  | `molpha_registry`     | none                                                      |
 | Registry        | `molpha_registry`     | version (`u32` LE)                                        |
 | Node            | `molpha_node`         | node owner                                                |
-| Secp key claim  | `molpha_secp_key`     | `keccak256(compressed pubkey)`                            |
+| Key claim       | `molpha_key_x`        | x coordinate of the node or provider key (32 bytes)       |
+| Provider        | `molpha_provider`     | provider id (`u32` LE)                                    |
 | Plan            | `molpha_plan`         | plan type byte                                            |
 | Subscription    | `molpha_subscription` | subscriber owner                                          |
 | Delegate        | `molpha_delegate`     | owner, delegate                                           |
@@ -80,6 +81,15 @@ it.
 A rotation publishes a version, so it changes the next version's address. A filing built against
 the old address fails and has to be rebuilt; a rotation can delay a punishment this way but not
 escape it, and only once per cooldown.
+
+`register_node`, `rotate_node_key`, `update_node_endpoint` and `deactivate_node` also serve provider
+signers: they take an optional `node` and an optional `provider` account (exactly one). A provider is admitted like a node,
+co-signed by the protocol authority, proving possession with the node PoP over its authority's node id,
+and enters the registry's provider table at once (it signs at bit `64 + slot`); it locks no deposit,
+since nothing slashes a provider.
+`register_node`'s `endpoint` names the kind (`Node { ip, port }` or `Provider { p2p_key }`). The
+rotation digest is bound to the member's account address, and a provider emits `ProviderRegistered` /
+`ProviderKeyRotated` / `ProviderEjected` instead of the node events (see `docs/provider-accounts.md`).
 
 A frozen node cannot rotate: rotation is for active members. `reinstate_node` brings it back with
 the key it was frozen with, and the owner can rotate once it is active again.
@@ -258,7 +268,9 @@ compute unit limit to at least 500,000. The node owner pays the new version's re
 ### Registry snapshots
 
 Every instruction that changes the registry publishes a new version, in an account sized to its
-members: `32 + 96 × members` bytes.
+records: `32 + 96 × members` bytes, where `members` counts the node table and the provider table
+together (each segment's slots, holes included). Node and provider records are stored as two
+compact tables, so a provider costs one record, never padding up to bit 64.
 
 | Members | Account bytes | Rent    | `extend_registry` calls before the publishing instruction |
 | ------- | ------------- | ------- | --------------------------------------------------------- |
@@ -294,8 +306,9 @@ The program is in beta and assumes a permissioned operator set and a Molpha-oper
 **What the protocol authority can do**
 
 - Change protocol configuration, plans and the registry redundancy policy.
-- Admit nodes and gateways: `register_node` and `register_gateway` both require its signature. It
-  cannot rotate a node's key: `rotate_node_key` needs the node owner and the node's own key.
+- Admit nodes, provider signers and gateways: `register_node` (both kinds) and `register_gateway`
+  require its signature. It cannot rotate a member's key: `rotate_node_key` needs the owner (or
+  provider authority) and the member's own key.
 - Deactivate any node or gateway, and reinstate a frozen node early.
 - Withdraw the protocol reserve (fees and slashing proceeds). It cannot withdraw epoch pools,
   credited rewards or node deposits.

@@ -14,9 +14,13 @@ import { CliContext, getCliContext } from "../lib/client";
 import { deriveNodeId } from "../lib/ids";
 import { fetchRegistry, registryExtendInstructions } from "../lib/registry";
 import {
+  liveProviderSlots,
   liveSlots,
   nextRegistrySlot,
+  PROVIDER_BIT_BASE,
+  registryMember,
   registryNode,
+  registryRecords,
   registrySlotOf,
 } from "../lib/signing/attestation";
 import {
@@ -29,7 +33,7 @@ import {
   findProtocolConfigPda,
   findRegistryPda,
   findRegistryStatePda,
-  findSecp256k1KeyClaimPda,
+  findKeyXClaimPda,
 } from "../lib/pdas";
 import { buildRegisterNodeArgs } from "../lib/signing/register-node";
 import {
@@ -74,8 +78,10 @@ export function registerRegistryCommands(program: Command): void {
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
       const loaded = await resolveRegistry(ctx, options);
-      // `nodeCount` is the number of slots, holes included; a removed node leaves a hole and the
-      // others keep their slot, so `index` below is the bit each member signs with.
+      // The snapshot holds two tables: `nodeCount` node slots (node slot i signs at bit i) and
+      // `providerCount` provider slots (provider slot p signs at bit 64 + p), holes included. A
+      // removed member leaves a hole and the others keep their slot, so `index` below is the bit
+      // each member signs with. `nodes` are the node slots only; the providers are listed apart.
       const nodeCount = Number(loaded.registry.nodeCount);
       const slots = liveSlots(loaded.registry);
       const addresses: PublicKey[] = slots.map((slot) =>
@@ -86,7 +92,24 @@ export function registerRegistryCommands(program: Command): void {
         address: loaded.address.toBase58(),
         version: Number(loaded.registry.version),
         nodeCount,
+        providerCount: Number(loaded.registry.providerCount),
+        records: registryRecords(loaded.registry),
         liveCount: slots.length,
+        providers: liveProviderSlots(loaded.registry).map((slot) => {
+          const member = registryMember(
+            loaded.registry,
+            PROVIDER_BIT_BASE + slot,
+          );
+          return {
+            slot,
+            bit: PROVIDER_BIT_BASE + slot,
+            provider: new PublicKey(Uint8Array.from(member.node)).toBase58(),
+            signingKey: {
+              x: bytesHex(member.x),
+              y: bytesHex(member.y),
+            },
+          };
+        }),
         redundancyBuffer: Number(loaded.registry.redundancyBuffer),
         graceActiveUntil: amountString(loaded.registry.graceActiveUntil),
         // `signingKey` is the key this version verifies the member with; the node account's own
@@ -165,6 +188,9 @@ export function registerRegistryCommands(program: Command): void {
       if (!current)
         throw new Error(`Current registry ${currentVersion} is missing`);
 
+      if (nextRegistrySlot(current) < 0) {
+        throw new Error("All 64 node slots are taken");
+      }
       const nodeOwner = options.nodeOwnerWallet
         ? loadKeypair(options.nodeOwnerWallet)
         : ctx.payer;
@@ -180,10 +206,7 @@ export function registerRegistryCommands(program: Command): void {
         registrationSalt,
       );
       const [node] = findNodePda(ctx.programId, nodeOwner.publicKey);
-      const [secp256K1KeyClaim] = findSecp256k1KeyClaimPda(
-        ctx.programId,
-        secpPubkey,
-      );
+      const [keyXClaim] = findKeyXClaimPda(ctx.programId, secpPubkey);
       const ownerUsdc = getAssociatedTokenAddressSync(
         config.usdcMint,
         nodeOwner.publicKey,
@@ -215,7 +238,8 @@ export function registerRegistryCommands(program: Command): void {
           currentRegistry,
           newRegistry,
           node,
-          secp256K1KeyClaim,
+          provider: null,
+          keyXClaim,
           usdcMint: config.usdcMint,
           ownerUsdc,
           nodeDepositVault,
@@ -229,7 +253,7 @@ export function registerRegistryCommands(program: Command): void {
             ctx.program,
             ctx.wallet.publicKey,
             currentVersion,
-            Number(current.nodeCount) + 1,
+            registryRecords(current) + 1,
           )),
         ]);
       if (!nodeOwner.publicKey.equals(ctx.wallet.publicKey))
@@ -330,7 +354,7 @@ export function registerRegistryCommands(program: Command): void {
         popSigR: hexToBytes(options.popSigR, 32, "PoP signature r"),
         popSigS: hexToBytes(options.popSigS, 32, "PoP signature s"),
       });
-      const [secp256K1KeyClaim] = findSecp256k1KeyClaimPda(
+      const [keyXClaim] = findKeyXClaimPda(
         ctx.programId,
         Uint8Array.from(proof.newPublicKeyCompressed),
       );
@@ -344,7 +368,8 @@ export function registerRegistryCommands(program: Command): void {
           currentRegistry,
           newRegistry,
           node,
-          secp256K1KeyClaim,
+          provider: null,
+          keyXClaim,
           systemProgram: SystemProgram.programId,
         })
         .preInstructions([
@@ -354,7 +379,7 @@ export function registerRegistryCommands(program: Command): void {
             ctx.program,
             ctx.wallet.publicKey,
             currentVersion,
-            Number(current.nodeCount),
+            registryRecords(current),
           )),
         ]);
       if (!nodeOwner.publicKey.equals(ctx.wallet.publicKey))
@@ -379,10 +404,16 @@ export function registerRegistryCommands(program: Command): void {
       const [node] = findNodePda(ctx.programId, ctx.wallet.publicKey);
       const signature = await (ctx.program.methods as any)
         .updateNodeEndpoint({
-          ip: parseIpv4(options.ip, "ip"),
-          port: parseInteger(options.port, "port"),
+          node: {
+            ip: parseIpv4(options.ip, "ip"),
+            port: parseInteger(options.port, "port"),
+          },
         })
-        .accountsPartial({ nodeOwner: ctx.wallet.publicKey, node })
+        .accountsPartial({
+          nodeOwner: ctx.wallet.publicKey,
+          node,
+          provider: null,
+        })
         .rpc();
       writeJson({
         signature,
@@ -395,11 +426,11 @@ export function registerRegistryCommands(program: Command): void {
   registry
     .command("deactivate")
     .description(
-      "Deactivate a current member and create the next registry version",
+      "Deactivate the signer's own node and create the next registry version. Only a node's owner removes it; the protocol authority cannot.",
     )
     .option(
       "--node-owner <pubkey>",
-      "target owner (defaults to signer; protocol authority may target another owner)",
+      "the node owner; must be the signer (defaults to signer)",
     )
     .action(async (options, command: Command) => {
       const ctx = await getCliContext(command);
@@ -435,6 +466,7 @@ export function registerRegistryCommands(program: Command): void {
           currentRegistry,
           newRegistry,
           node,
+          provider: null,
           systemProgram: SystemProgram.programId,
         })
         // The handler copies every current member before it removes one.
@@ -443,7 +475,7 @@ export function registerRegistryCommands(program: Command): void {
             ctx.program,
             ctx.wallet.publicKey,
             currentVersion,
-            Number(current.nodeCount),
+            registryRecords(current),
           ),
         )
         .rpc();
@@ -552,7 +584,7 @@ export function registerRegistryCommands(program: Command): void {
             ctx.program,
             ctx.wallet.publicKey,
             currentVersion,
-            Number(current.nodeCount),
+            registryRecords(current),
           ),
         )
         .rpc();
@@ -612,7 +644,7 @@ export function registerRegistryCommands(program: Command): void {
             ctx.program,
             ctx.wallet.publicKey,
             currentVersion,
-            Number(current.nodeCount) + 1,
+            registryRecords(current) + 1,
           ),
         )
         .rpc();

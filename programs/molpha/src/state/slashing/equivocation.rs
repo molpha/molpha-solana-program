@@ -29,9 +29,11 @@ impl Evidence for EquivocationEvidence {
             MolphaError::NotEquivocation
         );
 
-        // Both attestations sign the same duty, so a node in both bitmaps signed both values.
+        // Both attestations sign the same duty, so a node in both bitmaps signed both values. A
+        // provider in both is not punished here: only nodes have a deposit.
         let guilty_bitmap = Bitmap::load(&self.attestation_a.signature.signers_bitmap)
-            .intersect(&Bitmap::load(&self.attestation_b.signature.signers_bitmap));
+            .intersect(&Bitmap::load(&self.attestation_b.signature.signers_bitmap))
+            .node_bits();
         require!(guilty_bitmap.popcount() > 0, MolphaError::GuiltySetEmpty);
 
         verify_evidence_signature(ctx, &self.attestation_a, &self.coalition_key_a)?;

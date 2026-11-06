@@ -1,7 +1,7 @@
 //! Permissionless: submit a sampled round as participation evidence for its epoch.
 
 use anchor_lang::prelude::*;
-use molpha_verifier::{selection::derive_selection_bitmap, Attestation, Bitmap, CoalitionKey};
+use molpha_verifier::{selection::attestation_selection, Attestation, Bitmap, CoalitionKey};
 
 use crate::{
     error::{map_attestation_err, MolphaError},
@@ -93,14 +93,20 @@ pub fn submit_ticket(
     )?;
 
     let registry = RegistryRef::load(ctx.accounts.registry.as_ref())?;
-    let selection = derive_selection_bitmap(
+    // A provider round is drawn by its node quorum (`signatures_required - 1`), not the wire
+    // threshold: the two draws are not nested.
+    let all_signers = Bitmap::load(&attestation.signature.signers_bitmap);
+    let selection = attestation_selection(
         &payload.source_id,
         timestamp,
         payload.signatures_required,
+        &all_signers,
         &registry.view(),
     )
     .map_err(map_attestation_err)?;
-    let signers = Bitmap::load(&attestation.signature.signers_bitmap);
+    // Provider bits are not committee members: they are neither policed against the selection nor
+    // credited.
+    let signers = all_signers.node_bits();
     // Verification accepts any quorum of members, so tickets police the committee themselves:
     // activity is counted against the selection, and a signer outside it must not pass.
     require!(

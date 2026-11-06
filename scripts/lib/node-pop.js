@@ -5,7 +5,8 @@ const { Point, utils: secpUtils } = require("@noble/secp256k1");
 const { keccak_256 } = require("@noble/hashes/sha3.js");
 
 const NODE_POP_PREFIX = Buffer.from("MOLPHA_NODE_POP_V1");
-const SECP256K1_KEY_CLAIM_SEED = Buffer.from("molpha_secp_key");
+// `KeyXClaim` seed prefix: the claim is on the key's x coordinate, so a key and its negation share it.
+const KEY_X_CLAIM_SEED = Buffer.from("molpha_key_x");
 const SECP256K1_ORDER_N = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
 );
@@ -75,18 +76,15 @@ function signNodePop({ programId, nodeId, secp256k1PrivateKey, nonce }) {
   };
 }
 
-function findSecp256k1KeyClaimPda(programId, compressedPubkey) {
-  const fingerprint = Buffer.from(keccak_256(compressedPubkey));
-  return PublicKey.findProgramAddressSync(
-    [SECP256K1_KEY_CLAIM_SEED, fingerprint],
-    programId,
-  )[0];
+function findKeyXClaimPda(programId, compressedPubkey) {
+  const x = Buffer.from(compressedPubkey).subarray(1, 33);
+  return PublicKey.findProgramAddressSync([KEY_X_CLAIM_SEED, x], programId)[0];
 }
 
 module.exports = {
   NODE_POP_PREFIX,
-  SECP256K1_KEY_CLAIM_SEED,
+  KEY_X_CLAIM_SEED,
   deriveNodePopMessage,
-  findSecp256k1KeyClaimPda,
+  findKeyXClaimPda,
   signNodePop,
 };

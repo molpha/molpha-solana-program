@@ -799,6 +799,25 @@ impl TestEnv {
         key
     }
 
+    /// Create a rent-exempt account owned by the Molpha program holding `data` (discriminator
+    /// included), for a state no instruction sequence reaches cheaply, such as a registry
+    /// version with a prescribed member table.
+    pub fn plant_program_account(&mut self, key: &Pubkey, data: Vec<u8>) {
+        let lamports = self.svm.minimum_balance_for_rent_exemption(data.len());
+        self.svm
+            .set_account(
+                *key,
+                solana_account::Account {
+                    lamports,
+                    data,
+                    owner: molpha::ID,
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("plant program account");
+    }
+
     /// Overwrite an existing program-owned account with `data` (discriminator included).
     ///
     /// The escape hatch for states the instruction set cannot currently reach — today only
@@ -833,18 +852,26 @@ impl TestEnv {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RegistrySnapshot {
     pub version: u32,
+    /// Node slots, holes included.
     pub node_count: u16,
+    /// Provider slots, holes included (slot 0 is reserved).
+    pub provider_count: u16,
     pub redundancy_buffer: u8,
     pub bump: u8,
     pub grace_active_until: i64,
     pub active_from: i64,
-    /// The slots, `nodes[..node_count]`. A removed member's slot reads `Pubkey::default()`.
+    /// The members by **signer bit**: node slot `i` at `nodes[i]`, provider slot `p` at
+    /// `nodes[PROVIDER_BIT_BASE + p]`. A hole, or a node bit past the node table below the
+    /// provider segment, reads `Pubkey::default()`. The account stores two compact tables; this
+    /// is them laid out by bit for assertions.
     pub nodes: Vec<Pubkey>,
     /// Each member's signing key `(x, y)`, parallel to `nodes`.
     pub keys: Vec<([u8; 32], [u8; 32])>,
-    /// The member table as the verifier reads it, holes included.
-    pub entries: Vec<molpha_verifier::NodeEntry>,
-    /// Length of the account, which is the header plus exactly `node_count` records.
+    /// The node table as the verifier reads it, holes included.
+    pub node_entries: Vec<molpha_verifier::NodeEntry>,
+    /// The provider table as the verifier reads it, holes included.
+    pub provider_entries: Vec<molpha_verifier::NodeEntry>,
+    /// Length of the account, which is the header plus exactly the two tables.
     pub data_len: usize,
 }
 
@@ -859,49 +886,58 @@ impl RegistrySnapshot {
         let grace_active_until = i64::from_le_bytes(body[0..8].try_into().unwrap());
         let active_from = i64::from_le_bytes(body[8..16].try_into().unwrap());
         let version = u32::from_le_bytes(body[16..20].try_into().unwrap());
-        let node_count = u16::from_le_bytes(body[20..22].try_into().unwrap());
+        let node_count = u16::from(body[20]);
+        let provider_count = u16::from(body[21]);
         let redundancy_buffer = body[22];
         let bump = body[23];
+        let records = usize::from(node_count) + usize::from(provider_count);
         assert_eq!(
             data.len(),
-            molpha::state::Registry::space(usize::from(node_count)),
-            "a registry account holds exactly its members"
+            molpha::state::Registry::space(records),
+            "a registry account holds exactly its two tables"
         );
         let members = &body[24..];
-        let member = |i: usize| &members[i * 96..(i + 1) * 96];
-        let nodes = (0..node_count as usize)
-            .map(|i| Pubkey::try_from(&member(i)[0..32]).unwrap())
-            .collect();
-        let keys = (0..node_count as usize)
-            .map(|i| {
-                (
-                    member(i)[32..64].try_into().unwrap(),
-                    member(i)[64..96].try_into().unwrap(),
-                )
-            })
-            .collect();
-        let entries = (0..node_count as usize)
-            .map(|i| molpha_verifier::NodeEntry {
-                account: member(i)[0..32].try_into().unwrap(),
-                x: member(i)[32..64].try_into().unwrap(),
-                y: member(i)[64..96].try_into().unwrap(),
-            })
-            .collect();
+        let entry = |i: usize| molpha_verifier::NodeEntry {
+            account: members[i * 96..i * 96 + 32].try_into().unwrap(),
+            x: members[i * 96 + 32..i * 96 + 64].try_into().unwrap(),
+            y: members[i * 96 + 64..i * 96 + 96].try_into().unwrap(),
+        };
+        let node_entries: Vec<_> = (0..usize::from(node_count)).map(entry).collect();
+        let provider_entries: Vec<_> = (usize::from(node_count)..records).map(entry).collect();
+        let base = molpha_verifier::PROVIDER_BIT_BASE;
+        let by_bit: Vec<molpha_verifier::NodeEntry> = if provider_count == 0 {
+            node_entries.clone()
+        } else {
+            let mut padded = node_entries.clone();
+            padded.resize(base, molpha_verifier::NodeEntry::default());
+            padded.extend(provider_entries.iter().copied());
+            padded
+        };
         Self {
             version,
             node_count,
+            provider_count,
             redundancy_buffer,
             bump,
             grace_active_until,
             active_from,
-            nodes,
-            keys,
-            entries,
+            nodes: by_bit
+                .iter()
+                .map(|e| Pubkey::new_from_array(e.account))
+                .collect(),
+            keys: by_bit.iter().map(|e| (e.x, e.y)).collect(),
+            node_entries,
+            provider_entries,
             data_len: data.len(),
         }
     }
 
-    /// Slot of `node`. A hole (`Pubkey::default()` in `nodes`) never matches.
+    /// Records the account stores: both tables.
+    pub fn records(&self) -> usize {
+        usize::from(self.node_count) + usize::from(self.provider_count)
+    }
+
+    /// Signer bit of `node`. A hole (`Pubkey::default()` in `nodes`) never matches.
     pub fn index_of(&self, node: &Pubkey) -> Option<u16> {
         if *node == Pubkey::default() {
             return None;
@@ -909,28 +945,30 @@ impl RegistrySnapshot {
         self.nodes.iter().position(|n| n == node).map(|i| i as u16)
     }
 
-    /// Whether slot `bit` holds a live member.
+    /// Whether signer bit `bit` names a live member.
     pub fn is_live(&self, bit: usize) -> bool {
         self.nodes
             .get(bit)
             .is_some_and(|node| *node != Pubkey::default())
     }
 
-    /// Slots of the live members, ascending.
+    /// Signer bits of the live members, nodes then providers, ascending.
     pub fn live_slots(&self) -> Vec<usize> {
         (0..self.nodes.len())
             .filter(|bit| self.is_live(*bit))
             .collect()
     }
 
-    /// [`molpha_verifier::RegistryView`] with the member table, as selection derivation needs it
-    /// to skip the holes.
+    /// [`molpha_verifier::RegistryView`] with both tables, as selection derivation needs the node
+    /// table to skip the holes.
     pub fn selection_view(&self) -> molpha_verifier::RegistryView<'_> {
         molpha_verifier::RegistryView {
             version: self.version,
             node_count: self.node_count,
+            provider_count: self.provider_count,
             redundancy_buffer: self.redundancy_buffer,
-            nodes: &self.entries,
+            nodes: &self.node_entries,
+            providers: &self.provider_entries,
         }
     }
 }

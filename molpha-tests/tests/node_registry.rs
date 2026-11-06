@@ -7,8 +7,8 @@ use molpha::error::MolphaError;
 use molpha::events::{
     NodeDeactivated, NodeEndpointUpdated, NodeRegistered, RegistryUpdated, RegistryVersionReason,
 };
-use molpha::instructions::RegisterNodeArgs;
-use molpha::state::{Node, NodeStatus, RegistryState, Secp256k1KeyClaim};
+use molpha::instructions::{MemberEndpoint, RegisterNodeArgs};
+use molpha::state::{KeyXClaim, Node, NodeStatus, RegistryState};
 use molpha_tests::crypto::{self, NodeKey};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event};
 use molpha_tests::pda;
@@ -77,9 +77,9 @@ fn register_node_writes_identity_takes_the_deposit_and_appends_a_snapshot() {
     assert_eq!(node.withdrawable_slot, 0);
     assert_eq!(node.frozen_until, 0);
 
-    // The secp256k1 key is permanently reserved for this node.
-    let claim: Secp256k1KeyClaim = p.env.get(&pda::secp256k1_key_claim(&key.compressed));
-    assert_eq!(claim.node_pubkey, pda::node(&owner.pubkey()));
+    // The key's x coordinate is permanently reserved for this node.
+    let claim: KeyXClaim = p.env.get(&pda::key_x_claim(&key.x));
+    assert_eq!(claim.owner, pda::node(&owner.pubkey()));
 
     // Deposit moved owner -> the node's own vault; the treasury never sees principal.
     assert_eq!(
@@ -135,12 +135,14 @@ fn register_node_rejects_an_unroutable_endpoint() {
     let owner = funded_owner(&mut p);
 
     let mut zero_ip = p.register_node_args(&owner.pubkey(), &keys[0], salt(1), 8_001);
-    zero_ip.ip = [0, 0, 0, 0];
+    zero_ip.endpoint = MemberEndpoint::Node {
+        ip: [0, 0, 0, 0],
+        port: 8_001,
+    };
     let failed = register(&mut p, &owner, &zero_ip).unwrap_err();
     assert_molpha_error(&failed, MolphaError::InvalidNodeEndpoint);
 
-    let mut zero_port = p.register_node_args(&owner.pubkey(), &keys[1], salt(2), 0);
-    zero_port.port = 0;
+    let zero_port = p.register_node_args(&owner.pubkey(), &keys[1], salt(2), 0);
     let failed = register(&mut p, &owner, &zero_port).unwrap_err();
     assert_molpha_error(&failed, MolphaError::InvalidNodeEndpoint);
 
@@ -391,19 +393,24 @@ fn deactivate_node_by_its_owner_removes_it_and_starts_the_withdrawal_cooldown() 
     assert_eq!(event.new_registry_version, 4);
 }
 
+/// The protocol authority has no lane that removes a node: only the node's own owner does, or
+/// evidence through `slash_offence`.
 #[test]
-fn deactivate_node_can_also_be_driven_by_the_protocol_authority() {
+fn the_protocol_authority_cannot_deactivate_a_node() {
     let mut p = Protocol::start();
     p.register_nodes("deactivate-authority", 2);
     let authority = p.authority.insecure_clone();
+    let version = p.current_version();
 
     let ix = p.deactivate_node_ix(0, &authority.pubkey());
-    p.env.send_ok(&[ix], &[&authority]);
+    let failed = p.env.send_err(&[ix], &[&authority]);
+    assert_molpha_error(&failed, MolphaError::UnauthorizedNodeAuthority);
 
     assert_eq!(
         p.env.get::<Node>(&p.nodes[0].pda).status,
-        NodeStatus::Deactivated
+        NodeStatus::Active
     );
+    assert_eq!(p.current_version(), version);
 }
 
 #[test]

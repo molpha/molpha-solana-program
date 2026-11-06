@@ -3,12 +3,22 @@ use core::ops::Deref;
 
 use anchor_lang::prelude::*;
 use anchor_lang::Discriminator;
+pub use molpha_verifier::{Bitmap, MAX_PROVIDER_SLOTS, NODE_SLOTS, PROVIDER_BIT_BASE};
 use molpha_verifier::{NodeEntry, RegistryView, SignerXy};
 
 use crate::error::MolphaError;
 
-/// Width of a signer bitmap, and so the most members a registry can hold.
+/// Width of a signer bitmap, and so the most records a registry can hold: the node slots
+/// `[0, NODE_SLOTS)` and the provider slots `[NODE_SLOTS, 256)` together.
 pub const MAX_REGISTRY_NODES: usize = 256;
+
+/// Provider slot 0 (bit 64) is reserved for the Molpha signer and stays empty in this build, so
+/// registration takes the lowest free provider slot from here.
+pub const FIRST_PROVIDER_SLOT: usize = 1;
+
+/// The node bits of a signers bitmap: `[0, NODE_SLOTS)`. Selection, credit, tickets, epoch rosters
+/// and slashing see only these; a provider bit counts toward the quorum and proves provenance.
+pub const NODE_MASK: Bitmap = Bitmap::NODE_MASK;
 
 /// One member of a registry snapshot: the node account and the secp256k1 key it signed with
 /// while this version was current.
@@ -66,17 +76,23 @@ impl RegistryMember {
 }
 
 /// Header of an immutable, version-addressed registry snapshot: the selection policy and how
-/// many slots the snapshot has.
+/// many slots each segment has.
 ///
-/// The members themselves follow the header in the same account, one [`RegistryMember`] each. A
-/// member's position is its slot, the bit it signs with, and it keeps that slot for as long as it
-/// is in a snapshot: removing a node leaves a hole (a vacant record) rather than moving the last
-/// member into it, and a later registration takes the lowest hole. `node_count` is the number of
-/// slots, holes included; trailing holes are trimmed, so the last slot is always a live member.
-/// The account is sized to hold exactly `node_count` records ([`Registry::space`]), so a snapshot
-/// costs what its slots need and the table's length is the account's. That is also how the verifier
-/// reads it. Use [`RegistryRef`] to read a snapshot with its members; this struct alone gives the
-/// header.
+/// The members follow the header in the same account as two tables, one [`RegistryMember`] each:
+/// the `node_count` node slots (node slot `i` signs at bit `i`), then the `provider_count` provider
+/// slots (provider slot `p` signs at bit `PROVIDER_BIT_BASE + p`). A provider therefore costs one
+/// record, not padding up to bit 64.
+///
+/// A member keeps its slot for as long as it is in a snapshot: removing one leaves a hole (a vacant
+/// record) rather than moving the last member into it, and a later registration takes the lowest
+/// hole of its segment. Each count includes the holes; trailing holes are trimmed, so the last
+/// slot of each segment is live. The account is sized to hold exactly the two tables
+/// ([`Registry::space`] of [`Registry::records`]), so a snapshot costs what its slots need. That is
+/// also how the verifier reads it. Use [`RegistryRef`] to read a snapshot with its members; this
+/// struct alone gives the header.
+///
+/// A snapshot without providers has the bytes of the earlier layout, whose `node_count` was a
+/// `u16` at the same offset.
 #[account(zero_copy)]
 #[repr(C)]
 pub struct Registry {
@@ -84,7 +100,10 @@ pub struct Registry {
     /// Inclusive creation time. A version cannot verify a round dated before it existed.
     pub active_from: i64,
     pub version: u32,
-    pub node_count: u16,
+    /// Node slots, holes included: at most [`NODE_SLOTS`].
+    pub node_count: u8,
+    /// Provider slots, holes included: at most [`MAX_PROVIDER_SLOTS`].
+    pub provider_count: u8,
     pub redundancy_buffer: u8,
     pub bump: u8,
 }
@@ -94,12 +113,12 @@ impl Registry {
     /// Bytes before the member table: the Anchor discriminator and this header.
     pub const HEADER_SPACE: usize = 8 + core::mem::size_of::<Self>();
 
-    /// Account size of a snapshot with room for `members` members.
+    /// Account size of a snapshot with room for `members` records, nodes and providers together.
     pub const fn space(members: usize) -> usize {
         Self::HEADER_SPACE + members * RegistryMember::LEN
     }
 
-    /// Members an account of `data_len` bytes has room for, or `None` when that length is not a
+    /// Records an account of `data_len` bytes has room for, or `None` when that length is not a
     /// header followed by a whole number of member records.
     pub const fn capacity_of(data_len: usize) -> Option<usize> {
         if data_len < Self::HEADER_SPACE {
@@ -110,6 +129,38 @@ impl Registry {
             return None;
         }
         Some(table / RegistryMember::LEN)
+    }
+
+    /// Records the snapshot stores: its node slots and its provider slots.
+    pub fn records(&self) -> usize {
+        usize::from(self.node_count) + usize::from(self.provider_count)
+    }
+
+    /// Whether the counts are within their segments and the table of `capacity` records holds both.
+    fn counts_fit(&self, capacity: usize) -> bool {
+        usize::from(self.node_count) <= NODE_SLOTS
+            && usize::from(self.provider_count) <= MAX_PROVIDER_SLOTS
+            && self.records() <= capacity
+    }
+
+    /// The signer bit of the record at table `index`.
+    fn bit_of_record(&self, index: usize) -> usize {
+        let nodes = usize::from(self.node_count);
+        if index < nodes {
+            index
+        } else {
+            PROVIDER_BIT_BASE + (index - nodes)
+        }
+    }
+
+    /// The table index of signer bit `bit`, or `None` when its segment has no such slot.
+    fn record_of_bit(&self, bit: usize) -> Option<usize> {
+        if bit < NODE_SLOTS {
+            (bit < usize::from(self.node_count)).then_some(bit)
+        } else {
+            let slot = bit - PROVIDER_BIT_BASE;
+            (slot < usize::from(self.provider_count)).then(|| usize::from(self.node_count) + slot)
+        }
     }
 
     pub fn init_genesis(&mut self, redundancy_buffer: u8, active_from: i64, bump: u8) {
@@ -137,13 +188,20 @@ impl Registry {
     }
 }
 
-/// Slot of `node` among `members`. A hole never matches, not even the default pubkey.
-fn index_of(members: &[RegistryMember], node: Pubkey) -> Option<usize> {
-    let node = node.to_bytes();
-    if node == [0u8; 32] {
+/// Table index of `account` among `records`. A hole never matches, not even the default pubkey.
+fn index_of(records: &[RegistryMember], account: Pubkey) -> Option<usize> {
+    let account = account.to_bytes();
+    if account == [0u8; 32] {
         return None;
     }
-    members.iter().position(|member| member.node == node)
+    records.iter().position(|member| member.node == account)
+}
+
+/// The lowest provider slot (from `FIRST_PROVIDER_SLOT`) free in a provider table: a vacant
+/// record, or one past the end.
+fn first_free_provider_slot(providers: &[RegistryMember]) -> Option<usize> {
+    (FIRST_PROVIDER_SLOT..MAX_PROVIDER_SLOTS)
+        .find(|slot| providers.get(*slot).is_none_or(RegistryMember::is_vacant))
 }
 
 /// Split registry account data into its header and member table. `None` unless the data is a
@@ -156,7 +214,8 @@ fn split(data: &[u8]) -> Option<(&[u8], &[u8])> {
 
 /// A registry snapshot read from its account: the header and the members it names.
 ///
-/// Derefs to the header.
+/// Derefs to the header. Every accessor that takes or returns an index speaks signer bits: node
+/// slot `i` is bit `i`, provider slot `p` is bit `PROVIDER_BIT_BASE + p`.
 pub struct RegistryRef<'a> {
     header: Ref<'a, Registry>,
     table: Ref<'a, [RegistryMember]>,
@@ -177,8 +236,7 @@ impl<'a> RegistryRef<'a> {
             ErrorCode::AccountDiscriminatorMismatch
         );
         let valid = split(&data).is_some_and(|(header, table)| {
-            usize::from(bytemuck::from_bytes::<Registry>(header).node_count)
-                <= table.len() / RegistryMember::LEN
+            bytemuck::from_bytes::<Registry>(header).counts_fit(table.len() / RegistryMember::LEN)
         });
         require!(valid, ErrorCode::AccountDidNotDeserialize);
 
@@ -192,47 +250,74 @@ impl<'a> RegistryRef<'a> {
         Ok(Self { header, table })
     }
 
-    /// The snapshot's slots, in registry order. A removed member's slot is a vacant record.
-    pub fn members(&self) -> &[RegistryMember] {
+    /// Every stored record: the node table, then the provider table.
+    pub fn records(&self) -> &[RegistryMember] {
+        &self.table[..self.header.records()]
+    }
+
+    /// The node slots in order. A removed node's slot is a vacant record.
+    pub fn nodes(&self) -> &[RegistryMember] {
         &self.table[..usize::from(self.header.node_count)]
     }
 
-    /// The live member in slot `index`; a hole or a slot past the table is an invalid index.
-    pub fn member(&self, index: usize) -> Result<RegistryMember> {
-        self.members()
-            .get(index)
-            .copied()
+    /// The provider slots in order: provider slot `p` is `providers()[p]`.
+    pub fn providers(&self) -> &[RegistryMember] {
+        &self.table[usize::from(self.header.node_count)..self.header.records()]
+    }
+
+    /// The live member signing at `bit`; a hole or a slot past its segment is an invalid index.
+    pub fn member(&self, bit: usize) -> Result<RegistryMember> {
+        self.header
+            .record_of_bit(bit)
+            .map(|index| self.table[index])
             .filter(|member| !member.is_vacant())
             .ok_or(error!(MolphaError::InvalidNodeIndex))
     }
 
-    /// How many slots hold a live member.
+    /// How many records hold a live member, nodes and providers together.
     pub fn live_count(&self) -> usize {
-        self.members().iter().filter(|m| !m.is_vacant()).count()
+        self.records().iter().filter(|m| !m.is_vacant()).count()
     }
 
-    pub fn node(&self, index: usize) -> Result<Pubkey> {
-        Ok(Pubkey::new_from_array(self.member(index)?.node))
+    /// How many node slots hold a live node.
+    pub fn live_node_count(&self) -> usize {
+        self.nodes().iter().filter(|m| !m.is_vacant()).count()
     }
 
-    pub fn get_index(&self, node: Pubkey) -> Result<usize> {
-        index_of(self.members(), node).ok_or(error!(MolphaError::InvalidNodeAccount))
+    pub fn node(&self, bit: usize) -> Result<Pubkey> {
+        Ok(Pubkey::new_from_array(self.member(bit)?.node))
     }
 
-    pub fn is_node_in_registry(&self, node: Pubkey) -> bool {
-        index_of(self.members(), node).is_some()
+    /// The signer bit of `account`.
+    pub fn get_index(&self, account: Pubkey) -> Result<usize> {
+        index_of(self.records(), account)
+            .map(|index| self.header.bit_of_record(index))
+            .ok_or(error!(MolphaError::InvalidNodeAccount))
     }
 
-    /// Framework-agnostic view for [`molpha_verifier`], with the member table viewed in place.
-    /// Selection needs the table too: it draws over the live members and skips the holes.
+    pub fn is_node_in_registry(&self, account: Pubkey) -> bool {
+        index_of(self.records(), account).is_some()
+    }
+
+    /// The lowest provider slot a registration would take, or `None` when all are taken.
+    pub fn first_free_provider_slot(&self) -> Option<usize> {
+        first_free_provider_slot(self.providers())
+    }
+
+    /// Framework-agnostic view for [`molpha_verifier`], with both tables viewed in place.
+    /// Selection needs the node table too: it draws over the live nodes and skips the holes.
     pub fn view(&self) -> RegistryView<'_> {
-        let table = NodeEntry::slice_from_bytes(bytemuck::cast_slice(&self.table[..]))
-            .expect("a member record is one verifier NodeEntry");
+        fn entries(members: &[RegistryMember]) -> &[NodeEntry] {
+            NodeEntry::slice_from_bytes(bytemuck::cast_slice(members))
+                .expect("a member record is one verifier NodeEntry")
+        }
         RegistryView {
             version: self.header.version,
-            node_count: self.header.node_count,
+            node_count: u16::from(self.header.node_count),
+            provider_count: u16::from(self.header.provider_count),
             redundancy_buffer: self.header.redundancy_buffer,
-            nodes: table,
+            nodes: entries(self.nodes()),
+            providers: entries(self.providers()),
         }
     }
 }
@@ -293,20 +378,20 @@ impl<'a> RegistryMut<'a> {
             )
         });
         require!(
-            usize::from(header.node_count) <= table.len(),
+            header.counts_fit(table.len()),
             ErrorCode::AccountDidNotDeserialize
         );
         Ok(Self { header, table })
     }
 
-    /// The populated members, in registry order.
-    pub fn members(&self) -> &[RegistryMember] {
-        &self.table[..usize::from(self.header.node_count)]
+    /// The stored records: the node table, then the provider table.
+    pub fn records(&self) -> &[RegistryMember] {
+        &self.table[..self.header.records()]
     }
 
-    /// The header for writing, together with the populated members.
+    /// The header for writing, together with the stored records.
     pub fn parts(&mut self) -> (&mut Registry, &[RegistryMember]) {
-        let count = usize::from(self.header.node_count);
+        let count = self.header.records();
         (&mut self.header, &self.table[..count])
     }
 
@@ -320,8 +405,9 @@ impl<'a> RegistryMut<'a> {
 }
 
 /// A snapshot under construction: its header, and a member table whose length is the room the
-/// account has. Every operation keeps `members[..node_count]` as the slots (live members and
-/// holes, the last one live) and the rest zeroed.
+/// account has. Every operation keeps `members[..node_count]` as the node slots,
+/// `members[node_count..records()]` as the provider slots (each segment's last slot live) and the
+/// rest zeroed. Adding or trimming a node slot moves the provider table with it.
 pub struct RegistryBuilder<'a> {
     pub header: &'a mut Registry,
     pub members: &'a mut [RegistryMember],
@@ -329,7 +415,15 @@ pub struct RegistryBuilder<'a> {
 
 impl RegistryBuilder<'_> {
     fn populated(&self) -> &[RegistryMember] {
-        &self.members[..usize::from(self.header.node_count)]
+        &self.members[..self.header.records()]
+    }
+
+    fn node_count(&self) -> usize {
+        usize::from(self.header.node_count)
+    }
+
+    fn provider_count(&self) -> usize {
+        usize::from(self.header.provider_count)
     }
 
     /// Start from the previous snapshot: the same members and policy, one version on. The
@@ -343,12 +437,13 @@ impl RegistryBuilder<'_> {
         bump: u8,
     ) -> Result<()> {
         require!(
-            previous_members.len() == usize::from(previous.node_count)
+            previous_members.len() == previous.records()
                 && previous_members.len() <= self.members.len(),
             MolphaError::NodeCapExceeded
         );
         self.header.version = previous.version + 1;
         self.header.node_count = previous.node_count;
+        self.header.provider_count = previous.provider_count;
         self.header.redundancy_buffer = previous.redundancy_buffer;
         self.header.bump = bump;
         self.header.active_from = active_from;
@@ -358,73 +453,137 @@ impl RegistryBuilder<'_> {
         Ok(())
     }
 
-    /// Add a node and its key in the lowest vacant slot, or past the last slot when there is no
-    /// hole. Returns the slot.
+    /// Add a node and its key in the lowest vacant node slot, or after the last node slot when
+    /// there is none (moving the provider table one record on). Returns the slot, which is the
+    /// node's bit. A registry holds at most `NODE_SLOTS` nodes.
     pub fn insert_node(&mut self, node: Pubkey, key: SignerXy) -> Result<usize> {
         require!(
             !self.is_node_in_registry(node),
             MolphaError::NodeAlreadyInRegistry
         );
-        let count = usize::from(self.header.node_count);
-        let slot = self
-            .populated()
+        let nodes = self.node_count();
+        if let Some(slot) = self.members[..nodes]
             .iter()
             .position(RegistryMember::is_vacant)
-            .unwrap_or(count);
+        {
+            self.members[slot] = RegistryMember::new(node, key);
+            return Ok(slot);
+        }
+        let records = self.header.records();
         require!(
-            slot < MAX_REGISTRY_NODES && slot < self.members.len(),
+            nodes < NODE_SLOTS && records < self.members.len(),
             MolphaError::NodeCapExceeded
         );
+        self.members.copy_within(nodes..records, nodes + 1);
+        self.members[nodes] = RegistryMember::new(node, key);
+        // `nodes` is below `NODE_SLOTS`, so the new count fits.
+        self.header.node_count = (nodes + 1) as u8;
+        Ok(nodes)
+    }
 
-        self.members[slot] = RegistryMember::new(node, key);
-        if slot == count {
-            // `count` is below 256, so the new count fits.
-            self.header.node_count = (count + 1) as u16;
+    /// The lowest provider slot (from `FIRST_PROVIDER_SLOT`) whose record is vacant, or past the
+    /// last provider slot. `None` when all `MAX_PROVIDER_SLOTS` are taken.
+    pub fn first_free_provider_slot(&self) -> Option<usize> {
+        first_free_provider_slot(&self.populated()[self.node_count()..])
+    }
+
+    /// Add a provider, whose registry record is its `Provider` PDA and its signing key, in the
+    /// lowest free provider slot. Returns the slot. Slots between the old last provider slot and
+    /// the new one (slot 0, the first time) are holes.
+    pub fn insert_provider(&mut self, provider: Pubkey, key: SignerXy) -> Result<usize> {
+        require!(
+            !self.is_node_in_registry(provider),
+            MolphaError::ProviderAlreadyInRegistry
+        );
+        let slot = self
+            .first_free_provider_slot()
+            .ok_or(error!(MolphaError::ProviderSlotsFull))?;
+        let base = self.node_count();
+        let providers = self.provider_count();
+        if slot >= providers {
+            require!(
+                base + slot < self.members.len(),
+                MolphaError::NodeCapExceeded
+            );
+            // The records past the stored ones are zeroed: the new holes are already vacant.
+            // `slot` is below `MAX_PROVIDER_SLOTS`, so the new count fits.
+            self.header.provider_count = (slot + 1) as u8;
         }
+        self.members[base + slot] = RegistryMember::new(provider, key);
         Ok(slot)
     }
 
-    /// Replace a member's key. The member keeps its slot. Returns that slot.
-    pub fn replace_key(&mut self, node: Pubkey, key: SignerXy) -> Result<usize> {
-        let index = self.get_index(node)?;
-        self.members[index] = RegistryMember::new(node, key);
-        Ok(index)
+    /// Replace a member's key. The member keeps its slot. Returns its signer bit.
+    pub fn replace_key(&mut self, account: Pubkey, key: SignerXy) -> Result<usize> {
+        let index = self.record_index(account)?;
+        self.members[index] = RegistryMember::new(account, key);
+        Ok(self.header.bit_of_record(index))
     }
 
     /// Remove a node, leaving its slot vacant.
     pub fn remove_node(&mut self, node: Pubkey) -> Result<()> {
-        let index = self.get_index(node)?;
-        self.vacate(index);
+        let index = self.record_index(node)?;
+        require!(index < self.node_count(), MolphaError::InvalidNodeAccount);
+        self.vacate_node(index);
         Ok(())
     }
 
+    /// Remove a provider, leaving its record vacant. Returns the provider slot it held.
+    pub fn remove_provider(&mut self, provider: Pubkey) -> Result<usize> {
+        let index = self.record_index(provider)?;
+        let base = self.node_count();
+        require!(index >= base, MolphaError::ProviderNotInRegistry);
+        let slot = index - base;
+        self.members[index] = RegistryMember::VACANT;
+        let mut count = self.provider_count();
+        while count > 0 && self.members[base + count - 1].is_vacant() {
+            count -= 1;
+        }
+        self.header.provider_count = count as u8;
+        Ok(slot)
+    }
+
     /// Remove every listed node that is a member, skipping the ones that are not. Every other
-    /// member keeps its slot.
+    /// member keeps its slot. Providers are never removed this way.
     pub fn remove_nodes(&mut self, remove_nodes: &[Pubkey]) -> Result<()> {
         for remove_node in remove_nodes {
             if let Some(index) = index_of(self.populated(), *remove_node) {
-                self.vacate(index);
+                require!(index < self.node_count(), MolphaError::InvalidNodeAccount);
+                self.vacate_node(index);
             }
         }
         Ok(())
     }
 
-    pub fn get_index(&self, node: Pubkey) -> Result<usize> {
-        index_of(self.populated(), node).ok_or(error!(MolphaError::InvalidNodeAccount))
+    /// The signer bit of `account`.
+    pub fn get_index(&self, account: Pubkey) -> Result<usize> {
+        Ok(self.header.bit_of_record(self.record_index(account)?))
     }
 
-    pub fn is_node_in_registry(&self, node: Pubkey) -> bool {
-        index_of(self.populated(), node).is_some()
+    pub fn is_node_in_registry(&self, account: Pubkey) -> bool {
+        index_of(self.populated(), account).is_some()
     }
 
-    /// Empty a slot, then drop the trailing holes so the table ends on a live member.
-    fn vacate(&mut self, index: usize) {
+    fn record_index(&self, account: Pubkey) -> Result<usize> {
+        index_of(self.populated(), account).ok_or(error!(MolphaError::InvalidNodeAccount))
+    }
+
+    /// Empty a node slot, then drop the trailing node holes, moving the provider table down to
+    /// follow the last live node and zeroing the records it leaves.
+    fn vacate_node(&mut self, index: usize) {
         self.members[index] = RegistryMember::VACANT;
-        let mut count = usize::from(self.header.node_count);
+        let nodes = self.node_count();
+        let records = self.header.records();
+        let mut count = nodes;
         while count > 0 && self.members[count - 1].is_vacant() {
             count -= 1;
         }
-        self.header.node_count = count as u16;
+        if count < nodes {
+            self.members.copy_within(nodes..records, count);
+            let freed = records - (nodes - count);
+            self.members[freed..records].fill(RegistryMember::VACANT);
+            self.header.node_count = count as u8;
+        }
     }
 }
 

@@ -8,7 +8,8 @@
 use anchor_lang::prelude::{AccountInfo, Pubkey};
 use anchor_lang::Discriminator;
 use molpha::state::{
-    Registry, RegistryBuilder, RegistryMember, RegistryMut, RegistryRef, MAX_REGISTRY_NODES,
+    Registry, RegistryBuilder, RegistryMember, RegistryMut, RegistryRef, MAX_PROVIDER_SLOTS,
+    MAX_REGISTRY_NODES, NODE_SLOTS,
 };
 
 type Key = ([u8; 32], [u8; 32]);
@@ -37,6 +38,7 @@ impl Snapshot {
                 active_from: 0,
                 version: 0,
                 node_count: 0,
+                provider_count: 0,
                 redundancy_buffer: 0,
                 bump: 0,
             },
@@ -64,21 +66,41 @@ impl Snapshot {
     }
 
     fn populated(&self) -> &[RegistryMember] {
-        &self.members[..usize::from(self.header.node_count)]
+        &self.members[..self.header.records()]
     }
 
-    fn node(&self, index: usize) -> Pubkey {
-        Pubkey::new_from_array(self.populated()[index].node)
+    /// The record signing at `bit`: node slot `bit`, or provider slot `bit - 64` in the provider
+    /// table after the nodes.
+    fn record(&self, bit: usize) -> RegistryMember {
+        let index = if bit < NODE_SLOTS {
+            assert!(
+                bit < usize::from(self.header.node_count),
+                "no node slot {bit}"
+            );
+            bit
+        } else {
+            let slot = bit - NODE_SLOTS;
+            assert!(
+                slot < usize::from(self.header.provider_count),
+                "no provider slot {slot}"
+            );
+            usize::from(self.header.node_count) + slot
+        };
+        self.populated()[index]
     }
 
-    fn key(&self, index: usize) -> Key {
-        self.populated()[index].xy()
+    fn node(&self, bit: usize) -> Pubkey {
+        Pubkey::new_from_array(self.record(bit).node)
+    }
+
+    fn key(&self, bit: usize) -> Key {
+        self.record(bit).xy()
     }
 
     /// The next version: a copy of this one with room for `room` members.
     fn successor(&mut self, room: usize) -> Snapshot {
         let mut next = Snapshot::with_room(room);
-        let count = usize::from(self.header.node_count);
+        let count = self.header.records();
         next.builder()
             .copy_from_previous(&mut self.header, &self.members[..count], 1, 1, 0)
             .unwrap();
@@ -229,9 +251,10 @@ fn a_registration_takes_the_lowest_hole_and_keeps_the_other_slots() {
 
 #[test]
 fn a_full_registry_with_a_hole_still_takes_a_node() {
-    let mut snapshot = Snapshot::with_room(MAX_REGISTRY_NODES);
+    // Sixty-four node slots, and room for the providers beyond them.
+    let mut snapshot = Snapshot::with_room(NODE_SLOTS);
     let mut all = Vec::new();
-    for i in 0..MAX_REGISTRY_NODES {
+    for i in 0..NODE_SLOTS {
         let node = Pubkey::new_unique();
         all.push(node);
         snapshot.builder().insert_node(node, key(i as u8)).unwrap();
@@ -241,19 +264,186 @@ fn a_full_registry_with_a_hole_still_takes_a_node() {
         .insert_node(Pubkey::new_unique(), key(0xee))
         .is_err());
 
-    snapshot.builder().remove_node(all[100]).unwrap();
-    assert_eq!(usize::from(snapshot.header.node_count), MAX_REGISTRY_NODES);
+    snapshot.builder().remove_node(all[40]).unwrap();
+    assert_eq!(usize::from(snapshot.header.node_count), NODE_SLOTS);
     let newcomer = Pubkey::new_unique();
     assert_eq!(
         snapshot.builder().insert_node(newcomer, key(0xee)).unwrap(),
-        100
+        40
     );
-    assert_eq!(snapshot.node(100), newcomer);
-    assert_eq!(snapshot.node(101), all[101]);
+    assert_eq!(snapshot.node(40), newcomer);
+    assert_eq!(snapshot.node(41), all[41]);
     assert!(snapshot
         .builder()
         .insert_node(Pubkey::new_unique(), key(0xef))
         .is_err());
+}
+
+#[test]
+fn a_registry_holds_at_most_64_nodes_and_192_provider_records() {
+    assert_eq!(NODE_SLOTS, 64);
+    assert_eq!(MAX_REGISTRY_NODES, 256);
+    assert_eq!(MAX_PROVIDER_SLOTS, 192);
+
+    // More room than a 256-bit signer bitmap can address.
+    let mut snapshot = Snapshot::with_room(MAX_REGISTRY_NODES + 8);
+    for i in 0..NODE_SLOTS {
+        snapshot
+            .builder()
+            .insert_node(Pubkey::new_unique(), key(i as u8))
+            .unwrap();
+    }
+    assert!(
+        snapshot
+            .builder()
+            .insert_node(Pubkey::new_unique(), key(0xee))
+            .is_err(),
+        "the 65th node has no node bit"
+    );
+
+    // Providers take the lowest free slot from 1: slot 0 is reserved.
+    for slot in 1..MAX_PROVIDER_SLOTS {
+        let got = snapshot
+            .builder()
+            .insert_provider(Pubkey::new_unique(), key(slot as u8))
+            .unwrap();
+        assert_eq!(got, slot);
+    }
+    assert_eq!(usize::from(snapshot.header.node_count), NODE_SLOTS);
+    assert_eq!(
+        usize::from(snapshot.header.provider_count),
+        MAX_PROVIDER_SLOTS
+    );
+    assert_eq!(snapshot.header.records(), MAX_REGISTRY_NODES);
+    assert!(
+        snapshot.record(NODE_SLOTS).is_vacant(),
+        "slot 0 stays empty"
+    );
+    assert!(
+        snapshot
+            .builder()
+            .insert_provider(Pubkey::new_unique(), key(0xee))
+            .is_err(),
+        "the 192nd provider slot has no bit"
+    );
+}
+
+#[test]
+fn a_provider_takes_the_lowest_free_slot_and_leaves_holes_below_it() {
+    let mut snapshot = Snapshot::with_room(NODE_SLOTS + 8);
+    let node = Pubkey::new_unique();
+    snapshot.builder().insert_node(node, key(1)).unwrap();
+    assert_eq!(usize::from(snapshot.header.node_count), 1);
+
+    let a = Pubkey::new_unique();
+    let b = Pubkey::new_unique();
+    let c = Pubkey::new_unique();
+    assert_eq!(snapshot.builder().insert_provider(a, key(0xa1)).unwrap(), 1);
+    assert_eq!(snapshot.builder().insert_provider(b, key(0xb2)).unwrap(), 2);
+    assert_eq!(snapshot.builder().insert_provider(c, key(0xc3)).unwrap(), 3);
+    // The provider table follows the one node: slot 0 (reserved), a, b, c. Five records, no
+    // padding up to bit 64.
+    assert_eq!(
+        (snapshot.header.node_count, snapshot.header.provider_count),
+        (1, 4)
+    );
+    assert_eq!(snapshot.header.records(), 5);
+    assert_eq!(snapshot.node(65), a);
+    assert_eq!(Pubkey::new_from_array(snapshot.members[2].node), a);
+    assert!(snapshot.record(64).is_vacant());
+
+    // A hole in the middle is the next one taken; the others keep their slots and keys.
+    snapshot.builder().remove_provider(b).unwrap();
+    assert!(snapshot.record(66).is_vacant());
+    assert_eq!(snapshot.header.provider_count, 4);
+    let d = Pubkey::new_unique();
+    assert_eq!(snapshot.builder().insert_provider(d, key(0xd4)).unwrap(), 2);
+    assert_eq!(snapshot.node(66), d);
+    assert_eq!(snapshot.node(65), a);
+    assert_eq!(snapshot.key(67), key(0xc3));
+
+    // Removing the last provider trims back to the last live one, and the reserved slot 0 goes
+    // with the last provider.
+    snapshot.builder().remove_provider(c).unwrap();
+    assert_eq!(snapshot.header.provider_count, 3);
+    snapshot.builder().remove_provider(d).unwrap();
+    snapshot.builder().remove_provider(a).unwrap();
+    assert_eq!(
+        (snapshot.header.node_count, snapshot.header.provider_count),
+        (1, 0)
+    );
+    assert_eq!(snapshot.node(0), node);
+}
+
+#[test]
+fn the_provider_table_moves_with_the_last_node_slot() {
+    let mut snapshot = Snapshot::with_room(8);
+    let n0 = Pubkey::new_unique();
+    let n1 = Pubkey::new_unique();
+    snapshot.builder().insert_node(n0, key(1)).unwrap();
+    let a = Pubkey::new_unique();
+    assert_eq!(snapshot.builder().insert_provider(a, key(0xa1)).unwrap(), 1);
+    // [n0 | hole a]
+
+    // Appending a node slot moves the provider table one record on; nothing changes its bit.
+    assert_eq!(snapshot.builder().insert_node(n1, key(2)).unwrap(), 1);
+    assert_eq!(snapshot.header.records(), 4);
+    assert_eq!(Pubkey::new_from_array(snapshot.members[3].node), a);
+    assert_eq!((snapshot.node(1), snapshot.node(65)), (n1, a));
+    assert_eq!(snapshot.key(65), key(0xa1));
+
+    // Trimming trailing node slots moves it back and zeroes the records it leaves.
+    snapshot.builder().remove_node(n1).unwrap();
+    assert_eq!(
+        (snapshot.header.node_count, snapshot.header.provider_count),
+        (1, 2)
+    );
+    assert_eq!(snapshot.node(65), a);
+    assert!(snapshot.members[3].is_vacant());
+    snapshot.builder().remove_node(n0).unwrap();
+    assert_eq!(
+        (snapshot.header.node_count, snapshot.header.provider_count),
+        (0, 2)
+    );
+    assert_eq!(Pubkey::new_from_array(snapshot.members[1].node), a);
+    assert_eq!(snapshot.node(65), a);
+    assert!(snapshot.members[2..].iter().all(|m| m.is_vacant()));
+
+    // A node hole below the last live node is not trimmed, so nothing moves.
+    let mut snapshot = Snapshot::with_room(8);
+    let nodes = nodes(3);
+    for (i, node) in nodes.iter().enumerate() {
+        snapshot.builder().insert_node(*node, key(i as u8)).unwrap();
+    }
+    snapshot.builder().insert_provider(a, key(0xa1)).unwrap();
+    snapshot.builder().remove_node(nodes[1]).unwrap();
+    assert_eq!(snapshot.header.records(), 5);
+    assert_eq!(snapshot.node(65), a);
+
+    // A full table refuses another node slot even though a provider slot would fit nowhere either.
+    let mut tight = Snapshot::with_room(3);
+    tight.builder().insert_node(n0, key(1)).unwrap();
+    tight.builder().insert_provider(a, key(0xa1)).unwrap();
+    assert!(tight.builder().insert_node(n1, key(2)).is_err());
+}
+
+#[test]
+fn a_node_and_a_provider_cannot_be_removed_through_each_others_lane() {
+    let mut snapshot = Snapshot::with_room(NODE_SLOTS + 4);
+    let node = Pubkey::new_unique();
+    let provider = Pubkey::new_unique();
+    snapshot.builder().insert_node(node, key(1)).unwrap();
+    snapshot
+        .builder()
+        .insert_provider(provider, key(2))
+        .unwrap();
+
+    assert!(snapshot.builder().remove_provider(node).is_err());
+    assert!(snapshot.builder().remove_node(provider).is_err());
+    // A node-only removal batch refuses a provider; it never silently drops one.
+    assert!(snapshot.builder().remove_nodes(&[provider]).is_err());
+    assert_eq!(snapshot.node(0), node);
+    assert_eq!(snapshot.node(65), provider);
 }
 
 #[test]
@@ -369,27 +559,6 @@ fn copying_needs_room_for_every_member() {
         .is_err());
 }
 
-#[test]
-fn a_registry_holds_at_most_one_member_per_bitmap_bit() {
-    // More room than a 256-bit signer bitmap can address.
-    let mut snapshot = Snapshot::with_room(MAX_REGISTRY_NODES + 8);
-    for i in 0..MAX_REGISTRY_NODES {
-        snapshot
-            .builder()
-            .insert_node(Pubkey::new_unique(), key(i as u8))
-            .unwrap();
-    }
-    assert_eq!(usize::from(snapshot.header.node_count), MAX_REGISTRY_NODES);
-    assert_eq!(MAX_REGISTRY_NODES, 256);
-    assert!(
-        snapshot
-            .builder()
-            .insert_node(Pubkey::new_unique(), key(0xee))
-            .is_err(),
-        "the 257th member has no bit"
-    );
-}
-
 // ---------------------------------------------------------------------------
 // reading and writing a snapshot through its account
 // ---------------------------------------------------------------------------
@@ -461,7 +630,8 @@ fn a_snapshot_written_to_an_account_reads_back_with_its_members() {
     let registry = RegistryRef::load(&info).unwrap();
     assert_eq!(registry.version, 5);
     assert_eq!(registry.node_count, 3);
-    assert_eq!(registry.members().len(), 3);
+    assert_eq!(registry.nodes().len(), 3);
+    assert!(registry.providers().is_empty());
     for (i, node) in members.iter().enumerate() {
         assert_eq!(registry.node(i).unwrap(), *node);
         assert_eq!(registry.member(i).unwrap().xy(), key(i as u8 + 1));
@@ -496,7 +666,7 @@ fn a_hole_in_an_account_is_not_a_readable_member() {
     let info = account.info();
     let registry = RegistryRef::load(&info).unwrap();
     assert_eq!(registry.node_count, 4);
-    assert_eq!(registry.members().len(), 4);
+    assert_eq!(registry.nodes().len(), 4);
     assert!(registry.member(1).is_err(), "a hole is not a member");
     assert!(registry.node(1).is_err());
     assert_eq!(registry.node(2).unwrap(), members[2]);
