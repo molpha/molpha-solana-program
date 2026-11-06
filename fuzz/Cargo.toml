@@ -1,0 +1,41 @@
+[package]
+name = "molpha-security-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+molpha = { path = "../programs/molpha", features = ["no-entrypoint"] }
+molpha-verifier = { version = "0.4.0-dev.1", features = ["anchor"] }
+anchor-lang = "=1.2.1"
+anchor-spl = { version = "=1.2.1", default-features = false, features = ["solana-v3", "associated_token", "token", "token_2022"] }
+borsh = "1.7.0"
+bytemuck = { version = "1.24", features = ["derive", "min_const_generics"] }
+
+[[bin]]
+name = "registry_bytes"
+path = "fuzz_targets/registry_bytes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wire_bytes"
+path = "fuzz_targets/wire_bytes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "epoch_arithmetic"
+path = "fuzz_targets/epoch_arithmetic.rs"
+test = false
+doc = false
+bench = false

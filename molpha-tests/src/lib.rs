@@ -12,4 +12,6 @@ pub mod ed25519;
 pub mod env;
 pub mod pda;
 pub mod scenario;
+pub mod security;
+pub mod security_oracles;
 pub mod token;
