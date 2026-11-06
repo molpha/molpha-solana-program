@@ -63,6 +63,11 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      - name: Check security runner and coverage matrix
+        run: |
+          python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+          python3 scripts/security-tests.py matrix
+
   build-and-test:
     name: Build and Test
     if: github.event_name == 'push' || github.event.pull_request.draft == false
@@ -124,12 +129,7 @@ jobs:
           solana --version
           anchor --version
 
-      - name: Build the program
-        run: anchor build -p molpha
-
-      - name: Build and test the CLI
-        run: yarn test:cli
-
-      - name: Run Rust + LiteSVM tests
-        # The suite loads target/deploy/molpha.so, so it depends on the Anchor build above.
-        run: cargo test --workspace --locked
+      - name: Build and run security regression campaign
+        # Fresh SBF + IDL, CLI/Rust suites and bounded stateful/property cases.
+        # Extended fuzzing, mutation checks and sensitive outputs stay opt-in and local.
+        run: python3 scripts/security-tests.py pr

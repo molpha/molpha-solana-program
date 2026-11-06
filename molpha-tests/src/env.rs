@@ -104,6 +104,8 @@ pub fn set_compute_unit_price(micro_lamports: u64) -> Instruction {
 pub struct TestEnv {
     pub svm: LiteSVM,
     pub payer: Keypair,
+    actor_seed: Option<[u8; 32]>,
+    next_actor: u64,
 }
 
 impl Default for TestEnv {
@@ -117,6 +119,11 @@ impl TestEnv {
         Self::build(LiteSVM::new())
     }
 
+    /// Reproducible actors for generated scenarios. These keys are public test material.
+    pub fn from_seed(seed: [u8; 32]) -> Self {
+        Self::build_with_seed(LiteSVM::new(), Some(seed))
+    }
+
     /// A VM with SIMD-0385 transaction v1 activated on top of the mainnet feature set.
     ///
     /// Opt-in rather than the default: `enable_tx_v1` is not live on mainnet, and the rest of the
@@ -128,16 +135,45 @@ impl TestEnv {
     }
 
     fn build(svm: LiteSVM) -> Self {
+        Self::build_with_seed(svm, None)
+    }
+
+    fn build_with_seed(svm: LiteSVM, actor_seed: Option<[u8; 32]>) -> Self {
         let mut svm = svm;
         svm.add_program(molpha::ID, program_bytes())
             .expect("load molpha program");
         let mut clock = svm.get_sysvar::<Clock>();
         clock.unix_timestamp = GENESIS_UNIX_TIMESTAMP;
         svm.set_sysvar(&clock);
-        let payer = Keypair::new();
+        let payer = actor_seed
+            .map(|seed| Self::seeded_keypair(&seed, 0))
+            .unwrap_or_else(Keypair::new);
         svm.airdrop(&payer.pubkey(), 10_000 * SOL)
             .expect("fund payer");
-        Self { svm, payer }
+        Self {
+            svm,
+            payer,
+            actor_seed,
+            next_actor: 1,
+        }
+    }
+
+    fn seeded_keypair(seed: &[u8; 32], counter: u64) -> Keypair {
+        let secret =
+            solana_keccak_hasher::hashv(&[b"MOLPHA_QA_ACTOR_V1", seed, &counter.to_le_bytes()])
+                .to_bytes();
+        Keypair::new_from_array(secret)
+    }
+
+    fn next_keypair(&mut self) -> Keypair {
+        match self.actor_seed {
+            Some(seed) => {
+                let key = Self::seeded_keypair(&seed, self.next_actor);
+                self.next_actor = self.next_actor.checked_add(1).expect("actor counter");
+                key
+            }
+            None => Keypair::new(),
+        }
     }
 
     pub fn payer_pubkey(&self) -> Pubkey {
@@ -147,7 +183,8 @@ impl TestEnv {
     /// A funded keypair. Every actor in a test gets one of these rather than sharing the payer,
     /// so authorization failures cannot pass by accident.
     pub fn keypair(&mut self) -> Keypair {
-        self.fund(Keypair::new())
+        let key = self.next_keypair();
+        self.fund(key)
     }
 
     /// A funded keypair with a pinned secret. `node_id` commits to the node owner, so a test
@@ -553,6 +590,29 @@ impl TestEnv {
         }
     }
 
+    /// Preserve absent signatures so the runtime, rather than this harness, rejects them.
+    pub fn send_partially_signed(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> TransactionResult {
+        let mut all = vec![set_compute_unit_limit(DEFAULT_CU_LIMIT)];
+        all.extend_from_slice(ixs);
+        let message = Message::new(&all, Some(&self.payer.pubkey()));
+        let mut tx = Transaction::new_unsigned(message);
+        let required =
+            &tx.message.account_keys[..usize::from(tx.message.header.num_required_signatures)];
+        let available: Vec<&Keypair> = std::iter::once(&self.payer)
+            .chain(signers.iter().copied())
+            .filter(|key| required.contains(&key.pubkey()))
+            .collect();
+        tx.try_partial_sign(&available, self.svm.latest_blockhash())
+            .expect("partial signatures");
+        let result = self.svm.send_transaction(tx);
+        self.svm.expire_blockhash();
+        result
+    }
+
     // -----------------------------------------------------------------------
     // account access
     // -----------------------------------------------------------------------
@@ -688,7 +748,7 @@ impl TestEnv {
 
     /// Create a real SPL mint through the token program and return `(mint, mint_authority)`.
     pub fn create_mint(&mut self, decimals: u8) -> (Pubkey, Keypair) {
-        let mint = Keypair::new();
+        let mint = self.next_keypair();
         let authority = self.keypair();
         let rent = self.svm.minimum_balance_for_rent_exemption(token::MINT_LEN);
         let create = anchor_lang::solana_program::system_instruction::create_account(

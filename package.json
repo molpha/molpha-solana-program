@@ -15,8 +15,8 @@
     "molpha": "cli/dist/index.js"
   },
   "scripts": {
-    "lint": "prettier --check \"cli/**/*.{js,ts}\" \"scripts/**/*.{js,mjs,ts}\"",
-    "lint:fix": "prettier --write \"cli/**/*.{js,ts}\" \"scripts/**/*.{js,mjs,ts}\"",
+    "lint": "prettier --check \"cli/**/*.{js,ts,cjs}\" \"scripts/**/*.{js,mjs,ts,cjs}\"",
+    "lint:fix": "prettier --write \"cli/**/*.{js,ts,cjs}\" \"scripts/**/*.{js,mjs,ts,cjs}\"",
     "build:molpha": "anchor build -p molpha",
     "build:cli": "tsc -p cli/tsconfig.json",
     "build": "yarn build:cli && yarn build:molpha",
