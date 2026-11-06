@@ -46,23 +46,32 @@ fn submit_attestation_size_is_independent_of_the_coalition() {
 
 /// Signer keys cost compute, not accounts, so a large coalition is bounded by the transaction's
 /// compute budget rather than by its size. `registry_allocation` pins where that bound falls.
-const WIDE_COALITION: usize = 96;
+/// A registry holds 64 nodes, and an aggregate carries at most one provider key on top of them,
+/// which joins the sum and costs the same.
+const WIDE_NODES: usize = 64;
+const WIDE_PROVIDERS: usize = 1;
 
 #[test]
-fn a_96_signer_attestation_stays_inside_the_compute_budget() {
+fn a_65_key_attestation_stays_inside_the_compute_budget() {
     let mut p = Protocol::builder()
         .redundancy_buffer(REDUNDANCY_BUFFER)
         .start();
-    p.register_nodes("limits-wide-coalition", WIDE_COALITION);
+    p.register_nodes("limits-wide-coalition", WIDE_NODES);
+    let providers = p.add_active_providers("limits-wide-providers", WIDE_PROVIDERS);
     let submitter = p.env.keypair();
-    let quorum = (WIDE_COALITION - REDUNDANCY_BUFFER as usize) as u8;
-    let signed = p.sign_duty(Duty::new(WIDE_COALITION as u32, quorum).at_secs(1_700_200_000));
-    assert_eq!(signed.signer_pdas.len(), WIDE_COALITION);
+    // The provider is the last signer of the quorum: all 64 nodes sit at the top of the credit
+    // bound `quorum - 1 + buffer`.
+    let quorum = (WIDE_NODES + WIDE_PROVIDERS - REDUNDANCY_BUFFER as usize) as u8;
+    // Activating the providers waited out their delay, so the round is stamped at the clock now.
+    let duty = Duty::new(p.current_version(), quorum).at_secs(p.env.unix_timestamp() as u64);
+    let nodes: Vec<usize> = (0..WIDE_NODES).collect();
+    let signed = p.sign_duty_with_providers(duty, &nodes, &providers);
+    assert_eq!(signed.signer_pdas.len(), WIDE_NODES + WIDE_PROVIDERS);
 
     let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
     let meta = p.env.send_ok(&[ix], &[&submitter]);
     println!(
-        "ATTESTATION_CU coalition={WIDE_COALITION} cu={}",
+        "ATTESTATION_CU nodes={WIDE_NODES} providers={WIDE_PROVIDERS} cu={}",
         meta.compute_units_consumed
     );
     assert!(meta.compute_units_consumed < MAX_COMPUTE_UNITS);

@@ -444,6 +444,7 @@ export function registerEpochCommands(program: Command): void {
         signaturesRequired,
         Number(registry.redundancyBuffer),
         timestamp,
+        registry.members,
       );
       const slots = rosterSlots(state, registry, selection);
       const coalitionKey = coalitionKeyForSigners(

@@ -15,6 +15,7 @@ pub fn slash_offence<'info>(
     ctx: Context<'info, SlashOffence<'info>>,
     offence: Offence,
 ) -> Result<()> {
+    let clock = Clock::get()?;
     // Evidence against a superseded version has to be filed within one settlement window of
     // that version's grace ending. A key a node rotated away from, perhaps because it leaked,
     // then stops being able to produce evidence against the node: its versions all retire.
@@ -22,7 +23,7 @@ pub fn slash_offence<'info>(
         evidence_filing_open(
             ctx.accounts.evidence_registry.load()?.grace_active_until,
             ctx.accounts.protocol_config.max_settlement_delay_seconds,
-            Clock::get()?.unix_timestamp,
+            clock.unix_timestamp,
         ),
         MolphaError::EvidenceExpired
     );
@@ -34,8 +35,6 @@ pub fn slash_offence<'info>(
         current_registry_version: ctx.accounts.registry_state.current_version,
     })?;
     let reporter = ctx.accounts.reporter.key();
-
-    let clock = Clock::get()?;
     let config = &mut ctx.accounts.protocol_config;
 
     let batch = slash_guilty_nodes(
@@ -45,24 +44,30 @@ pub fn slash_offence<'info>(
             guilty_bitmap,
             offence: &offence,
         },
+        &clock,
         config.withdrawal_cooldown_slots,
     )?;
 
     require!(!batch.victims.is_empty(), MolphaError::NothingToPunish);
 
     let slashed_total = batch.slashed_total();
-    let grace_active_until = config.get_grace_active_until();
+    let grace_active_until = config.get_grace_active_until(clock.unix_timestamp)?;
     // Read policy from the current snapshot before the transition bumps
     // `registry_state.next_version`, which would break exit validation on
     // `new_registry`'s version seed if we loaded it afterwards.
-    let redundancy_buffer = ctx.accounts.current_registry.load()?.redundancy_buffer;
-    let node_count = ctx.accounts.registry_state.swap_remove_nodes(
+    // Providers are never punished, so the provider count carries over unchanged.
+    let (redundancy_buffer, provider_count) = {
+        let current = ctx.accounts.current_registry.load()?;
+        (current.redundancy_buffer, current.provider_count)
+    };
+    let node_count = ctx.accounts.registry_state.remove_nodes(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
             next: &ctx.accounts.new_registry,
             payer: &ctx.accounts.reporter,
             system_program: &ctx.accounts.system_program,
             grace_active_until,
+            now: clock.unix_timestamp,
             bump: ctx.bumps.new_registry,
         },
         &batch.victims,
@@ -70,10 +75,11 @@ pub fn slash_offence<'info>(
 
     emit!(RegistryUpdated {
         new_version: ctx.accounts.registry_state.current_version,
-        node_count,
+        node_count: u16::from(node_count),
         redundancy_buffer,
         reason: RegistryVersionReason::NodePunished,
         updated_at: clock.unix_timestamp,
+        provider_count: u16::from(provider_count),
     });
 
     // Cancelled reward credits stop being a claim on the treasury.
@@ -135,8 +141,11 @@ pub fn slash_offence<'info>(
         MolphaError::TreasuryInsolvent
     );
 
+    // Hashing evidence is not free (equivocation hashes two attestations): do it once here.
+    let evidence_hash = offence.evidence_hash();
     ctx.accounts.punishment_case.init(
         &offence,
+        evidence_hash,
         reporter,
         guilty_bitmap.to_bytes(),
         guilty_bitmap.popcount() as u16,
@@ -149,7 +158,7 @@ pub fn slash_offence<'info>(
     emit!(OffenceProven {
         offence: offence.kind(),
         guilty_bitmap: guilty_bitmap.to_bytes(),
-        evidence_hash: offence.evidence_hash(),
+        evidence_hash,
         reporter,
         slashed_total,
         bounty_paid: bounty,
@@ -191,14 +200,14 @@ pub struct SlashOffence<'info> {
 
     #[account(
         seeds = [Registry::SEED_PREFIX, offence.registry_version().to_le_bytes().as_ref()],
-        bump,
+        bump = evidence_registry.load()?.bump,
     )]
     pub evidence_registry: AccountLoader<'info, Registry>,
 
     #[account(
         mut,
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
-        bump,
+        bump = current_registry.load()?.bump,
     )]
     pub current_registry: AccountLoader<'info, Registry>,
 

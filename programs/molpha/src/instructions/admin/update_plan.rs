@@ -29,7 +29,7 @@ pub struct UpdatePlan<'info> {
     #[account(
         has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
-        bump
+        bump = protocol_config.bump
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 

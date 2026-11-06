@@ -4,7 +4,7 @@ use solana_keccak_hasher::hashv;
 use molpha_verifier::{Attestation, Bitmap, CoalitionKey};
 
 use crate::error::MolphaError;
-use crate::state::{Evidence, EvidenceAccounts};
+use crate::state::{Evidence, EvidenceAccounts, RegistryRef};
 use crate::utils::slash::{
     attestation_hash, canonical_pair, is_equivocation, require_signers_selected,
     verify_evidence_signature,
@@ -52,14 +52,16 @@ impl Evidence for CommitmentReuseEvidence {
         );
 
         {
-            let evidence_registry = ctx.evidence_registry.load()?;
-            let view = evidence_registry.selection_view();
+            let registry_account = ctx.evidence_registry.to_account_info();
+            let registry = RegistryRef::load(&registry_account)?;
+            let view = registry.view();
             require_signers_selected(attestation_a, &view)?;
             require_signers_selected(attestation_b, &view)?;
         }
 
         let guilty_bitmap = Bitmap::load(&attestation_a.signature.signers_bitmap)
-            .intersect(&Bitmap::load(&attestation_b.signature.signers_bitmap));
+            .intersect(&Bitmap::load(&attestation_b.signature.signers_bitmap))
+            .node_bits();
         require!(guilty_bitmap.popcount() > 0, MolphaError::GuiltySetEmpty);
 
         verify_evidence_signature(ctx, attestation_a, &self.coalition_key_a)?;

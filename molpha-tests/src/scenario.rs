@@ -9,12 +9,12 @@ use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::{InstructionData, ToAccountMetas};
 use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
-    AddDelegateArgs, InitializeArgs, RegisterGatewayArgs, RegisterNodeArgs, RemoveDelegateArgs,
-    SubmitAttestationArgs, UpdateConfigArgs, UpdateNodeEndpointArgs,
+    AddDelegateArgs, InitializeArgs, MemberEndpoint, RegisterGatewayArgs, RegisterNodeArgs,
+    RemoveDelegateArgs, SubmitAttestationArgs, UpdateConfigArgs,
 };
 use molpha::state::{
     CommitmentReuseEvidence, EpochState, EquivocationEvidence, InactivityEvidence,
-    NonceReuseEvidence, Offence, PlanConfig, PlanType, ProtocolConfig, RegistryState,
+    NonceReuseEvidence, Offence, PlanConfig, PlanType, ProtocolConfig, Provider, RegistryState,
     UnsolicitedSigningEvidence, MAX_REGISTRY_NODES,
 };
 use molpha_verifier::{
@@ -30,6 +30,27 @@ use crate::pda;
 /// Upper bound when scanning for epoch accounts; tests never create more.
 pub const MAX_EPOCH_SCAN: u64 = 64;
 
+/// `register_node` args for `key` held by `owner`, with the node proof of possession over the
+/// node id. A node and a provider prove possession the same way.
+pub fn member_args(
+    owner: &Pubkey,
+    key: &NodeKey,
+    salt: [u8; 32],
+    endpoint: MemberEndpoint,
+) -> RegisterNodeArgs {
+    let node_id = crypto::derive_node_id(owner, &key.compressed, &salt);
+    let nonce = solana_keccak_hasher::hashv(&[b"molpha-test-pop-nonce".as_ref(), node_id.as_ref()])
+        .to_bytes();
+    let (pop_sig_r, pop_sig_s) = crypto::sign_pop(&molpha::ID, &node_id, key, &nonce);
+    RegisterNodeArgs {
+        registration_salt: salt,
+        endpoint,
+        secp256k1_pubkey_compressed: key.compressed,
+        pop_sig_r,
+        pop_sig_s,
+    }
+}
+
 /// Placeholder key for signer sets without a sum; every verifying instruction rejects it.
 pub const ZERO_COALITION_KEY: CoalitionKey = CoalitionKey {
     x: [0; 32],
@@ -42,7 +63,8 @@ pub struct RegisteredNode {
     pub key: NodeKey,
     pub pda: Pubkey,
     pub salt: [u8; 32],
-    /// Index in the registry snapshot created by its own registration.
+    /// Slot in the registry snapshot created by its own registration: the lowest hole, or the
+    /// slot after the last. It stays the node's slot in every later version.
     pub index: u16,
     /// Keys this node signed with before `key`, oldest first. Older registry versions still name
     /// them, so signing under those versions needs their secrets.
@@ -55,6 +77,44 @@ impl RegisteredNode {
         std::iter::once(&self.key)
             .chain(&self.retired_keys)
             .find(|key| (key.x, key.y) == *xy)
+    }
+}
+
+/// A provider signer that completed `register_provider`.
+pub struct RegisteredProvider {
+    pub authority: Keypair,
+    pub key: NodeKey,
+    /// The ed25519 libp2p identity it registered.
+    pub p2p_key: [u8; 32],
+    pub id: u32,
+    pub pda: Pubkey,
+    /// Provider slot `p` (bit `64 + p`) once activated.
+    pub slot: Option<usize>,
+    /// Keys rotated away from, oldest first.
+    pub retired_keys: Vec<NodeKey>,
+}
+
+/// A provider registration built by [`Protocol::prepare_provider`] and not yet sent.
+pub struct PendingProvider {
+    pub authority: Keypair,
+    pub key: NodeKey,
+    pub p2p_key: [u8; 32],
+    pub id: u32,
+    /// `register_node` with the provider account.
+    pub ix: Instruction,
+}
+
+impl RegisteredProvider {
+    /// The key (current or retired) whose public half is `xy`.
+    pub fn key_for(&self, xy: &([u8; 32], [u8; 32])) -> Option<&NodeKey> {
+        std::iter::once(&self.key)
+            .chain(&self.retired_keys)
+            .find(|key| (key.x, key.y) == *xy)
+    }
+
+    /// The bit this provider signs with, once activated.
+    pub fn bit(&self) -> usize {
+        molpha_verifier::PROVIDER_BIT_BASE + self.slot.expect("provider is active")
     }
 }
 
@@ -386,6 +446,7 @@ impl ProtocolBuilder {
             mint_authority,
             args,
             nodes: Vec::new(),
+            providers: Vec::new(),
         }
     }
 }
@@ -398,6 +459,7 @@ pub struct Protocol {
     pub mint_authority: Keypair,
     pub args: InitializeArgs,
     pub nodes: Vec<RegisteredNode>,
+    pub providers: Vec<RegisteredProvider>,
 }
 
 impl Protocol {
@@ -555,10 +617,11 @@ impl Protocol {
                 registry_state: pda::registry_state(),
                 current_registry: pda::registry(current_version),
                 new_registry: pda::registry(new_registry_version),
-                node: pda::node(owner),
-                secp256k1_key_claim: pda::secp256k1_key_claim(&args.secp256k1_pubkey_compressed),
-                owner_usdc: pda::ata(owner, &self.usdc_mint),
-                node_deposit_vault: self.node_deposit_vault(),
+                node: Some(pda::node(owner)),
+                provider: None,
+                key_x_claim: pda::key_x_claim_for(&args.secp256k1_pubkey_compressed),
+                owner_usdc: Some(pda::ata(owner, &self.usdc_mint)),
+                node_deposit_vault: Some(self.node_deposit_vault()),
                 system_program: anchor_lang::solana_program::system_program::ID,
                 token_program: pda::TOKEN_PROGRAM_ID,
             }
@@ -575,19 +638,15 @@ impl Protocol {
         salt: [u8; 32],
         port: u16,
     ) -> RegisterNodeArgs {
-        let node_id = crypto::derive_node_id(owner, &key.compressed, &salt);
-        let nonce =
-            solana_keccak_hasher::hashv(&[b"molpha-test-pop-nonce".as_ref(), node_id.as_ref()])
-                .to_bytes();
-        let (pop_sig_r, pop_sig_s) = crypto::sign_pop(&molpha::ID, &node_id, key, &nonce);
-        RegisterNodeArgs {
-            registration_salt: salt,
-            ip: [127, 0, 0, 1],
-            port,
-            secp256k1_pubkey_compressed: key.compressed,
-            pop_sig_r,
-            pop_sig_s,
-        }
+        member_args(
+            owner,
+            key,
+            salt,
+            MemberEndpoint::Node {
+                ip: [127, 0, 0, 1],
+                port,
+            },
+        )
     }
 
     /// Register `count` nodes with deterministic keys derived from `domain`.
@@ -626,8 +685,13 @@ impl Protocol {
         self.env.send_ok(&ixs, &[&authority, &owner]);
 
         let pda = pda::node(&owner.pubkey());
+        let slot = self
+            .env
+            .registry(self.current_version())
+            .index_of(&pda)
+            .expect("a registered node holds a slot");
         self.nodes.push(RegisteredNode {
-            index: (self.nodes.len()) as u16,
+            index: slot,
             owner,
             key,
             pda,
@@ -652,7 +716,8 @@ impl Protocol {
                 registry_state: pda::registry_state(),
                 current_registry: pda::registry(current_version),
                 new_registry: pda::registry(current_version + 1),
-                node: pda::node(node_owner),
+                node: Some(pda::node(node_owner)),
+                provider: None,
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
@@ -663,13 +728,20 @@ impl Protocol {
         }
     }
 
-    /// Members of the current registry version.
+    /// Records of the current registry version, node and provider slots, holes included.
     pub fn current_members(&self) -> usize {
-        usize::from(self.env.registry(self.current_version()).node_count)
+        self.env.registry(self.current_version()).records()
     }
 
-    /// `extend_registry`: grow the next registry version's account by up to 10 KiB.
+    /// `extend_registry`: grow the next registry version's account by up to 10 KiB, toward room
+    /// for one record more than the current version has.
     pub fn extend_registry_ix(&self, payer: &Pubkey) -> Instruction {
+        self.extend_registry_for_ix(payer, 0)
+    }
+
+    /// `extend_registry` toward room for `members` records (or one more than the current
+    /// version has, if that is larger).
+    pub fn extend_registry_for_ix(&self, payer: &Pubkey, members: usize) -> Instruction {
         let current_version = self.current_version();
         Instruction {
             program_id: molpha::ID,
@@ -681,7 +753,10 @@ impl Protocol {
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
-            data: molpha::instruction::ExtendRegistry {}.data(),
+            data: molpha::instruction::ExtendRegistry {
+                members: u16::try_from(members).unwrap(),
+            }
+            .data(),
         }
     }
 
@@ -705,7 +780,7 @@ impl Protocol {
     /// room for `members` members. Empty for a registry of up to 106.
     pub fn registry_extend_ixs(&self, payer: &Pubkey, members: usize) -> Vec<Instruction> {
         (0..self.registry_extends_needed(members))
-            .map(|_| self.extend_registry_ix(payer))
+            .map(|_| self.extend_registry_for_ix(payer, members))
             .collect()
     }
 
@@ -739,8 +814,9 @@ impl Protocol {
                 registry_state: pda::registry_state(),
                 current_registry: pda::registry(current_version),
                 new_registry: pda::registry(new_registry_version),
-                node: pda::node(owner),
-                secp256k1_key_claim: pda::secp256k1_key_claim(&proof.new_public_key_compressed),
+                node: Some(pda::node(owner)),
+                provider: None,
+                key_x_claim: pda::key_x_claim_for(&proof.new_public_key_compressed),
                 system_program: anchor_lang::solana_program::system_program::ID,
             }
             .to_account_metas(None),
@@ -926,6 +1002,33 @@ impl Protocol {
         crypto::bitmap_bits(&bitmap.to_bytes())
     }
 
+    /// The selection set of a **provider round** of `duty`: the committee of
+    /// `signatures_required - 1` nodes plus the buffer. The draw is not nested in the committee
+    /// round's, so a provider round is judged by this one.
+    pub fn provider_selection_bits(&self, duty: &Duty) -> Vec<usize> {
+        let registry = self.env.registry(duty.registry_version);
+        let bitmap = molpha_verifier::derive_selection_bitmap(
+            &duty.source_id,
+            duty.timestamp,
+            duty.signatures_required - 1,
+            &registry.selection_view(),
+        )
+        .expect("selection derives");
+        crypto::bitmap_bits(&bitmap.to_bytes())
+    }
+
+    /// The selection set for the round that produced `signers_bitmap`: a provider round (a
+    /// provider bit set) is drawn by its node quorum, any other by `signatures_required`.
+    pub fn selection_bits_for(&self, duty: &Duty, signers_bitmap: &[u8; 32]) -> Vec<usize> {
+        if molpha_verifier::Bitmap::load(signers_bitmap).provider_bits()
+            == molpha_verifier::Bitmap::EMPTY
+        {
+            self.selection_bits(duty)
+        } else {
+            self.provider_selection_bits(duty)
+        }
+    }
+
     /// Sign `duty` with the whole derived selection set.
     pub fn sign_duty(&self, duty: Duty) -> SignedAttestation {
         let bits = self.selection_bits(&duty);
@@ -945,11 +1048,18 @@ impl Protocol {
         let signer_keys: Vec<&NodeKey> = bits
             .iter()
             .map(|bit| {
-                let node_pda = registry.nodes[*bit];
+                let account = registry.nodes[*bit];
                 self.nodes
                     .iter()
-                    .find(|n| n.pda == node_pda)
+                    .find(|n| n.pda == account)
                     .and_then(|n| n.key_for(&registry.keys[*bit]))
+                    .or_else(|| {
+                        // A provider bit: the key the version names, current or retired.
+                        self.providers
+                            .iter()
+                            .find(|p| p.pda == account)
+                            .and_then(|p| p.key_for(&registry.keys[*bit]))
+                    })
                     .unwrap_or_else(|| panic!("no key material for registry bit {bit}"))
             })
             .collect();
@@ -1120,17 +1230,32 @@ impl Protocol {
         ip: [u8; 4],
         port: u16,
     ) -> Instruction {
+        self.update_endpoint_raw_ix(
+            node_owner,
+            Some(pda::node(node_owner)),
+            None,
+            MemberEndpoint::Node { ip, port },
+        )
+    }
+
+    /// `update_node_endpoint` with caller-chosen accounts and endpoint: for a node, a provider,
+    /// and the mismatch cases.
+    pub fn update_endpoint_raw_ix(
+        &self,
+        signer: &Pubkey,
+        node: Option<Pubkey>,
+        provider: Option<Pubkey>,
+        endpoint: MemberEndpoint,
+    ) -> Instruction {
         Instruction {
             program_id: molpha::ID,
             accounts: molpha::accounts::UpdateNodeEndpoint {
-                node_owner: *node_owner,
-                node: pda::node(node_owner),
+                node_owner: *signer,
+                node,
+                provider,
             }
             .to_account_metas(None),
-            data: molpha::instruction::UpdateNodeEndpoint {
-                args: UpdateNodeEndpointArgs { ip, port },
-            }
-            .data(),
+            data: molpha::instruction::UpdateNodeEndpoint { endpoint }.data(),
         }
     }
 
@@ -1206,14 +1331,15 @@ impl Protocol {
         // The accounts are the guilty nodes: the signers both attestations share, or the
         // signers outside the selection. Their keys come from the evidence registry.
         let bitmap = match &offence {
-            Offence::Equivocation(e) => intersect_bitmap(
+            // Guilty sets are nodes only: a provider bit both attestations share is not punished.
+            Offence::Equivocation(e) => node_part(&intersect_bitmap(
                 &e.attestation_a.signature.signers_bitmap,
                 &e.attestation_b.signature.signers_bitmap,
-            ),
-            Offence::CommitmentReuse(e) => intersect_bitmap(
+            )),
+            Offence::CommitmentReuse(e) => node_part(&intersect_bitmap(
                 &e.attestation_a.signature.signers_bitmap,
                 &e.attestation_b.signature.signers_bitmap,
-            ),
+            )),
             Offence::UnsolicitedSigning(e) => unsolicited_guilty_bitmap(self, &e.attestation),
             Offence::NonceReuse(e) => crypto::bitmap_from_bits(&[e.node_index as usize]),
             Offence::Inactivity(e) => crypto::bitmap_from_bits(&[e.node_index as usize]),
@@ -1367,16 +1493,21 @@ impl Protocol {
 pub fn unsolicited_guilty_bitmap(p: &Protocol, attestation: &Attestation) -> [u8; 32] {
     let payload = &attestation.payload;
     let registry = p.env.registry(payload.registry_version);
-    let selection = molpha_verifier::derive_selection_bitmap(
+    let signers = molpha_verifier::Bitmap::load(&attestation.signature.signers_bitmap);
+    let selection = molpha_verifier::attestation_selection(
         &payload.source_id,
         payload.timestamp,
         payload.signatures_required,
+        &signers,
         &registry.selection_view(),
     )
     .expect("selection derives");
-    molpha_verifier::Bitmap::load(&attestation.signature.signers_bitmap)
-        .subtract(&selection)
-        .to_bytes()
+    signers.node_bits().subtract(&selection).to_bytes()
+}
+
+/// The node bits of a signer bitmap (`bitmap & NODE_MASK`): provider bits dropped.
+pub fn node_part(bitmap: &[u8; 32]) -> [u8; 32] {
+    molpha_verifier::Bitmap::load(bitmap).node_bits().to_bytes()
 }
 
 /// Bitwise union of two 256-bit signer bitmaps.
@@ -1499,10 +1630,20 @@ impl Protocol {
     /// Roster slot hints for `duty`'s selection against `epoch`'s current roster: existing slots
     /// for known nodes, appended slots for new ones.
     pub fn roster_slots(&self, epoch: u64, duty: &Duty) -> Vec<u16> {
+        self.roster_slots_of(epoch, duty, self.selection_bits(duty))
+    }
+
+    /// [`Protocol::roster_slots`] for the round that produced `signers_bitmap`: a provider round
+    /// is drawn by its node quorum.
+    pub fn roster_slots_for(&self, epoch: u64, duty: &Duty, signers_bitmap: &[u8; 32]) -> Vec<u16> {
+        self.roster_slots_of(epoch, duty, self.selection_bits_for(duty, signers_bitmap))
+    }
+
+    fn roster_slots_of(&self, epoch: u64, duty: &Duty, selection: Vec<usize>) -> Vec<u16> {
         let state = self.env.epoch(epoch);
         let registry = self.env.registry(duty.registry_version);
         let mut roster: Vec<[u8; 32]> = state.roster[..usize::from(state.roster_len)].to_vec();
-        self.selection_bits(duty)
+        selection
             .into_iter()
             .map(|bit| {
                 let node = registry.nodes[bit].to_bytes();
@@ -1539,7 +1680,7 @@ impl Protocol {
             gateway_authority,
             epoch,
             signed.attestation(),
-            self.roster_slots(epoch, &signed.duty),
+            self.roster_slots_for(epoch, &signed.duty, &signed.signers_bitmap),
             signed.coalition_key,
         )
     }
@@ -1838,5 +1979,264 @@ impl Protocol {
         let ix = self.slash_inactivity_ix(&reporter.pubkey(), epoch, node_pda);
         self.env.send_ok(&[ix], &[&reporter]);
         epoch
+    }
+}
+
+// ---------------------------------------------------------------------------
+// provider signers
+// ---------------------------------------------------------------------------
+
+impl Protocol {
+    pub fn provider_account(&self, id: u32) -> Provider {
+        self.env.get::<Provider>(&pda::provider(id))
+    }
+
+    /// The id the next `register_provider` is assigned.
+    pub fn next_provider_id(&self) -> u32 {
+        self.env
+            .get::<RegistryState>(&pda::registry_state())
+            .next_provider_id
+    }
+
+    /// Well-formed `register_node` args registering a provider holding `key`, signed by its
+    /// `authority`, with a valid node proof of possession.
+    pub fn register_provider_args(
+        &self,
+        authority: &Pubkey,
+        key: &NodeKey,
+        p2p_key: [u8; 32],
+    ) -> RegisterNodeArgs {
+        let mut salt = [0u8; 32];
+        salt[0] = 2;
+        salt[1..5].copy_from_slice(&self.next_provider_id().to_be_bytes());
+        member_args(authority, key, salt, MemberEndpoint::Provider { p2p_key })
+    }
+
+    /// `register_node` for a provider at the next id, co-signed by the protocol authority.
+    pub fn register_provider_ix(&self, authority: &Pubkey, args: &RegisterNodeArgs) -> Instruction {
+        self.register_provider_ix_for_id(authority, args, self.next_provider_id())
+    }
+
+    /// `register_node` for a provider naming the provider PDA of `id`, which must be the next id.
+    pub fn register_provider_ix_for_id(
+        &self,
+        authority: &Pubkey,
+        args: &RegisterNodeArgs,
+        id: u32,
+    ) -> Instruction {
+        let current_version = self.current_version();
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::RegisterNode {
+                authority: self.authority.pubkey(),
+                node_owner: *authority,
+                protocol_config: pda::protocol_config(),
+                registry_state: pda::registry_state(),
+                current_registry: pda::registry(current_version),
+                new_registry: pda::registry(current_version + 1),
+                node: None,
+                provider: Some(pda::provider(id)),
+                key_x_claim: pda::key_x_claim_for(&args.secp256k1_pubkey_compressed),
+                owner_usdc: None,
+                node_deposit_vault: None,
+                system_program: anchor_lang::solana_program::system_program::ID,
+                token_program: pda::TOKEN_PROGRAM_ID,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::RegisterNode { args: args.clone() }.data(),
+        }
+    }
+
+    /// The `extend_registry` instructions a provider registration needs in front of it: at most
+    /// two records more than the current version (the first provider brings reserved slot 0).
+    pub fn provider_extend_ixs(&self, payer: &Pubkey) -> Vec<Instruction> {
+        self.registry_extend_ixs(payer, self.current_members() + 2)
+    }
+
+    /// `deactivate_node` for a provider: the provider authority leaves the registry.
+    pub fn eject_provider_ix(&self, authority: &Pubkey, id: u32) -> Instruction {
+        let current_version = self.current_version();
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::DeactivateNode {
+                authority: *authority,
+                protocol_config: pda::protocol_config(),
+                registry_state: pda::registry_state(),
+                current_registry: pda::registry(current_version),
+                new_registry: pda::registry(current_version + 1),
+                node: None,
+                provider: Some(pda::provider(id)),
+                system_program: anchor_lang::solana_program::system_program::ID,
+            }
+            .to_account_metas(None),
+            // `node_owner` is unused on the provider path.
+            data: molpha::instruction::DeactivateNode {
+                node_owner: *authority,
+            }
+            .data(),
+        }
+    }
+
+    /// The proof that rotates provider `index` to `new_key`, signed with the key it holds now.
+    pub fn provider_key_rotation_proof(&self, index: usize, new_key: &NodeKey) -> KeyRotationProof {
+        let provider = &self.providers[index];
+        crypto::key_rotation_proof(&molpha::ID, &provider.pda, &provider.key, new_key)
+    }
+
+    pub fn rotate_provider_key_ix(&self, index: usize, proof: KeyRotationProof) -> Instruction {
+        self.rotate_provider_key_raw_ix(
+            &self.providers[index].authority.pubkey(),
+            self.providers[index].id,
+            proof,
+        )
+    }
+
+    /// `rotate_node_key` for a provider with a caller-chosen signer and id — for failure cases.
+    pub fn rotate_provider_key_raw_ix(
+        &self,
+        signer: &Pubkey,
+        id: u32,
+        proof: KeyRotationProof,
+    ) -> Instruction {
+        let current_version = self.current_version();
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::RotateNodeKey {
+                node_owner: *signer,
+                protocol_config: pda::protocol_config(),
+                registry_state: pda::registry_state(),
+                current_registry: pda::registry(current_version),
+                new_registry: pda::registry(current_version + 1),
+                node: None,
+                provider: Some(pda::provider(id)),
+                key_x_claim: pda::key_x_claim_for(&proof.new_public_key_compressed),
+                system_program: anchor_lang::solana_program::system_program::ID,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::RotateNodeKey { proof }.data(),
+        }
+    }
+
+    /// `update_node_endpoint` for a provider: its authority moves its libp2p identity.
+    pub fn update_provider_p2p_key_ix(
+        &self,
+        authority: &Pubkey,
+        id: u32,
+        new_p2p_key: [u8; 32],
+    ) -> Instruction {
+        self.update_endpoint_raw_ix(
+            authority,
+            None,
+            Some(pda::provider(id)),
+            MemberEndpoint::Provider {
+                p2p_key: new_p2p_key,
+            },
+        )
+    }
+
+    /// A fresh ed25519 identity for a provider's p2p key.
+    pub fn p2p_key(&mut self) -> [u8; 32] {
+        self.env.keypair().pubkey().to_bytes()
+    }
+
+    /// Register a provider holding `key` through `register_node`, co-signed by the protocol
+    /// authority: it is in the registry at once. Returns its index in `providers`.
+    pub fn register_provider(&mut self, key: NodeKey) -> usize {
+        let pending = self.prepare_provider(key);
+        let mut ixs = self.provider_extend_ixs(&pending.authority.pubkey());
+        ixs.push(pending.ix.clone());
+        let protocol_authority = self.authority.insecure_clone();
+        self.env
+            .send_ok(&ixs, &[&protocol_authority, &pending.authority]);
+        self.record_provider(pending)
+    }
+
+    /// A provider registration for `key` at the next id, built but not sent: for tests that
+    /// choose what goes in front of it, or expect it to fail. Sign it with the protocol authority
+    /// and `authority`, then [`Protocol::record_provider`] once it lands.
+    pub fn prepare_provider(&mut self, key: NodeKey) -> PendingProvider {
+        let authority = self.env.keypair();
+        let p2p_key = self.p2p_key();
+        let args = self.register_provider_args(&authority.pubkey(), &key, p2p_key);
+        let id = self.next_provider_id();
+        let ix = self.register_provider_ix(&authority.pubkey(), &args);
+        PendingProvider {
+            authority,
+            key,
+            p2p_key,
+            id,
+            ix,
+        }
+    }
+
+    /// Track a provider whose registration landed. Returns its index in `providers`.
+    pub fn record_provider(&mut self, pending: PendingProvider) -> usize {
+        let slot = usize::from(self.provider_account(pending.id).slot);
+        self.providers.push(RegisteredProvider {
+            authority: pending.authority,
+            key: pending.key,
+            p2p_key: pending.p2p_key,
+            id: pending.id,
+            pda: pda::provider(pending.id),
+            slot: Some(slot),
+            retired_keys: Vec::new(),
+        });
+        self.providers.len() - 1
+    }
+
+    /// [`Protocol::register_provider`]: a registered provider is active.
+    pub fn add_active_provider(&mut self, key: NodeKey) -> usize {
+        self.register_provider(key)
+    }
+
+    /// Rotate provider `index` to `new_key`, signed by its authority and its current key. The
+    /// previous key is kept so attestations under older registry versions can still be signed.
+    pub fn rotate_provider_key(&mut self, index: usize, new_key: NodeKey) -> TransactionMetadata {
+        let proof = self.provider_key_rotation_proof(index, &new_key);
+        let authority = self.providers[index].authority.insecure_clone();
+        let mut ixs = self.registry_extend_ixs(&authority.pubkey(), self.current_members());
+        ixs.push(self.rotate_provider_key_ix(index, proof));
+        let meta = self.env.send_ok(&ixs, &[&authority]);
+        let provider = &mut self.providers[index];
+        let retired = std::mem::replace(&mut provider.key, new_key);
+        provider.retired_keys.push(retired);
+        meta
+    }
+
+    /// The provider authority ejects provider `index`.
+    pub fn eject_provider(&mut self, index: usize) {
+        let authority = self.providers[index].authority.insecure_clone();
+        let id = self.providers[index].id;
+        let ix = self.eject_provider_ix(&authority.pubkey(), id);
+        self.env.send_ok(&[ix], &[&authority]);
+    }
+}
+
+impl Protocol {
+    /// Register `count` providers with deterministic keys derived from `domain`. Returns their
+    /// indices in `providers`.
+    pub fn add_active_providers(&mut self, domain: &str, count: usize) -> Vec<usize> {
+        crypto::node_keys(domain, count)
+            .into_iter()
+            .map(|key| self.register_provider(key))
+            .collect()
+    }
+
+    /// The bits of the providers at `indices`, for [`Protocol::sign_duty_with_bits`].
+    pub fn provider_bits(&self, indices: &[usize]) -> Vec<usize> {
+        indices.iter().map(|i| self.providers[*i].bit()).collect()
+    }
+
+    /// Sign `duty` with exactly the nodes at `node_bits` and the providers at `providers`
+    /// (indices in `self.providers`), whose bits join the aggregate beside the nodes'.
+    pub fn sign_duty_with_providers(
+        &self,
+        duty: Duty,
+        node_bits: &[usize],
+        providers: &[usize],
+    ) -> SignedAttestation {
+        let mut bits = node_bits.to_vec();
+        bits.extend(self.provider_bits(providers));
+        self.sign_duty_with_bits(duty, &bits, None)
     }
 }

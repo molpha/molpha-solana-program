@@ -38,14 +38,21 @@ test("a registry account is a 32-byte header and 96 bytes per member", () => {
 });
 
 test("members are decoded from the raw account in registry order", () => {
-  const members = decodeRegistryMembers(registryData(3), 3);
+  const { members, providers } = decodeRegistryMembers(registryData(3), 3);
   assert.equal(members.length, 3);
+  assert.deepEqual(providers, []);
   members.forEach((member, index) => {
     assert.deepEqual(member.node, new Uint8Array(32).fill(0x10 + index));
     assert.deepEqual(member.x, new Uint8Array(32).fill(0x40 + index));
     assert.deepEqual(member.y, new Uint8Array(32).fill(0x80 + index));
   });
-  assert.deepEqual(decodeRegistryMembers(registryData(0), 0), []);
+  assert.deepEqual(decodeRegistryMembers(registryData(0), 0).members, []);
+
+  // The provider table follows the node table: two node slots and one provider slot here.
+  const split = decodeRegistryMembers(registryData(3), 2, 1);
+  assert.equal(split.members.length, 2);
+  assert.deepEqual(split.providers[0].node, new Uint8Array(32).fill(0x12));
+  assert.throws(() => decodeRegistryMembers(registryData(3), 3, 1), /holds 3/);
 
   // The decoded snapshot is what the bitmap helpers read.
   const registry = { nodeCount: 3, members };
@@ -81,7 +88,11 @@ test("extend_registry is needed only past what one instruction can allocate", ()
     [214, 2],
     [256, 2],
   ]) {
-    assert.equal(registryExtendsNeeded(members), extends_, `${members} members`);
+    assert.equal(
+      registryExtendsNeeded(members),
+      extends_,
+      `${members} members`,
+    );
   }
 });
 

@@ -4,7 +4,7 @@ use solana_keccak_hasher::hashv;
 use molpha_verifier::{Bitmap, CoalitionKey, NonceEquationError};
 
 use crate::error::{map_attestation_err, MolphaError};
-use crate::state::{Evidence, EvidenceAccounts, Node, RegistryRef, MAX_REGISTRY_NODES};
+use crate::state::{Evidence, EvidenceAccounts, Node, RegistryRef, NODE_SLOTS};
 use crate::utils::slash::canonical_pair;
 
 pub const DOMAIN_NONCE_REUSE: &[u8] = b"MOLPHA_NONCE_REUSE_V1";
@@ -55,10 +55,8 @@ impl Evidence for NonceReuseEvidence {
 
         let node_index =
             usize::try_from(self.node_index).map_err(|_| error!(MolphaError::InvalidNodeIndex))?;
-        require!(
-            node_index < MAX_REGISTRY_NODES,
-            MolphaError::InvalidNodeIndex
-        );
+        // A node index only: provider records have no `Node` account to punish.
+        require!(node_index < NODE_SLOTS, MolphaError::InvalidNodeIndex);
         let mut guilty_bitmap = Bitmap::new();
         guilty_bitmap.set_bit(node_index);
 
@@ -193,7 +191,8 @@ pub struct CommittedNoncePair {
 ///
 /// `program_id` is bound so a batch signed against one deployment cannot be replayed as evidence
 /// on another, matching the node proof-of-possession. `registry_version` is bound because
-/// `node_index` only identifies a node within one registry version.
+/// `node_index` only identifies a node within one registry version: a removed node's slot is
+/// reused by a later registration.
 pub fn commitment_batch_message_hash(
     program_id: &Pubkey,
     registry_version: u32,

@@ -24,7 +24,7 @@ Subscriber (or an x402 payer, off chain) requests a round for a source_id
         ↓
 Gateway dispatches the round; a selected coalition of nodes signs (secp256k1 Schnorr)
         ↓
-submit_attestation: re-derive the selection, verify the signature, update the Feed account
+submit_attestation: verify the quorum and the signature (any registered signers; selection is not checked), update the Feed account
         ↓
 Consumers read the Feed account
         ↓

@@ -6,10 +6,9 @@
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::solana_program::bpf_loader_upgradeable;
 use molpha::state::{
-    Delegate, EpochState, Feed, Gateway, Node, Plan, PlanType, ProtocolConfig, PunishmentCase,
-    Registry, RegistryState, Secp256k1KeyClaim, Subscription, TicketMarker,
+    Delegate, EpochState, Feed, Gateway, KeyXClaim, Node, Plan, PlanType, ProtocolConfig, Provider,
+    PunishmentCase, Registry, RegistryState, Subscription, TicketMarker,
 };
-use solana_keccak_hasher::hashv;
 
 pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -45,11 +44,18 @@ pub fn node(owner: &Pubkey) -> Pubkey {
     pda(&[Node::SEED_PREFIX, owner.as_ref()])
 }
 
-pub fn secp256k1_key_claim(compressed: &[u8; 33]) -> Pubkey {
-    pda(&[
-        Secp256k1KeyClaim::SEED_PREFIX,
-        &hashv(&[compressed.as_ref()]).to_bytes(),
-    ])
+/// The claim on a signing key's x coordinate (a node's or a provider's).
+pub fn key_x_claim(x: &[u8; 32]) -> Pubkey {
+    pda(&[KeyXClaim::SEED_PREFIX, x])
+}
+
+/// [`key_x_claim`] of a compressed key.
+pub fn key_x_claim_for(compressed: &[u8; 33]) -> Pubkey {
+    pda(&[KeyXClaim::SEED_PREFIX, &compressed[1..33]])
+}
+
+pub fn provider(id: u32) -> Pubkey {
+    pda(&[Provider::SEED_PREFIX, &id.to_le_bytes()])
 }
 
 pub fn plan(plan_type: PlanType) -> Pubkey {

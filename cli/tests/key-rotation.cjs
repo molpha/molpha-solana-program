@@ -118,6 +118,12 @@ test("invalid private keys are refused", () => {
     currentPrivateKey: scalar(9),
     newPrivateKey: scalar(10),
   };
-  assert.throws(() => signKeyRotation({ ...base, newPrivateKey: new Uint8Array(32) }), /invalid/);
-  assert.throws(() => signKeyRotation({ ...base, currentPrivateKey: new Uint8Array(31) }), /32 bytes/);
+  assert.throws(
+    () => signKeyRotation({ ...base, newPrivateKey: new Uint8Array(32) }),
+    /invalid/,
+  );
+  assert.throws(
+    () => signKeyRotation({ ...base, currentPrivateKey: new Uint8Array(31) }),
+    /32 bytes/,
+  );
 });

@@ -1,7 +1,7 @@
 //! Permissionless: submit a sampled round as participation evidence for its epoch.
 
 use anchor_lang::prelude::*;
-use molpha_verifier::{selection::derive_selection_bitmap, Attestation, Bitmap, CoalitionKey};
+use molpha_verifier::{selection::attestation_selection, Attestation, Bitmap, CoalitionKey};
 
 use crate::{
     error::{map_attestation_err, MolphaError},
@@ -41,7 +41,7 @@ pub fn submit_ticket(
     let now = Clock::get()?.unix_timestamp;
 
     // Cheap window and lottery checks before any signature work.
-    {
+    let min_signers = {
         let epoch = ctx.accounts.epoch_state.load()?;
         require!(epoch.accepts_tickets(now), MolphaError::TicketWindowClosed);
         require!(
@@ -56,7 +56,8 @@ pub fn submit_ticket(
             epoch.is_ticket(&ticket_hash(&attestation)),
             MolphaError::NotATicket
         );
-    }
+        epoch.min_signers
+    };
     require!(
         timestamp_secs
             <= u64::try_from(now)
@@ -67,7 +68,11 @@ pub fn submit_ticket(
 
     // The version must have been live when the round ran, not when the ticket lands: tickets
     // arrive up to an epoch plus grace later.
-    require_registry_active_at(&*ctx.accounts.registry.load()?, timestamp_secs as i64)?;
+    let redundancy_buffer = {
+        let registry = ctx.accounts.registry.load()?;
+        require_registry_active_at(&registry, timestamp_secs as i64)?;
+        registry.redundancy_buffer
+    };
 
     require!(
         verify_ed25519_signature(
@@ -84,23 +89,35 @@ pub fn submit_ticket(
         ctx.remaining_accounts.is_empty(),
         MolphaError::UnexpectedSignerAccounts
     );
-    let min_signers = ctx.accounts.epoch_state.load()?.min_signers;
     verify_attestation_core(
         &ctx.accounts.registry,
+        redundancy_buffer,
         min_signers,
         &attestation,
         &coalition_key,
     )?;
 
     let registry = RegistryRef::load(ctx.accounts.registry.as_ref())?;
-    let selection = derive_selection_bitmap(
+    // A provider round is drawn by its node quorum (`signatures_required - 1`), not the wire
+    // threshold: the two draws are not nested.
+    let all_signers = Bitmap::load(&attestation.signature.signers_bitmap);
+    let selection = attestation_selection(
         &payload.source_id,
         timestamp,
         payload.signatures_required,
-        &registry.selection_view(),
+        &all_signers,
+        &registry.view(),
     )
     .map_err(map_attestation_err)?;
-    let signers = Bitmap::load(&attestation.signature.signers_bitmap);
+    // Provider bits are not committee members: they are neither policed against the selection nor
+    // credited.
+    let signers = all_signers.node_bits();
+    // Verification accepts any quorum of members, so tickets police the committee themselves:
+    // activity is counted against the selection, and a signer outside it must not pass.
+    require!(
+        signers.is_subset(&selection),
+        MolphaError::SignersNotSubsetOfSelection
+    );
 
     let mut epoch = ctx.accounts.epoch_state.load_mut()?;
     let uncounted = epoch.record_ticket(&registry, selection, &signers, &roster_slots)?;

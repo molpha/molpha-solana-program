@@ -235,8 +235,7 @@ async function main() {
     }
 
     const args = {
-      ip: parseIpv4(node.ip),
-      port: Number(node.port),
+      node: { ip: parseIpv4(node.ip), port: Number(node.port) },
     };
 
     if (opts.dryRun) {
@@ -250,6 +249,7 @@ async function main() {
       .accountsPartial({
         nodeOwner: nodeOwner.publicKey,
         node: nodePda,
+        provider: null,
       })
       .preInstructions([
         ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }),

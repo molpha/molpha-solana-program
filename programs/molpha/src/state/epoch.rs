@@ -21,8 +21,9 @@ const BPS: u128 = 10_000;
 /// One epoch of the reward pool: its window, pinned ticket threshold, swept income and the
 /// per-node participation counters fed by tickets.
 ///
-/// Counters are keyed by an epoch-local roster of `Node` PDAs rather than by registry position,
-/// because registry positions move between versions (swap-remove) while one epoch spans several.
+/// Counters are keyed by an epoch-local roster of `Node` PDAs rather than by registry slot,
+/// because a slot is handed to another node once its holder leaves (a new registration takes the
+/// lowest hole) while one epoch spans several versions.
 /// The roster fills lazily as tickets name nodes for the first time.
 ///
 /// PDA: `[SEED_PREFIX, epoch.to_le_bytes()]`. Layout has no implicit padding.
@@ -170,8 +171,9 @@ impl EpochState {
     /// selections and an inclusion rate `signed / selected` below `min_availability_bps` of the
     /// network-wide rate `sum_signed / sum_selected`.
     ///
-    /// The floor is relative because only `k` of the `k + b` selected nodes sign a round, so even
-    /// a perfectly available node sits near `k / (k + b)`.
+    /// The floor is relative because only `k` of the `k + b` selected nodes sign a round (`k` is
+    /// the round's node quorum, one less when a provider signs), so even a perfectly available
+    /// node sits near `k / (k + b)`.
     pub fn below_availability_floor(&self, slot: usize) -> bool {
         let signed = u128::from(self.signed[slot]);
         let selected = u128::from(self.selected[slot]);
@@ -208,6 +210,10 @@ impl EpochState {
         signers: &Bitmap,
         hints: &[u16],
     ) -> Result<u32> {
+        // The roster is for nodes. Selection is node-only by construction; masking here keeps a
+        // provider record from ever being resolved as a `Node` account.
+        let selection = selection.node_bits();
+        let signers = signers.node_bits();
         require!(
             hints.len() == selection.popcount() as usize,
             MolphaError::InvalidRosterSlot

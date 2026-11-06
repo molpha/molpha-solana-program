@@ -261,7 +261,7 @@ fn a_proven_nonce_reuse_takes_the_whole_deposit_tombstones_and_evicts_the_node()
     }
 
     let after = case.p.env.registry(new_version);
-    assert_eq!(after.node_count as usize, NODE_COUNT - 1);
+    assert_eq!(after.live_slots().len(), NODE_COUNT - 1);
     assert!(!after.nodes.contains(&guilty));
 
     let reporter_usdc = pda::ata(&case.reporter.pubkey(), &case.p.usdc_mint);

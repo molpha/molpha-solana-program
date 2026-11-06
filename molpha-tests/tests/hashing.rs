@@ -118,8 +118,10 @@ fn ticket_hashes_match_golden_vectors() {
 
 const TICKET_ID_GOLDEN: &str = "1e5b3087286e8207743d03b04ec310a96b8c5250c45442fa6cfd77070c9940d8";
 const TICKET_HASH_GOLDEN: &str = "a39fe3fd44902947ffc92501bf1019847a1ceda7c7e29157c8a1951676bce8d2";
+/// For program id `dzemhcTeUnUEhDcyUssWP8GfcMCYwKezVg4U1hvdEJe`: the message embeds the program id,
+/// so this moves with `declare_id!` (it still held the `chivc…` value after the id changed).
 const DISPATCH_MESSAGE_GOLDEN: &str =
-    "5b77cc15f6940129344ceaf5cec37915d933ad0e4c378c2cac8ec334caaa7da7";
+    "4b4f0636798c15965abd3047c5a7bfc5c8c28df1982f907a2d0579a6950c97d3";
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()

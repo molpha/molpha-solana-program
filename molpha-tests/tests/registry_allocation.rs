@@ -1,9 +1,11 @@
 //! How registry snapshot accounts are allocated.
 //!
-//! A snapshot is exactly as large as its members need, so the only limit on membership is the
-//! width of a signer bitmap: 256. One instruction can create or grow an account by at most 10 KiB,
-//! which is a snapshot of 106 members; past that, `extend_registry` allocates the next version
-//! ahead of the instruction that publishes it.
+//! A snapshot is exactly as large as its records need (a removed member leaves a hole, and a hole
+//! in the middle keeps its record), so the only limit on its size is the width of a signer bitmap:
+//! 256 records, which are 64 node slots and up to 192 provider slots (a provider sits at record
+//! `64 + slot`, so the first provider makes the table 66 records long). One instruction can create
+//! or grow an account by at most 10 KiB, which is a snapshot of 106 records; past that,
+//! `extend_registry` allocates the next version ahead of the instruction that publishes it.
 #![allow(clippy::result_large_err)] // see the note in `molpha_tests`
 
 use anchor_lang::prelude::Pubkey;
@@ -11,7 +13,10 @@ use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::solana_program::system_instruction;
 use molpha::error::MolphaError;
 use molpha::events::RegistryExtended;
-use molpha::state::{EquivocationEvidence, Node, NodeStatus, Registry, MAX_REGISTRY_NODES};
+use molpha::state::{
+    EquivocationEvidence, Node, NodeStatus, Provider, ProviderStatus, Registry,
+    MAX_EPOCH_LEN_SECONDS, MAX_PROVIDER_SLOTS, MAX_REGISTRY_NODES, NODE_SLOTS,
+};
 use molpha::utils::registry_account::MAX_GROWTH_PER_INSTRUCTION;
 use molpha_tests::crypto::{self, NodeKey};
 use molpha_tests::env::{assert_anchor_error, assert_molpha_error, only_event, PACKET_DATA_SIZE};
@@ -41,7 +46,7 @@ fn fresh_key(domain: &str) -> NodeKey {
 /// The current snapshot holds exactly its members, and exactly the rent that takes.
 fn assert_exact_fit(p: &Protocol) -> usize {
     let version = p.current_version();
-    // `registry` itself asserts the account is `Registry::space(node_count)` long.
+    // `registry` itself asserts the account is `Registry::space(records)` long.
     let registry = p.env.registry(version);
     assert_eq!(
         p.env.lamports(&pda::registry(version)),
@@ -94,11 +99,29 @@ fn every_version_is_sized_and_funded_for_exactly_its_members() {
     p.env.send_ok(&[ix], &[&authority]);
     assert_eq!(assert_exact_fit(&p), Registry::space(4));
 
-    // A removal shrinks the next version.
+    // A removal in the middle leaves a hole: the slots, and so the size, stay.
     let owner = p.nodes[0].owner.insecure_clone();
     let ix = p.deactivate_node_ix(0, &owner.pubkey());
     p.env.send_ok(&[ix], &[&owner]);
+    assert_eq!(assert_exact_fit(&p), Registry::space(4));
+    assert_eq!(
+        p.env.registry(p.current_version()).live_slots(),
+        vec![1, 2, 3]
+    );
+
+    // Removing the last member trims the slot count, and the next version shrinks.
+    let owner = p.nodes[3].owner.insecure_clone();
+    let ix = p.deactivate_node_ix(3, &owner.pubkey());
+    p.env.send_ok(&[ix], &[&owner]);
     assert_eq!(assert_exact_fit(&p), Registry::space(3));
+
+    // A new registration takes the hole at slot 0, so the size does not grow.
+    p.register_nodes("exact-fit-refill", 1);
+    assert_eq!(assert_exact_fit(&p), Registry::space(3));
+    assert_eq!(
+        p.env.registry(p.current_version()).live_slots(),
+        vec![0, 1, 2]
+    );
 
     // Versions already published keep the size they were given.
     assert_eq!(p.env.registry(1).data_len, Registry::space(1));
@@ -106,12 +129,12 @@ fn every_version_is_sized_and_funded_for_exactly_its_members() {
 }
 
 #[test]
-fn a_removal_pays_rent_for_the_smaller_snapshot_only() {
+fn a_tail_removal_pays_rent_for_the_smaller_snapshot_only() {
     let mut p = protocol("removal-rent", 5);
-    let owner = p.nodes[2].owner.insecure_clone();
+    let owner = p.nodes[4].owner.insecure_clone();
     let before = p.env.lamports(&owner.pubkey());
 
-    let ix = p.deactivate_node_ix(2, &owner.pubkey());
+    let ix = p.deactivate_node_ix(4, &owner.pubkey());
     p.env.send_ok(&[ix], &[&owner]);
 
     // The handler works in a table with room for all five, then shrinks it to four and returns
@@ -121,6 +144,27 @@ fn a_removal_pays_rent_for_the_smaller_snapshot_only() {
         p.env.rent_minimum(Registry::space(4))
     );
     assert_exact_fit(&p);
+}
+
+#[test]
+fn a_removal_in_the_middle_keeps_every_slot_and_so_the_size() {
+    let mut p = protocol("removal-hole-rent", 5);
+    let owner = p.nodes[2].owner.insecure_clone();
+    let before = p.env.lamports(&owner.pubkey());
+
+    let ix = p.deactivate_node_ix(2, &owner.pubkey());
+    p.env.send_ok(&[ix], &[&owner]);
+
+    // Slot 2 is a hole inside a table of five, so the next version is five records long.
+    assert_eq!(
+        before - p.env.lamports(&owner.pubkey()),
+        p.env.rent_minimum(Registry::space(5))
+    );
+    assert_eq!(assert_exact_fit(&p), Registry::space(5));
+    assert_eq!(
+        p.env.registry(p.current_version()).live_slots(),
+        vec![0, 1, 3, 4]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -232,10 +276,11 @@ fn lamports_sent_to_the_next_version_ahead_of_time_do_not_block_it() {
     let before = p.env.lamports(&owner.pubkey());
     let ix = p.deactivate_node_ix(0, &owner.pubkey());
     p.env.send_ok(&[ix], &[&owner]);
-    assert_eq!(assert_exact_fit(&p), Registry::space(3));
+    // Slot 0 becomes a hole inside four slots, so the version keeps four records.
+    assert_eq!(assert_exact_fit(&p), Registry::space(4));
     assert_eq!(
         p.env.lamports(&owner.pubkey()) - before,
-        gift - p.env.rent_minimum(Registry::space(3))
+        gift - p.env.rent_minimum(Registry::space(4))
     );
 
     // And `extend_registry` takes over a funded address too.
@@ -243,9 +288,11 @@ fn lamports_sent_to_the_next_version_ahead_of_time_do_not_block_it() {
     p.env.send_ok(&[ix], &[&griefer]);
     let ix = p.extend_registry_ix(&griefer.pubkey());
     p.env.send_ok(&[ix], &[&griefer]);
+    // It grows toward one slot more than the current version has, the most the next could need;
+    // the registration then takes the hole and gives the spare record back.
     assert_eq!(
         p.env.account_data(&next_registry(&p)).len(),
-        Registry::space(4)
+        Registry::space(5)
     );
     p.register_nodes("prefunded-b", 1);
     assert_eq!(assert_exact_fit(&p), Registry::space(4));
@@ -255,27 +302,45 @@ fn lamports_sent_to_the_next_version_ahead_of_time_do_not_block_it() {
 // past one instruction's reach
 // ---------------------------------------------------------------------------
 
+/// A registry of 64 nodes and enough providers to make 106 records, the most one instruction can
+/// create.
+fn registry_of_106_records(domain: &str) -> Protocol {
+    let mut p = Protocol::start();
+    p.register_nodes(domain, NODE_SLOTS);
+    // A full node table (no padding to skip), then provider slots 0 (reserved) and 1..=41.
+    p.add_active_providers(
+        &format!("{domain}-providers"),
+        SINGLE_INSTRUCTION_MEMBERS - 65,
+    );
+    assert_eq!(p.current_members(), SINGLE_INSTRUCTION_MEMBERS);
+    p
+}
+
 #[test]
-fn a_snapshot_past_106_members_needs_the_next_version_extended_first() {
-    let mut p = protocol("past-106", SINGLE_INSTRUCTION_MEMBERS);
+fn a_snapshot_past_106_records_needs_the_next_version_extended_first() {
+    let mut p = registry_of_106_records("past-106");
     assert_eq!(assert_exact_fit(&p), 10_208);
     assert!(Registry::space(SINGLE_INSTRUCTION_MEMBERS) <= MAX_GROWTH_PER_INSTRUCTION);
     assert!(Registry::space(SINGLE_INSTRUCTION_MEMBERS + 1) > MAX_GROWTH_PER_INSTRUCTION);
     assert_eq!(p.registry_extends_needed(SINGLE_INSTRUCTION_MEMBERS), 0);
     assert_eq!(p.registry_extends_needed(SINGLE_INSTRUCTION_MEMBERS + 1), 1);
 
-    // The 107th member does not fit an account one instruction can create.
-    let (owner, register_ix) = registration(&mut p, "past-106-next");
-    let failed = register(&mut p, &owner, std::slice::from_ref(&register_ix)).unwrap_err();
+    // The 107th record (provider slot 42) does not fit an account one instruction can create.
+    let pending = p.prepare_provider(fresh_key("past-106-provider"));
+    let protocol_authority = p.authority.insecure_clone();
+    let signers = [&protocol_authority, &pending.authority];
+    let failed = p.env.send_err(std::slice::from_ref(&pending.ix), &signers);
     assert_molpha_error(&failed, MolphaError::RegistryNotAllocated);
-    assert_eq!(p.current_version() as usize, SINGLE_INSTRUCTION_MEMBERS);
+    assert_eq!(p.current_members(), SINGLE_INSTRUCTION_MEMBERS);
 
     // One `extend_registry` in front of it does: it allocates 10 KiB, and the registration adds
     // the rest.
-    let extend = p.extend_registry_ix(&owner.pubkey());
-    register(&mut p, &owner, &[extend, register_ix]).expect("extended registration");
+    let extend = p.extend_registry_ix(&pending.authority.pubkey());
+    p.env.send_ok(&[extend, pending.ix.clone()], &signers);
+    let index = p.record_provider(pending);
+    let id = p.providers[index].id;
     assert_eq!(assert_exact_fit(&p), Registry::space(107));
-    assert_eq!(p.env.registry(p.current_version()).node_count, 107);
+    assert_eq!(p.env.registry(p.current_version()).records(), 107);
 
     // Every later version of this size needs the same: a rotation…
     let rotating = p.nodes[3].owner.insecure_clone();
@@ -287,43 +352,69 @@ fn a_snapshot_past_106_members_needs_the_next_version_extended_first() {
     p.env.send_ok(&[extend, rotate], &[&rotating]);
     assert_eq!(assert_exact_fit(&p), Registry::space(107));
 
-    // …and a removal, which copies all 107 before it drops one. It ends at a size one
-    // instruction could have created, so the version after it needs no extending again.
-    let leaving = p.nodes[5].owner.insecure_clone();
-    let deactivate = p.deactivate_node_ix(5, &leaving.pubkey());
-    let failed = p
-        .env
-        .send_err(std::slice::from_ref(&deactivate), &[&leaving]);
+    // …and a provider ejecting itself, which copies all 107 before it drops one. Ejecting the
+    // last record ends at a size one instruction could have created, so the version after it
+    // needs no extending again; ejecting one in the middle would leave a hole and keep all 107.
+    let leaving = p.providers[index].authority.insecure_clone();
+    let eject = p.eject_provider_ix(&leaving.pubkey(), id);
+    let failed = p.env.send_err(std::slice::from_ref(&eject), &[&leaving]);
     assert_molpha_error(&failed, MolphaError::RegistryNotAllocated);
     let extend = p.extend_registry_ix(&leaving.pubkey());
-    p.env.send_ok(&[extend, deactivate], &[&leaving]);
+    p.env.send_ok(&[extend, eject], &[&leaving]);
     assert_eq!(assert_exact_fit(&p), Registry::space(106));
     assert_eq!(p.registry_extends_needed(106), 0);
 }
 
-/// A registry filled to the width of the signer bitmap.
+/// An activation at a high provider slot needs more room than "one more than the current
+/// version", which is all `extend_registry` allocated before it learnt a target: the caller names
+/// the record count it needs.
+#[test]
+fn extend_registry_can_be_told_how_many_records_a_provider_activation_needs() {
+    let mut p = registry_of_106_records("extend-for-provider");
+    let payer = p.env.keypair();
+    let extend = p.extend_registry_for_ix(&payer.pubkey(), 190);
+    p.env.send_ok(&[extend], &[&payer]);
+    let next = next_registry(&p);
+    assert_eq!(p.env.account_data(&next).len(), MAX_GROWTH_PER_INSTRUCTION);
+
+    // Asking for more than the bitmap can address is capped at the 256 records it can.
+    let extend = p.extend_registry_for_ix(&payer.pubkey(), u16::MAX as usize);
+    p.env.send_ok(&[extend], &[&payer]);
+    assert_eq!(
+        p.env.account_data(&next).len(),
+        (MAX_GROWTH_PER_INSTRUCTION * 2).min(Registry::space(MAX_REGISTRY_NODES))
+    );
+}
+
+/// A registry filled to the width of the signer bitmap: 64 nodes, provider slot 0 left empty (it
+/// is reserved) and the 191 other provider slots taken.
 fn full_registry(domain: &str) -> Protocol {
     let mut p = Protocol::start();
-    p.register_nodes(&format!("{domain}-a"), SINGLE_INSTRUCTION_MEMBERS);
-    // Up to 213 members the publishing instruction needs one extension in front of it; from 214,
-    // two. `register_nodes` adds them.
+    p.register_nodes(&format!("{domain}-a"), NODE_SLOTS);
+    // The table is 64 records until the first provider makes it 66 (slot 0 stays a hole), and
+    // then grows a record per provider. Up to 106 records the publishing instruction needs no
+    // extension; up to 213 one; from 214 two. `add_active_providers` adds them.
+    p.add_active_providers(&format!("{domain}-b"), 41);
+    assert_eq!(p.current_members(), 106);
     assert_eq!(p.registry_extends_needed(107), 1);
-    p.register_nodes(&format!("{domain}-b"), 213 - SINGLE_INSTRUCTION_MEMBERS);
+    p.add_active_providers(&format!("{domain}-c"), 213 - 106);
+    assert_eq!(p.current_members(), 213);
     assert_eq!(p.registry_extends_needed(213), 1);
     assert_eq!(p.registry_extends_needed(214), 2);
-    p.register_nodes(&format!("{domain}-c"), MAX_REGISTRY_NODES - 213);
+    p.add_active_providers(&format!("{domain}-d"), MAX_REGISTRY_NODES - 213);
     assert_eq!(p.registry_extends_needed(MAX_REGISTRY_NODES), 2);
     assert_eq!(p.current_members(), MAX_REGISTRY_NODES);
     p
 }
 
 #[test]
-fn a_registry_fills_to_256_members_and_every_transition_still_works() {
+fn a_registry_fills_to_256_records_and_every_transition_still_works() {
     let mut p = full_registry("full");
     assert_eq!(assert_exact_fit(&p), 24_608);
+    assert_eq!(p.providers.len(), MAX_PROVIDER_SLOTS - 1);
     let version = p.current_version();
 
-    // A 257th member has no bit in a signer bitmap.
+    // A 65th node has no node bit: the other 192 bits are the providers'.
     let (owner, register_ix) = registration(&mut p, "full-extra");
     let mut ixs = p.registry_extend_ixs(&owner.pubkey(), MAX_REGISTRY_NODES);
     ixs.push(register_ix);
@@ -331,8 +422,20 @@ fn a_registry_fills_to_256_members_and_every_transition_still_works() {
     assert_molpha_error(&failed, MolphaError::NodeCapExceeded);
     assert_eq!(p.current_version(), version);
 
-    // A rotation of the last member, at the far end of the table.
-    let last = MAX_REGISTRY_NODES - 1;
+    // Nor does a 192nd provider have a slot.
+    let extra = p.prepare_provider(fresh_key("full-extra-provider"));
+    let mut ixs = p.registry_extend_ixs(&extra.authority.pubkey(), MAX_REGISTRY_NODES);
+    ixs.push(extra.ix.clone());
+    let protocol_authority = p.authority.insecure_clone();
+    let failed = p
+        .env
+        .send_err(&ixs, &[&protocol_authority, &extra.authority]);
+    assert_molpha_error(&failed, MolphaError::ProviderSlotsFull);
+    assert!(!p.env.account_exists(&pda::provider(extra.id)));
+    assert_eq!(p.current_version(), version);
+
+    // A rotation of the last node, at the far end of the node segment.
+    let last = NODE_SLOTS - 1;
     let new_key = fresh_key("full-rotated");
     let meta = p.rotate_node_key(last, new_key.clone());
     println!(
@@ -347,7 +450,7 @@ fn a_registry_fills_to_256_members_and_every_transition_still_works() {
 
     // An attestation is verified against the 24 KiB snapshot with no signer accounts.
     let submitter = p.env.keypair();
-    let duty = Duty::new(p.current_version(), 18);
+    let duty = Duty::new(p.current_version(), 18).at_secs(p.env.unix_timestamp() as u64);
     let signed = p.sign_duty(duty);
     assert_eq!(signed.signer_pdas.len(), 20);
     let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
@@ -384,61 +487,76 @@ fn a_registry_fills_to_256_members_and_every_transition_still_works() {
         "FULL_REGISTRY slash_offence cu={}",
         meta.compute_units_consumed
     );
-    assert_eq!(
-        assert_exact_fit(&p),
-        Registry::space(MAX_REGISTRY_NODES - 2)
-    );
+    // The guilty leave holes in the node segment: the table keeps its 256 records. (Slot 0 of
+    // the provider segment is a hole too.)
+    let after = p.env.registry(p.current_version());
+    assert_eq!(after.live_slots().len(), MAX_REGISTRY_NODES - 1 - 2);
+    assert_eq!(assert_exact_fit(&p), Registry::space(after.records()));
     for node in &guilty {
         assert_eq!(p.env.get::<Node>(node).status, NodeStatus::Tombstoned);
-        assert!(!p.env.registry(p.current_version()).nodes.contains(node));
+        assert!(!after.nodes.contains(node));
     }
 
-    // With two slots free the registry takes members again.
+    // With two node holes free the registry takes nodes again, into the holes.
     p.register_nodes("full-refill", 2);
+    let refilled = p.env.registry(p.current_version());
+    assert_eq!(refilled.live_slots().len(), MAX_REGISTRY_NODES - 1);
     assert_eq!(assert_exact_fit(&p), 24_608);
+    for provider in &p.providers {
+        assert_eq!(
+            p.env.get::<Provider>(&provider.pda).status,
+            ProviderStatus::Active
+        );
+    }
 }
 
-/// Lifting the member limit does not lift the coalition limit: verifying an aggregate costs
-/// compute per signer, and one transaction has 1.4M units.
+/// A registry's width does not lift the coalition limit: an aggregate carries the 64 nodes and at
+/// most one provider key, however many providers the registry holds, so its verification always
+/// fits the transaction's 1.4M compute units.
 #[test]
-fn a_coalition_is_bounded_by_compute_not_by_the_registry() {
-    let mut p = Protocol::builder().redundancy_buffer(2).start();
-    p.register_nodes("coalition-a", SINGLE_INSTRUCTION_MEMBERS);
-    p.register_nodes("coalition-b", 180 - SINGLE_INSTRUCTION_MEMBERS);
+fn a_coalition_is_bounded_by_the_node_slots_and_one_provider_not_by_the_registry() {
+    // Activating the providers waits out their delay; epochs long enough to still cover the clock
+    // afterwards keep the ticket below possible.
+    let mut p = Protocol::builder()
+        .redundancy_buffer(2)
+        .epoch_len_seconds(MAX_EPOCH_LEN_SECONDS)
+        .start();
+    p.register_nodes("coalition-a", NODE_SLOTS);
+    let providers = p.add_active_providers("coalition-b", 4);
     let gateway = p.register_gateway();
     let submitter = p.env.keypair();
+    let now = p.env.unix_timestamp() as u64;
+    let nodes: Vec<usize> = (0..NODE_SLOTS).collect();
+    // The provider is the last signer of the quorum: all 64 nodes sit at the top of the credit
+    // bound `quorum - 1 + buffer`.
+    let quorum = (NODE_SLOTS - 1) as u8;
 
-    // 150 signers fit.
-    let fits = Duty::new(p.current_version(), 148).at_secs(p.env.unix_timestamp() as u64);
-    let signed = p.sign_duty(fits);
-    assert_eq!(signed.signer_pdas.len(), 150);
+    // 65 keys fit: all 64 nodes and one provider.
+    let fits = Duty::new(p.current_version(), quorum).at_secs(now);
+    let signed = p.sign_duty_with_providers(fits, &nodes, &providers[..1]);
+    assert_eq!(signed.signer_pdas.len(), NODE_SLOTS + 1);
     let ix = p.submit_attestation_ix(&submitter.pubkey(), &signed);
     let meta = p.env.send_ok(&[ix], &[&submitter]);
     println!(
-        "ATTESTATION_CU coalition=150 cu={}",
+        "ATTESTATION_CU coalition={} cu={}",
+        NODE_SLOTS + 1,
         meta.compute_units_consumed
     );
     assert!(meta.compute_units_consumed < MAX_COMPUTE_UNITS);
 
-    // So does its ticket, in a legacy packet.
+    // So does its ticket, in a legacy packet: it grows with the selected nodes, not the keys.
     let ixs = p.ticket_ixs(&submitter.pubkey(), &gateway, &signed);
     let size = p.env.transaction_size_as(&submitter.pubkey(), &ixs);
-    println!("TICKET signers=150 size={size}");
+    println!("TICKET signers={} size={size}", NODE_SLOTS + 1);
     assert!(size <= PACKET_DATA_SIZE);
 
-    // 175 do not, whatever the registry holds.
-    let too_many = Duty::new(p.current_version(), 173)
+    // A second provider does not widen it: the bitmap is refused, whatever the registry holds.
+    let too_many = Duty::new(p.current_version(), quorum)
         .source_id([0x33; 32])
-        .at_secs(p.env.unix_timestamp() as u64);
-    let signed = p.sign_duty(too_many);
-    assert_eq!(signed.signer_pdas.len(), 175);
+        .at_secs(now);
+    let signed = p.sign_duty_with_providers(too_many, &nodes, &providers[..2]);
     let other = p.env.keypair();
     let ix = p.submit_attestation_ix(&other.pubkey(), &signed);
     let failed = p.env.send_err(&[ix], &[&other]);
-    assert!(
-        failed.meta.compute_units_consumed >= MAX_COMPUTE_UNITS - 1_000,
-        "expected the compute budget to run out, used {}\n{}",
-        failed.meta.compute_units_consumed,
-        failed.meta.logs.join("\n")
-    );
+    assert_molpha_error(&failed, MolphaError::InvalidSignersBitmap);
 }

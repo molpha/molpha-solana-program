@@ -5,7 +5,7 @@ use molpha_verifier::bitmap::Bitmap;
 
 use crate::error::MolphaError;
 use crate::state::{
-    EpochState, Evidence, EvidenceAccounts, Node, NodeStatus, RegistryRef, MAX_REGISTRY_NODES,
+    EpochState, Evidence, EvidenceAccounts, Node, NodeStatus, RegistryRef, NODE_SLOTS,
 };
 
 pub const DOMAIN_INACTIVITY: &[u8] = b"MOLPHA_INACTIVITY_V2";
@@ -35,10 +35,7 @@ impl Evidence for InactivityEvidence {
 
         let node_index =
             usize::try_from(self.node_index).map_err(|_| error!(MolphaError::InvalidNodeIndex))?;
-        require!(
-            node_index < MAX_REGISTRY_NODES,
-            MolphaError::InvalidNodeIndex
-        );
+        require!(node_index < NODE_SLOTS, MolphaError::InvalidNodeIndex);
 
         let node: Account<Node> = Account::try_from(&ctx.remaining[0])?;
         require_keys_eq!(

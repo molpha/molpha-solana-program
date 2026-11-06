@@ -17,7 +17,7 @@ Entrypoints are declared in `programs/molpha/src/lib.rs`.
 | Registry      | `extend_registry`                                                                               | Anyone                                            |
 | Nodes         | `register_node`                                                                                 | Node owner and authority, both signing            |
 | Nodes         | `rotate_node_key`                                                                               | Node owner, with the node's current signing key   |
-| Nodes         | `update_node_endpoint`                                                                          | Node owner                                        |
+| Nodes         | `update_node_endpoint`                                                                          | Node owner or provider authority                  |
 | Nodes         | `deactivate_node`                                                                               | Node owner or authority                           |
 | Nodes         | `reinstate_node`                                                                                | Anyone after the freeze window; authority earlier |
 | Node funds    | `claim_node_rewards`, `withdraw_node_deposit`                                                   | Node owner                                        |
@@ -65,8 +65,9 @@ comparing it with them.
   version must be filed within `max_settlement_delay_seconds` of that version's grace ending
   (`EvidenceExpired`).
 - The `Registry` account in the IDL is a snapshot's 32-byte header. Its members follow in the same
-  account, one 96-byte `(node, x, y)` record each, and the account holds exactly `node_count` of
-  them. `extend_registry` allocates the next version ahead of the instruction that publishes it,
+  account as two tables of 96-byte `(account, x, y)` records: `node_count` node records, then
+  `provider_count` provider records (provider slot `p` signs at bit `64 + p`), and the account holds
+  exactly those. See [docs/provider-accounts.md](../docs/provider-accounts.md). `extend_registry` allocates the next version ahead of the instruction that publishes it,
   which is needed only for a registry of more than 106 members: see
   [Registry snapshots](ARCHITECTURE.md#registry-snapshots).
 - Errors: `programs/molpha/src/error.rs`. Events: `programs/molpha/src/events.rs`.

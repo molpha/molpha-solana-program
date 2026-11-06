@@ -8,10 +8,10 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-molpha = "chivcFQgxzwkpLvW41PV431HQ4dYpaW3povQH3AdpQt"
+molpha = "dzemhcTeUnUEhDcyUssWP8GfcMCYwKezVg4U1hvdEJe"
 
 [programs.localnet]
-molpha = "MoLF3pgVA9MENSuEujxNNSMaTo71aLyewaH5nrWfUZs"
+molpha = "dzemhcTeUnUEhDcyUssWP8GfcMCYwKezVg4U1hvdEJe"
 
 [provider]
 cluster = "devnet"

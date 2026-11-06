@@ -1,5 +1,5 @@
 import { keccak_256 } from "@noble/hashes/sha3.js";
-import { deriveSignersBitmap } from "./signing/attestation";
+import { deriveSignersBitmap, RegistryMemberLike } from "./signing/attestation";
 
 const DOMAIN_EQUIVOCATION = Buffer.from("MOLPHA_EQUIVOCATION_V1");
 const DOMAIN_COMMITMENT_REUSE = Buffer.from("MOLPHA_COMMITMENT_REUSE_V1");
@@ -331,7 +331,11 @@ export function offenceEvidenceHash(
  */
 export function remainingBitsFromOffence(
   offence: Record<string, unknown>,
-  registry: { nodeCount: number; redundancyBuffer: number },
+  registry: {
+    nodeCount: number;
+    redundancyBuffer: number;
+    members?: RegistryMemberLike[];
+  },
 ): number[] {
   const variant = offenceVariant(offence);
   if (variant.kind === "inactivity" || variant.kind === "nonceReuse") {
@@ -369,6 +373,7 @@ export function remainingBitsFromOffence(
           ),
           Number(registry.redundancyBuffer),
           numField(pick(payload, "timestamp"), "timestamp"),
+          registry.members,
         ),
       ),
     );

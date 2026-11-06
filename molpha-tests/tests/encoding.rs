@@ -347,7 +347,8 @@ fn registry_layout_matches_the_verifier() {
         grace_active_until: 0x1111,
         active_from: 0x2222,
         version: 0x0a0b_0c0d,
-        node_count: 0x0102,
+        node_count: 0x02,
+        provider_count: 0x01,
         redundancy_buffer: 3,
         bump: 4,
     };
@@ -357,7 +358,10 @@ fn registry_layout_matches_the_verifier() {
     assert_eq!(body[..8], 0x1111i64.to_le_bytes());
     assert_eq!(body[8..16], 0x2222i64.to_le_bytes());
     assert_eq!(body[16..20], 0x0a0b_0c0du32.to_le_bytes());
-    assert_eq!(body[20..22], 0x0102u16.to_le_bytes());
+    // `node_count` then `provider_count`, one byte each where the earlier layout's u16 `node_count`
+    // was: a snapshot without providers reads the same either way.
+    assert_eq!(body[20], 0x02);
+    assert_eq!(body[21], 0x01);
     assert_eq!(body[22], 3);
     assert_eq!(body[23], 4);
 

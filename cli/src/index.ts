@@ -10,6 +10,7 @@ import { registerGatewayCommands } from "./commands/gateway";
 import { registerInitCommand } from "./commands/init";
 import { registerKeeperCommand } from "./commands/keeper";
 import { registerPlanCommands } from "./commands/plan";
+import { registerProviderCommands } from "./commands/provider";
 import { registerRegistryCommands } from "./commands/registry";
 import { registerRewardsCommands } from "./commands/rewards";
 import { registerSlashCommands } from "./commands/slash";
@@ -36,6 +37,7 @@ async function main() {
   registerAdminCommands(program);
   registerInitCommand(program);
   registerRegistryCommands(program);
+  registerProviderCommands(program);
   registerPlanCommands(program);
   registerSubscriptionCommands(program);
   registerDelegateCommands(program);

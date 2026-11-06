@@ -45,6 +45,37 @@ export function signNodePop(params: {
   /** Test-vector hook. Production callers must leave this unset. */
   nonce?: Uint8Array;
 }): NodePopSignature {
+  if (params.nodeId.length !== 32) throw new Error("node id must be 32 bytes");
+  return signPopOverMessage({
+    message: deriveNodePopMessage(params.programId, params.nodeId),
+    secp256k1PrivateKey: params.secp256k1PrivateKey,
+    nonce: params.nonce,
+  });
+}
+
+/**
+ * The compressed public key of a secp256k1 private key: what a node id and a `KeyXClaim` are
+ * derived from before anything is signed. Nodes and providers alike.
+ */
+export function secp256k1PublicKeyCompressed(
+  secp256k1PrivateKey: Uint8Array,
+): Uint8Array {
+  if (secp256k1PrivateKey.length !== 32) {
+    throw new Error("secp256k1 private key must be 32 bytes");
+  }
+  const secret = bigintFromBytesBE(secp256k1PrivateKey);
+  if (secret <= 0n || secret >= SECP256K1_ORDER_N) {
+    throw new Error("invalid secp256k1 private key scalar");
+  }
+  return Uint8Array.from(Point.BASE.multiply(secret).toRawBytes(true));
+}
+
+/** The PoP construction. */
+function signPopOverMessage(params: {
+  message: Uint8Array;
+  secp256k1PrivateKey: Uint8Array;
+  nonce?: Uint8Array;
+}): NodePopSignature {
   if (params.secp256k1PrivateKey.length !== 32) {
     throw new Error("secp256k1 private key must be 32 bytes");
   }
@@ -55,7 +86,7 @@ export function signNodePop(params: {
 
   const publicPoint = Point.BASE.multiply(secret);
   const compressed = publicPoint.toRawBytes(true);
-  const message = deriveNodePopMessage(params.programId, params.nodeId);
+  const message = params.message;
 
   let nonce = bigintFromBytesBE(params.nonce ?? secpUtils.randomPrivateKey());
   nonce = modN(nonce);

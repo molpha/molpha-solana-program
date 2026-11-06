@@ -10,7 +10,12 @@ import {
   SystemProgram,
 } from "@solana/web3.js";
 import { Command } from "commander";
-import { registryNode } from "../lib/signing/attestation";
+import {
+  NODE_SLOTS,
+  registryNode,
+  registryRecords,
+  registrySlotOf,
+} from "../lib/signing/attestation";
 import { fetchAccountOrNull } from "../lib/accounts";
 import { getCliContext } from "../lib/client";
 import { withOffenceCoalitionKeys } from "../lib/coalition";
@@ -140,7 +145,7 @@ async function sendSlashOffence(
         ctx.program,
         ctx.wallet.publicKey,
         currentVersion,
-        Number(currentRegistryAccount.nodeCount),
+        registryRecords(currentRegistryAccount),
       )),
       createAssociatedTokenAccountIdempotentInstruction(
         ctx.wallet.publicKey,
@@ -191,13 +196,9 @@ export function registerSlashCommands(program: Command): void {
 
       const owner = parsePublicKey(options.nodeOwner, "node owner");
       const [node] = findNodePda(ctx.programId, owner);
-      let nodeIndex = -1;
-      for (let index = 0; index < Number(registry.nodeCount); index++) {
-        if (registryNode(registry, index).equals(node)) {
-          nodeIndex = index;
-          break;
-        }
-      }
+      // Skips holes; a provider's bit (>= 64) is never a node index.
+      const bit = registrySlotOf(registry, node);
+      const nodeIndex = bit < NODE_SLOTS ? bit : -1;
       if (nodeIndex < 0)
         throw new Error("Node is not a current registry member");
 

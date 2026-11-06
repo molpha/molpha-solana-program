@@ -29,7 +29,8 @@ const REGISTRY_SEED = Buffer.from("molpha_registry");
 const NODE_SEED = Buffer.from("molpha_node");
 const OWNER_SOL_LAMPORTS = LAMPORTS_PER_SOL;
 const DEPOSIT_BUFFER_BPS = 11000;
-const MAX_NODES = 256;
+// Bits 0..63 of a signers bitmap are nodes; bits 64..255 are provider signers.
+const MAX_NODES = 64;
 
 function deriveNodeId(owner, secpCompressed, registrationSalt) {
   return Buffer.from(

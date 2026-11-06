@@ -11,7 +11,7 @@ use solana_keccak_hasher::hashv;
 use molpha_verifier::bitmap::{for_each_set_bit, Bitmap};
 use molpha_verifier::solana::verify_aggregate_over_hash_accounts;
 use molpha_verifier::Attestation;
-use molpha_verifier::{derive_selection_bitmap, CoalitionKey, RegistryView};
+use molpha_verifier::{attestation_selection, CoalitionKey, RegistryView};
 
 use crate::{
     error::{map_attestation_accounts_err, map_attestation_err, MolphaError},
@@ -80,12 +80,17 @@ impl PunishmentBatch {
 /// later offence could collide with, and no way for a node to become temporarily unpunishable.
 pub(crate) fn slash_guilty_nodes<'info>(
     input: &SlashInput<'info, '_>,
+    clock: &Clock,
     withdrawal_cooldown_slots: u64,
 ) -> Result<PunishmentBatch> {
     let mut batch = PunishmentBatch::default();
-    let clock = Clock::get()?;
     let kind = input.offence.kind();
 
+    // Guilty sets are nodes only: a provider has no deposit to slash and no `Node` account.
+    require!(
+        input.guilty_bitmap.node_bits() == input.guilty_bitmap,
+        MolphaError::ProviderBitInNodeSet
+    );
     let registry = RegistryRef::load(input.evidence_registry.as_ref())?;
     let mut cursor = 0usize;
     for_each_set_bit(input.guilty_bitmap, |bit_pos| {
@@ -154,7 +159,9 @@ pub struct SlashInput<'info, 'a> {
     pub offence: &'a Offence,
 }
 
-/// Require an evidence attestation's signers to sit inside the selection derived for its duty.
+/// Require an evidence attestation's node signers to sit inside the selection derived for its
+/// duty (by its node quorum, so a provider round is drawn with one node less). Provider bits are
+/// not committee members and are ignored by the subset check.
 ///
 /// Commitment reuse uses this so a selected coalition cannot be punished for an unsolicited
 /// signer's `R`. Equivocation does not: its gate is the two verifying aggregates, and unsolicited
@@ -163,15 +170,17 @@ pub(crate) fn require_signers_selected(
     attestation: &Attestation,
     registry: &RegistryView,
 ) -> Result<()> {
-    let selection = derive_selection_bitmap(
+    let signers = Bitmap::load(&attestation.signature.signers_bitmap);
+    let selection = attestation_selection(
         &attestation.payload.source_id,
         attestation.payload.timestamp,
         attestation.payload.signatures_required,
+        &signers,
         registry,
     )
     .map_err(map_attestation_err)?;
     require!(
-        Bitmap::load(&attestation.signature.signers_bitmap).is_subset(&selection),
+        signers.node_bits().is_subset(&selection),
         MolphaError::SignersNotSubsetOfSelection
     );
     Ok(())

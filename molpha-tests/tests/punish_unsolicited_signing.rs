@@ -106,7 +106,7 @@ fn a_proven_unsolicited_signer_is_slashed_tombstoned_and_evicted_alone() {
     }
 
     let after = case.p.env.registry(new_version);
-    assert_eq!(after.node_count as usize, NODE_COUNT - guilty.len());
+    assert_eq!(after.live_slots().len(), NODE_COUNT - guilty.len());
     for node in &guilty {
         assert!(!after.nodes.contains(node));
     }

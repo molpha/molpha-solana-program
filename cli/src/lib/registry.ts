@@ -5,13 +5,20 @@ import {
   TransactionInstruction,
 } from "@solana/web3.js";
 import { findRegistryPda, findRegistryStatePda } from "./pdas";
-import { RegistryLike, RegistryMemberLike } from "./signing/attestation";
+import {
+  RegistryLike,
+  RegistryMemberLike,
+  registryRecords,
+} from "./signing/attestation";
 
 /** Bytes before a registry's member table: the Anchor discriminator and the header. */
 export const REGISTRY_HEADER_LEN = 32;
 /** One member record: node account, then the signing key's `x` and `y`. */
 export const REGISTRY_MEMBER_LEN = 96;
-/** Width of a signer bitmap, and so the most members a registry holds. */
+/**
+ * Width of a signer bitmap, and so the most records a registry holds: 64 node slots and 192
+ * provider slots.
+ */
 export const MAX_REGISTRY_NODES = 256;
 /** Bytes an account can grow by within one top-level instruction. */
 export const MAX_GROWTH_PER_INSTRUCTION = 10_240;
@@ -22,43 +29,50 @@ export function registrySpace(members: number): number {
 }
 
 /**
- * The members of a registry account, read from its raw data.
+ * The two member tables of a registry account, read from its raw data.
  *
- * A registry is a fixed header followed by one record per member, and the account is exactly as
- * long as its members need. The IDL describes the header only, so the member table is decoded
- * here.
+ * A registry is a fixed header followed by the `nodeCount` node records and then the
+ * `providerCount` provider records, and the account is exactly as long as they need. The IDL
+ * describes the header only, so the tables are decoded here.
  */
 export function decodeRegistryMembers(
   data: Uint8Array,
   nodeCount: number,
-): RegistryMemberLike[] {
+  providerCount = 0,
+): { members: RegistryMemberLike[]; providers: RegistryMemberLike[] } {
   const table = data.length - REGISTRY_HEADER_LEN;
   if (table < 0 || table % REGISTRY_MEMBER_LEN !== 0) {
     throw new Error(
       `registry account is ${data.length} bytes, not a header plus whole member records`,
     );
   }
-  if (nodeCount > table / REGISTRY_MEMBER_LEN) {
+  if (nodeCount + providerCount > table / REGISTRY_MEMBER_LEN) {
     throw new Error(
-      `registry claims ${nodeCount} members but holds ${table / REGISTRY_MEMBER_LEN}`,
+      `registry claims ${nodeCount} node and ${providerCount} provider slots but holds ${table / REGISTRY_MEMBER_LEN} records`,
     );
   }
-  const members: RegistryMemberLike[] = [];
-  for (let index = 0; index < nodeCount; index += 1) {
+  const record = (index: number): RegistryMemberLike => {
     const offset = REGISTRY_HEADER_LEN + index * REGISTRY_MEMBER_LEN;
-    members.push({
+    return {
       node: Uint8Array.from(data.subarray(offset, offset + 32)),
       x: Uint8Array.from(data.subarray(offset + 32, offset + 64)),
       y: Uint8Array.from(data.subarray(offset + 64, offset + 96)),
-    });
-  }
-  return members;
+    };
+  };
+  return {
+    members: Array.from({ length: nodeCount }, (_, i) => record(i)),
+    providers: Array.from({ length: providerCount }, (_, i) =>
+      record(nodeCount + i),
+    ),
+  };
 }
 
-/** A registry snapshot: its decoded header fields, and its members. */
+/** A registry snapshot: its decoded header fields, and its two member tables. */
 export type RegistryAccount = RegistryLike & {
   version: number;
   redundancyBuffer: number;
+  providerCount: number;
+  providers: RegistryMemberLike[];
   [field: string]: unknown;
 };
 
@@ -77,7 +91,13 @@ export async function fetchRegistry(
   }
   return {
     ...header,
-    members: decodeRegistryMembers(info.data, Number(header.nodeCount)),
+    nodeCount: Number(header.nodeCount),
+    providerCount: Number(header.providerCount),
+    ...decodeRegistryMembers(
+      info.data,
+      Number(header.nodeCount),
+      Number(header.providerCount),
+    ),
   };
 }
 
@@ -100,8 +120,9 @@ export function registryExtendsNeeded(
  * The `extend_registry` instructions to put in front of an instruction that publishes the version
  * after `currentVersion` with room for `members` members. Empty for a registry of up to 106.
  *
- * `members` is the largest table the instruction works in: the current count for a rotation, a
- * policy change or a removal, and one more for a registration or a reinstatement.
+ * `members` is the largest table, in records (node and provider slots together), the instruction
+ * works in: the current count for a rotation, a policy change or a removal, one more for a node
+ * registration or a reinstatement, and `providerRegistrationMembers` for a provider registration.
  */
 export async function registryExtendInstructions(
   program: Program,
@@ -114,13 +135,13 @@ export async function registryExtendInstructions(
   const allocated =
     (await program.provider.connection.getAccountInfo(newRegistry))?.data
       .length ?? 0;
-  const count = registryExtendsNeeded(
-    Math.min(members, MAX_REGISTRY_NODES),
-    allocated,
-  );
+  const records = Math.min(members, MAX_REGISTRY_NODES);
+  const count = registryExtendsNeeded(records, allocated);
   if (count === 0) return [];
   const instruction: TransactionInstruction = await (program.methods as any)
-    .extendRegistry()
+    // The record count the publishing instruction needs room for (at least one more than the
+    // current version has).
+    .extendRegistry(records)
     .accountsPartial({
       payer,
       registryState: findRegistryStatePda(programId)[0],
@@ -130,4 +151,17 @@ export async function registryExtendInstructions(
     })
     .instruction();
   return Array.from({ length: count }, () => instruction);
+}
+
+/**
+ * Records the version published by registering a provider into `slot` needs room for: the
+ * current records, plus the provider slots up to and including `slot` that the table does not
+ * have yet (reserved slot 0 too, for the first provider). A freed slot adds none.
+ */
+export function providerRegistrationMembers(
+  registry: RegistryLike,
+  slot: number,
+): number {
+  const providers = Number(registry.providerCount ?? 0);
+  return registryRecords(registry) + Math.max(0, slot + 1 - providers);
 }

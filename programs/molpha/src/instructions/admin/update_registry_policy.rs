@@ -9,10 +9,14 @@ pub fn update_registry_policy(
     ctx: Context<UpdateRegistryPolicy>,
     redundancy_buffer: u8,
 ) -> Result<()> {
-    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
+    let now = Clock::get()?.unix_timestamp;
+    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until(now)?;
     // Membership is unchanged; read before the transition bumps `registry_state.next_version`,
     // which would break exit validation on `new_registry`'s version seed.
-    let node_count = ctx.accounts.current_registry.load()?.node_count;
+    let (node_count, provider_count) = {
+        let current = ctx.accounts.current_registry.load()?;
+        (current.node_count, current.provider_count)
+    };
     ctx.accounts.registry_state.set_redundancy_buffer(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
@@ -20,6 +24,7 @@ pub fn update_registry_policy(
             payer: &ctx.accounts.authority,
             system_program: &ctx.accounts.system_program,
             grace_active_until,
+            now,
             bump: ctx.bumps.new_registry,
         },
         redundancy_buffer,
@@ -27,10 +32,11 @@ pub fn update_registry_policy(
 
     emit!(RegistryUpdated {
         new_version: ctx.accounts.registry_state.current_version,
-        node_count,
+        node_count: u16::from(node_count),
         redundancy_buffer,
         reason: RegistryVersionReason::PolicyChanged,
-        updated_at: Clock::get()?.unix_timestamp,
+        updated_at: now,
+        provider_count: u16::from(provider_count),
     });
     Ok(())
 }
@@ -43,7 +49,7 @@ pub struct UpdateRegistryPolicy<'info> {
     #[account(
         has_one = authority,
         seeds = [ProtocolConfig::SEED_PREFIX],
-        bump
+        bump = protocol_config.bump
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
@@ -57,7 +63,7 @@ pub struct UpdateRegistryPolicy<'info> {
     #[account(
         mut,
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
-        bump,
+        bump = current_registry.load()?.bump,
     )]
     pub current_registry: AccountLoader<'info, Registry>,
 

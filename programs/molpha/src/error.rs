@@ -227,6 +227,30 @@ pub enum MolphaError {
     RegistryNotAllocated,
     #[msg("evidence against a superseded registry version must be filed within max_settlement_delay_seconds of its grace window ending")]
     EvidenceExpired,
+    #[msg("provider ids are exhausted")]
+    ProviderIdExhausted,
+    #[msg("provider is already in the registry")]
+    ProviderAlreadyInRegistry,
+    #[msg("all provider slots are taken")]
+    ProviderSlotsFull,
+    #[msg("provider is not in the registry")]
+    ProviderNotInRegistry,
+    #[msg("p2p key is not a valid ed25519 public key")]
+    InvalidP2pKey,
+    #[msg("provider is not active")]
+    ProviderNotActive,
+    #[msg("provider was removed")]
+    ProviderRemoved,
+    #[msg("a node bitmap may not name a provider bit")]
+    ProviderBitInNodeSet,
+    #[msg("no set provider bit names the required provider")]
+    ProviderAbsent,
+    #[msg("pass exactly one of the node and provider accounts")]
+    ExactlyOneMember,
+    #[msg("the endpoint kind does not match the account being registered")]
+    MemberKindMismatch,
+    #[msg("a node registration needs the owner's USDC account and the node deposit vault")]
+    NodeDepositAccountsMissing,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {
@@ -247,6 +271,7 @@ pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error
         AttestationError::InvalidNodeIndex => error!(MolphaError::InvalidNodeIndex),
         AttestationError::InvalidCoalitionKey => error!(MolphaError::InvalidCoalitionKey),
         AttestationError::RegistryRetired => error!(MolphaError::RegistryNotActive),
+        AttestationError::ProviderAbsent => error!(MolphaError::ProviderAbsent),
     }
 }
 

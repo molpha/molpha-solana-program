@@ -22,17 +22,17 @@ impl Subscription {
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
     pub const SECONDS_PER_MONTH: i64 = 30 * 24 * 60 * 60;
 
-    pub fn init(&mut self, owner: Pubkey, plan: &Plan, now: i64, bump: u8) {
+    pub fn init(&mut self, owner: Pubkey, plan: &Plan, now: i64, bump: u8) -> Result<()> {
         self.owner = owner;
         self.plan_type = plan.plan_type;
         self.valid_until = now
             .checked_add(Self::SECONDS_PER_MONTH)
-            .ok_or(MolphaError::InvalidTimestamp)
-            .unwrap();
+            .ok_or(MolphaError::InvalidTimestamp)?;
         self.max_rounds = plan.max_rounds;
         self.max_delegates = plan.max_delegates;
         self.max_signers = plan.max_signers;
         self.bump = bump;
+        Ok(())
     }
 
     pub fn is_active_at(&self, now: i64) -> bool {
