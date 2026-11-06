@@ -41,7 +41,7 @@ pub fn submit_ticket(
     let now = Clock::get()?.unix_timestamp;
 
     // Cheap window and lottery checks before any signature work.
-    {
+    let min_signers = {
         let epoch = ctx.accounts.epoch_state.load()?;
         require!(epoch.accepts_tickets(now), MolphaError::TicketWindowClosed);
         require!(
@@ -56,7 +56,8 @@ pub fn submit_ticket(
             epoch.is_ticket(&ticket_hash(&attestation)),
             MolphaError::NotATicket
         );
-    }
+        epoch.min_signers
+    };
     require!(
         timestamp_secs
             <= u64::try_from(now)
@@ -67,7 +68,11 @@ pub fn submit_ticket(
 
     // The version must have been live when the round ran, not when the ticket lands: tickets
     // arrive up to an epoch plus grace later.
-    require_registry_active_at(&*ctx.accounts.registry.load()?, timestamp_secs as i64)?;
+    let redundancy_buffer = {
+        let registry = ctx.accounts.registry.load()?;
+        require_registry_active_at(&registry, timestamp_secs as i64)?;
+        registry.redundancy_buffer
+    };
 
     require!(
         verify_ed25519_signature(
@@ -84,9 +89,9 @@ pub fn submit_ticket(
         ctx.remaining_accounts.is_empty(),
         MolphaError::UnexpectedSignerAccounts
     );
-    let min_signers = ctx.accounts.epoch_state.load()?.min_signers;
     verify_attestation_core(
         &ctx.accounts.registry,
+        redundancy_buffer,
         min_signers,
         &attestation,
         &coalition_key,

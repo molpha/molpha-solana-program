@@ -25,7 +25,7 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
         ctx.accounts.node.secp256k1_pubkey_x,
         ctx.accounts.node.secp256k1_pubkey_y,
     );
-    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
+    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until(now)?;
     let index: u32 = ctx.accounts.registry_state.insert_node(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
@@ -33,6 +33,7 @@ pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
             payer: &ctx.accounts.caller,
             system_program: &ctx.accounts.system_program,
             grace_active_until,
+            now,
             bump: ctx.bumps.new_registry,
         },
         node_key,
@@ -75,7 +76,7 @@ pub struct ReinstateNode<'info> {
     #[account(
         mut,
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
-        bump,
+        bump = current_registry.load()?.bump,
     )]
     pub current_registry: AccountLoader<'info, Registry>,
 

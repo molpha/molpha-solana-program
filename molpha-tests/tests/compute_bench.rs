@@ -1,9 +1,12 @@
-//! Reproducible CU matrix for `submit_attestation` and `submit_ticket`.
+//! Reproducible CU matrix for `submit_attestation` and `submit_ticket`, plus one run of each
+//! registry-transition instruction (cold paths).
 //!
 //! This is deliberately a test (rather than an external script): it loads the exact SBF binary
 //! built by this checkout and reports the runtime's `compute_units_consumed` field.
 
 use molpha::instructions::SubmitAttestationArgs;
+use molpha::state::EquivocationEvidence;
+use molpha_tests::crypto;
 use molpha_tests::scenario::{Duty, Protocol};
 use solana_signer::Signer;
 
@@ -163,4 +166,54 @@ fn submit_ticket_cu_matrix() {
             steady.compute_units_consumed,
         );
     }
+}
+
+/// One measurement each of the instructions that publish a registry version, on an 18-node
+/// registry (8 for the equivocation filing, whose two coalitions must overlap).
+#[test]
+fn registry_transition_cu() {
+    let mut protocol = protocol();
+    let authority = protocol.authority.insecure_clone();
+
+    // A 19th node joins.
+    let owner = protocol.env.keypair();
+    protocol.fund_usdc(&owner.pubkey(), protocol.args.minimum_node_deposit * 4);
+    let key = crypto::node_keys("registry-transition-cu", 1).remove(0);
+    let mut salt = [0u8; 32];
+    salt[0] = 0x19;
+    let args = protocol.register_node_args(&owner.pubkey(), &key, salt, 9_019);
+    let ix = protocol.register_node_ix(&owner.pubkey(), &args, &authority.pubkey());
+    let register = protocol.env.send_ok(&[ix], &[&authority, &owner]);
+
+    let next = protocol.current_version() + 1;
+    let ix = protocol.update_registry_policy_ix(&authority.pubkey(), next, 2);
+    let policy = protocol.env.send_ok(&[ix], &[&authority]);
+
+    let node_owner = protocol.nodes[0].owner.insecure_clone();
+    let ix = protocol.deactivate_node_ix(0, &node_owner.pubkey());
+    let deactivate = protocol.env.send_ok(&[ix], &[&node_owner]);
+
+    let mut small = Protocol::start();
+    small.register_nodes("registry-transition-cu-slash", 8);
+    let reporter = small.reporter();
+    let duty = Duty::new(8, 4);
+    let selection = small.selection_bits(&duty);
+    let a = small.sign_duty_with_bits(duty.value([0x01; 32]), &selection[0..4], None);
+    let b = small.sign_duty_with_bits(duty.value([0x02; 32]), &selection[2..6], None);
+    let evidence = EquivocationEvidence {
+        attestation_a: a.attestation(),
+        attestation_b: b.attestation(),
+        coalition_key_a: a.coalition_key,
+        coalition_key_b: b.coalition_key,
+    };
+    let ix = small.slash_equivocation_ix(&reporter.pubkey(), evidence);
+    let slash = small.env.send_ok(&[ix], &[&reporter]);
+
+    println!(
+        "CU_REGISTRY register_node={} update_registry_policy={} deactivate_node={} slash_equivocation={}",
+        register.compute_units_consumed,
+        policy.compute_units_consumed,
+        deactivate.compute_units_consumed,
+        slash.compute_units_consumed,
+    );
 }

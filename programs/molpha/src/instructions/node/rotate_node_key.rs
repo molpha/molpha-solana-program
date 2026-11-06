@@ -62,7 +62,7 @@ pub fn rotate_node_key(ctx: Context<RotateNodeKey>, proof: KeyRotationProof) -> 
         .key_x_claim
         .init(member_key, ctx.bumps.key_x_claim);
 
-    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
+    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until(now)?;
     let index = ctx.accounts.registry_state.replace_node_key(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
@@ -70,6 +70,7 @@ pub fn rotate_node_key(ctx: Context<RotateNodeKey>, proof: KeyRotationProof) -> 
             payer: &ctx.accounts.node_owner,
             system_program: &ctx.accounts.system_program,
             grace_active_until,
+            now,
             bump: ctx.bumps.new_registry,
         },
         member_key,
@@ -133,7 +134,7 @@ pub struct RotateNodeKey<'info> {
     #[account(
         mut,
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
-        bump,
+        bump = current_registry.load()?.bump,
     )]
     pub current_registry: AccountLoader<'info, Registry>,
 

@@ -59,9 +59,17 @@ fn export_provider_account_bytes() {
     // The invariants the decoders rely on: three node records, then the provider table (slot 0
     // reserved, then A and B).
     assert_eq!((registry_with_both[28], registry_with_both[29]), (3, 3));
-    assert_eq!(registry_with_both.len(), 32 + 96 * 6, "three nodes and three provider slots");
+    assert_eq!(
+        registry_with_both.len(),
+        32 + 96 * 6,
+        "three nodes and three provider slots"
+    );
     assert_eq!(u32_at(&state, 8), version_with_c, "current_version");
-    assert_eq!(u32_at(&state, 17), 4, "next_provider_id after three registrations");
+    assert_eq!(
+        u32_at(&state, 17),
+        4,
+        "next_provider_id after three registrations"
+    );
     let slot_a = p.providers[a].slot.unwrap();
     let slot_b = p.providers[b].slot.unwrap();
     assert_eq!((slot_a, slot_b), (1, 2));
@@ -69,7 +77,11 @@ fn export_provider_account_bytes() {
     assert!(registry_with_both[at_b..at_b + 32] == *p.providers[b].pda.as_ref());
     // B held the last provider slot, so ejecting it trims the provider table to A's slot.
     assert_eq!((registry_after[28], registry_after[29]), (3, 2));
-    assert_eq!(registry_after.len(), 32 + 96 * 5, "the trailing hole is trimmed");
+    assert_eq!(
+        registry_after.len(),
+        32 + 96 * 5,
+        "the trailing hole is trimmed"
+    );
     // C takes the lowest free provider slot, the one B left.
     assert_eq!(p.providers[c].slot, Some(2));
     assert!(registry_with_c[at_b..at_b + 32] == *p.providers[c].pda.as_ref());
@@ -141,6 +153,9 @@ MOLPHA_WRITE_FIXTURES=1 cargo test -p molpha-tests --test suite provider_account
         node_json.join(",\n"),
         provider_json.join(",\n"),
     );
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/provider_accounts.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/provider_accounts.json"
+    );
     std::fs::write(path, json).unwrap();
 }

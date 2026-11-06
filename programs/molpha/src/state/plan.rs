@@ -51,7 +51,6 @@ impl Plan {
         self.bump = bump;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn update(&mut self, config: &PlanConfig) {
         self.subscription_price = config.subscription_price;
         self.max_signers = config.max_signers;
@@ -59,6 +58,5 @@ impl Plan {
         self.max_rounds = config.max_rounds;
         self.private_api_enabled = config.private_api_enabled;
         self.is_active = config.is_active;
-        self.max_rounds = config.max_rounds;
     }
 }

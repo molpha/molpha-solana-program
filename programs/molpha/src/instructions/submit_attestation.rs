@@ -51,7 +51,11 @@ pub fn submit_attestation(
 
     let clock = Clock::get()?;
 
-    require_registry_active_at(&*ctx.accounts.registry.load()?, clock.unix_timestamp)?;
+    let redundancy_buffer = {
+        let registry = ctx.accounts.registry.load()?;
+        require_registry_active_at(&registry, clock.unix_timestamp)?;
+        registry.redundancy_buffer
+    };
     require_fresh_timestamp(
         // `timestamp` is unix milliseconds; the clock bounds are seconds.
         attestation.payload.timestamp_secs(),
@@ -72,6 +76,7 @@ pub fn submit_attestation(
     );
     verify_attestation_core(
         &ctx.accounts.registry,
+        redundancy_buffer,
         ctx.accounts.protocol_config.min_signers,
         &attestation,
         &coalition_key,

@@ -67,7 +67,7 @@ pub struct ExtendRegistry<'info> {
 
     #[account(
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
-        bump,
+        bump = current_registry.load()?.bump,
     )]
     pub current_registry: AccountLoader<'info, Registry>,
 

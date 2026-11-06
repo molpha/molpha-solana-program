@@ -19,15 +19,14 @@ pub(crate) fn require_registry_active_at(registry: &Registry, at: i64) -> Result
 /// `signatures_required - 1` nodes plus the provider). The redundancy bound counts node bits only,
 /// against the round's node quorum. Signer keys come from the registry snapshot the attestation
 /// names, so no signer accounts are passed. Callers add their own time and registry-liveness
-/// checks.
+/// checks, and pass the snapshot's `redundancy_buffer` from the header they already read.
 pub(crate) fn verify_attestation_core<'info>(
     registry_acc: &AccountLoader<'info, Registry>,
+    redundancy_buffer: u8,
     min_signers: u8,
     attestation: &Attestation,
     coalition_key: &CoalitionKey,
 ) -> Result<()> {
-    let redundancy_buffer = registry_acc.load()?.redundancy_buffer;
-
     require!(
         attestation.payload.signatures_required >= min_signers,
         MolphaError::SignaturesBelowMinSigners

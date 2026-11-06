@@ -80,10 +80,10 @@ impl PunishmentBatch {
 /// later offence could collide with, and no way for a node to become temporarily unpunishable.
 pub(crate) fn slash_guilty_nodes<'info>(
     input: &SlashInput<'info, '_>,
+    clock: &Clock,
     withdrawal_cooldown_slots: u64,
 ) -> Result<PunishmentBatch> {
     let mut batch = PunishmentBatch::default();
-    let clock = Clock::get()?;
     let kind = input.offence.kind();
 
     // Guilty sets are nodes only: a provider has no deposit to slash and no `Node` account.

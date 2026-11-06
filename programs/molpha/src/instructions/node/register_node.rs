@@ -125,7 +125,7 @@ fn register_node_member(
     let node_key = node.key();
     accounts.key_x_claim.init(node_key, ctx.bumps.key_x_claim);
 
-    let grace_active_until = accounts.protocol_config.get_grace_active_until();
+    let grace_active_until = accounts.protocol_config.get_grace_active_until(now)?;
     let index = accounts.registry_state.insert_node(
         &RegistryTransition {
             current: &accounts.current_registry,
@@ -133,6 +133,7 @@ fn register_node_member(
             payer: &accounts.node_owner,
             system_program: &accounts.system_program,
             grace_active_until,
+            now,
             bump: ctx.bumps.new_registry,
         },
         node_key,
@@ -168,7 +169,7 @@ fn register_provider_member(
         .key_x_claim
         .init(provider_key, ctx.bumps.key_x_claim);
 
-    let grace_active_until = accounts.protocol_config.get_grace_active_until();
+    let grace_active_until = accounts.protocol_config.get_grace_active_until(now)?;
     let slot = accounts.registry_state.insert_provider(
         &RegistryTransition {
             current: &accounts.current_registry,
@@ -176,6 +177,7 @@ fn register_provider_member(
             payer: &accounts.node_owner,
             system_program: &accounts.system_program,
             grace_active_until,
+            now,
             bump: ctx.bumps.new_registry,
         },
         provider_key,
@@ -234,7 +236,7 @@ pub struct RegisterNode<'info> {
     #[account(
         mut,
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
-        bump,
+        bump = current_registry.load()?.bump,
     )]
     pub current_registry: AccountLoader<'info, Registry>,
 

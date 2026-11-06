@@ -124,10 +124,12 @@ impl ProtocolConfig {
         Ok(())
     }
 
-    pub fn get_grace_active_until(&self) -> i64 {
-        let now = Clock::get().unwrap().unix_timestamp;
-        now.checked_add(self.max_settlement_delay_seconds as i64)
-            .unwrap()
+    /// When a registry version superseded at `now` stops being active.
+    pub fn get_grace_active_until(&self, now: i64) -> Result<i64> {
+        i64::try_from(self.max_settlement_delay_seconds)
+            .ok()
+            .and_then(|delay| now.checked_add(delay))
+            .ok_or_else(|| error!(MolphaError::InvalidMaxReceiptDelay))
     }
 
     /// Treasury funds already owed: claimable rewards, uncredited pools and the protocol share.

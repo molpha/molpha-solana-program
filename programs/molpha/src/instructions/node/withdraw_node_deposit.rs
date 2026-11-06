@@ -15,10 +15,7 @@ use crate::{
 pub fn withdraw_node_deposit(ctx: Context<WithdrawNodeDeposit>) -> Result<()> {
     let node = &mut ctx.accounts.node;
     let amount = node.locked_amount;
-    require!(
-        amount > 0 && amount <= node.locked_amount,
-        MolphaError::NothingToWithdraw
-    );
+    require!(amount > 0, MolphaError::NothingToWithdraw);
     require!(
         node.status == NodeStatus::Deactivated || node.status == NodeStatus::Tombstoned,
         MolphaError::InvalidWithdrawalState

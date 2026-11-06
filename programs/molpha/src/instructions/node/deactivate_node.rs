@@ -37,7 +37,11 @@ fn deactivate_node_member(ctx: Context<DeactivateNode>, node_owner: Pubkey) -> R
     );
     let node_key = node.key();
 
-    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
+    let clock = Clock::get()?;
+    let grace_active_until = ctx
+        .accounts
+        .protocol_config
+        .get_grace_active_until(clock.unix_timestamp)?;
     ctx.accounts.registry_state.remove_node(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
@@ -45,13 +49,13 @@ fn deactivate_node_member(ctx: Context<DeactivateNode>, node_owner: Pubkey) -> R
             payer: &ctx.accounts.authority,
             system_program: &ctx.accounts.system_program,
             grace_active_until,
+            now: clock.unix_timestamp,
             bump: ctx.bumps.new_registry,
         },
         node_key,
     )?;
 
     let cooldown = ctx.accounts.protocol_config.withdrawal_cooldown_slots;
-    let clock = Clock::get()?;
     let node = ctx.accounts.node.as_mut().unwrap();
     node.status = NodeStatus::Deactivated;
     node.withdrawable_slot = clock.slot.saturating_add(cooldown);
@@ -75,7 +79,7 @@ fn eject_provider_member(ctx: Context<DeactivateNode>) -> Result<()> {
         MolphaError::ProviderRemoved
     );
 
-    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until();
+    let grace_active_until = ctx.accounts.protocol_config.get_grace_active_until(now)?;
     ctx.accounts.registry_state.remove_provider(
         &RegistryTransition {
             current: &ctx.accounts.current_registry,
@@ -83,6 +87,7 @@ fn eject_provider_member(ctx: Context<DeactivateNode>) -> Result<()> {
             payer: &ctx.accounts.authority,
             system_program: &ctx.accounts.system_program,
             grace_active_until,
+            now,
             bump: ctx.bumps.new_registry,
         },
         provider_key,
@@ -133,7 +138,7 @@ pub struct DeactivateNode<'info> {
     #[account(
         mut,
         seeds = [Registry::SEED_PREFIX, registry_state.current_version.to_le_bytes().as_ref()],
-        bump,
+        bump = current_registry.load()?.bump,
     )]
     pub current_registry: AccountLoader<'info, Registry>,
 

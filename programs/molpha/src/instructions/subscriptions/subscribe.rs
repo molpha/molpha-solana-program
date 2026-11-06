@@ -25,7 +25,7 @@ pub fn subscribe(ctx: Context<Subscribe>, plan_type: PlanType) -> Result<()> {
 
     ctx.accounts
         .subscription
-        .init(ctx.accounts.owner.key(), plan, now, ctx.bumps.subscription);
+        .init(ctx.accounts.owner.key(), plan, now, ctx.bumps.subscription)?;
 
     emit!(Subscribed {
         owner: ctx.accounts.owner.key(),

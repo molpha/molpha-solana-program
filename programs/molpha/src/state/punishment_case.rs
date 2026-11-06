@@ -30,6 +30,7 @@ impl PunishmentCase {
     pub fn init(
         &mut self,
         offence: &Offence,
+        evidence_hash: [u8; 32],
         reporter: Pubkey,
         guilty_bitmap: [u8; 32],
         guilty_count: u16,
@@ -45,7 +46,7 @@ impl PunishmentCase {
         self.guilty_count = guilty_count;
         self.slashed_total = slashed_total;
         self.bounty_paid = bounty_paid;
-        self.evidence_hash = offence.evidence_hash();
+        self.evidence_hash = evidence_hash;
         self.executed_slot = executed_slot;
         self.bump = bump;
     }

@@ -27,6 +27,8 @@ pub struct RegistryTransition<'a, 'info> {
     pub payer: &'a AccountInfo<'info>,
     pub system_program: &'a AccountInfo<'info>,
     pub grace_active_until: i64,
+    /// Cluster time of the transition: the next version's `active_from`.
+    pub now: i64,
     pub bump: u8,
 }
 
@@ -85,7 +87,7 @@ impl RegistryState {
                 previous,
                 previous_members,
                 transition.grace_active_until,
-                Clock::get()?.unix_timestamp,
+                transition.now,
                 transition.bump,
             )?;
             let result = apply(&mut builder)?;
