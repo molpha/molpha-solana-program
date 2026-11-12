@@ -6,7 +6,7 @@
 
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::solana_program::instruction::Instruction;
-use anchor_lang::{InstructionData, ToAccountMetas};
+use anchor_lang::{Discriminator, InstructionData, ToAccountMetas};
 use litesvm::types::TransactionMetadata;
 use molpha::instructions::{
     AddDelegateArgs, InitializeArgs, MemberEndpoint, RegisterGatewayArgs, RegisterNodeArgs,
@@ -26,9 +26,6 @@ use solana_signer::Signer;
 use crate::crypto::{self, AggregateSignature, NodeKey};
 use crate::env::TestEnv;
 use crate::pda;
-
-/// Upper bound when scanning for epoch accounts; tests never create more.
-pub const MAX_EPOCH_SCAN: u64 = 64;
 
 /// `register_node` args for `key` held by `owner`, with the node proof of possession over the
 /// node id. A node and a provider prove possession the same way.
@@ -507,9 +504,20 @@ impl Protocol {
 
     /// Epoch accounts that exist (created and not yet closed), ascending.
     pub fn live_epochs(&self) -> Vec<u64> {
-        (0..MAX_EPOCH_SCAN)
-            .filter(|epoch| self.env.account_exists(&pda::epoch(*epoch)))
-            .collect()
+        let mut epochs: Vec<_> = self
+            .env
+            .svm
+            .get_program_accounts(&molpha::ID)
+            .into_iter()
+            .filter(|(_, account)| {
+                account.lamports > 0
+                    && account.data.len() == EpochState::SPACE
+                    && account.data.starts_with(EpochState::DISCRIMINATOR)
+            })
+            .map(|(_, account)| u64::from_le_bytes(account.data[8..16].try_into().unwrap()))
+            .collect();
+        epochs.sort_unstable();
+        epochs
     }
 
     /// Assert the custody invariants the treasury separation exists to guarantee.
@@ -517,31 +525,72 @@ impl Protocol {
     /// Cheap enough to call at the end of any test that moves money, and the fastest way to
     /// notice a payout path that broke principal custody, reward accounting or pool accounting.
     pub fn assert_solvent(&self) {
+        // Enumerate the VM, not the fixture's actor list: raw instruction builders can create
+        // nodes without adding a RegisteredNode, and long campaigns pass epoch 64.
+        let nodes: Vec<molpha::state::Node> = self
+            .env
+            .svm
+            .get_program_accounts(&molpha::ID)
+            .into_iter()
+            .filter(|(_, account)| {
+                account.lamports > 0
+                    && account.data.len() == molpha::state::Node::SPACE
+                    && account.data.starts_with(molpha::state::Node::DISCRIMINATOR)
+            })
+            .map(|(key, _)| self.env.get(&key))
+            .collect();
+        let locked: u128 = nodes
+            .iter()
+            .map(|node| u128::from(node.locked_amount))
+            .sum();
         assert!(
-            self.node_deposit_balance() >= self.total_locked_deposits(),
+            u128::from(self.node_deposit_balance()) >= locked,
             "deposit vault {} cannot cover the {} it holds for nodes",
             self.node_deposit_balance(),
-            self.total_locked_deposits()
+            locked
         );
 
-        let owed_rewards: u64 = self
-            .node_pdas()
+        let owed_rewards: u128 = nodes
             .iter()
-            .map(|node| self.env.get::<molpha::state::Node>(node).claimable_rewards)
+            .map(|node| u128::from(node.claimable_rewards))
             .sum();
         assert_eq!(
-            self.reward_liability(),
+            u128::from(self.reward_liability()),
             owed_rewards,
             "reward_liability is not the sum of every claimable_rewards"
         );
         let config = self.config();
-        let live_pools: u64 = self
+        let live_pools: u128 = self
             .live_epochs()
             .into_iter()
-            .map(|epoch| self.env.epoch(epoch).residual())
+            .map(|epoch| {
+                let state = self.env.epoch(epoch);
+                assert!(
+                    state.paid <= state.pool,
+                    "epoch {epoch} paid more than its pool"
+                );
+                let len = usize::from(state.roster_len);
+                assert!(len <= molpha::state::MAX_REGISTRY_NODES, "roster overflow");
+                let selected: u32 = state.selected[..len].iter().map(|n| u32::from(*n)).sum();
+                let signed: u32 = state.signed[..len].iter().map(|n| u32::from(*n)).sum();
+                assert_eq!(selected, state.sum_selected, "epoch {epoch} selection sum");
+                assert_eq!(signed, state.sum_signed, "epoch {epoch} signature sum");
+                for slot in 0..len {
+                    assert!(
+                        state.signed[slot] <= state.selected[slot],
+                        "signed without selection"
+                    );
+                    assert!(
+                        u32::from(state.selected[slot]) <= state.tickets,
+                        "duplicate selection"
+                    );
+                }
+                u128::from(state.pool - state.paid)
+            })
             .sum();
         assert_eq!(
-            config.pool_liability, live_pools,
+            u128::from(config.pool_liability),
+            live_pools,
             "pool_liability is not the sum of every live epoch's pool - paid"
         );
         let committed = config.committed().expect("committed fits u64");
