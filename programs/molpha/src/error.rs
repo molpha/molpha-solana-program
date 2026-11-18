@@ -251,6 +251,8 @@ pub enum MolphaError {
     MemberKindMismatch,
     #[msg("a node registration needs the owner's USDC account and the node deposit vault")]
     NodeDepositAccountsMissing,
+    #[msg("the account at an inconclusive link's address is not a link for this source ID")]
+    InvalidInconclusiveLink,
 }
 
 pub(crate) fn map_attestation_err(error: AttestationError) -> anchor_lang::error::Error {

@@ -7,8 +7,9 @@ use crate::{
     error::{map_attestation_err, MolphaError},
     events::{TicketRosterOverflow, TicketSubmitted},
     state::{
-        dispatch_message, ticket_hash, ticket_id, EpochState, Gateway, GatewayStatus,
-        ProtocolConfig, Registry, RegistryRef, TicketMarker, MAX_TICKETS_PER_EPOCH,
+        dispatch_message, selection_source_id, ticket_hash, ticket_id, EpochState, Gateway,
+        GatewayStatus, InconclusiveLink, ProtocolConfig, Registry, RegistryRef, TicketMarker,
+        MAX_TICKETS_PER_EPOCH,
     },
     utils::{
         attestation::{require_registry_active_at, verify_attestation_core},
@@ -101,8 +102,11 @@ pub fn submit_ticket(
     // A provider round is drawn by its node quorum (`signatures_required - 1`), not the wire
     // threshold: the two draws are not nested.
     let all_signers = Bitmap::load(&attestation.signature.signers_bitmap);
+    // An INCONCLUSIVE attestation (signed under I(S)) was signed by S's committee: draw it under S
+    // when the link exists.
+    let selection_id = selection_source_id(&ctx.accounts.inconclusive_link, &payload.source_id)?;
     let selection = attestation_selection(
-        &payload.source_id,
+        &selection_id,
         timestamp,
         payload.signatures_required,
         &all_signers,
@@ -194,4 +198,9 @@ pub struct SubmitTicket<'info> {
     pub instructions_sysvar: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
+
+    /// CHECK: the `InconclusiveLink` address of the attestation's source ID, passed whether or not a link
+    /// exists there (an empty address means none), so a submitter cannot hide one.
+    #[account(seeds = [InconclusiveLink::SEED_PREFIX, attestation.payload.source_id.as_ref()], bump)]
+    pub inconclusive_link: UncheckedAccount<'info>,
 }

@@ -6,8 +6,8 @@
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::solana_program::bpf_loader_upgradeable;
 use molpha::state::{
-    Delegate, EpochState, Feed, Gateway, KeyXClaim, Node, Plan, PlanType, ProtocolConfig, Provider,
-    PunishmentCase, Registry, RegistryState, Subscription, TicketMarker,
+    Delegate, EpochState, Feed, Gateway, InconclusiveLink, KeyXClaim, Node, Plan, PlanType,
+    ProtocolConfig, Provider, PunishmentCase, Registry, RegistryState, Subscription, TicketMarker,
 };
 
 pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey =
@@ -90,6 +90,11 @@ pub fn epoch(epoch: u64) -> Pubkey {
 /// Marker for a submitted ticket, keyed by round identity (`molpha::state::ticket_id`).
 pub fn ticket_marker(ticket_id: &[u8; 32]) -> Pubkey {
     pda(&[TicketMarker::SEED_PREFIX, ticket_id.as_ref()])
+}
+
+/// The `InconclusiveLink` address of `inconclusive_id`: where the link `I(S) -> S` lives.
+pub fn inconclusive_link(inconclusive_id: &[u8; 32]) -> Pubkey {
+    pda(&[InconclusiveLink::SEED_PREFIX, inconclusive_id.as_ref()])
 }
 
 pub fn punishment_case(evidence_hash: &[u8; 32]) -> Pubkey {

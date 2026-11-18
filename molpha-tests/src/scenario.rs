@@ -990,10 +990,48 @@ impl Protocol {
     // -----------------------------------------------------------------------
 
     /// The deterministic selection set for `duty` against the registry it names.
+    /// The source ID `source_id`'s committee is drawn under, as the program draws it: `S` when
+    /// `source_id` is an `I(S)` whose `InconclusiveLink` exists, `source_id` otherwise.
+    pub fn selection_source_id(&self, source_id: &[u8; 32]) -> [u8; 32] {
+        let key = pda::inconclusive_link(source_id);
+        if self.env.account_exists(&key) {
+            self.env
+                .get::<molpha::state::InconclusiveLink>(&key)
+                .source_id
+        } else {
+            *source_id
+        }
+    }
+
+    /// `register_inconclusive_id`: link `I(source_id)` to `source_id`.
+    pub fn register_inconclusive_id_ix(&self, payer: &Pubkey, source_id: [u8; 32]) -> Instruction {
+        let link_id = molpha::state::inconclusive_id(&source_id);
+        self.register_inconclusive_id_raw_ix(payer, source_id, link_id)
+    }
+
+    /// `register_inconclusive_id` with a caller-chosen `link_id`, for a pair that does not derive.
+    pub fn register_inconclusive_id_raw_ix(
+        &self,
+        payer: &Pubkey,
+        source_id: [u8; 32],
+        link_id: [u8; 32],
+    ) -> Instruction {
+        Instruction {
+            program_id: molpha::ID,
+            accounts: molpha::accounts::RegisterInconclusiveId {
+                payer: *payer,
+                inconclusive_link: pda::inconclusive_link(&link_id),
+                system_program: anchor_lang::solana_program::system_program::ID,
+            }
+            .to_account_metas(None),
+            data: molpha::instruction::RegisterInconclusiveId { source_id, link_id }.data(),
+        }
+    }
+
     pub fn selection_bits(&self, duty: &Duty) -> Vec<usize> {
         let registry = self.env.registry(duty.registry_version);
         let bitmap = molpha_verifier::derive_selection_bitmap(
-            &duty.source_id,
+            &self.selection_source_id(&duty.source_id),
             duty.timestamp,
             duty.signatures_required,
             &registry.selection_view(),
@@ -1008,7 +1046,7 @@ impl Protocol {
     pub fn provider_selection_bits(&self, duty: &Duty) -> Vec<usize> {
         let registry = self.env.registry(duty.registry_version);
         let bitmap = molpha_verifier::derive_selection_bitmap(
-            &duty.source_id,
+            &self.selection_source_id(&duty.source_id),
             duty.timestamp,
             duty.signatures_required - 1,
             &registry.selection_view(),
@@ -1367,6 +1405,12 @@ impl Protocol {
             self.node_pdas_for_bitmap(offence.registry_version(), &bitmap),
         ));
         accounts.extend(crate::env::readonly_metas(inactivity_epoch));
+        // Unsolicited signing ends with the InconclusiveLink address of the attestation's source ID.
+        if let Offence::UnsolicitedSigning(e) = &offence {
+            accounts.extend(crate::env::readonly_metas(Some(pda::inconclusive_link(
+                &e.attestation.payload.source_id,
+            ))));
+        }
         Instruction {
             program_id: molpha::ID,
             accounts,
@@ -1495,7 +1539,7 @@ pub fn unsolicited_guilty_bitmap(p: &Protocol, attestation: &Attestation) -> [u8
     let registry = p.env.registry(payload.registry_version);
     let signers = molpha_verifier::Bitmap::load(&attestation.signature.signers_bitmap);
     let selection = molpha_verifier::attestation_selection(
-        &payload.source_id,
+        &p.selection_source_id(&payload.source_id),
         payload.timestamp,
         payload.signatures_required,
         &signers,
@@ -1706,6 +1750,7 @@ impl Protocol {
             ticket_marker: pda::ticket_marker(&molpha::state::ticket_id(payload)),
             instructions_sysvar: pda::INSTRUCTIONS_SYSVAR_ID,
             system_program: anchor_lang::solana_program::system_program::ID,
+            inconclusive_link: pda::inconclusive_link(&payload.source_id),
         }
         .to_account_metas(None);
         Instruction {

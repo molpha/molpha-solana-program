@@ -88,7 +88,8 @@ pub trait Evidence {
     /// Verify the evidence and return the guilty registry positions, in the evidence registry.
     ///
     /// `ctx.remaining` then carries the guilty `Node` accounts in ascending bit order, followed
-    /// by any accounts the offence needs to prove itself (see [`InactivityEvidence`]).
+    /// by any accounts the offence needs to prove itself (see [`InactivityEvidence`], and
+    /// [`UnsolicitedSigningEvidence`], whose last account is its `InconclusiveLink` address).
     fn validate(&self, ctx: &EvidenceAccounts<'_, '_>) -> Result<Bitmap>;
     fn hash(&self) -> [u8; 32];
     fn registry_version(&self) -> u32;

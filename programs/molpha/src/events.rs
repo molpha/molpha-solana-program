@@ -363,3 +363,12 @@ pub struct ProviderP2pKeyUpdated {
     pub old_p2p_key: [u8; 32],
     pub new_p2p_key: [u8; 32],
 }
+
+/// `I(source_id)` was linked to `source_id`: INCONCLUSIVE attestations signed under it draw their
+/// committee under `source_id`.
+#[event]
+pub struct InconclusiveIdRegistered {
+    pub source_id: [u8; 32],
+    pub inconclusive_id: [u8; 32],
+    pub payer: Pubkey,
+}

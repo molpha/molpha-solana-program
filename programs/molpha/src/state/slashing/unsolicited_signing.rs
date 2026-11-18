@@ -4,7 +4,9 @@ use solana_keccak_hasher::hashv;
 use molpha_verifier::{attestation_selection, Attestation, Bitmap, CoalitionKey};
 
 use crate::error::{map_attestation_err, MolphaError};
-use crate::state::{Evidence, EvidenceAccounts, RegistryRef};
+use crate::state::{
+    selection_source_id, Evidence, EvidenceAccounts, InconclusiveLink, RegistryRef,
+};
 use crate::utils::slash::{attestation_hash, verify_evidence_signature};
 
 pub const DOMAIN_UNSOLICITED_SIGNING: &[u8] = b"MOLPHA_UNSOLICITED_SIGNING_V1";
@@ -28,8 +30,23 @@ impl Evidence for UnsolicitedSigningEvidence {
         let signers_bitmap = all_signers.node_bits();
         let registry_account = ctx.evidence_registry.to_account_info();
         let registry = RegistryRef::load(&registry_account)?;
+        // The committee as the round drew it: under S for an INCONCLUSIVE attestation whose link
+        // exists, so S's honest committee is never read as unsolicited for signing I(S). The link's
+        // address is the last remaining account, after the guilty nodes, and it is required: a filing
+        // that leaves it out cannot have S's committee drawn under I(S).
+        let link = ctx
+            .remaining
+            .last()
+            .ok_or(error!(MolphaError::InvalidInconclusiveLink))?;
+        let source_id = &attestation.payload.source_id;
+        let (expected, _) = Pubkey::find_program_address(
+            &[InconclusiveLink::SEED_PREFIX, source_id.as_ref()],
+            &crate::ID,
+        );
+        require_keys_eq!(link.key(), expected, MolphaError::InvalidInconclusiveLink);
+        let selection_id = selection_source_id(link, source_id)?;
         let selection = attestation_selection(
-            &attestation.payload.source_id,
+            &selection_id,
             attestation.payload.timestamp,
             attestation.payload.signatures_required,
             &all_signers,

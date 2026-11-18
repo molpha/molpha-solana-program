@@ -16,6 +16,7 @@ mod epochs;
 mod evm_compatibility;
 mod gateway;
 mod hashing;
+mod inconclusive_link;
 mod limits;
 mod node_registry;
 mod penalties;

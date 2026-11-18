@@ -158,6 +158,14 @@ pub mod molpha {
         instructions::slash_offence(ctx, offence)
     }
 
+    pub fn register_inconclusive_id(
+        ctx: Context<RegisterInconclusiveId>,
+        source_id: [u8; 32],
+        link_id: [u8; 32],
+    ) -> Result<()> {
+        instructions::register_inconclusive_id(ctx, source_id, link_id)
+    }
+
     pub fn reinstate_node(ctx: Context<ReinstateNode>) -> Result<()> {
         instructions::reinstate_node(ctx)
     }
